@@ -1,0 +1,254 @@
+metadata:
+  title: Document assembly wizard
+  short title: Wizard
+---
+modules:
+  - docassemble.webapp.playground
+  - docassemble.base.util
+  - docassemble.base.logger
+  - .assembly_line
+---
+objects:
+  - interview: DAInterview
+  - main_code: DAQuestion
+  - metadata: DAQuestion
+  - modules: DAQuestion
+  - attachments: DAAttachmentList
+  - fields: DAFieldList
+  - questions: DAQuestionList.using(complete_attribute='fields')
+---
+mandatory: True
+id: Interview Order
+code: |
+  template_upload
+  debug
+  choose_field_types
+  questions.gather()
+  
+  debug_questions
+  
+  set_metadata
+  get_vars
+  created_package
+---
+question: |
+  Please upload a PDF template
+fields:
+  - File: template_upload
+    datatype: file
+---
+code: |
+  all_fields = template_upload.get_pdf_fields()
+  the_fields = [field[0] for field in all_fields]
+  fields.auto_gather = False
+  for field in the_fields:
+    new_field = fields.appendObject()
+    new_field.variable = field
+  fields.gathered = True
+---
+field: debug
+question: |
+  Debug
+subquestion: |
+  ${all_fields}
+  
+  ${fields}
+---
+field: debug_questions
+question: |
+  Question status
+subquestion: |
+  ### A heading
+  % for question in questions:
+  * ${question.question} - ${[field.variable for field in question.fields]}
+  % endfor
+---
+code: |
+  current_project = "default"
+  attachments.clear()
+  templates = PlaygroundSection('template', project=current_project)
+  # if templates_already_uploaded:
+  #   chosen_templates = [file for file in template_choices if template_choices[file] is True]
+  # else:
+  chosen_templates = []
+  for the_file in template_uploads:
+    new_template = templates.copy_from(the_file.path(), the_file.filename)
+    chosen_templates.append(new_template)
+
+  # outside else
+  for template_filename in chosen_templates:
+    if templates.is_pdf(template_filename):
+      attachment = attachments.appendObject()
+      attachment.type = 'pdf'
+      attachment.pdf_filename = template_filename
+      attachment.fields = templates.get_fields(template_filename)
+    elif templates.is_fillable_docx(template_filename):
+      attachment = attachments.appendObject()
+      attachment.type = 'docx'
+      attachment.docx_filename = template_filename
+    else:
+      if templates.is_markdown(template_filename):
+        markdown_filename = template_filename
+      else:
+        markdown_filename = templates.convert_file_to_md(template_filename)
+      if markdown_filename is None:
+        raise Exception("The file provided was not a type that could be processed.")
+      attachment = attachments.appendObject()
+      attachment.type = 'md'
+      base_file = varname(base_name(markdown_filename))
+      attachment.content = '${ ' + base_file + ' }'
+      attachment.markdown_filename = markdown_filename
+      new_template = interview.questions.initializeObject(base_file)
+      new_template.type = 'template'
+      new_template.interview = interview
+      new_template.field_list.appendObject()
+      new_template.field_list[0].variable = base_file
+      new_template.field_list[0].field_type = 'template'
+      new_template.field_list[0].question = new_template
+      new_template.template_file = markdown_filename
+  attachments.gathered = True
+---
+code: |
+  metadata.type = 'metadata'
+  metadata.interview = interview
+  metadata.file_name = interview.file_name
+  metadata.title = interview.title
+  metadata.short_title = interview.short_title
+  interview.blocks.append(metadata)
+  set_metadata = True
+---
+code: |
+  # interview.demonstrate()
+  need(attachments.gathered)
+  try:
+    varsinuse = Playground().variables_from(interview.source())
+  except:
+    problem_with_attachment
+  end_question = interview.questions.initializeObject('all_done')
+  end_question.type = 'question'
+  end_question.is_mandatory = True
+  end_question.interview = interview
+  end_question.attachments = attachments
+  end_question.field_list.appendObject()
+  end_question.field_list[0].field_type = 'end_attachment'
+  end_question.field_list[0].variable = 'all_done'
+  end_question.field_list[0].question = end_question
+  get_vars = True
+---
+code: |
+  # interview.demonstrate()
+  ok = False
+  while not ok:
+    ok = True
+    varsinuse = Playground().variables_from(interview.source())
+    for var in sorted(varsinuse['undefined_names']):
+      if var not in interview.questions:
+        new_question = interview.questions.initializeObject(var)
+        new_question.interview = interview
+        new_question.field_list.appendObject()
+        new_question.field_list[0].variable = var
+        new_question.field_list[0].question = new_question
+        ok = False
+  pg = Playground()
+  yaml_file = interview.yaml_file_name()
+  pg.write_file(yaml_file, interview.source())
+  interview_url = pg.interview_url(yaml_file)
+  package_name = to_package_name(interview.file_name)
+  pg.write_package(package_name, interview.package_info())
+  zip_url = url_of('create_playground_package', package=package_name, project=current_project)
+  created_package = True
+---
+comment: |
+  Let's show a list of all of the fields
+  For each field, we want to let someone group the fields
+  into a question.
+
+  We also want to let someone choose:
+  * variable type
+---
+code: |
+  field_types = ['yesno','text','area']  
+  field_data_types = ['text','integer','number','currency','date','email']
+
+  temp_field_question = []
+  for index, field in enumerate(fields):
+    variable_name_guess = field.variable.replace('_',' ').capitalize()
+    if field.variable.endswith('_date'):
+      field_type_guess = 'text'
+      field_data_type_guess = 'date'
+      variable_name_guess = 'Date of ' + field.variable[:-5].replace('_',' ')
+    elif field.variable.endswith('_yes') or field.variable.endswith('_no'):
+      field_type_guess = 'yesno'
+      field_data_type_guess = None
+      variable_name_guess = field.variable[:-3].replace('_',' ').capitalize() if field.variable.endswith('_no') else field.variable[:-4].replace('_',' ').capitalize()
+    else:
+      field_type_guess = 'text'
+      field_data_type_guess = 'text'
+      
+    temp_field_question.append({
+      'note': '**' + field.variable + '**'
+    })
+    temp_field_question.append({
+      'label': "What should the label be for `" + field.variable + "`?",
+      'field': 'fields[' + str(index) + '].label',
+      'default': variable_name_guess
+    })
+    temp_field_question.append({
+      'label': "What type of input is `" + field.variable + "`?",
+      'field': 'fields[' + str(index) + '].field_type',
+      'choices': field_types,
+      'default': field_type_guess
+    })
+    temp_field_question.append({
+      'label': "What datatype is `" + field.variable + "`?",
+      'field': 'fields[' + str(index) + '].field_data_type',
+      'choices': field_data_types,
+      'default': field_data_type_guess,
+      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
+    })
+
+  field_question = temp_field_question
+---
+continue button field: choose_field_types
+question: |
+  Label the fields
+subquestion: |
+  Below is a list of the field names in this PDF.
+  
+  For each field, please enter in a descriptive label (this shows to the user),
+  as well as selecting the type of information the field will hold.
+  
+  * `yesno` is a checkbox
+  * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
+  * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
+  
+  We have tried to guess the type of field from the name of the variable.
+fields:
+  - code: field_question
+---
+code: |
+  fields_still_unassigned = fields
+---
+code: |
+  questions.there_are_any = True
+---
+code: |
+  questions.there_is_another = len(fields_still_unassigned) > 0
+---
+question: |
+  Create a draft of the ${ordinal(i)} question
+subquestion: |
+  Remember, this is a draft you can edit later. It does not need to be perfect.
+  You can accept the default if you're not sure yet.
+fields:
+  - What should the title of this question be? : questions[i].question
+    default: Screen ${nice_number(i+1)}
+  - Select the fields that will appear on this screen: questions[i].fields
+    datatype: object_checkboxes 
+    choices: fields_still_unassigned
+    object labeler: |
+      lambda y: y.variable + ' (' + y.label + ')'
+validation code: |
+  for field in questions[i].fields:
+    fields_still_unassigned.remove(field)
+    
