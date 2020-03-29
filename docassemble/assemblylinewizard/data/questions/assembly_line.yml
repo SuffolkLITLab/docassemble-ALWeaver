@@ -207,7 +207,7 @@ code: |
       new_field.field_data_type_guess = None
       new_field.variable_name_guess = new_field.variable[:-3].replace('_',' ').capitalize() if new_field.variable.endswith('_no') else new_field.variable[:-4].replace('_',' ').capitalize()
     elif field[4] == '/Btn':
-      new_field.type_guess = 'yesno'
+      new_field.field_type_guess = 'yesno'
       new_field.field_data_type_guess = None
       new_field.variable_name_guess = variable_name_guess
     elif field[4] == '/Sig':
