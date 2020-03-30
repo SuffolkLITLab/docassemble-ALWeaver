@@ -13,6 +13,7 @@ objects:
   - metadata: DAQuestion
   - modules: DAQuestion
   - attachments: DAAttachmentList
+  - built_in_fields_used: DAFieldList
   - fields: DAFieldList
   - signature_fields: DAFieldList
   - questions: DAQuestionList.using(complete_attribute='question_text')
@@ -141,6 +142,9 @@ fields:
   - File: template_upload
     datatype: file
 ---
+code: |
+  short_filename_with_spaces = template_upload[0].filename[:-4].replace('_',' ').capitalize()
+---
 question: |
   Information about this interview
 subquestion: |
@@ -150,12 +154,51 @@ subquestion: |
   uses this form without a lawyer. Remember, we can change it later.
 fields:
   - Title: interview.title
-    default: ${template_upload[0].filename[:-4].replace('_',' ').capitalize()}
+    default: ${short_filename_with_spaces}
   - Short name: interview.short_title
-    default: ${template_upload[0].filename[:-4].replace('_',' ').capitalize()}
+    default: ${short_filename_with_spaces}
   - Description: interview.description
     datatype: area
-    default: ${template_upload[0].filename[:-4].replace('_',' ').capitalize()}
+    default: ${short_filename_with_spaces}
+  - Allowed courts: interview.allowed_courts
+    datatype: checkboxes
+    choices:
+      - Boston Municipal Court
+      - District Court
+      - Superior Court
+      - Housing Court
+      - Probate and Family Court
+      - Juvenile Court
+      - Land Court
+  - Preferred court: interview.preferred_court
+    choices:
+      - Boston Municipal Court
+      - District Court
+      - Superior Court
+      - Housing Court
+      - Probate and Family Court
+      - Juvenile Court
+      - Land Court  
+  - Categories: interview.categories
+    datatype: checkboxes
+    choices:
+      - Housing
+      - Family Law
+      - Domestic Violence / Safety of self
+      - Health and Mental Health
+      - Safety of others
+      - Guardianship
+      - Consumer and Debt
+      - Employment / Unemployment
+      - Immigration
+      - Income and benefits
+      - Education
+      - Rights of incarcerated/formerly incarcerated
+      - Other
+  - Other categories (separate with a comma): interview.other_categories
+    datatype: area
+    rows: 2
+    show if: interview.categories['Other']
   - Interview file name: interview.file_name
     default: ${template_upload[0].filename[:-4]}
   - Link to original form: interview.original_form
@@ -172,23 +215,24 @@ code: |
   the_fields = [field[0] for field in all_fields]
   fields.auto_gather = False
   signature_fields.auto_gather = False
+  # Determine the correct list to put this field in
   for field in all_fields:
     # Skip the built-in variable names that we'll have pre-written questions for
     if field[0] in built_in_variables:
-      continue
-    if field[0].startswith('user') or field[0].startswith('child'):
+      new_field = built_in_fields_used.appendObject()
+    elif field[0].startswith('user') or field[0].startswith('child'):
       skip = False
       for ending in endings:
         if field[0].endswith(ending):
           skip = True
       if skip:
-        continue
+        new_field = built_in_fields_used.appendObject()
 
     # Check if it's a signature field. If so, we need a signature question
     # We'll handle those in a later version of this interview
     # For this special interview, we only expect 3 possible fields that we'll
     # provide in advance.
-    if field[4] == '/Sig':
+    elif field[4] == '/Sig':
       new_field = signature_fields.appendObject()
     else:
       new_field = fields.appendObject()
@@ -217,8 +261,12 @@ code: |
       new_field.field_type_guess = 'text'
       new_field.field_data_type_guess = 'text'
       new_field.variable_name_guess = variable_name_guess
+  built_in_fields_used.gathered = True
   signature_fields.gathered = True
   fields.gathered = True
+---
+code: |
+  interview.field_list = fields
 ---
 field: debug
 question: |
@@ -247,6 +295,10 @@ code: |
   metadata.short_title = interview.short_title
   metadata.description = interview.description
   metadata.original_form = interview.original_form
+  metadata.allowed_courts = interview.allowed_courts
+  metadata.preferred_court = interview.preferred_court
+  metadata.categories = interview.categories
+  metadata.other_categories = interview.other_categories if defined('interview.other_categories') else None
   interview.blocks.append(metadata)
   set_metadata = True
 ---
@@ -302,7 +354,9 @@ fields:
   - code: field_question
 ---
 code: |
-  fields_still_unassigned = fields
+  import copy
+  
+  fields_still_unassigned = [field for field in fields]
 ---
 code: |
   questions.there_are_any = True
@@ -337,8 +391,15 @@ code: |
   fields[i].has_label = True
 ---
 code: |
+  interview.questions.initializeObject('field_list',DAQuestion)
+  interview.questions['field_list'].type = 'variables'
+  interview.questions['field_list'].field_list = built_in_fields_used + interview.field_list + signature_fields
+  add_variable_list = True
+---
+code: |
   for question in questions:
     interview.questions[question.question_text] = question
+  add_variable_list  
   add_questions_to_interview = True
 ---
 event: show_interview
