@@ -140,11 +140,11 @@ class DAField(DAObject):
     def init(self, **kwargs):
         return super().init(**kwargs)
 
-class DAFieldList(DAList):
+class DAFieldList(DAList):  
     def init(self, **kwargs):
         self.object_type = DAField
         self.auto_gather = False
-        self.gathered = True
+        # self.gathered = True
         return super().init(**kwargs)
     def __str__(self):
         return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
@@ -267,10 +267,25 @@ class DAQuestion(DAObject):
             content += "  short title: " + oneline(self.short_title) + "\n"
             content += "  description: " + oneline(self.description) + "\n"
             content += "  original_form: " + oneline(self.original_form) + "\n"
+            content += "  allowed courts: " + "\n"
+            for court in self.allowed_courts.true_values():
+              content += "    - " + oneline(court) + "\n"
+            content += "  preferred court: " + oneline(self.preferred_court) + "\n"
+            content += "  categories: " + "\n"
+            for category in self.categories.true_values():
+              content += "    - " + oneline(category) + "\n"
+            if self.categories['Other']:
+              for category in self.other_categories.split(','):
+                content += "    - " + oneline(category) + "\n"
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
                 content += " - " + str(module) + "\n"
+        elif self.type == 'variables':
+          content += "variable name: " + 'field_list' + "\n"
+          content += "data:" + "\n"
+          for field in self.field_list:
+            content += "  - " + varname(field.variable) + "\n"             
         # elif self.type == 'images':
         #     content += "images:\n"
         #     for key, value in self.interview.decorations.items():
