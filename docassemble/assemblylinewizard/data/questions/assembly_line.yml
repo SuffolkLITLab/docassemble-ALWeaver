@@ -241,7 +241,7 @@ code: |
     else:
       new_field = fields.appendObject()
       
-    new_field.variable = field[0]
+    new_field.variable = varname(field[0])
     new_field.has_label = True
 
     # Let's guess the type of each field from the name / info from PDF
@@ -458,11 +458,16 @@ code: |
   attachments.gathered = True
 ---
 code: |
+  attachment_variable_name = varname(template_upload[0].filename[:-4]) + '_attachment'
+---
+code: |
   end_question = interview.questions.initializeObject('all_done')
   end_question.type = 'question'
   end_question.question_text = 'Placeholder download screen'
   end_question.subquestion_text = 'Placeholder'
   end_question.is_mandatory = True
+  # We added this feature -- a variable to reference the attachment with
+  end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview
   end_question.attachments = attachments
   end_question.field_list.appendObject()
