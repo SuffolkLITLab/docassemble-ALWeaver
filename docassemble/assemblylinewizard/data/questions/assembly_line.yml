@@ -136,6 +136,7 @@ code: |
   add_questions_to_interview
   # get_vars
   # created_package
+  created_attachment  
   wrote_interview
   show_interview
 ---
@@ -422,8 +423,8 @@ code: |
   for question in questions:
     if question.type == 'question':
       # Add the first field in every question to our logic tree
-      # This can be customized to control the order of questions later
-      if question.has_mandatory_field:
+      # This can be customized to control the order of questions later      
+      if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
         logic_list.append(varname(question.field_list[0].variable))
       else:
         logic_list.append(varname(question.question_text))
@@ -446,3 +447,28 @@ code: |
   interview_download.initialize(filename = metadata.file_name + '.yml')
   interview_download.write(interview.source())
   wrote_interview = True
+---
+code: |
+  attachment = attachments.appendObject()
+  attachment.type = 'pdf'
+  attachment.pdf_filename = template_upload[0].filename
+  # attachment.fields = [field.variable for field in built_in_fields_used + fields + signature_fields]
+  attachment.fields = all_fields # the raw info from the PDF TODO: improve
+  attachment.name = metadata.short_title
+  attachments.gathered = True
+---
+code: |
+  end_question = interview.questions.initializeObject('all_done')
+  end_question.type = 'question'
+  end_question.question_text = 'Placeholder download screen'
+  end_question.subquestion_text = 'Placeholder'
+  end_question.is_mandatory = True
+  end_question.interview = interview
+  end_question.attachments = attachments
+  end_question.field_list.appendObject()
+  end_question.field_list[0].field_type = 'end_attachment'
+  end_question.field_list[0].variable = 'all_done'
+  end_question.field_list[0].question = end_question
+  end_question.field_list.gathered = True
+  
+  created_attachment = True
