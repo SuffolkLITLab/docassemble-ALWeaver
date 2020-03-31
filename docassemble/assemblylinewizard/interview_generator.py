@@ -184,9 +184,19 @@ class DAQuestion(DAObject):
             if self.field_list[0].field_type == 'end_attachment':
                 content += "buttons:\n  - Exit: exit\n  - Restart: restart\n"
                 if self.attachments.gathered and len(self.attachments):
-                    content += "attachments:\n"
-                    for attachment in self.attachments:
-                        content += "  - name: " + oneline(attachment.name) + "\n"
+                    content += "attachment code: " + self.attachment_variable_name + "\n"
+                    # TODO / FUTURE we could let this handle multiple forms at once
+                    # content =+ "---\n"
+                    # content += "code: |\n"
+                    # for attachment in self.attachments:
+                    # Put in some code to give each attachment its own variable name
+                    for attachment in self.attachments: # We will only have ONE attachment
+                        # TODO: if we really use multiple attachments, we need to change this
+                        # So there is a unique variabl name
+                        content += "---\n"
+                        content += "attachment:\n"
+                        content += "    variable name: " + self.attachment_variable_name + "\n"
+                        content += "    name: " + oneline(attachment.name) + "\n"
                         content += "    filename: " + varname(attachment.name) + "\n"
                         if attachment.type == 'md':
                             content += "    content: " + oneline(attachment.content) + "\n"
@@ -195,7 +205,10 @@ class DAQuestion(DAObject):
                             self.templates_used.add(attachment.pdf_filename)
                             content += "    fields: " + "\n"
                             for field, default, pageno, rect, field_type in attachment.fields:
-                                content += '      "' + field + '": ${ ' + varname(field).lower() + " }\n"
+                                ###################################
+                                # List of predefined variable names
+                                ###################################
+                                content += '      "' + field + '": ${ ' + varname(field) + " }\n"
                         elif attachment.type == 'docx':
                             content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
                             self.templates_used.add(attachment.docx_filename)
@@ -577,3 +590,14 @@ def directory_for(area, current_project):
 
 def project_name(name):
     return '' if name == 'default' else name
+
+
+def map_variable_to_predefined(variable):
+  lookups = [
+    ('(user|other_party)(_name_first)','\1.name.first'),
+    ('(user|other_party)(_name_middle)','\1.name.middle'),
+    ('(user|other_party)(_name_last)','\1.name.last'),
+    ('(user|other_party)(_name_suffix)','\1.name.suffix'),
+    ('(user|other_party)(_name_first)','\1.name.first'),
+    ('(user|other_party)(_gender)','\1.gender'),
+  ]
