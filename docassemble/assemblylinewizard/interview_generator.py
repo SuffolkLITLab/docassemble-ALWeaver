@@ -169,7 +169,7 @@ class DAQuestion(DAObject):
             content += "mandatory: True\n"
         if self.type == 'question':
             done_with_content = False
-            if not self.has_mandatory_field:
+            if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
