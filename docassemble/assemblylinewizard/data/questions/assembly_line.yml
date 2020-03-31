@@ -17,6 +17,7 @@ objects:
   - fields: DAFieldList
   - signature_fields: DAFieldList
   - questions: DAQuestionList.using(complete_attribute='question_text')
+  - interview_download: DAFile
 ---
 variable name: built_in_variables
 data:
@@ -131,9 +132,11 @@ code: |
   questions.gather()
   #debug_questions  
   set_metadata
+  add_logic_tree    
   add_questions_to_interview
   # get_vars
   # created_package
+  wrote_interview
   show_interview
 ---
 question: |
@@ -178,7 +181,8 @@ fields:
       - Housing Court
       - Probate and Family Court
       - Juvenile Court
-      - Land Court  
+      - Land Court
+      - Any court (no preferred court)
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -186,7 +190,6 @@ fields:
       - Family Law
       - Domestic Violence / Safety of self
       - Health and Mental Health
-      - Safety of others
       - Guardianship
       - Consumer and Debt
       - Employment / Unemployment
@@ -375,6 +378,13 @@ fields:
   - What is the text that appears under the title? : questions[i].subquestion_text
     default: Placeholder text
     input type: area
+  - Is at least one question on this screen required?: questions[i].has_mandatory_field
+    datatype: yesnoradio
+    default: True
+    help: |
+      Select "No" only if all of the fields will be optional. For example,
+      you might ask an optional "Tell us more" question that the user
+      can leave empty if they don't have anything to say for that question.
   - Select the fields that will appear on this screen: questions[i].field_list
     datatype: object_checkboxes 
     choices: fields_still_unassigned
@@ -393,17 +403,46 @@ code: |
 code: |
   interview.questions.initializeObject('field_list',DAQuestion)
   interview.questions['field_list'].type = 'variables'
-  interview.questions['field_list'].field_list = built_in_fields_used + interview.field_list + signature_fields
+  interview.questions['field_list'].field_list = interview.field_list + signature_fields
+  interview.questions.initializeObject('built_in_fields_used', DAQuestion)
+  interview.questions['built_in_fields_used'].type = "variables"
+  interview.questions['built_in_fields_used'].field_list = built_in_fields_used
   add_variable_list = True
 ---
 code: |
   for question in questions:
     interview.questions[question.question_text] = question
-  add_variable_list  
+    question.type = "question"
+  add_variable_list
   add_questions_to_interview = True
+---
+code: |
+  # Build the mandatory code block that will control question flow
+  logic_list = []
+  for question in questions:
+    if question.type == 'question':
+      # Add the first field in every question to our logic tree
+      # This can be customized to control the order of questions later
+      if question.has_mandatory_field:
+        logic_list.append(varname(question.field_list[0].variable))
+      else:
+        logic_list.append(varname(question.question_text))
+  interview.questions.initializeObject('main code block')
+  interview.questions['main code block'].type = 'interview order'
+  interview.questions['main code block'].logic_list = logic_list
+  interview.questions['main code block'].ending_variable = metadata.file_name
+  add_logic_tree = True  
 ---
 event: show_interview
 question: |
   Interview contents
 subquestion: |
+  [:download: Download](${interview_download.url_for()})
+
   ${indent_by(interview.source(),4)}
+  
+---
+code: |
+  interview_download.initialize(filename = metadata.file_name + '.yml')
+  interview_download.write(interview.source())
+  wrote_interview = True

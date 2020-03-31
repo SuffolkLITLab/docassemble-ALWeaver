@@ -169,15 +169,8 @@ class DAQuestion(DAObject):
             content += "mandatory: True\n"
         if self.type == 'question':
             done_with_content = False
-            # if follow_additional_fields and len(self.other_variables()):
-            #     vars_in_question = [field.variable for field in self.field_list]
-            #     for addl_field in sorted(self.additional_fields.keys()):
-            #         if self.additional_fields[addl_field]:
-            #             if addl_field not in vars_in_question:
-            #                 new_field = self.field_list.appendObject()
-            #                 new_field.variable = addl_field
-            #                 new_field.question = self
-            #                 self.interview.questions[addl_field] = self
+            if not self.has_mandatory_field:
+              content += "continue button field: " + varname(self.question_text) + "\n"
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
@@ -249,6 +242,12 @@ class DAQuestion(DAObject):
                 content += "under: |\n" + indent_by(self.under_text, 2)
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
+        elif self.type == 'interview order':
+            content += "code: |\n"
+            content += "  # This is a placeholder to control logic flow in this interview" + "\n"
+            for field in self.logic_list:
+              content += "  " + field + "\n"
+            content += "  " + self.ending_variable + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
@@ -282,10 +281,14 @@ class DAQuestion(DAObject):
             for module in self.modules:
                 content += " - " + str(module) + "\n"
         elif self.type == 'variables':
-          content += "variable name: " + 'field_list' + "\n"
+          content += "variable name: " + str(self).partition(' ')[0]  + "\n" # 'field_list' + "\n"
           content += "data:" + "\n"
           for field in self.field_list:
-            content += "  - " + varname(field.variable) + "\n"             
+            content += "  - variable: " + varname(field.variable) + "\n"
+            if hasattr(field, 'field_type'):
+              content += "    " + "field_type: " + field.field_type + "\n"             
+            if hasattr(field, 'field_data_type'):
+              content += "    " + "field_data_type: " + field.field_data_type + "\n"
         # elif self.type == 'images':
         #     content += "images:\n"
         #     for key, value in self.interview.decorations.items():
