@@ -453,7 +453,8 @@ code: |
   attachment.type = 'pdf'
   attachment.pdf_filename = template_upload[0].filename
   # attachment.fields = [field.variable for field in built_in_fields_used + fields + signature_fields]
-  attachment.fields = all_fields # the raw info from the PDF TODO: improve
+  # attachment.fields = all_fields # the raw info from the PDF TODO: improve
+  attachment.fields = built_in_fields_used + fields + signature_fields
   attachment.name = metadata.short_title
   attachments.gathered = True
 ---
