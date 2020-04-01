@@ -135,11 +135,12 @@ code: |
   template_upload
   fields.gathered
   interview.title
+  set_metadata  
+  add_includes  
   # debug
   choose_field_types
   questions.gather()
   #debug_questions  
-  set_metadata
   add_logic_tree    
   add_questions_to_interview
   # get_vars
@@ -279,6 +280,12 @@ code: |
 ---
 code: |
   interview.field_list = fields
+---
+code: |
+  include_question = interview.questions.initializeObject('includes')
+  include_question.type = 'includes'
+  include_question.includes = ['basic-questions.yml']
+  add_includes = True
 ---
 field: debug
 question: |

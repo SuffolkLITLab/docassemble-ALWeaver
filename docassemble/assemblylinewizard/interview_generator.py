@@ -207,15 +207,15 @@ class DAQuestion(DAObject):
                             # for field, default, pageno, rect, field_type in attachment.fields:
                             # Switching to using a DAField, rather than a raw PDF field
                             for field in attachment.fields:
-                                # TODO: convert the variable names to the agreed on standard
-                                # content += '      "' + field + '": ${ ' + varname(field) + " }\n"
+                                # Lets use the list-style, not dictionary style fields statement
+                                # To avoid duplicate key error
                                 if hasattr(field, 'field_data_type') and field.field_data_type == 'date':
-                                  content += '      "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
+                                  content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
                                 elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
-                                  content += '      "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
+                                  content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
                                 else:
                                   # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
-                                  content += '      "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
+                                  content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
                         elif attachment.type == 'docx':
                             content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
                             self.templates_used.add(attachment.docx_filename)
@@ -309,6 +309,11 @@ class DAQuestion(DAObject):
               content += "    " + "field_type: " + field.field_type + "\n"             
             if hasattr(field, 'field_data_type'):
               content += "    " + "field_data_type: " + field.field_data_type + "\n"
+        elif self.type == 'includes':
+          content += "includes:\n"
+          for include in self.includes:
+            content += "  - " + include + "\n"
+
         # elif self.type == 'images':
         #     content += "images:\n"
         #     for key, value in self.interview.decorations.items():
