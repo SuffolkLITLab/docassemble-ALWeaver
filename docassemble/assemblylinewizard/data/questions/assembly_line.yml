@@ -96,6 +96,9 @@ data:
   - other_party_address_block 
   - other_party_email
   - other_party_phone
+  - user_signature
+  - user2_signature
+  - witness_signature
 ---
 variable name: endings
 data:
@@ -431,7 +434,7 @@ code: |
   interview.questions.initializeObject('main code block')
   interview.questions['main code block'].type = 'interview order'
   interview.questions['main code block'].logic_list = logic_list
-  interview.questions['main code block'].ending_variable = metadata.file_name
+  interview.questions['main code block'].ending_variable = varname(metadata.file_name) if varname(metadata.file_name) else 'ending_variable'
   add_logic_tree = True  
 ---
 event: show_interview

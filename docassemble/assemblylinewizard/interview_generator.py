@@ -617,7 +617,8 @@ def map_names(var_name):
     r"(user|user\d+|other_party|other_party\d+)_address_state": r"\1.address.state",
     r"(user|user\d+|other_party|other_party\d+)_address_zip": r"\1.address.zip",
     r"(user|user\d+|other_party|other_party\d+)_address_on_one_line": r"\1.address.on_one_line()",
-    r"(user|user\d+|other_party|other_party\d+)_address_city_state_zip": r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"
+    r"(user|user\d+|other_party|other_party\d+)_address_city_state_zip": r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_signature": r"\1.signature"
   }
 
   beginning_map = {
