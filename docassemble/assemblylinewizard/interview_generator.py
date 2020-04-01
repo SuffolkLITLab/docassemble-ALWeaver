@@ -192,7 +192,7 @@ class DAQuestion(DAObject):
                     # Put in some code to give each attachment its own variable name
                     for attachment in self.attachments: # We will only have ONE attachment
                         # TODO: if we really use multiple attachments, we need to change this
-                        # So there is a unique variabl name
+                        # So there is a unique variable name
                         content += "---\n"
                         content += "attachment:\n"
                         content += "    variable name: " + self.attachment_variable_name + "\n"
@@ -204,11 +204,18 @@ class DAQuestion(DAObject):
                             content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
                             self.templates_used.add(attachment.pdf_filename)
                             content += "    fields: " + "\n"
-                            for field, default, pageno, rect, field_type in attachment.fields:
-                                ###################################
-                                # List of predefined variable names
-                                ###################################
-                                content += '      "' + field + '": ${ ' + varname(field) + " }\n"
+                            # for field, default, pageno, rect, field_type in attachment.fields:
+                            # Switching to using a DAField, rather than a raw PDF field
+                            for field in attachment.fields:
+                                # TODO: convert the variable names to the agreed on standard
+                                # content += '      "' + field + '": ${ ' + varname(field) + " }\n"
+                                if hasattr(field, 'field_data_type') and field.field_data_type == 'date':
+                                  content += '      "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
+                                elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
+                                  content += '      "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
+                                else:
+                                  # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
+                                  content += '      "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
                         elif attachment.type == 'docx':
                             content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
                             self.templates_used.add(attachment.docx_filename)
@@ -591,13 +598,74 @@ def directory_for(area, current_project):
 def project_name(name):
     return '' if name == 'default' else name
 
+def map_names(var_name):
+  ending_map = {
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_first": r"\1.name.first",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_middle": r"\1.name.middle",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_last": r"\1.name.last",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_suffix": r"\1.name.suffix",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_full": r"\1",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_gender": r"\1.gender",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_birthdate": r"\1.birthdate.format()",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_age": r"\1.age_in_years()",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_email": r"\1.email",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_phone": r"\1.phone_number",
+    r"(user|user\d+|other_party|other_party\d+|child\d+)_address_block": r"\1.address.block()",
+    r"(user|user\d+|other_party|other_party\d+)_address_street": r"\1.address.address",
+    r"(user|user\d+|other_party|other_party\d+)_address_street2": r"\1.address.unit",
+    r"(user|user\d+|other_party|other_party\d+)_address_city": r"\1.address.city",
+    r"(user|user\d+|other_party|other_party\d+)_address_state": r"\1.address.state",
+    r"(user|user\d+|other_party|other_party\d+)_address_zip": r"\1.address.zip",
+    r"(user|user\d+|other_party|other_party\d+)_address_on_one_line": r"\1.address.on_one_line()",
+    r"(user|user\d+|other_party|other_party\d+)_address_city_state_zip": r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"
+  }
 
-def map_variable_to_predefined(variable):
-  lookups = [
-    ('(user|other_party)(_name_first)','\1.name.first'),
-    ('(user|other_party)(_name_middle)','\1.name.middle'),
-    ('(user|other_party)(_name_last)','\1.name.last'),
-    ('(user|other_party)(_name_suffix)','\1.name.suffix'),
-    ('(user|other_party)(_name_first)','\1.name.first'),
-    ('(user|other_party)(_gender)','\1.gender'),
-  ]
+  beginning_map = {
+    r"(user)(\d+)(.*)": r"\1s[\2-1]\3",
+    r"(other_party)(\d+)(.*)": r"other_parties[\2-1]\3",
+    r"(other_party)(.*)": r"other_parties[0]\2",
+    r"(user)(.*)": r"\1s[0]\2",
+    r"(child)(\d+)(.*)": r"child[\2-1]\3"
+  }
+
+  for rule in ending_map:
+    new_name = re.sub(rule, ending_map[rule],var_name)
+    if new_name != var_name:
+      for rule in beginning_map:
+        newer_name = re.sub(rule, beginning_map[rule],new_name)
+        if new_name != newer_name:
+          return newer_name
+      return new_name
+  
+  return var_name
+
+def process_variable_name ( var_name ):
+
+    # Split the variable name string into constituent parts
+    # part 1, which will either be user or other_party
+    # part 2, which will be name, gender or birthdate, but translates directly
+    # part 3, which will be first, middle, last, suffix, but translates directly
+    # if part 2 is age, change to age_in_years()
+    # part 1 goes plural and has a [0] 
+    #change to [1] is a second step
+    # userN_, other_partyN_, childN_, court_, docekt_number, 
+    # plaintiff, defendant, petitioner, respondent
+    # witness_signature, signature_date
+    if not "_" in var_name:
+      return var_name
+    step1 = var_name[1:-1].split(sep=')(')
+    step2 = step1[1].split(sep='_')
+    part1 = step1[0]
+    part2 = step2[1]
+    if part1 == 'other_party':
+        part1 = 'other_parties'
+    elif part1 == 'user':
+        part1 = 'users'
+    part1 = part1+'[0]'
+    if part2 == 'age':
+        part2 = 'age_in_years()'
+    if len(step2) == 3:
+        part3 = step2[2]
+        return '{0}.{1}.{2}'.format(part1, part2, part3)
+    else:
+        return '{0}.{1}'.format(part1, part2)
