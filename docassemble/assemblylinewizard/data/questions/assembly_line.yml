@@ -99,6 +99,11 @@ data:
   - user_signature
   - user2_signature
   - witness_signature
+  - docket_number
+  - court_name
+  - court_county 
+  - court_division 
+  - court_name_short
 ---
 variable name: endings
 data:
