@@ -598,75 +598,55 @@ def directory_for(area, current_project):
 def project_name(name):
     return '' if name == 'default' else name
 
-def map_names(var_name):
-  ending_map = {
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_first": r"\1.name.first",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_middle": r"\1.name.middle",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_last": r"\1.name.last",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_suffix": r"\1.name.suffix",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_name_full": r"\1",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_gender": r"\1.gender",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_birthdate": r"\1.birthdate.format()",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_age": r"\1.age_in_years()",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_email": r"\1.email",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_phone": r"\1.phone_number",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_address_block": r"\1.address.block()",
-    r"(user|user\d+|other_party|other_party\d+)_address_street": r"\1.address.address",
-    r"(user|user\d+|other_party|other_party\d+)_address_street2": r"\1.address.unit",
-    r"(user|user\d+|other_party|other_party\d+)_address_city": r"\1.address.city",
-    r"(user|user\d+|other_party|other_party\d+)_address_state": r"\1.address.state",
-    r"(user|user\d+|other_party|other_party\d+)_address_zip": r"\1.address.zip",
-    r"(user|user\d+|other_party|other_party\d+)_address_on_one_line": r"\1.address.on_one_line()",
-    r"(user|user\d+|other_party|other_party\d+)_address_city_state_zip": r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip",
-    r"(user|user\d+|other_party|other_party\d+|child\d+)_signature": r"\1.signature"
-  }
 
-  beginning_map = {
-    r"(user)(\d+)(.*)": r"\1s[\2-1]\3",
-    r"(other_party)(\d+)(.*)": r"other_parties[\2-1]\3",
-    r"(other_party)(.*)": r"other_parties[0]\2",
-    r"(user)(.*)": r"\1s[0]\2",
-    r"(child)(\d+)(.*)": r"child[\2-1]\3"
-  }
+import re
+
+def map_names(var_name):
+  """Transform a PDF field name into a standardized object name, for a given set of specific cases in 
+  our interview generator."""
+  ending_map = [
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_first$", r"\1.name.first"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_middle$", r"\1.name.middle"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_last$", r"\1.name.last"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_suffix$", r"\1.name.suffix"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_full$", r"\1"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_gender$", r"\1.gender"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_birthdate$", r"\1.birthdate.format()"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_age$", r"\1.age_in_years()"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_email$", r"\1.email"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_phone$", r"\1.phone_number"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_address_block$", r"\1.address.block()"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_street$", r"\1.address.address"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_street2$", r"\1.address.unit"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_city$", r"\1.address.city"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_state$", r"\1.address.state"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_zip$", r"\1.address.zip"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_on_one_line$", r"\1.address.on_one_line()"),
+    (r"^(user|user\d+|other_party|other_party\d+)_address_city_state_zip$", r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"),
+    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_signature$", r"\1.signature")
+  ]
+
+  beginning_map = [
+    (r"^(user)(\d+)(.*)$", r"\1s[\2-1]\3"),
+    (r"^(other_party)(\d+)(.*)$", r"other_parties[\2-1]\3"),
+    (r"^(other_party)(.*)$", r"other_parties[0]\2"),
+    (r"^(user)(.*)$", r"\1s[0]\2"),
+    (r"^(child)(\d+)(.*)$", r"child[\2-1]\3")
+  ]
 
   for rule in ending_map:
-    new_name = re.sub(rule, ending_map[rule],var_name)
-    if new_name != var_name:
+    name_ending_fixed = re.sub(rule[0], rule[1],var_name)
+    if name_ending_fixed != var_name:
       for rule in beginning_map:
-        newer_name = re.sub(rule, beginning_map[rule],new_name)
-        if new_name != newer_name:
-          return newer_name
-      return new_name
+        name_beginning_fixed = re.sub(rule[0], rule[1],name_ending_fixed)
+        if name_ending_fixed != name_beginning_fixed:
+          return name_beginning_fixed
+      return name_ending_fixed
   
   return var_name
 
-def process_variable_name ( var_name ):
-
-    # Split the variable name string into constituent parts
-    # part 1, which will either be user or other_party
-    # part 2, which will be name, gender or birthdate, but translates directly
-    # part 3, which will be first, middle, last, suffix, but translates directly
-    # if part 2 is age, change to age_in_years()
-    # part 1 goes plural and has a [0] 
-    #change to [1] is a second step
-    # userN_, other_partyN_, childN_, court_, docekt_number, 
-    # plaintiff, defendant, petitioner, respondent
-    # witness_signature, signature_date
-    if not "_" in var_name:
-      return var_name
-    step1 = var_name[1:-1].split(sep=')(')
-    step2 = step1[1].split(sep='_')
-    part1 = step1[0]
-    part2 = step2[1]
-    if part1 == 'other_party':
-        part1 = 'other_parties'
-    elif part1 == 'user':
-        part1 = 'users'
-    part1 = part1+'[0]'
-    if part2 == 'age':
-        part2 = 'age_in_years()'
-    if len(step2) == 3:
-        part3 = step2[2]
-        return '{0}.{1}.{2}'.format(part1, part2, part3)
-    else:
-        return '{0}.{1}'.format(part1, part2)
+# tests = ["my_user_name_last","user_name_first","user25_name_last","other_party_name_full", 'other_party37_address_zip','user_address_street2','user_address_street2_zip','user_address2_zip']
+# tests = ["user_name_first","user25_name_last","other_party_name_full" ]
+# if __name__ == 'main':
+#   for test in tests:
+#     print(map_names(test))
