@@ -229,8 +229,14 @@ code: |
   fields.auto_gather = False
   signature_fields.auto_gather = False
   # Determine the correct list to put this field in
+  
+  fields_processed = set()
+  
   for field in all_fields:
     # Skip the built-in variable names that we'll have pre-written questions for
+    if field[0] in fields_processed:
+      continue # Go to the next run of the loop if we already did this variable
+    
     if field[0] in built_in_variables:
       new_field = built_in_fields_used.appendObject()
     elif field[0].startswith('user') or field[0].startswith('child'):
@@ -240,7 +246,8 @@ code: |
           skip = True
       if skip:
         new_field = built_in_fields_used.appendObject()
-
+      else:
+        new_field = fields.appendObject()
     # Check if it's a signature field. If so, we need a signature question
     # We'll handle those in a later version of this interview
     # For this special interview, we only expect 3 possible fields that we'll
@@ -274,6 +281,7 @@ code: |
       new_field.field_type_guess = 'text'
       new_field.field_data_type_guess = 'text'
       new_field.variable_name_guess = variable_name_guess
+    fields_processed.add(field[0])
   built_in_fields_used.gathered = True
   signature_fields.gathered = True
   fields.gathered = True
