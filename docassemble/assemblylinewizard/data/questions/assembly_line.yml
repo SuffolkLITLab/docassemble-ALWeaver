@@ -19,6 +19,20 @@ objects:
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
 ---
+variable name: variables_to_skip
+data:
+  - signature_date
+  - plaintiff
+  - plaintiffs
+  - defendant
+  - defendants
+  - petitioner
+  - petitioners
+  - witnesses
+  - users
+  - other_parties
+  - children
+---
 mandatory: True
 id: Interview Order
 code: |
@@ -128,7 +142,7 @@ code: |
       continue # Go to the next run of the loop if we already did this variable
     
     # map_names checks if its a field we're handling by renaming from the PDF
-    if map_names(field[0]) != field[0]:
+    if map_names(field[0]) != field[0] or field[0] in variables_to_skip:
       new_field = built_in_fields_used.appendObject()
     #elif field[0].startswith('user') or field[0].startswith('child'):
     #  skip = False
