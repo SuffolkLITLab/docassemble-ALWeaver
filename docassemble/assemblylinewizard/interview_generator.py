@@ -194,6 +194,7 @@ class DAQuestion(DAObject):
                         # TODO: if we really use multiple attachments, we need to change this
                         # So there is a unique variable name
                         content += "---\n"
+                        content += "need: " + self.interview_label + "\n"
                         content += "attachment:\n"
                         content += "    variable name: " + self.attachment_variable_name + "\n"
                         content += "    name: " + oneline(attachment.name) + "\n"
@@ -296,6 +297,31 @@ class DAQuestion(DAObject):
             if self.categories['Other']:
               for category in self.other_categories.split(','):
                 content += "    - " + oneline(category) + "\n"
+        elif self.type == 'metadata_code':
+            content += "mandatory: True\n" # We need this block to run every time to build our metadata variable
+            content += "code: |\n"
+            content += "  if not defined('interview_metadata'):\n"
+            content += "    interview_metadata = {}\n"
+            content += "  interview_metadata['" + self.interview_label + "'] = {\n"
+            content += "    'title': '" + oneline(self.title) + "',\n"
+            content += "    'short title': '" + oneline(self.short_title) + "',\n"
+            content += "    'description': '" + oneline(self.description) + "',\n"
+            content += "    'original_form': '" + oneline(self.original_form) + "',\n"
+            content += "    'allowed courts': " + "[\n"
+            for court in self.allowed_courts.true_values():
+              content += "      '" + oneline(court) + "',\n"
+            content += "    ],\n"
+            content += "    'preferred court': '" + oneline(self.preferred_court) + "'\n"
+            content += "    'categories': [" + "\n"
+            for category in self.categories.true_values():
+              content += "      '" + oneline(category) + "',\n"
+            if self.categories['Other']:
+              for category in self.other_categories.split(','):
+                content += "      '" + oneline(category.strip()) + "',\n"
+            content += "    ],\n"
+            content += "    'logic block variable': '" + self.interview_label + "',\n"
+            content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
+            content += "  }\n"
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
