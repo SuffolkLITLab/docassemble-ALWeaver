@@ -19,116 +19,6 @@ objects:
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
 ---
-variable name: built_in_variables
-data:
-  - user_name_first
-  - user_name_middle
-  - user_name_last
-  - user_name_suffix
-  - user_name_full 
-  - user_gender 
-  - user_gender_male 
-  - user_gender_female 
-  - user_gender_other 
-  - user_birthdate
-  - user_age
-  - witness_name_full
-  - user_address_street
-  - user_address_street2
-  - user_address_city
-  - user_address_state
-  - user_address_zip
-  - user_address_on_one_line 
-  - user_address_city_state_zip 
-  - user_address_block 
-  - user_email
-  - user_phone
-  - user2_name_first
-  - user2_name_middle
-  - user2_name_last
-  - user2_name_suffix
-  - user2_name_full 
-  - user2_gender 
-  - user2_gender_male 
-  - user2_gender_female 
-  - user2_gender_other 
-  - user2_birthdate
-  - user2_age
-  - user2_address_street
-  - user2_address_street2
-  - user2_address_city
-  - user2_address_state
-  - user2_address_zip
-  - user2_address_on_one_line 
-  - user2_address_city_state_zip 
-  - user2_address_block 
-  - user2_email
-  - user2_phone
-  - child1_name_first
-  - child1_name_middle
-  - child1_name_last
-  - child1_name_suffix
-  - child1_name_full 
-  - child1_gender 
-  - child1_gender_male 
-  - child1_gender_female 
-  - child1_gender_other 
-  - child1_birthdate
-  - child1_age
-  - other_party_name_first
-  - other_party_name_middle
-  - other_party_name_last
-  - other_party_name_suffix
-  - other_party_name_full 
-  - other_party_gender 
-  - other_party_gender_male 
-  - other_party_gender_female 
-  - other_party_gender_other 
-  - other_party_birthdate
-  - other_party_age
-  - other_party_address_street
-  - other_party_address_street2
-  - other_party_address_city
-  - other_party_address_state
-  - other_party_address_zip
-  - other_party_address_on_one_line 
-  - other_party_address_city_state_zip 
-  - other_party_address_block 
-  - other_party_email
-  - other_party_phone
-  - user_signature
-  - user2_signature
-  - witness_signature
-  - docket_number
-  - court_name
-  - court_county 
-  - court_division 
-  - court_name_short
----
-variable name: endings
-data:
-  - name_first
-  - name_middle
-  - name_last
-  - name_suffix
-  - name_full 
-  - gender 
-  - gender_male 
-  - gender_female 
-  - gender_other 
-  - birthdate
-  - age
-  - address_street
-  - address_street2
-  - address_city
-  - address_state
-  - address_zip
-  - address_on_one_line 
-  - address_city_state_zip 
-  - address_block 
-  - email
-  - phone
----
 mandatory: True
 id: Interview Order
 code: |
@@ -237,17 +127,18 @@ code: |
     if field[0] in fields_processed:
       continue # Go to the next run of the loop if we already did this variable
     
-    if field[0] in built_in_variables:
+    # map_names checks if its a field we're handling by renaming from the PDF
+    if map_names(field[0]) != field[0]:
       new_field = built_in_fields_used.appendObject()
-    elif field[0].startswith('user') or field[0].startswith('child'):
-      skip = False
-      for ending in endings:
-        if field[0].endswith(ending):
-          skip = True
-      if skip:
-        new_field = built_in_fields_used.appendObject()
-      else:
-        new_field = fields.appendObject()
+    #elif field[0].startswith('user') or field[0].startswith('child'):
+    #  skip = False
+    #  for ending in endings:
+    #    if field[0].endswith(ending):
+    #      skip = True
+    #  if skip:
+    #    new_field = built_in_fields_used.appendObject()
+    #  else:
+    #    new_field = fields.appendObject()
     # Check if it's a signature field. If so, we need a signature question
     # We'll handle those in a later version of this interview
     # For this special interview, we only expect 3 possible fields that we'll

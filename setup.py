@@ -43,7 +43,7 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
     return out
 
 setup(name='docassemble.assemblylinewizard',
-      version='0.15',
+      version='0.16',
       description=(''),
       long_description='# docassemble.assemblylinewizard\r\n\r\n\r\n\r\n## Author\r\n\r\nQuinten Steenhuis, qsteenhuis@suffolk.edu\r\n\r\n',
       long_description_content_type='text/markdown',
