@@ -623,7 +623,6 @@ def map_names(var_name):
     (start_people_regex_string + r"name_middle$", r"\1.name.middle"),
     (start_people_regex_string + r"name_last$", r"\1.name.last"),
     (start_people_regex_string + r"name_suffix$", r"\1.name.suffix"),
-    (start_people_regex_string + r"name_full$", r"\1.__str__()"),
     (start_people_regex_string + r"gender$", r"\1.gender"),
     (start_people_regex_string + r"birthdate$", r"\1.birthdate.format()"),
     (start_people_regex_string + r"age$", r"\1.age_in_years()"),
@@ -638,51 +637,59 @@ def map_names(var_name):
     (start_people_regex_string + r"address_on_one_line$", r"\1.address.on_one_line()"),
     (start_people_regex_string + r"address_city_state_zip$", r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"),
     (start_people_regex_string + r"signature$", r"\1.signature"),
+    (start_people_regex_string + r"name_full$", r"str(\1)"),
 
     (start_court_regex_string + r"name$", r"\1"),
     # (start_court_regex_string + r"name_short$", not implemented),
     # (start_court_regex_string + r"division$", not implemented),
     (start_court_regex_string + r"address_county$", r"\1.address.county"),
-    # signature_date is just signature_date
+
+    # signature_date is just signature_date,
+    (r"^(docket_number)$", r"\1s[0]"),
+    (r"^(docket_number)(\d+)$", r"\1s[\2-1]"),
     
+    (r"^(plantiff|defendant|petitioner|respondent)$", r"str(\1s)"),
+    (r"^(plantiffs|defendants|petitioners|respondents)$", r"str(\1)"),
   ]
 
   beginning_map = [
     (r"^(user)(\d+)(.*)$", r"\1s[\2-1]\3"),
     (r"^(user)(\..*)$", r"\1s[0]\2"),
+    # Full name
+    (r"^(str\()(user)(\d+)(\))$", r"\1\2s[\3-1]\4"),
+    (r"^(str\()(user)(\))$", r"\1\2s[0]\3"),
     
     (r"^(other_party)(\d+)(.*)$", r"other_parties[\2-1]\3"),
     (r"^(other_party)(\..*)$", r"other_parties[0]\2"),
+    # Full name
+    (r"^(str\()(other_party)(\d+)(\))$", r"\1other_parties[\3-1]\4"),
+    (r"^(str\()(other_party)(\))$", r"\1other_parties[0]\3"),
     
     (r"^(child)(\d+)(.*)$", r"\1ren[\2-1]\3"),
     (r"^(child)(\..*)$", r"\1ren[0]\2"),
+    # Full name
+    (r"^(str\()(child)(\d+)(\))$", r"\1\2ren[\3-1]\4"),
+    (r"^(str\()(child)(\))$", r"\1\2ren[0]\3"),
     
     (r"^(witness)(\d+)(.*)$", r"\1es[\2-1]\3"),
     (r"^(witness)(\..*)$", r"\1es[0]\2"),
+    # Full name
+    (r"^(str\()(witness)(\d+)(\))$", r"\1\2es[\3-1]\4"),
+    (r"^(str\()(witness)(\))$", r"\1\2es[0]\3"),
     
     (r"^(court)$", r"\1s[0]"),
     (r"^(court)(\d+)(.*)$", r"\1s[\2-1]\3"),
     (r"^(court)(\..*)$", r"\1s[0]\2"),
   ]
-  
-  single_rules = [
-    (r"^(docket_number)$", r"\1s[0]"),
-    (r"^(docket_number)(\d+)$", r"\1s[\2-1]"),
-  ]
 
   for rule in ending_map:
-    name_ending_fixed = re.sub(rule[0], rule[1], var_name)
-    if name_ending_fixed != var_name:
+    one_rule_applied = re.sub(rule[0], rule[1], var_name)
+    if one_rule_applied != var_name:
       for rule in beginning_map:
-        name_beginning_fixed = re.sub(rule[0], rule[1], name_ending_fixed)
-        if name_ending_fixed != name_beginning_fixed:
-          return name_beginning_fixed
-      return name_ending_fixed
-
-  for rule in single_rules:
-    name_fixed = re.sub(rule[0], rule[1], var_name)
-    if name_fixed != var_name:
-        return name_fixed
+        two_rules_applied = re.sub(rule[0], rule[1], one_rule_applied)
+        if one_rule_applied != two_rules_applied:
+          return two_rules_applied
+      return one_rule_applied
   
   return var_name
 
@@ -711,18 +718,30 @@ tests = [
     "user_address_street2",
     "witness_name_first",
     "witness1_name_first",
+    "witness_name_full",
+    "witness1_name_full",
     "court_name",
     "court1_name",
     "court_address_county",
     "court1_address_county",
     "docket_number",
     "docket_number1",
+    "plantiff",
+    "defendant",
+    "petitioner",
+    "respondent",
+    "plantiffs",
+    "defendants",
+    "petitioners",
+    "respondents",
     # Not reserved
     "my_user_name_last",
     "user_address_street2_zip",
     "user_address2_zip",
 ]
+# tests = ["user_name_first","user25_name_last","other_party_name_full" ]
 #if __name__ == 'main':
+
 for test in tests:
   print(test, "=>", map_names(test))
   # map_names(test)
