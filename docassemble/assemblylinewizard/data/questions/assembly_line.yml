@@ -32,13 +32,12 @@ data:
   - users
   - other_parties
   - children
-  
 ---
 mandatory: True
 id: Interview Order
 code: |
   template_upload
-  fields.gathered
+  get_fields
   interview.title
   set_metadata  
   add_includes  
@@ -122,75 +121,48 @@ fields:
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
 help: |
+  ${len(all_fields)}
+  
   `${all_fields}`
   
+  * ${len(fields)} Fields we'll ask about
+  * ${len(built_in_fields_used)} built-in fields
+  * ${len(signature_fields)} signature fields
+  
   ${fields}
+---
+
 ---
 comment: |
   Get the list of fields
 code: |
+  built_in_fields_used.gathered = True
+  signature_fields.gathered = True
+  fields.gathered = True
+  
   all_fields = template_upload.get_pdf_fields()
-  the_fields = [field[0] for field in all_fields]
-  fields.auto_gather = False
-  signature_fields.auto_gather = False
+  # the_fields = [field[0] for field in all_fields]
+  
+  #fields.auto_gather = False
+  #signature_fields.auto_gather = False
   # Determine the correct list to put this field in
-  
-  fields_processed = set()
-  
-  for field in all_fields:
-    # Skip the built-in variable names that we'll have pre-written questions for
-    if field[0] in fields_processed:
-      continue # Go to the next run of the loop if we already did this variable
-    
+---
+code: |
+  for pdf_field_tuple in all_fields:
+    pdf_field_name = pdf_field_tuple[0] # first element in the tuple is the name
+    # Skip the built-in variable names that we'll have pre-written questions for    
     # map_names checks if its a field we're handling by renaming from the PDF
-    if map_names(field[0]) != field[0] or field[0] in variables_to_skip:
+    if map_names(pdf_field_name) != pdf_field_name or pdf_field_name in variables_to_skip:
       new_field = built_in_fields_used.appendObject()
-    #elif field[0].startswith('user') or field[0].startswith('child'):
-    #  skip = False
-    #  for ending in endings:
-    #    if field[0].endswith(ending):
-    #      skip = True
-    #  if skip:
-    #    new_field = built_in_fields_used.appendObject()
-    #  else:
-    #    new_field = fields.appendObject()
-    # Check if it's a signature field. If so, we need a signature question
-    # We'll handle those in a later version of this interview
-    # For this special interview, we only expect 3 possible fields that we'll
-    # provide in advance.
-    elif field[4] == '/Sig':
+    elif pdf_field_tuple[4] == '/Sig':
       new_field = signature_fields.appendObject()
     else:
       new_field = fields.appendObject()
       
-    new_field.variable = varname(field[0])
-    new_field.has_label = True
+    fill_in_field_attributes(new_field, pdf_field_tuple)    
 
-    # Let's guess the type of each field from the name / info from PDF
-    variable_name_guess = new_field.variable.replace('_',' ').capitalize()
-    if new_field.variable.endswith('_date'):
-      new_field.field_type_guess = 'text'
-      new_field.field_data_type_guess = 'date'
-      new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_',' ')
-    elif new_field.variable.endswith('_yes') or new_field.variable.endswith('_no'):
-      new_field.field_type_guess = 'yesno'
-      new_field.field_data_type_guess = None
-      new_field.variable_name_guess = new_field.variable[:-3].replace('_',' ').capitalize() if new_field.variable.endswith('_no') else new_field.variable[:-4].replace('_',' ').capitalize()
-    elif field[4] == '/Btn':
-      new_field.field_type_guess = 'yesno'
-      new_field.field_data_type_guess = None
-      new_field.variable_name_guess = variable_name_guess
-    elif field[4] == '/Sig':
-      new_field.field_type_guess = 'signature'
-      new_field.variable_name_guess = variable_name_guess
-    else:
-      new_field.field_type_guess = 'text'
-      new_field.field_data_type_guess = 'text'
-      new_field.variable_name_guess = variable_name_guess
-    fields_processed.add(field[0])
-  built_in_fields_used.gathered = True
-  signature_fields.gathered = True
-  fields.gathered = True
+  get_fields = True
+
 ---
 code: |
   interview.field_list = fields
@@ -198,7 +170,7 @@ code: |
 code: |
   include_question = interview.questions.initializeObject('includes')
   include_question.type = 'includes'
-  include_question.includes = ['basic-questions.yml']
+  include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml:basic-questions.yml']
   add_includes = True
 ---
 field: debug
@@ -243,7 +215,7 @@ code: |
   field_data_types = ['text','integer','number','currency','date','email']
 
   temp_field_question = []
-  for index, field in enumerate(fields):      
+  for index, field in enumerate(fields.elements):      
     temp_field_question.append({
       'note': '**' + field.variable + '**'
     })
@@ -256,13 +228,13 @@ code: |
       'label': "What type of input is `" + field.variable + "`?",
       'field': 'fields[' + str(index) + '].field_type',
       'choices': field_types,
-      'default': field.field_type_guess
+      'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
     })
     temp_field_question.append({
       'label': "What datatype is `" + field.variable + "`?",
       'field': 'fields[' + str(index) + '].field_data_type',
       'choices': field_data_types,
-      'default': field.field_data_type_guess,
+      'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
       'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
     })
 
@@ -286,17 +258,17 @@ subquestion: |
   We have tried to guess the type of field from the name of the variable.
 fields:
   - code: field_question
----
-code: |
-  import copy
-  
-  fields_still_unassigned = [field for field in fields]
+#---
+#code: |
+#  import copy
+#  
+#  fields_still_unassigned = [field for field in fields]
 ---
 code: |
   questions.there_are_any = True
 ---
 code: |
-  questions.there_is_another = len(fields_still_unassigned) > 0
+  questions.there_is_another = len(questions.all_fields_used()) < len(fields)
 ---
 question: |
   Create a draft of the ${ordinal(i)} question
@@ -317,13 +289,15 @@ fields:
       you might ask an optional "Tell us more" question that the user
       can leave empty if they don't have anything to say for that question.
   - Select the fields that will appear on this screen: questions[i].field_list
-    datatype: object_checkboxes 
-    choices: fields_still_unassigned
+    datatype: object_checkboxes
+    exclude: questions.all_fields_used()
+    choices: fields
+    # choices: fields_still_unassigned
     object labeler: |
       lambda y: y.variable + ' (' + y.label + ')'
-validation code: |
-  for field in questions[i].field_list:
-    fields_still_unassigned.remove(field)
+#validation code: |
+#  for field in questions[i].field_list:
+#    fields_still_unassigned.remove(field)
 ---
 code: |
   questions[i].type = 'question'

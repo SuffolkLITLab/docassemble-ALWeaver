@@ -15,9 +15,12 @@ import docassemble.base.pdftk
 import shutil
 import datetime
 import types
+
+#from docassemble.base.util import prevent_dependency_satisfaction
+
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline','DAQuestionList','map_names']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline','DAQuestionList','map_names','fill_in_field_attributes']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -28,6 +31,35 @@ invalid_var_characters = re.compile(r'[^A-Za-z0-9_]+')
 digit_start = re.compile(r'^[0-9]+')
 newlines = re.compile(r'\n')
 remove_u = re.compile(r'^u')
+
+def fill_in_field_attributes(new_field, pdf_field_tuple):
+    # Prevent Docassemble from finding any undefined variables. Trying to track down mysterious duplicate
+    #try:
+        # Let's guess the type of each field from the name / info from PDF
+    new_field.variable = varname(pdf_field_tuple[0])
+    variable_name_guess = new_field.variable.replace('_',' ').capitalize()        
+    new_field.has_label = True
+    if new_field.variable.endswith('_date'):
+        new_field.field_type_guess = 'text'
+        new_field.field_data_type_guess = 'date'
+        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_',' ')
+    elif new_field.variable.endswith('_yes') or new_field.variable.endswith('_no'):
+        new_field.field_type_guess = 'yesno'
+        new_field.field_data_type_guess = None
+        new_field.variable_name_guess = new_field.variable[:-3].replace('_',' ').capitalize() if new_field.variable.endswith('_no') else new_field.variable[:-4].replace('_',' ').capitalize()
+    elif pdf_field_tuple[4] == '/Btn':
+        new_field.field_type_guess = 'yesno'
+        new_field.field_data_type_guess = None
+        new_field.variable_name_guess = variable_name_guess
+    elif pdf_field_tuple[4] == '/Sig':
+        new_field.field_type_guess = 'signature'
+        new_field.variable_name_guess = variable_name_guess
+    else:
+        new_field.field_type_guess = 'text'
+        new_field.field_data_type_guess = 'text'
+        new_field.variable_name_guess = variable_name_guess
+    #except:
+    #    raise Exception # prevent a NameError from being raised
 
 class DADecoration(DAObject):
     def init(self, **kwargs):
@@ -336,7 +368,7 @@ class DAQuestion(DAObject):
             if hasattr(field, 'field_data_type'):
               content += "    " + "field_data_type: " + field.field_data_type + "\n"
         elif self.type == 'includes':
-          content += "includes:\n"
+          content += "include:\n"
           for include in self.includes:
             content += "  - " + include + "\n"
 
@@ -352,6 +384,13 @@ class DAQuestionList(DAList):
   def init(self, **kwargs): 
     super().init(**kwargs)
     self.object_type = DAQuestion
+  def all_fields_used(self):
+    fields = set()
+    for question in self.elements:
+      if hasattr(question,'field_list'):
+        for field in question.field_list.elements:
+          fields.add(field)
+    return fields
 
 class DAQuestionDict(DADict):
     def init(self, **kwargs):
