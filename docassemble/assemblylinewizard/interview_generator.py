@@ -609,49 +609,121 @@ import re
 def map_names(var_name):
   """Transform a PDF field name into a standardized object name, for a given set of specific cases in 
   our interview generator."""
+  
+  
+  start_people_regex_string = (r"^(user|user\d+"
+  + r"|other_party|other_party\d+"
+  + r"|child|child\d+"
+  + r"|witness|witness\d+)_")
+  
+  start_court_regex_string = r"^(court|court\d+)_"
+  
   ending_map = [
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_first$", r"\1.name.first"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_middle$", r"\1.name.middle"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_last$", r"\1.name.last"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_suffix$", r"\1.name.suffix"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_name_full$", r"\1"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_gender$", r"\1.gender"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_birthdate$", r"\1.birthdate.format()"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_age$", r"\1.age_in_years()"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_email$", r"\1.email"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_phone$", r"\1.phone_number"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_address_block$", r"\1.address.block()"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_street$", r"\1.address.address"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_street2$", r"\1.address.unit"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_city$", r"\1.address.city"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_state$", r"\1.address.state"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_zip$", r"\1.address.zip"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_on_one_line$", r"\1.address.on_one_line()"),
-    (r"^(user|user\d+|other_party|other_party\d+)_address_city_state_zip$", r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"),
-    (r"^(user|user\d+|other_party|other_party\d+|child\d+)_signature$", r"\1.signature")
+    (start_people_regex_string + r"name_first$", r"\1.name.first"),
+    (start_people_regex_string + r"name_middle$", r"\1.name.middle"),
+    (start_people_regex_string + r"name_last$", r"\1.name.last"),
+    (start_people_regex_string + r"name_suffix$", r"\1.name.suffix"),
+    (start_people_regex_string + r"name_full$", r"\1.__str__()"),
+    (start_people_regex_string + r"gender$", r"\1.gender"),
+    (start_people_regex_string + r"birthdate$", r"\1.birthdate.format()"),
+    (start_people_regex_string + r"age$", r"\1.age_in_years()"),
+    (start_people_regex_string + r"email$", r"\1.email"),
+    (start_people_regex_string + r"phone$", r"\1.phone_number"),
+    (start_people_regex_string + r"address_block$", r"\1.address.block()"),
+    (start_people_regex_string + r"address_street$", r"\1.address.address"),
+    (start_people_regex_string + r"address_street2$", r"\1.address.unit"),
+    (start_people_regex_string + r"address_city$", r"\1.address.city"),
+    (start_people_regex_string + r"address_state$", r"\1.address.state"),
+    (start_people_regex_string + r"address_zip$", r"\1.address.zip"),
+    (start_people_regex_string + r"address_on_one_line$", r"\1.address.on_one_line()"),
+    (start_people_regex_string + r"address_city_state_zip$", r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"),
+    (start_people_regex_string + r"signature$", r"\1.signature"),
+
+    (start_court_regex_string + r"name$", r"\1"),
+    # (start_court_regex_string + r"name_short$", not implemented),
+    # (start_court_regex_string + r"division$", not implemented),
+    (start_court_regex_string + r"address_county$", r"\1.address.county"),
+    # signature_date is just signature_date
+    
   ]
 
   beginning_map = [
     (r"^(user)(\d+)(.*)$", r"\1s[\2-1]\3"),
+    (r"^(user)(\..*)$", r"\1s[0]\2"),
+    
     (r"^(other_party)(\d+)(.*)$", r"other_parties[\2-1]\3"),
-    (r"^(other_party)(.*)$", r"other_parties[0]\2"),
-    (r"^(user)(.*)$", r"\1s[0]\2"),
-    (r"^(child)(\d+)(.*)$", r"child[\2-1]\3")
+    (r"^(other_party)(\..*)$", r"other_parties[0]\2"),
+    
+    (r"^(child)(\d+)(.*)$", r"\1ren[\2-1]\3"),
+    (r"^(child)(\..*)$", r"\1ren[0]\2"),
+    
+    (r"^(witness)(\d+)(.*)$", r"\1es[\2-1]\3"),
+    (r"^(witness)(\..*)$", r"\1es[0]\2"),
+    
+    (r"^(court)$", r"\1s[0]"),
+    (r"^(court)(\d+)(.*)$", r"\1s[\2-1]\3"),
+    (r"^(court)(\..*)$", r"\1s[0]\2"),
+  ]
+  
+  single_rules = [
+    (r"^(docket_number)$", r"\1s[0]"),
+    (r"^(docket_number)(\d+)$", r"\1s[\2-1]"),
   ]
 
   for rule in ending_map:
-    name_ending_fixed = re.sub(rule[0], rule[1],var_name)
+    name_ending_fixed = re.sub(rule[0], rule[1], var_name)
     if name_ending_fixed != var_name:
       for rule in beginning_map:
-        name_beginning_fixed = re.sub(rule[0], rule[1],name_ending_fixed)
+        name_beginning_fixed = re.sub(rule[0], rule[1], name_ending_fixed)
         if name_ending_fixed != name_beginning_fixed:
           return name_beginning_fixed
       return name_ending_fixed
+
+  for rule in single_rules:
+    name_fixed = re.sub(rule[0], rule[1], var_name)
+    if name_fixed != var_name:
+        return name_fixed
   
   return var_name
 
-# tests = ["my_user_name_last","user_name_first","user25_name_last","other_party_name_full", 'other_party37_address_zip','user_address_street2','user_address_street2_zip','user_address2_zip']
-# tests = ["user_name_first","user25_name_last","other_party_name_full" ]
-# if __name__ == 'main':
-#   for test in tests:
-#     print(map_names(test))
+'''
+tests = [
+    # Reserved
+    "user_name_first",
+    "user1_name_first",
+    "user25_name_first",
+    "user_name_full",
+    "user1_name_full",
+    "user3_name_full",
+    "other_party_name_first",
+    "other_party1_name_first",
+    "other_party5_name_first",
+    "other_party_name_full",
+    "other_party1_name_full",
+    "other_party2_name_full",
+    "child_name_first",
+    "child1_name_first",
+    "child4_name_first",
+    "child_name_full",
+    "child1_name_full",
+    "child5_name_full",
+    "other_party37_address_zip",
+    "user_address_street2",
+    "witness_name_first",
+    "witness1_name_first",
+    "court_name",
+    "court1_name",
+    "court_address_county",
+    "court1_address_county",
+    "docket_number",
+    "docket_number1",
+    # Not reserved
+    "my_user_name_last",
+    "user_address_street2_zip",
+    "user_address2_zip",
+]
+#if __name__ == 'main':
+for test in tests:
+  print(test, "=>", map_names(test))
+  # map_names(test)
+'''
