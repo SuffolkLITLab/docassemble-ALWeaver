@@ -669,6 +669,8 @@ def map_names(var_name):
     # (start_court_regex_string + r"name_short$", not implemented),
     # (start_court_regex_string + r"division$", not implemented),
     (start_court_regex_string + r"address_county$", r"\1.address.county"),
+    # We changed naming policy, but this is still used
+    (start_court_regex_string + r"_county$", r"\1.address.county"),
 
     # signature_date is just signature_date,
     (r"^(docket_number)$", r"\1s[0]"),
