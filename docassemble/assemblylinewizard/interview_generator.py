@@ -311,7 +311,7 @@ class DAQuestion(DAObject):
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
             content += "    ],\n"
-            content += "    'preferred court': '" + oneline(self.preferred_court) + "'\n"
+            content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
             content += "    'categories': [" + "\n"
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
