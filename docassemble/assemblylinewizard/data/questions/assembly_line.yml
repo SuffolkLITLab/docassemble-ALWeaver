@@ -51,6 +51,7 @@ code: |
   # created_package
   created_attachment  
   wrote_interview
+  interview_download.mimetype = 'application/octet-stream'
   show_interview
 ---
 question: |
@@ -345,7 +346,7 @@ event: show_interview
 question: |
   Interview contents
 subquestion: |
-  [:download: Download](${interview_download.url_for()})
+  :download: ${attachment_download_html(interview_download.url_for(attachment=True), "Download")}
 
   ${indent_by(interview.source(),4)}
   
