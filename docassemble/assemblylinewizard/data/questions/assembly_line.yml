@@ -2,12 +2,16 @@ metadata:
   title: Document assembly wizard
   short title: Wizard
 ---
+features:
+  question help button: True
+---
 modules:
   - docassemble.base.util
   - docassemble.base.logger
-  - .interview_generator
+  - .interview_generator  
 ---
 objects:
+  - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview
   - main_code: DAQuestion
   - metadata: DAQuestion
@@ -18,6 +22,13 @@ objects:
   - signature_fields: DAFieldList
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
+---
+code: |
+  sequence = generator_data.get('sequence') or 0
+---
+code: |
+  generator_data.set('sequence',sequence+1)
+  increment_sequence = True
 ---
 variable name: variables_to_skip
 data:
@@ -40,6 +51,7 @@ code: |
   get_fields
   interview.title
   set_metadata  
+  interview.typical_role
   add_includes  
   # debug
   choose_field_types
@@ -51,14 +63,17 @@ code: |
   # created_package
   created_attachment  
   wrote_interview
-  interview_download.mimetype = 'application/octet-stream'
+  increment_sequence
   show_interview
 ---
 question: |
   Please upload a PDF template
+  
 fields:
   - File: template_upload
     datatype: file
+help: |
+  This interview has been run ${sequence} times.
 ---
 code: |
   short_filename_with_spaces = template_upload[0].filename[:-4].replace('_',' ').capitalize()
@@ -117,8 +132,14 @@ fields:
     datatype: area
     rows: 2
     show if: interview.categories['Other']
-  - Interview file name: interview.file_name
+  - Unique label for this interview: interview.file_name
     default: ${template_upload[0].filename[:-4]}
+    help: |
+      This label should be unique across all interviews. It will be
+      used to name the file as well as an internal label for the Docassemble
+      coder.
+      
+      It won't be shown to the end user.
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
 help: |
@@ -132,7 +153,33 @@ help: |
   
   ${fields}
 ---
+question: |
+  Interview roles
+subquestion: |  
+  For this ${interview.title} form, is the user of the form typically the 
+  Plaintiff/Petitioner or the Defendant/Respondent?
 
+  The Plaintiff/Petitioner starts a case. The Defendant/Respondent
+  is responding to a case someone else started.
+fields:
+  - no label: interview.typical_role
+    input type: radio
+    choices:
+      - Plaintiff/Petitioner: plaintiff
+      - Defendant/Respondent: defendant
+      - Could be either: unknown
+help: |
+  For example, if you are starting a new case, you are always the plaintiff
+  or petitioner. 
+  
+  If you are a tenant responding to an eviction case, you are usually the
+  Defendant.
+  
+  If you are responding to an existing case that is not an eviction, you
+  might be the defendant, but in some cases you could be the plaintiff.
+  
+  If you are not sure: please review the form and talk to a subject matter 
+  expert. We can always fix this later.
 ---
 comment: |
   Get the list of fields
@@ -206,6 +253,7 @@ code: |
   metadata.preferred_court = interview.preferred_court
   metadata.categories = interview.categories
   metadata.other_categories = interview.other_categories if defined('interview.other_categories') else None
+  metadata.typical_role = interview.typical_role
   interview.blocks.append(metadata)
   set_metadata = True
 ---
@@ -340,20 +388,24 @@ code: |
   add_logic_tree = True  
 ---
 code: |
-  interview_label = varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)
+  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)) + str(sequence).zfill(4)
 ---
+comment: |
+  :download: ${attachment_download_html(interview_download.url_for(), "Download")}
 event: show_interview
 question: |
   Interview contents
 subquestion: |
-  :download: ${attachment_download_html(interview_download.url_for(attachment=True), "Download")}
 
+  [:download: Download](${interview_download.url_for(attachment=True)})
+  
   ${indent_by(interview.source(),4)}
   
 ---
 code: |
   interview_download.initialize(filename = metadata.file_name + '.yml')
   interview_download.write(interview.source())
+  interview_download.commit()
   wrote_interview = True
 ---
 code: |
