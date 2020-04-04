@@ -206,6 +206,8 @@ class DAQuestion(DAObject):
             done_with_content = False
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
+            elif hasattr(self, 'continue_button_field'):
+              content += "continue button field: " + varname(self.continue_button_field) + "\n"
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
@@ -299,11 +301,19 @@ class DAQuestion(DAObject):
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
         elif self.type == 'interview order':
+            content += "id: " + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
-            for field in self.logic_list:
-              content += "  " + field + "\n"
-            content += "  " + self.ending_variable + " = True" + "\n"
+            content += "  # We list one variable from each screen here, in order to control the order of questions\n"
+            content += "  # To change the order, you can rearrange, or make conditional. If you make conditional here,\n"
+            content += "  # You must also make sure it's conditional in the attachment block, or assign each variable \n"
+            content += "  # on the optional screen to DAEmpty() \n"
+            content += "  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
+            content += "  " + self.interview_label + "_intro" + "\n"
+            for field in self.logic_list: 
+              content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
+            content += "  basic_questions_user_fields \n" # trigger asking the user details at the end of the interview         
+            content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
@@ -376,7 +386,14 @@ class DAQuestion(DAObject):
           content += "include:\n"
           for include in self.includes:
             content += "  - " + include + "\n"
-
+        elif self.type == 'interstitial':
+          content += 'comment: |\n'
+          content += indent_by(self.comment, 2) 
+          content += 'continue button field: '+ self.continue_button_field + "\n"
+          content += "question: |\n"
+          content += indent_by(self.question_text, 2)
+          content += "subquestion: |\n"
+          content += indent_by(self.subquestion_text,2)
         # elif self.type == 'images':
         #     content += "images:\n"
         #     for key, value in self.interview.decorations.items():
