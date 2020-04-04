@@ -218,7 +218,7 @@ code: |
 code: |
   include_question = interview.questions.initializeObject('includes')
   include_question.type = 'includes'
-  include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml:basic-questions.yml']
+  include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
   add_includes = True
 ---
 field: debug
@@ -426,7 +426,7 @@ code: |
   end_question.type = 'question'
   end_question.question_text = 'Placeholder download screen'
   end_question.subquestion_text = 'Placeholder'
-  # end_question.is_mandatory = True
+  end_question.is_mandatory = True # Keep this in so you can run the interview right away
   # We added this feature -- a variable to reference the attachment with
   end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview

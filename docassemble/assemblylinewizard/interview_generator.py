@@ -356,6 +356,8 @@ class DAQuestion(DAObject):
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
+            if hasattr(self, 'typical_role'):
+              content += "    'typical role': '" + oneline(self.typical_role) + "',"
             content += "  }\n"
         elif self.type == 'modules':
             content += "modules:\n"
