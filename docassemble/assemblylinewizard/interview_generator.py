@@ -20,7 +20,7 @@ import types
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline','DAQuestionList','map_names','fill_in_field_attributes']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline','DAQuestionList','map_names','fill_in_field_attributes','attachment_download_html']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -31,6 +31,9 @@ invalid_var_characters = re.compile(r'[^A-Za-z0-9_]+')
 digit_start = re.compile(r'^[0-9]+')
 newlines = re.compile(r'\n')
 remove_u = re.compile(r'^u')
+
+def attachment_download_html(url, label):
+  return '<a href="' + url + '" download="">' + label + '</a>'
 
 def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Prevent Docassemble from finding any undefined variables. Trying to track down mysterious duplicate
