@@ -50,8 +50,9 @@ code: |
   template_upload
   get_fields
   interview.title
-  set_metadata  
-  interview.typical_role
+  interview.typical_role  
+  set_metadata
+  add_draft_intro_screen
   add_includes  
   # debug
   choose_field_types
@@ -221,6 +222,15 @@ code: |
   include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
   add_includes = True
 ---
+code: |
+  intro_question = interview.questions.initializeObject('intro')
+  intro_question.type = 'interstitial'
+  intro_question.comment = "This question is used to introduce your interview. Please customize"
+  intro_question.continue_button_field = interview_label + '_intro'
+  intro_question.question_text = interview.title
+  intro_question.subquestion_text = interview.description
+  add_draft_intro_screen = True
+---
 field: debug
 question: |
   Debug
@@ -384,7 +394,7 @@ code: |
   interview.questions.initializeObject('main code block')
   interview.questions['main code block'].type = 'interview order'
   interview.questions['main code block'].logic_list = logic_list
-  interview.questions['main code block'].ending_variable = interview_label
+  interview.questions['main code block'].interview_label = interview_label
   add_logic_tree = True  
 ---
 code: |
