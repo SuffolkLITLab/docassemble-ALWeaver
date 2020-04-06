@@ -17,6 +17,7 @@ objects:
   - metadata: DAQuestion
   - modules: DAQuestion
   - attachments: DAAttachmentList
+  - preview_attachments: DAAttachmentList
   - built_in_fields_used: DAFieldList
   - fields: DAFieldList
   - signature_fields: DAFieldList
@@ -24,12 +25,17 @@ objects:
   - interview_download: DAFile
 ---
 code: |
+  # we use this to ensure that each interview gets a unique key
   sequence = generator_data.get('sequence') or 0
 ---
 code: |
   generator_data.set('sequence',sequence+1)
   increment_sequence = True
 ---
+comment: |
+  This is a list of some variables we leave alone (don't transform)
+  but still represent something we're handling in basic-question.yml
+  No need to prompt the user to group these questions.
 variable name: variables_to_skip
 data:
   - signature_date
@@ -62,7 +68,8 @@ code: |
   add_questions_to_interview
   # get_vars
   # created_package
-  created_attachment  
+  created_attachment
+  created_preview_attachment
   wrote_interview
   increment_sequence
   show_interview
@@ -368,9 +375,11 @@ code: |
   interview.questions.initializeObject('field_list',DAQuestion)
   interview.questions['field_list'].type = 'variables'
   interview.questions['field_list'].field_list = interview.field_list + signature_fields
+  interview.questions['field_list'].interview_label = interview_label
   interview.questions.initializeObject('built_in_fields_used', DAQuestion)
   interview.questions['built_in_fields_used'].type = "variables"
   interview.questions['built_in_fields_used'].field_list = built_in_fields_used
+  interview.questions['built_in_fields_used'].interview_label = interview_label
   add_variable_list = True
 ---
 code: |
@@ -391,6 +400,8 @@ code: |
         logic_list.append(varname(question.field_list[0].variable))
       else:
         logic_list.append(varname(question.question_text))
+  for field in built_in_fields_used:
+    logic_list.append(map_names(field.variable))
   interview.questions.initializeObject('main code block')
   interview.questions['main code block'].type = 'interview order'
   interview.questions['main code block'].logic_list = logic_list
@@ -429,9 +440,38 @@ code: |
   attachments.gathered = True
 ---
 code: |
+  # We're making a second version of the PDF attachment that doesn't fill
+  # in the signature field on the PDF
+  preview_attachment = preview_attachments.appendObject()
+  preview_attachment.type = 'pdf'
+  preview_attachment.pdf_filename = template_upload[0].filename
+  all_gathered_fields = built_in_fields_used + fields + signature_fields
+  preview_attachment.fields = [field for field in all_gathered_fields if not field.field_type_guess == 'signature']
+  preview_attachment.name = metadata.short_title
+  preview_attachments.gathered = True
+  created_preview_attachment = True
+---
+code: |
   attachment_variable_name = interview_label + '_attachment'
 ---
 code: |
+  preview_form = interview.questions.initializeObject('preview_form')
+  preview_form.type = 'question'
+  preview_form.question_text = 'Placeholder preview screen'
+  preview_form.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "_preview}"
+  preview_form.is_mandatory = False
+  preview_form.continue_button_field = interview_label + '_preview_question'
+  # We added this feature -- a variable to reference the attachment with
+  preview_form.attachment_variable_name = attachment_variable_name + '_preview'
+  preview_form.interview = interview
+  # preview_form.interview_label = None # skip this for the preview
+  preview_form.attachments = preview_attachments
+  preview_form.field_list.appendObject()
+  preview_form.field_list[0].field_type = 'end_attachment'
+  preview_form.field_list[0].variable = 'preview'
+  preview_form.field_list[0].question = preview_form
+  preview_form.field_list.gathered = True
+
   end_question = interview.questions.initializeObject('all_done')
   end_question.type = 'question'
   end_question.question_text = 'Placeholder download screen'
