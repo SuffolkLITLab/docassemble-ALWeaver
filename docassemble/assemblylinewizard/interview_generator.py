@@ -712,98 +712,122 @@ def project_name(name):
 
 import re
 
+def indexify(digit):
+  if (digit == ''): return '[0]'
+  else: return '[' + digit + '-1]'
+
 def map_names(var_name):
-  """Transform a PDF field name into a standardized object name, for a given set of specific cases in 
-  our interview generator."""
-  
-  
-  start_people_regex_string = (r"^(user|user\d+"
-  + r"|other_party|other_party\d+"
-  + r"|child|child\d+"
-  + r"|witness|witness\d+)_")
-  
-  start_court_regex_string = r"^(court|court\d+)_"
-  
-  ending_map = [
-    (start_people_regex_string + r"name_first$", r"\1.name.first"),
-    (start_people_regex_string + r"name_middle$", r"\1.name.middle"),
-    (start_people_regex_string + r"name_last$", r"\1.name.last"),
-    (start_people_regex_string + r"name_suffix$", r"\1.name.suffix"),
-    (start_people_regex_string + r"gender$", r"\1.gender"),
-    (start_people_regex_string + r"birthdate$", r"\1.birthdate.format()"),
-    (start_people_regex_string + r"age$", r"\1.age_in_years()"),
-    (start_people_regex_string + r"email$", r"\1.email"),
-    (start_people_regex_string + r"phone$", r"\1.phone_number"),
-    (start_people_regex_string + r"address_block$", r"\1.address.block()"),
-    (start_people_regex_string + r"address_street$", r"\1.address.address"),
-    (start_people_regex_string + r"address_street2$", r"\1.address.unit"),
-    (start_people_regex_string + r"address_city$", r"\1.address.city"),
-    (start_people_regex_string + r"address_state$", r"\1.address.state"),
-    (start_people_regex_string + r"address_zip$", r"\1.address.zip"),
-    (start_people_regex_string + r"address_on_one_line$", r"\1.address.on_one_line()"),
-    (start_people_regex_string + r"address_city_state_zip$", r"\1.address.line_two()"),
-    (start_people_regex_string + r"signature$", r"\1.signature"),
-    (start_people_regex_string + r"name_full$", r"str(\1)"),
+  """For a given set of specific cases, transform a
+  PDF field name into a standardized object name
+  that will be the value for the attachment field."""
 
-    (start_court_regex_string + r"name$", r"\1"),
-    # (start_court_regex_string + r"name_short$", not implemented),
-    # (start_court_regex_string + r"division$", not implemented),
-    (start_court_regex_string + r"address_county$", r"\1.address.county"),
-    # We changed naming policy, but this is still used
-    (start_court_regex_string + r"_county$", r"\1.address.county"),
-
-    # signature_date is just signature_date,
-    (r"^(docket_number)$", r"\1s[0]"),
-    (r"^(docket_number)(\d+)$", r"\1s[\2-1]"),
-    
-    (r"^(plantiff|defendant|petitioner|respondent)$", r"str(\1s)"),
-    (r"^(plantiffs|defendants|petitioners|respondents)$", r"str(\1)"),
-  ]
-
-  beginning_map = [
-    (r"^(user)(\d+)(.*)$", r"\1s[\2-1]\3"),
-    (r"^(user)(\..*)$", r"\1s[0]\2"),
-    # Full name
-    (r"^(str\()(user)(\d+)(\))$", r"\1\2s[\3-1]\4"),
-    (r"^(str\()(user)(\))$", r"\1\2s[0]\3"),
-    
-    (r"^(other_party)(\d+)(.*)$", r"other_parties[\2-1]\3"),
-    (r"^(other_party)(\..*)$", r"other_parties[0]\2"),
-    # Full name
-    (r"^(str\()(other_party)(\d+)(\))$", r"\1other_parties[\3-1]\4"),
-    (r"^(str\()(other_party)(\))$", r"\1other_parties[0]\3"),
-    
-    (r"^(child)(\d+)(.*)$", r"\1ren[\2-1]\3"),
-    (r"^(child)(\..*)$", r"\1ren[0]\2"),
-    # Full name
-    (r"^(str\()(child)(\d+)(\))$", r"\1\2ren[\3-1]\4"),
-    (r"^(str\()(child)(\))$", r"\1\2ren[0]\3"),
-    
-    (r"^(witness)(\d+)(.*)$", r"\1es[\2-1]\3"),
-    (r"^(witness)(\..*)$", r"\1es[0]\2"),
-    # Full name
-    (r"^(str\()(witness)(\d+)(\))$", r"\1\2es[\3-1]\4"),
-    (r"^(str\()(witness)(\))$", r"\1\2es[0]\3"),
-    
-    (r"^(court)$", r"\1s[0]"),
-    (r"^(court)(\d+)(.*)$", r"\1s[\2-1]\3"),
-    (r"^(court)(\..*)$", r"\1s[0]\2"),
-  ]
-
-  for rule in ending_map:
-    one_rule_applied = re.sub(rule[0], rule[1], var_name)
-    if one_rule_applied != var_name:
-      for rule in beginning_map:
-        two_rules_applied = re.sub(rule[0], rule[1], one_rule_applied)
-        if one_rule_applied != two_rules_applied:
-          return two_rules_applied
-      return one_rule_applied
+  # Not yet handled:
+  # - plurals
+  # - multiple appearances
   
-  return var_name
+  prefix_people = (r"^(user"  # deprecated, but still supported
+  + r"|other_party"  # deprecated, but still supported
+  + r"|child"
+  + r"|plaintiff"
+  + r"|defendant"
+  + r"|petitioner"
+  + r"|respondent"
+  + r"|spouse"
+  + r"|parent"
+  + r"|guardian"
+  + r"|caregiver"
+  + r"|attorney"
+  + r"|translator"
+  + r"|debt_collector"
+  + r"|creditor"
+  + r"|guardian_ad_litem"
+  + r"|witness"
+  + r"|court"
+  + r"|docket_number"
+  + r")")
+
+  # Nested to avoid unnecessary regex
+  # Names for communication
+  label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', var_name)
+
+  # If no matches to automatable labels were found, just use the label as it is
+  if (label_groups is None or label_groups[1] == ''):
+    return var_name
+
+  pluralized = {
+    'user': 'users',
+    'plaintiff': 'plaintiffs',
+    'defendant': 'defendants',
+    'petitioner': 'petitioners',
+    'respondent': 'respondents',
+    'spouse': 'spouses',
+    'parent': 'parents',
+    'guardian': 'guardians',
+    'caregiver': 'caregivers',
+    'attorney': 'attorneys',
+    'translator': 'translators',
+    'debt_collector': 'debt_collectors',
+    'creditor': 'creditors',
+    'court': 'courts',
+    'docket_number': 'docket_numbers',
+    # Non-s plurals
+    'other_party': 'other_parties',
+    'child': 'children',
+    'guardian_ad_litem': 'guardians_ad_litem',
+    'witness': 'witnesses',
+  }
+
+  base = label_groups[1]
+  start = pluralized[base]
+
+  digit = label_groups[2]
+  index = indexify(digit)
+
+  # Any reason to not make all suffixes available to everyone?
+  suffix_map = {
+    '_name': "",  # full name
+    '_name_full': "",  # full name
+    '_name_first': ".name.first",
+    '_name_middle': ".name.middle",
+    '_name_last': ".name.last",
+    '_name_suffix': ".name.suffix",
+    '_gender': ".gender",
+    # '_gender_male': ".gender == 'male'",
+    # '_gender_female': ".gender == 'female'",
+    '_birthdate': ".birthdate.format()",
+    '_age': ".age_in_years()",
+    '_email': ".email",
+    '_phone': ".phone_number",
+    '_address_block': ".address.block()",
+    '_address_street': ".address.address",
+    '_address_street2': ".address.unit",
+    '_address_city': ".address.city",
+    '_address_state': ".address.state",
+    '_address_zip': ".address.zip",
+    '_address_on_one_line': ".address.on_one_line()",
+    '_address_one_line': ".address.on_one_line()",
+    '_address_city_state_zip': ".address.line_two()",
+    '_signature': ".signature",
+    # Court-specific
+    # '_name_short': not implemented,
+    # '_division': not implemented,
+    '_address_county': ".address.county",
+    '_county': ".address.county",
+  }
+
+  suffix = label_groups[3]
+  try: suffix = suffix_map[suffix]
+  except KeyError:
+    # Has to be done after everything else has been tried
+    suffix = re.sub(r'^_', '.', suffix)
+
+  return start + index + suffix
 
 '''
 tests = [
     # Reserved
+    "not_special",
+    "user",
     "user_name_first",
     "user1_name_first",
     "user25_name_first",
@@ -832,25 +856,28 @@ tests = [
     "court1_name",
     "court_address_county",
     "court1_address_county",
+    "court_county",
     "docket_number",
     "docket_number1",
-    "plantiff",
+    "plaintiff",
     "defendant",
     "petitioner",
     "respondent",
-    "plantiffs",
-    "defendants",
-    "petitioners",
-    "respondents",
+    # "plaintiffs",
+    # "defendants",
+    # "petitioners",
+    # "respondents",
+    # start is reserved
+    "user_address2_zip",
+    "user_address_street2_zip",
     # Not reserved
     "my_user_name_last",
-    "user_address_street2_zip",
-    "user_address2_zip",
 ]
 # tests = ["user_name_first","user25_name_last","other_party_name_full" ]
 #if __name__ == 'main':
 
 for test in tests:
+  print('~~~~~~~~~~~')
   print(test, "=>", map_names(test))
   # map_names(test)
 '''
