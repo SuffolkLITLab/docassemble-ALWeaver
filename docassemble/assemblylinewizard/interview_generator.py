@@ -712,11 +712,7 @@ def project_name(name):
 
 import re
 
-def indexify(digit):
-  if (digit == ''): return '[0]'
-  else: return '[' + digit + '-1]'
-
-def map_names(var_name):
+def map_names(label):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
@@ -746,13 +742,15 @@ def map_names(var_name):
   + r"|docket_number"
   + r")")
 
-  # Nested to avoid unnecessary regex
-  # Names for communication
-  label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', var_name)
+  # For the sake of time, this is the fastest way to get around it
+  if is_a_plural(label):
+    return label
 
-  # If no matches to automatable labels were found, just use the label as it is
+  label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', label)
+  # If no matches to automatable labels were found,
+  # just use the label as it is
   if (label_groups is None or label_groups[1] == ''):
-    return var_name
+    return label
 
   pluralized = {
     'user': 'users',
@@ -823,10 +821,40 @@ def map_names(var_name):
 
   return start + index + suffix
 
+# Return label digit as the correct syntax for an index
+def indexify(digit):
+  if (digit == ''): return '[0]'
+  else: return '[' + digit + '-1]'
+
+# Part of handling plural labels
+all_plurals = [
+  'users',
+  'plaintiffs',
+  'defendants',
+  'petitioners',
+  'respondents',
+  'spouses',
+  'parents',
+  'guardians',
+  'caregivers',
+  'attorneys',
+  'translators',
+  'debt_collectors',
+  'creditors',
+  'courts',
+  'docket_numbers',
+  'other_parties',
+  'children',
+  'guardians_ad_litem',
+  'witnesses',
+]
+
+def is_a_plural(label):
+  return label in all_plurals
+
 '''
 tests = [
     # Reserved
-    "not_special",
     "user",
     "user_name_first",
     "user1_name_first",
@@ -863,10 +891,10 @@ tests = [
     "defendant",
     "petitioner",
     "respondent",
-    # "plaintiffs",
-    # "defendants",
-    # "petitioners",
-    # "respondents",
+    "plaintiffs",
+    "defendants",
+    "petitioners",
+    "respondents",
     # start is reserved
     "user_address2_zip",
     "user_address_street2_zip",
