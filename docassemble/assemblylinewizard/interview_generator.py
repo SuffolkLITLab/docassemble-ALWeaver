@@ -219,44 +219,47 @@ class DAQuestion(DAObject):
                     content += "yesnomaybe: " + varname(self.field_list[0].variable) + "\n"
                     done_with_content = True
             if self.field_list[0].field_type == 'end_attachment':
-                content += "buttons:\n  - Exit: exit\n  - Restart: restart\n"
-                if self.attachments.gathered and len(self.attachments):
-                    content += "attachment code: " + self.attachment_variable_name + "\n"
-                    # TODO / FUTURE we could let this handle multiple forms at once
-                    # content =+ "---\n"
-                    # content += "code: |\n"
-                    # for attachment in self.attachments:
-                    # Put in some code to give each attachment its own variable name
-                    for attachment in self.attachments: # We will only have ONE attachment
-                        # TODO: if we really use multiple attachments, we need to change this
-                        # So there is a unique variable name
-                        content += "---\n"
-                        content += "need: " + self.interview_label + "\n"
-                        content += "attachment:\n"
-                        content += "    variable name: " + self.attachment_variable_name + "\n"
-                        content += "    name: " + oneline(attachment.name) + "\n"
-                        content += "    filename: " + varname(attachment.name) + "\n"
-                        if attachment.type == 'md':
-                            content += "    content: " + oneline(attachment.content) + "\n"
-                        elif attachment.type == 'pdf':
-                            content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
-                            self.templates_used.add(attachment.pdf_filename)
-                            content += "    fields: " + "\n"
-                            # for field, default, pageno, rect, field_type in attachment.fields:
-                            # Switching to using a DAField, rather than a raw PDF field
-                            for field in attachment.fields:
-                                # Lets use the list-style, not dictionary style fields statement
-                                # To avoid duplicate key error
-                                if hasattr(field, 'field_data_type') and field.field_data_type == 'date':
-                                  content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
-                                elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
-                                  content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
-                                else:
-                                  # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
-                                  content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
-                        elif attachment.type == 'docx':
-                            content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
-                            self.templates_used.add(attachment.docx_filename)
+                if hasattr(self, 'interview_label'): # this tells us its the ending screen
+                  content += "buttons:\n  - Exit: exit\n  - Restart: restart\n"
+                  content += "attachment code: " + self.attachment_variable_name + "\n"
+                #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
+                # attachments is no longer always a DAList
+                # TODO / FUTURE we could let this handle multiple forms at once
+                # content =+ "---\n"
+                # content += "code: |\n"
+                # for attachment in self.attachments:
+                # Put in some code to give each attachment its own variable name
+                for attachment in self.attachments: # We will only have ONE attachment
+                    # TODO: if we really use multiple attachments, we need to change this
+                    # So there is a unique variable name
+                    content += "---\n"
+                    if hasattr(self, 'interview_label'):
+                      content += "need: " + self.interview_label + "\n"
+                    content += "attachment:\n"
+                    content += "    variable name: " + self.attachment_variable_name + "\n"
+                    content += "    name: " + oneline(attachment.name) + "\n"
+                    content += "    filename: " + varname(attachment.name) + "\n"
+                    if attachment.type == 'md':
+                        content += "    content: " + oneline(attachment.content) + "\n"
+                    elif attachment.type == 'pdf':
+                        content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
+                        self.templates_used.add(attachment.pdf_filename)
+                        content += "    fields: " + "\n"
+                        # for field, default, pageno, rect, field_type in attachment.fields:
+                        # Switching to using a DAField, rather than a raw PDF field
+                        for field in attachment.fields:
+                            # Lets use the list-style, not dictionary style fields statement
+                            # To avoid duplicate key error
+                            if hasattr(field, 'field_data_type') and field.field_data_type == 'date':
+                              content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
+                            elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
+                              content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
+                            else:
+                              # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
+                              content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
+                    elif attachment.type == 'docx':
+                        content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
+                        self.templates_used.add(attachment.docx_filename)
                 done_with_content = True
             if not done_with_content:
                 content += "fields:\n"
@@ -304,15 +307,30 @@ class DAQuestion(DAObject):
             content += "id: " + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
+            content += "  # It was generated from interview_generator.py as an 'interview order' type question."
             content += "  # We list one variable from each screen here, in order to control the order of questions\n"
             content += "  # To change the order, you can rearrange, or make conditional. If you make conditional here,\n"
             content += "  # You must also make sure it's conditional in the attachment block, or assign each variable \n"
             content += "  # on the optional screen to DAEmpty() \n"
             content += "  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
-            for field in self.logic_list: 
-              content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
-            content += "  basic_questions_user_fields \n" # trigger asking the user details at the end of the interview         
+            signatures = []
+            for field in self.logic_list:
+              if field.endswith('.signature'): # save the signatures for the end
+                signatures.append(field)
+              else:
+                content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen                
+            content += "  # By default, we'll mark any un-filled fields as DAEmpty(). This helps avoid errors if you intentionally hide a logic branch or mark a question not required\n"
+            content += "  # Comment out the line below if you don't want this behavior. \n"
+            content += "  mark_unfilled_fields_empty(interview_metadata[\"" + self.interview_label + "\"])\n"
+            content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen'
+            content += "  basic_questions_signature_flow\n"
+            for signature_field in signatures:
+              content += "  " + signature_field + "\n"
+            # content += "  # Below we run functions from virtual_court_support.py to selectively trigger the built-in fields in the order we want\n"
+            # content += "  trigger_user_questions(interview_metadata[\"" + self.interview_label + "\"])\n"
+            # content += "  trigger_court_questions(interview_metadata[\"" + self.interview_label + "\"])\n"
+            # content += "  basic_questions_user_fields \n" # trigger asking the user details at the end of the interview
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"
@@ -345,9 +363,10 @@ class DAQuestion(DAObject):
         elif self.type == 'metadata_code':
             content += "mandatory: True\n" # We need this block to run every time to build our metadata variable
             content += "code: |\n"
-            content += "  if not defined('interview_metadata'):\n"
-            content += "    interview_metadata = {}\n"
-            content += "  interview_metadata['" + self.interview_label + "'] = {\n"
+            content += "  interview_metadata # make sure we initialize the object\n"
+            content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
+            content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
+            content += "  interview_metadata['" + self.interview_label + "'].update({\n"
             content += "    'title': '" + oneline(self.title) + "',\n"
             content += "    'short title': '" + oneline(self.short_title) + "',\n"
             content += "    'description': '" + oneline(self.description) + "',\n"
@@ -368,13 +387,13 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',"
-            content += "  }\n"
+            content += "  })\n"
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
                 content += " - " + str(module) + "\n"
         elif self.type == 'variables':
-          content += "variable name: " + str(self).partition(' ')[0]  + "\n" # 'field_list' + "\n"
+          content += "variable name: interview_metadata['"+ self.interview_label +"']['" + str(self).partition(' ')[0] + "']"  + "\n" # 'field_list' + "\n"
           content += "data:" + "\n"
           for field in self.field_list:
             content += "  - variable: " + varname(field.variable) + "\n"
