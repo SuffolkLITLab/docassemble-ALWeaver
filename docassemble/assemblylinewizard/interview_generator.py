@@ -745,8 +745,17 @@ def map_names(label):
   # For the sake of time, this is the fastest way to get around it
   if is_a_plural(label):
     return label
+  
+  # Get rid of > 2 underscores typo
+  label = re.sub('_{3,}', '__', label)
 
-  label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', label)
+  # This label is appearing multiple times
+  # Doesn't get rid of > 2 underscores typo
+  label_groups = re.search(rf'{prefix_people}(\d*)(.*)__\d+$', label)
+  if (label_groups is None):
+    # First time this label has appeared
+    label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', label)
+
   # If no matches to automatable labels were found,
   # just use the label as it is
   if (label_groups is None or label_groups[1] == ''):
@@ -856,8 +865,12 @@ def is_a_plural(label):
 tests = [
     # Reserved
     "user",
+    "user__2",
+    "user___2",
     "user_name_first",
     "user1_name_first",
+    "user1_name_first__34",
+    "user1_name_first____34",
     "user25_name_first",
     "user_name_full",
     "user1_name_full",
