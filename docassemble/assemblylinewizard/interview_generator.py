@@ -722,7 +722,7 @@ def map_names(var_name):
     (start_people_regex_string + r"address_state$", r"\1.address.state"),
     (start_people_regex_string + r"address_zip$", r"\1.address.zip"),
     (start_people_regex_string + r"address_on_one_line$", r"\1.address.on_one_line()"),
-    (start_people_regex_string + r"address_city_state_zip$", r"\1.address.city + ', ' + \1.address.state + ' ' + \1.address.zip"),
+    (start_people_regex_string + r"address_city_state_zip$", r"\1.address.line_two()"),
     (start_people_regex_string + r"signature$", r"\1.signature"),
     (start_people_regex_string + r"name_full$", r"str(\1)"),
 
