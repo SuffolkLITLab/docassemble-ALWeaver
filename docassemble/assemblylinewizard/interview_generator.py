@@ -323,7 +323,7 @@ class DAQuestion(DAObject):
             content += "  # By default, we'll mark any un-filled fields as DAEmpty(). This helps avoid errors if you intentionally hide a logic branch or mark a question not required\n"
             content += "  # Comment out the line below if you don't want this behavior. \n"
             content += "  mark_unfilled_fields_empty(interview_metadata[\"" + self.interview_label + "\"])\n"
-            content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen'
+            content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
               content += "  " + signature_field + "\n"
