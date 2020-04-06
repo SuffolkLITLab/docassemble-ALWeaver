@@ -716,10 +716,6 @@ def map_names(label):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
-
-  # Not yet handled:
-  # - plurals
-  # - multiple appearances
   
   prefix_people = (r"^(user"  # deprecated, but still supported
   + r"|other_party"  # deprecated, but still supported
