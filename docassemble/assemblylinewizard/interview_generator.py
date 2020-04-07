@@ -185,6 +185,10 @@ class DAFieldList(DAList):
         return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
 class DAQuestion(DAObject):
+    # TODO: subclass question or come up with other types for things
+    # that aren't really questions instead of giant IF block
+    # TODO: separate out some of the code specific to the assembly-line project
+    # into its own module or perhaps interview YAML
     def init(self, **kwargs):
         self.field_list = DAFieldList()
         self.templates_used = set()
@@ -202,6 +206,7 @@ class DAQuestion(DAObject):
         content = ''
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
+        # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
@@ -220,7 +225,7 @@ class DAQuestion(DAObject):
                     done_with_content = True
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'): # this tells us its the ending screen
-                  content += "buttons:\n  - Exit: exit\n  - Restart: restart\n"
+                  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
                   content += "attachment code: " + self.attachment_variable_name + "\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
@@ -304,6 +309,8 @@ class DAQuestion(DAObject):
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
         elif self.type == 'interview order':
+            # TODO: refactor this. Too much of it is assembly-line specific code
+            # move into the interview YAML or a separate module/subclass
             content += "id: " + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
@@ -361,6 +368,9 @@ class DAQuestion(DAObject):
               for category in self.other_categories.split(','):
                 content += "    - " + oneline(category) + "\n"
         elif self.type == 'metadata_code':
+            # TODO: this is begging to be refactored into
+            # just dumping out a dictionary in json-like format
+            # rather than us hand-writing the data structure
             content += "mandatory: True\n" # We need this block to run every time to build our metadata variable
             content += "code: |\n"
             content += "  interview_metadata # make sure we initialize the object\n"
@@ -386,12 +396,38 @@ class DAQuestion(DAObject):
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
-              content += "    'typical role': '" + oneline(self.typical_role) + "',"
+              content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
+            if hasattr(self, 'built_in_fields_used'):
+              content += "    'built_in_fields_used': [\n"
+              for field in self.built_in_fields_used:
+                content += "      {'variable': '" + varname(field.variable) + "',\n"
+                if hasattr(field, 'field_type'):
+                  content += "      'field_type': '" + field.field_type + "',\n"             
+                if hasattr(field, 'field_data_type'):
+                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
+                content += "      },\n"
+              content += "      ],\n"
+            if hasattr(self, 'fields'):
+              content += "    'fields': [\n"
+              for field in self.fields:
+                content += "      {'variable': '" + varname(field.variable) + "',\n"
+                if hasattr(field, 'field_type'):
+                  content += "      'field_type': '" + field.field_type + "',\n"             
+                if hasattr(field, 'field_data_type'):
+                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
+                content += "      },\n"                  
+              content += "      ],\n"
             content += "  })\n"
+            #content += "Trigger the data blocks that list the fields we're using \n"
+            #content += "interview_medatata['"+ self.interview_label +  "']['built_in_fields_used']\n"
+            #content += "interview_metadata['"+ self.interview_label +  "']['fields']\n"
+
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
                 content += " - " + str(module) + "\n"
+        # The variable block probably is unneeded now
+        # We moved this content into the metadata_code block
         elif self.type == 'variables':
           content += "variable name: interview_metadata['"+ self.interview_label +"']['" + str(self).partition(' ')[0] + "']"  + "\n" # 'field_list' + "\n"
           content += "data:" + "\n"
