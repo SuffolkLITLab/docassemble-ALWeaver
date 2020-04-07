@@ -18,9 +18,9 @@ objects:
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
-  - built_in_fields_used: DAFieldList
-  - fields: DAFieldList
-  - signature_fields: DAFieldList
+  - built_in_fields_used: DAFieldList.using(gathered=True)
+  - fields: DAFieldList.using(gathered=True)
+  - signature_fields: DAFieldList.using(gathered=True)
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
 ---
@@ -192,44 +192,42 @@ help: |
 comment: |
   Get the list of fields
 code: |
-  built_in_fields_used.gathered = True
-  signature_fields.gathered = True
-  fields.gathered = True
-  
   all_fields = template_upload.get_pdf_fields()
-  # the_fields = [field[0] for field in all_fields]
-  
-  #fields.auto_gather = False
-  #signature_fields.auto_gather = False
-  # Determine the correct list to put this field in
 ---
+comment: |
+  Convert the PDF fields into Docassemble fields
 code: |
+  # Probably all of this should move into a class
   for pdf_field_tuple in all_fields:
-    pdf_field_name = pdf_field_tuple[0] # first element in the tuple is the name
-    # Skip the built-in variable names that we'll have pre-written questions for    
-    # map_names checks if its a field we're handling by renaming from the PDF
+    pdf_field_name = pdf_field_tuple[0]
+    # Check to see if we should skip this variable--i.e., did we
+    # transform this variable or is it another
+    # field handled in basic-questions.yml
     if map_names(pdf_field_name) != pdf_field_name or pdf_field_name in variables_to_skip:
       new_field = built_in_fields_used.appendObject()
     elif pdf_field_tuple[4] == '/Sig':
       new_field = signature_fields.appendObject()
     else:
       new_field = fields.appendObject()
-      
+    
+    # This function determines what type of variable
+    # we're dealing with
     fill_in_field_attributes(new_field, pdf_field_tuple)    
 
   get_fields = True
-
 ---
 code: |
   interview.field_list = fields
 ---
 code: |
+  # Build the list of includes
   include_question = interview.questions.initializeObject('includes')
   include_question.type = 'includes'
   include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
   add_includes = True
 ---
 code: |
+  # Create an introduction question
   intro_question = interview.questions.initializeObject('intro')
   intro_question.type = 'interstitial'
   intro_question.comment = "This question is used to introduce your interview. Please customize"
@@ -238,26 +236,9 @@ code: |
   intro_question.subquestion_text = interview.description
   add_draft_intro_screen = True
 ---
-field: debug
-question: |
-  Debug
-subquestion: |
-  `${all_fields}`
-  
-  ${fields}
----
-field: debug_questions
-question: |
-  Question status
-subquestion: |
-  ### A heading
-  % for question in questions:
-  
-  ${indent_by(question.source(),4)}
-  
-  % endfor
----
 code: |
+  # Build the dictionary of info we want the interview
+  # to know about itself.
   metadata.type = 'metadata_code'
   metadata.interview_label = interview_label
   metadata.interview = interview
@@ -271,11 +252,14 @@ code: |
   metadata.categories = interview.categories
   metadata.other_categories = interview.other_categories if defined('interview.other_categories') else None
   metadata.typical_role = interview.typical_role
+  metadata.built_in_fields_used = built_in_fields_used
+  metadata.fields = fields
   interview.blocks.append(metadata)
   set_metadata = True
 ---
 code: |
-  # Build the code representing the details of each field
+  # Create code for the question that we use to label
+  # each field.
   
   field_types = ['yesno','text','area']  
   field_data_types = ['text','integer','number','currency','date','email']
@@ -324,16 +308,13 @@ subquestion: |
   We have tried to guess the type of field from the name of the variable.
 fields:
   - code: field_question
-#---
-#code: |
-#  import copy
-#  
-#  fields_still_unassigned = [field for field in fields]
 ---
 code: |
   questions.there_are_any = True
 ---
 code: |
+  # We keep adding questions until ALL of the fields have been
+  # assigned.
   questions.there_is_another = len(questions.all_fields_used()) < len(fields)
 ---
 question: |
@@ -356,42 +337,34 @@ fields:
       can leave empty if they don't have anything to say for that question.
   - Select the fields that will appear on this screen: questions[i].field_list
     datatype: object_checkboxes
+    # We show all of the fields, but exclude the ones present
+    # anywhere in the list of questions we already drafted
     exclude: questions.all_fields_used()
     choices: fields
-    # choices: fields_still_unassigned
     object labeler: |
       lambda y: y.variable + ' (' + y.label + ')'
-#validation code: |
-#  for field in questions[i].field_list:
-#    fields_still_unassigned.remove(field)
 ---
 code: |
+  # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
   questions[i].type = 'question'
 ---
 code: |
+  # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
   fields[i].has_label = True
----
-code: |
-  interview.questions.initializeObject('field_list',DAQuestion)
-  interview.questions['field_list'].type = 'variables'
-  interview.questions['field_list'].field_list = interview.field_list + signature_fields
-  interview.questions['field_list'].interview_label = interview_label
-  interview.questions.initializeObject('built_in_fields_used', DAQuestion)
-  interview.questions['built_in_fields_used'].type = "variables"
-  interview.questions['built_in_fields_used'].field_list = built_in_fields_used
-  interview.questions['built_in_fields_used'].interview_label = interview_label
-  add_variable_list = True
 ---
 code: |
   for question in questions:
     interview.questions[question.question_text] = question
     question.type = "question"
-  add_variable_list
+  # add_variable_list # We moved this into the metadata block
   add_questions_to_interview = True
 ---
 code: |
   # Build the mandatory code block that will control question flow
   logic_list = []
+  logic_list.append('# Set the preferred/allowed courts for this interview')
+  logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
+  logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   for question in questions:
     if question.type == 'question':
       # Add the first field in every question to our logic tree
@@ -399,9 +372,11 @@ code: |
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
         logic_list.append(varname(question.field_list[0].variable))
       else:
-        logic_list.append(varname(question.question_text))
+        logic_list.append(varname(question.question_text))              
   for field in built_in_fields_used:
     logic_list.append(map_names(field.variable))
+  # TODO: some of the logic in interview_generator.py should
+  # probably be moved here, or another module file
   interview.questions.initializeObject('main code block')
   interview.questions['main code block'].type = 'interview order'
   interview.questions['main code block'].logic_list = logic_list
@@ -409,16 +384,25 @@ code: |
   add_logic_tree = True  
 ---
 code: |
+  # This interview_label field is used throughout the 
+  # generated interview to let us store interview-specific
+  # metadata
   interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)) + str(sequence).zfill(4)
 ---
-comment: |
-  :download: ${attachment_download_html(interview_download.url_for(), "Download")}
+code: |
+  attachment_variable_name = interview_label + '_attachment'
+---
+comment: | 
 event: show_interview
 question: |
-  Interview contents
+  All done
 subquestion: |
 
+  ### Please download the generated interview below
+  
   [:download: Download](${interview_download.url_for(attachment=True)})
+  
+  ### Preview of Docassemble interview file
   
   ${indent_by(interview.source(),4)}
   
@@ -433,15 +417,12 @@ code: |
   attachment = attachments.appendObject()
   attachment.type = 'pdf'
   attachment.pdf_filename = template_upload[0].filename
-  # attachment.fields = [field.variable for field in built_in_fields_used + fields + signature_fields]
-  # attachment.fields = all_fields # the raw info from the PDF TODO: improve
   attachment.fields = built_in_fields_used + fields + signature_fields
   attachment.name = metadata.short_title
   attachments.gathered = True
 ---
 code: |
-  # We're making a second version of the PDF attachment that doesn't fill
-  # in the signature field on the PDF
+  # We're making a preview version of the PDF attachment
   preview_attachment = preview_attachments.appendObject()
   preview_attachment.type = 'pdf'
   preview_attachment.pdf_filename = template_upload[0].filename
@@ -452,9 +433,7 @@ code: |
   created_preview_attachment = True
 ---
 code: |
-  attachment_variable_name = interview_label + '_attachment'
----
-code: |
+  # This is the question that goes with the preview attachment
   preview_form = interview.questions.initializeObject('preview_form')
   preview_form.type = 'question'
   preview_form.question_text = 'Placeholder preview screen'
@@ -472,15 +451,23 @@ code: |
   preview_form.field_list[0].question = preview_form
   preview_form.field_list.gathered = True
 
+  # This is the question that goes with the regular attachment
   end_question = interview.questions.initializeObject('all_done')
   end_question.type = 'question'
   end_question.question_text = 'Placeholder download screen'
-  end_question.subquestion_text = 'Placeholder'
+  # Add a preview of the form to the draft ending screen
+  end_question.subquestion_text = 'Placeholder\n\n'
+  end_question.subquestion_text += '### Next steps\n\n'
+  end_question.subquestion_text += '1. Step 1\n'
+  end_question.subquestion_text += '1. Step 2\n\n'
+  end_question.subquestion_text += 'Below is a preview of your form.\n\n'
+  end_question.subquestion_text += '${' + attachment_variable_name +' }'
   end_question.is_mandatory = True # Keep this in so you can run the interview right away
   # We added this feature -- a variable to reference the attachment with
   end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview
   end_question.interview_label = interview_label
+  # This only gets the one regular PDF attachment
   end_question.attachments = attachments
   end_question.field_list.appendObject()
   end_question.field_list[0].field_type = 'end_attachment'
