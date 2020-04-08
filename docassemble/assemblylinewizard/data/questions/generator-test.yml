@@ -1,0 +1,20 @@
+# Get output from tests. I hope.
+mandatory: True
+code: |
+  # What do I pass to this
+  map_names_tests = TestMapNames()
+  ran_tests
+---
+modules:
+  - .generator_test
+---
+#  ${ map_names_tests.broken_test() }
+event: ran_tests
+question: map_names() tests
+subquestion: |
+  Single individuals errors: ${ map_names_tests.test_single_individuals() }
+  
+  Multiple appearences errors: ${ map_names_tests.test_multiple_appearances() }
+  
+  Send individual errors: ${ map_names_tests.test_multiple_individuals() }
+---
