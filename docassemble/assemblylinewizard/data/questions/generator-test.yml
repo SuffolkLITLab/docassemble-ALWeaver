@@ -1,12 +1,12 @@
-# Get output from tests. I hope.
+# Get output from tests.
+modules:
+  - .map_names_test
+---
 mandatory: True
 code: |
   # What do I pass to this
   map_names_tests = TestMapNames()
   ran_tests
----
-modules:
-  - .generator_test
 ---
 event: ran_tests
 question: map_names() tests
