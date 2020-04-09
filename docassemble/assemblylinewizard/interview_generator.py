@@ -776,7 +776,7 @@ def map_names(label):
 
   # For the sake of time, this is the fastest way to get around it
   if is_a_plural(label):
-    return label
+    return 'str(' + label + ')'
   
   # Get rid of > 2 underscores typo
   label = re.sub('_{3,}', '__', label)
@@ -860,7 +860,17 @@ def map_names(label):
     # Has to be done after everything else has been tried
     suffix = re.sub(r'^_', '.', suffix)
 
-  return start + index + suffix
+  combo = start + index + suffix
+  # if (combo == label): result = 'str(' + combo + ')'
+  # else: result = combo
+
+  has_no_attributes = combo.find(".") == -1
+  is_docket_number = combo.startswith("docket_numbers[")
+  if (has_no_attributes and not is_docket_number):
+    result = 'str(' + combo + ')'
+  else: result = combo
+
+  return result
 
 # Return label digit as the correct syntax for an index
 def indexify(digit):
@@ -883,13 +893,12 @@ all_plurals = [
   'debt_collectors',
   'creditors',
   'courts',
-  'docket_numbers',
+  'docket_numbers',  # Not a person
   'other_parties',
   'children',
   'guardians_ad_litem',
   'witnesses',
 ]
-
 def is_a_plural(label):
   return label in all_plurals
 
@@ -940,17 +949,18 @@ tests = [
     "defendants",
     "petitioners",
     "respondents",
-    # start is reserved
     "user_address2_zip",
+    # Reserved start
     "user_address_street2_zip",
     # Not reserved
     "my_user_name_last",
+    "foo",
 ]
 # tests = ["user_name_first","user25_name_last","other_party_name_full" ]
 #if __name__ == 'main':
 
 for test in tests:
   print('~~~~~~~~~~~')
-  print(test, "=>", map_names(test))
+  print('"' + test + '":', '"' + map_names(test) + '",')
   # map_names(test)
 '''
