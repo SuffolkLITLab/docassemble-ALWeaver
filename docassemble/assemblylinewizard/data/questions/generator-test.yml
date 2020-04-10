@@ -1,0 +1,56 @@
+# Get output from tests.
+modules:
+  - .map_names_test
+---
+mandatory: True
+code: |
+  # What do I pass to this
+  map_names_tests = TestMapNames()
+  ran_tests
+---
+event: ran_tests
+question: map_names() tests
+subquestion: |
+  #### Selected scenarios
+
+  <%
+      results = map_names_tests.mapped_tests()
+      failed = results["errored"]
+      passed = results["passed"]
+  %>
+
+  Failed: ${ len(failed) }[BR]
+  Passed: ${ len(passed) }
+
+  ##### Failed:
+
+  % for one_test in failed:
+    <strong>${one_test["test"]}:</strong>[BR]${one_test["result"]}
+  % endfor
+
+  ##### Passed:
+
+  % for one_test in passed:
+    ${one_test}
+  % endfor
+---
+comment: |
+  #  ${ map_names_tests.broken_test() }
+  #  Single individuals errors: ${ map_names_tests.test_single_individuals() }
+  #  Multiple appearences errors: ${ map_names_tests.test_multiple_appearances() } 
+  #  Send individual errors: ${ map_names_tests.test_multiple_individuals() }
+  #  ${ map_names_tests.mapped_tests() }
+  # { test: scenario_input, result: error }
+  Failed: ${ len(failed) }
+  Passed: ${ len(passed) }
+  
+  Failed:
+  % for one_test in passed:
+    **${one_test["test"]}:**[BR]${one_test["result"]}[BR][BR]
+  % endfor
+  
+  Passed:
+  % for one_test in passed:
+    ${one_test}[BR]
+  % endfor
+---
