@@ -185,6 +185,8 @@ class DAFieldList(DAList):
         return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
 class DAQuestion(DAObject):
+    '''Builds the string for each question block with its attributes/atoms.'''
+
     # TODO: subclass question or come up with other types for things
     # that aren't really questions instead of giant IF block
     # TODO: separate out some of the code specific to the assembly-line project
@@ -203,7 +205,9 @@ class DAQuestion(DAObject):
     #     var_list = sorted([field.variable for field in self.field_list])
     #     return [var for var in sorted(varsinuse['undefined_names']) if var not in var_list and var != self.interview.target_variable]
     def source(self, follow_additional_fields=True):
-        content = ''
+        content = 'id: download_page\n'
+        if hasattr(self, 'progress'):
+            content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
         # TODO: refactor. Too many things shoved into "question"
