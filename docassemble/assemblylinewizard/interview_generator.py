@@ -20,7 +20,7 @@ import types
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline','DAQuestionList','map_names','fill_in_field_attributes','attachment_download_html']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -752,137 +752,8 @@ def project_name(name):
 
 import re
 
-def map_names(label):
-  """For a given set of specific cases, transform a
-  PDF field name into a standardized object name
-  that will be the value for the attachment field."""
-  
-  prefix_people = (r"^(user"  # deprecated, but still supported
-  + r"|other_party"  # deprecated, but still supported
-  + r"|child"
-  + r"|plaintiff"
-  + r"|defendant"
-  + r"|petitioner"
-  + r"|respondent"
-  + r"|spouse"
-  + r"|parent"
-  + r"|guardian"
-  + r"|caregiver"
-  + r"|attorney"
-  + r"|translator"
-  + r"|debt_collector"
-  + r"|creditor"
-  + r"|guardian_ad_litem"
-  + r"|witness"
-  + r"|court"
-  + r"|docket_number"
-  + r")")
-
-  # For the sake of time, this is the fastest way to get around it
-  if is_a_plural(label):
-    return 'str(' + label + ')'
-  
-  # Get rid of > 2 underscores typo
-  label = re.sub('_{3,}', '__', label)
-
-  # This label is appearing multiple times
-  # Doesn't get rid of > 2 underscores typo
-  label_groups = re.search(rf'{prefix_people}(\d*)(.*)__\d+$', label)
-  if (label_groups is None):
-    # First time this label has appeared
-    label_groups = re.search(rf'{prefix_people}(\d*)(.*)$', label)
-
-  # If no matches to automatable labels were found,
-  # just use the label as it is
-  if (label_groups is None or label_groups[1] == ''):
-    return label
-
-  pluralized = {
-    'user': 'users',
-    'plaintiff': 'plaintiffs',
-    'defendant': 'defendants',
-    'petitioner': 'petitioners',
-    'respondent': 'respondents',
-    'spouse': 'spouses',
-    'parent': 'parents',
-    'guardian': 'guardians',
-    'caregiver': 'caregivers',
-    'attorney': 'attorneys',
-    'translator': 'translators',
-    'debt_collector': 'debt_collectors',
-    'creditor': 'creditors',
-    'court': 'courts',
-    'docket_number': 'docket_numbers',
-    # Non-s plurals
-    'other_party': 'other_parties',
-    'child': 'children',
-    'guardian_ad_litem': 'guardians_ad_litem',
-    'witness': 'witnesses',
-  }
-
-  base = label_groups[1]
-  start = pluralized[base]
-
-  digit = label_groups[2]
-  index = indexify(digit)
-
-  # Any reason to not make all suffixes available to everyone?
-  suffix_map = {
-    '_name': "",  # full name
-    '_name_full': "",  # full name
-    '_name_first': ".name.first",
-    '_name_middle': ".name.middle",
-    '_name_last': ".name.last",
-    '_name_suffix': ".name.suffix",
-    '_gender': ".gender",
-    # '_gender_male': ".gender == 'male'",
-    # '_gender_female': ".gender == 'female'",
-    '_birthdate': ".birthdate.format()",
-    '_age': ".age_in_years()",
-    '_email': ".email",
-    '_phone': ".phone_number",
-    '_address_block': ".address.block()",
-    '_address_street': ".address.address",
-    '_address_street2': ".address.unit",
-    '_address_city': ".address.city",
-    '_address_state': ".address.state",
-    '_address_zip': ".address.zip",
-    '_address_on_one_line': ".address.on_one_line()",
-    '_address_one_line': ".address.on_one_line()",
-    '_address_city_state_zip': ".address.line_two()",
-    '_signature': ".signature",
-    # Court-specific
-    # '_name_short': not implemented,
-    # '_division': not implemented,
-    '_address_county': ".address.county",
-    '_county': ".address.county",
-  }
-
-  suffix = label_groups[3]
-  try: suffix = suffix_map[suffix]
-  except KeyError:
-    # Has to be done after everything else has been tried
-    suffix = re.sub(r'^_', '.', suffix)
-
-  combo = start + index + suffix
-  # if (combo == label): result = 'str(' + combo + ')'
-  # else: result = combo
-
-  has_no_attributes = combo.find(".") == -1
-  is_docket_number = combo.startswith("docket_numbers[")
-  if (has_no_attributes and not is_docket_number):
-    result = 'str(' + combo + ')'
-  else: result = combo
-
-  return result
-
-# Return label digit as the correct syntax for an index
-def indexify(digit):
-  if (digit == ''): return '[0]'
-  else: return '[' + digit + '-1]'
-
 # Part of handling plural labels
-all_plurals = [
+reserved_var_plurals = [
   'users',
   'plaintiffs',
   'defendants',
@@ -903,12 +774,213 @@ all_plurals = [
   'guardians_ad_litem',
   'witnesses',
 ]
-def is_a_plural(label):
-  return label in all_plurals
+
+reserved_prefixes = (r"^(user"  # deprecated, but still supported
++ r"|other_party"  # deprecated, but still supported
++ r"|child"
++ r"|plaintiff"
++ r"|defendant"
++ r"|petitioner"
++ r"|respondent"
++ r"|spouse"
++ r"|parent"
++ r"|guardian"
++ r"|caregiver"
++ r"|attorney"
++ r"|translator"
++ r"|debt_collector"
++ r"|creditor"
++ r"|guardian_ad_litem"
++ r"|witness"
++ r"|court"
++ r"|docket_number"
++ r")")
+
+reserved_pluralizers_map = {
+  'user': 'users',
+  'plaintiff': 'plaintiffs',
+  'defendant': 'defendants',
+  'petitioner': 'petitioners',
+  'respondent': 'respondents',
+  'spouse': 'spouses',
+  'parent': 'parents',
+  'guardian': 'guardians',
+  'caregiver': 'caregivers',
+  'attorney': 'attorneys',
+  'translator': 'translators',
+  'debt_collector': 'debt_collectors',
+  'creditor': 'creditors',
+  'court': 'courts',
+  'docket_number': 'docket_numbers',
+  # Non-s plurals
+  'other_party': 'other_parties',
+  'child': 'children',
+  'guardian_ad_litem': 'guardians_ad_litem',
+  'witness': 'witnesses',
+}
+
+# Any reason to not make all suffixes available to everyone?
+reserved_suffixes_map = {
+  '_name': "",  # full name
+  '_name_full': "",  # full name
+  '_name_first': ".name.first",
+  '_name_middle': ".name.middle",
+  '_name_last': ".name.last",
+  '_name_suffix': ".name.suffix",
+  '_gender': ".gender",
+  # '_gender_male': ".gender == 'male'",
+  # '_gender_female': ".gender == 'female'",
+  '_birthdate': ".birthdate.format()",
+  '_age': ".age_in_years()",
+  '_email': ".email",
+  '_phone': ".phone_number",
+  '_address_block': ".address.block()",
+  '_address_street': ".address.address",
+  '_address_street2': ".address.unit",
+  '_address_city': ".address.city",
+  '_address_state': ".address.state",
+  '_address_zip': ".address.zip",
+  '_address_on_one_line': ".address.on_one_line()",
+  '_address_one_line': ".address.on_one_line()",
+  '_address_city_state_zip': ".address.line_two()",
+  '_signature': ".signature",
+  # Court-specific
+  # '_name_short': not implemented,
+  # '_division': not implemented,
+  '_address_county': ".address.county",
+  '_county': ".address.county",
+}
+
+#def labels_to_pdf_vars(label):
+def map_names(label):
+  """For a given set of specific cases, transform a
+  PDF field name into a standardized object name
+  that will be the value for the attachment field."""
+
+  # Get rid of all underscores
+  # Doesn't matter if it's a first appearance or more
+  label = remove_multiple_appearance_indicator(label)
+
+  # For the sake of time, this is the fastest way to get around something being plural
+  if is_a_plural(reserved_var_plurals, label):
+    return get_stringifiable_version(label)
+  
+  # Break up label into its parts
+  label_groups = get_reserved_label_parts(reserved_prefixes, label)
+
+  # If no matches to automateable labels were found,
+  # just use the label as it is
+  if (label_groups is None or label_groups[1] == ''):
+    return label
+
+  # With reserved words, we're always using an index
+  # of the plural version of the prefix of the label
+  prefix = label_groups[1]
+  var_start = pluralize_base(reserved_pluralizers_map, prefix)
+
+  digit = label_groups[2]
+  index = indexify(digit)
+
+  # Here's where we split to avoid conflict with generator
+
+  suffix = label_groups[3]
+  suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
+
+  to_join = [var_start, index, suffix_as_attribute]
+  combo = reconstruct_var_name(to_join)
+
+  # Has to happen after docket number has been created
+  if (should_be_stringified(combo)):
+    result = get_stringifiable_version(combo)
+  else: result = combo
+
+  return result
+
+
+############################
+#  Identify reserved suffixes
+############################
+def is_reserved_label(label):
+  is_reserved = False
+
+  # Get rid of all underscores
+  # Doesn't matter if it's a first appearance or more
+  label = remove_multiple_appearance_indicator(label)
+
+  # For the sake of time, this is the fastest way to get around something being plural
+  if is_a_plural(reserved_var_plurals, label):
+    return True
+  
+  # Break up label into its parts
+  label_groups = get_reserved_label_parts(reserved_prefixes, label)
+
+  # If no matches to automateable labels were found,
+  # just use the label as it is
+  if (label_groups is None or label_groups[1] == ''):
+    return False
+
+  suffix = label_groups[3]
+  if (suffix == ""): return True
+  is_reserved = is_reserved_suffix(reserved_suffixes_map, suffix)
+
+  return is_reserved
+
+def is_reserved_suffix(suffix_map, suffix):
+  # Search through reserved suffixes to see if
+  # its end matches a reserved suffix
+  try:
+    suffix = suffix_map[suffix]
+    return True
+  except KeyError:
+    return False
+
+
+############################
+#  Label processing helper functions
+############################
+def remove_multiple_appearance_indicator(label):
+  return re.sub('_{2,}\d+', '', label)
+
+def is_a_plural(plurals, label):
+  return label in plurals
+
+def get_stringifiable_version(label):
+  return 'str(' + label + ')'
+
+def get_reserved_label_parts(prefixes, label):
+  return re.search(rf'{prefixes}(\d*)(.*)', label)
+
+def pluralize_base(pluralizers_map, key):
+  return pluralizers_map[key]
+
+# Return label digit as the correct syntax for an index
+def indexify(digit):
+  if (digit == ''): return '[0]'
+  else: return '[' + digit + '-1]'
+
+def turn_any_suffix_into_an_attribute(suffix_map, suffix):
+  # If this can be turned int a reserved suffix,
+  # that suffix is used
+  try: suffix = suffix_map[suffix]
+  # Otherwise, the suffix is not transformed. It's used
+  # as it is, except turned into an attribute
+  except KeyError:
+    suffix = re.sub(r'^_', '.', suffix)
+  return suffix
+
+def reconstruct_var_name(to_join):
+  return "".join(to_join)
+
+def should_be_stringified(var_name):
+  has_no_attributes = var_name.find(".") == -1
+  is_docket_number = var_name.startswith("docket_numbers[")
+  return has_no_attributes and not is_docket_number
+
 
 '''
 tests = [
     # Reserved
+    "plaintiffs__3",
     "user",
     "user__2",
     "user___2",
@@ -953,8 +1025,8 @@ tests = [
     "defendants",
     "petitioners",
     "respondents",
-    "user_address2_zip",
     # Reserved start
+    "user_address2_zip",
     "user_address_street2_zip",
     # Not reserved
     "my_user_name_last",
@@ -965,6 +1037,6 @@ tests = [
 
 for test in tests:
   print('~~~~~~~~~~~')
-  print('"' + test + '":', '"' + map_names(test) + '",')
-  # map_names(test)
+  print('"' + test + '":', '"' + labels_to_pdf_vars(test) + '",')
+  # labels_to_pdf_vars(test)
 '''
