@@ -204,7 +204,7 @@ code: |
     # field handled in basic-questions.yml),
     # a signature field, or an arbitrary field.
     is_reserved_name = is_reserved_label(pdf_field_name)
-    if not is_reserved_name or pdf_field_name in variables_to_skip:
+    if is_reserved_name or pdf_field_name in variables_to_skip:
       new_field = built_in_fields_used.appendObject()
     elif pdf_field_tuple[4] == '/Sig':
       new_field = signature_fields.appendObject()
