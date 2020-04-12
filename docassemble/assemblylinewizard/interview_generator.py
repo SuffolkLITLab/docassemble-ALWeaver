@@ -205,7 +205,6 @@ class DAQuestion(DAObject):
     #     var_list = sorted([field.variable for field in self.field_list])
     #     return [var for var in sorted(varsinuse['undefined_names']) if var not in var_list and var != self.interview.target_variable]
     def source(self, follow_additional_fields=True):
-        content = 'id: download_page\n'
         if hasattr(self, 'progress'):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
