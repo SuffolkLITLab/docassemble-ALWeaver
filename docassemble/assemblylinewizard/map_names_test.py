@@ -38,6 +38,9 @@ if __name__ == '__main__':
 
 # Some basic test strings with desired results
 scenarios = {
+  # Reserved whole words
+  "signature_date": "signature_date",
+  
   # Reserved endings
   "user1": "str(users[1-1])",
   "user2": "str(users[2-1])",
