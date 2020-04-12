@@ -750,6 +750,11 @@ def project_name(name):
 
 import re
 
+# Words that are reserved exactly as they are
+reserved_whole_words = [
+  'signature_date',  # this is the plural version of this?
+]
+
 # Part of handling plural labels
 reserved_var_plurals = [
   'users',
@@ -790,6 +795,7 @@ reserved_prefixes = (r"^(user"  # deprecated, but still supported
 + r"|witness"
 + r"|court"
 + r"|docket_number"
++ r"|signature_date"
 # Can't find a way to make order not matter here
 # without making everything in general more messy
 + r"|guardian_ad_litem"
@@ -861,6 +867,9 @@ def map_names(label):
   # Doesn't matter if it's a first appearance or more
   label = remove_multiple_appearance_indicator(label)
 
+  if exactly_matches_reserved_word(reserved_whole_words, label):
+    return label
+
   # For the sake of time, this is the fastest way to get around something being plural
   if is_a_plural(reserved_var_plurals, label):
     return get_stringifiable_version(label)
@@ -907,6 +916,9 @@ def is_reserved_label(label):
   # Doesn't matter if it's a first appearance or more
   label = remove_multiple_appearance_indicator(label)
 
+  if exactly_matches_reserved_word(reserved_whole_words, label):
+    return True
+
   # For the sake of time, this is the fastest way to get around something being plural
   if is_a_plural(reserved_var_plurals, label):
     return True
@@ -940,6 +952,9 @@ def is_reserved_suffix(suffix_map, suffix):
 ############################
 def remove_multiple_appearance_indicator(label):
   return re.sub(r'_{2,}\d+', '', label)
+
+def exactly_matches_reserved_word(reserved_words, label):
+  return label in reserved_words
 
 def is_a_plural(plurals, label):
   return label in plurals
@@ -980,6 +995,7 @@ def should_be_stringified(var_name):
 '''
 tests = [
     # Reserved
+    "signature_date",
     "plaintiffs__3",
     "user",
     "user__2",
@@ -1037,6 +1053,8 @@ tests = [
 
 for test in tests:
   print('~~~~~~~~~~~')
-  print('"' + test + '":', '"' + labels_to_pdf_vars(test) + '",')
-  # labels_to_pdf_vars(test)
+  print('"' + test + '":', '"' + map_names(test) + '",')
+  # map_names(test)
+  # print('"' + test + '":', '"' + labels_to_pdf_vars(test) + '",')
+  # # labels_to_pdf_vars(test)
 '''
