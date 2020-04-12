@@ -40,6 +40,8 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     #try:
         # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
+    new_field.transformed_variable = map_names(pdf_field_tuple[0])
+
     variable_name_guess = new_field.variable.replace('_',' ').capitalize()        
     new_field.has_label = True
     if new_field.variable.endswith('_date'):
@@ -221,11 +223,12 @@ class DAQuestion(DAObject):
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
             if len(self.field_list) == 1:
+                field_name_to_use = map_names(self.field_list[0].variable)
                 if self.field_list[0].field_type == 'yesno':
-                    content += "yesno: " + varname(self.field_list[0].variable) + "\n"
+                    content += "yesno: " + field_name_to_use + "\n"
                     done_with_content = True
                 elif self.field_list[0].field_type == 'yesnomaybe':
-                    content += "yesnomaybe: " + varname(self.field_list[0].variable) + "\n"
+                    content += "yesnomaybe: " + field_name_to_use + "\n"
                     done_with_content = True
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'): # this tells us its the ending screen
@@ -273,10 +276,11 @@ class DAQuestion(DAObject):
             if not done_with_content:
                 content += "fields:\n"
                 for field in self.field_list:
+                    field_name_to_use = map_names(field.variable)
                     if field.has_label:
-                        content += "  - " + repr_str(field.label) + ": " + varname(field.variable) + "\n"
+                        content += "  - " + repr_str(field.label) + ": " + field_name_to_use + "\n"
                     else:
-                        content += "  - no label: " + varname(field.variable) + "\n"
+                        content += "  - no label: " + field_name_to_use + "\n"
                     if field.field_type == 'yesno':
                         content += "    datatype: yesno\n"
                     elif field.field_type == 'yesnomaybe':
@@ -315,14 +319,10 @@ class DAQuestion(DAObject):
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
-            content += "id: " + self.interview_label + "\n"
+            content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             content += "  # It was generated from interview_generator.py as an 'interview order' type question."
-            content += "  # We list one variable from each screen here, in order to control the order of questions\n"
-            content += "  # To change the order, you can rearrange, or make conditional. If you make conditional here,\n"
-            content += "  # You must also make sure it's conditional in the attachment block, or assign each variable \n"
-            content += "  # on the optional screen to DAEmpty() \n"
             content += "  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = []
@@ -338,10 +338,6 @@ class DAQuestion(DAObject):
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
               content += "  " + signature_field + "\n"
-            # content += "  # Below we run functions from virtual_court_support.py to selectively trigger the built-in fields in the order we want\n"
-            # content += "  trigger_user_questions(interview_metadata[\"" + self.interview_label + "\"])\n"
-            # content += "  trigger_court_questions(interview_metadata[\"" + self.interview_label + "\"])\n"
-            # content += "  basic_questions_user_fields \n" # trigger asking the user details at the end of the interview
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"
@@ -405,6 +401,7 @@ class DAQuestion(DAObject):
               content += "    'built_in_fields_used': [\n"
               for field in self.built_in_fields_used:
                 content += "      {'variable': '" + varname(field.variable) + "',\n"
+                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
                 if hasattr(field, 'field_type'):
                   content += "      'field_type': '" + field.field_type + "',\n"             
                 if hasattr(field, 'field_data_type'):
@@ -415,6 +412,7 @@ class DAQuestion(DAObject):
               content += "    'fields': [\n"
               for field in self.fields:
                 content += "      {'variable': '" + varname(field.variable) + "',\n"
+                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
                 if hasattr(field, 'field_type'):
                   content += "      'field_type': '" + field.field_type + "',\n"             
                 if hasattr(field, 'field_data_type'):
@@ -430,17 +428,17 @@ class DAQuestion(DAObject):
             content += "modules:\n"
             for module in self.modules:
                 content += " - " + str(module) + "\n"
-        # The variable block probably is unneeded now
-        # We moved this content into the metadata_code block
-        elif self.type == 'variables':
-          content += "variable name: interview_metadata['"+ self.interview_label +"']['" + str(self).partition(' ')[0] + "']"  + "\n" # 'field_list' + "\n"
-          content += "data:" + "\n"
-          for field in self.field_list:
-            content += "  - variable: " + varname(field.variable) + "\n"
-            if hasattr(field, 'field_type'):
-              content += "    " + "field_type: " + field.field_type + "\n"             
-            if hasattr(field, 'field_data_type'):
-              content += "    " + "field_data_type: " + field.field_data_type + "\n"
+        # # The variable block probably is unneeded now
+        # # We moved this content into the metadata_code block
+        # elif self.type == 'variables':
+        #   content += "variable name: interview_metadata['"+ self.interview_label +"']['" + str(self).partition(' ')[0] + "']"  + "\n" # 'field_list' + "\n"
+        #   content += "data:" + "\n"
+        #   for field in self.field_list:
+        #     content += "  - variable: " + varname(field.variable) + "\n"
+        #     if hasattr(field, 'field_type'):
+        #       content += "    " + "field_type: " + field.field_type + "\n"             
+        #     if hasattr(field, 'field_data_type'):
+        #       content += "    " + "field_data_type: " + field.field_data_type + "\n"
         elif self.type == 'includes':
           content += "include:\n"
           for include in self.includes:
@@ -939,7 +937,7 @@ def is_reserved_suffix(suffix_map, suffix):
 #  Label processing helper functions
 ############################
 def remove_multiple_appearance_indicator(label):
-  return re.sub('_{2,}\d+', '', label)
+  return re.sub(r'_{2,}\d+', '', label)
 
 def is_a_plural(plurals, label):
   return label in plurals
@@ -948,7 +946,7 @@ def get_stringifiable_version(label):
   return 'str(' + label + ')'
 
 def get_reserved_label_parts(prefixes, label):
-  return re.search(rf'{prefixes}(\d*)(.*)', label)
+   return re.search(fr"{prefixes}(\d*)(.*)", label)
 
 def pluralize_base(pluralizers_map, key):
   return pluralizers_map[key]
