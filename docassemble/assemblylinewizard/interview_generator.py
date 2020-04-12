@@ -782,16 +782,18 @@ reserved_prefixes = (r"^(user"  # deprecated, but still supported
 + r"|respondent"
 + r"|spouse"
 + r"|parent"
-+ r"|guardian"
 + r"|caregiver"
 + r"|attorney"
 + r"|translator"
 + r"|debt_collector"
 + r"|creditor"
-+ r"|guardian_ad_litem"
 + r"|witness"
 + r"|court"
 + r"|docket_number"
+# Can't find a way to make order not matter here
+# without making everything in general more messy
++ r"|guardian_ad_litem"
++ r"|guardian"
 + r")")
 
 reserved_pluralizers_map = {
