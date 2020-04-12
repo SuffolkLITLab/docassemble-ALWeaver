@@ -200,10 +200,11 @@ code: |
   # Probably all of this should move into a class
   for pdf_field_tuple in all_fields:
     pdf_field_name = pdf_field_tuple[0]
-    # Check to see if we should skip this variable--i.e., did we
-    # transform this variable or is it another
-    # field handled in basic-questions.yml
-    if map_names(pdf_field_name) != pdf_field_name or pdf_field_name in variables_to_skip:
+    # Check to see if we this is a built-in field (a
+    # field handled in basic-questions.yml),
+    # a signature field, or an arbitrary field.
+    is_reserved_name = is_reserved_label(pdf_field_name)
+    if is_reserved_name or pdf_field_name in variables_to_skip:
       new_field = built_in_fields_used.appendObject()
     elif pdf_field_tuple[4] == '/Sig':
       new_field = signature_fields.appendObject()
@@ -265,10 +266,14 @@ code: |
   field_data_types = ['text','integer','number','currency','date','email']
 
   temp_field_question = []
-  for index, field in enumerate(fields.elements):      
-    temp_field_question.append({
-      'note': '**' + field.variable + '**'
-    })
+  for index, field in enumerate(fields.elements):    
+    if field.variable != field.transformed_variable:
+      temp_field_question.append({
+        'note': '**' + field.variable + ' (will be renamed to ' + field.transformed_variable + ')**'})
+    else:
+      temp_field_question.append({
+        'note': '**' + field.variable + '**'
+      })
     temp_field_question.append({
       'label': "What should the label be for `" + field.variable + "`?",
       'field': 'fields[' + str(index) + '].label',
