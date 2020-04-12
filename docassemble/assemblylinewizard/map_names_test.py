@@ -22,7 +22,7 @@ class TestMapNames(unittest.TestCase):
           desired_output = scenarios[ scenario_input ]
           result = self.assertEqual( desired_output, map_names( scenario_input ) )
           log( result, 'console' )
-          passed.append(scenario_input + "[BR]")
+          passed.append(scenario_input)
 
         # The error should show us what specifically didn't match up
         except AssertionError as error:
@@ -41,10 +41,10 @@ scenarios = {
   # Reserved endings
   "user1": "str(users[1-1])",
   "user2": "str(users[2-1])",
-  # "user__2": "str(users[0])",
-  # "user___2": "str(users[0])",
-  # "user_name": "str(users[0])",
-  # "user_name_full": "str(users[0])",
+  "user__2": "str(users[0])",
+  "user____2": "str(users[0])",
+  "user_name": "str(users[0])",
+  "user_name_full": "str(users[0])",
   "user_name_first": "users[0].name.first",
   "user_name_middle": "users[0].name.middle",
   "user_name_last": "users[0].name.last",
@@ -67,6 +67,7 @@ scenarios = {
   
   # Combo all
   "user3_birthdate__4": "users[3-1].birthdate.format()",
+  "user3_birthdate____4": "users[3-1].birthdate.format()",
   
   # County
   # "county_name_short": not implemented,
@@ -76,45 +77,45 @@ scenarios = {
 
   # # Reserved starts (with names)
   "user": "str(users[0])",
-  # "plaintiff": "str(plaintiffs[0])",
-  # "defendant": "str(defendants[0])",
-  # "petitioner": "str(petitioners[0])",
-  # "respondent": "str(respondents[0])",
-  # "spouse": "str(spouses[0])",
-  # "parent": "str(parents[0])",
-  # "guardian": "str(guardians[0])",
-  # "caregiver": "str(caregivers[0])",
-  # "attorney": "str(attorneys[0])",
-  # "translator": "str(translators[0])",
-  # "debt_collector": "str(debt_collectors[0])",
-  # "creditor": "str(creditors[0])",
-  # "court": "str(courts[0])",
-  # "other_party": "str(other_parties[0])",
-  # "child": "str(children[0])",
-  # "guardian_ad_litem": "str(guardians_ad_litem)",
-  # "witness": "str(witnesses)",
-  # "users": "str(users)",
-  # "plaintiffs": "str(plaintiffs)",
-  # "defendants": "str(defendants)",
-  # "petitioners": "str(petitioners)",
-  # "respondents": "str(respondents)",
-  # "spouses": "str(spouses)",
-  # "parents": "str(parents)",
-  # "guardians": "str(guardians)",
-  # "caregivers": "str(caregivers)",
-  # "attorneys": "str(attorneys)",
-  # "translators": "str(translators)",
-  # "debt_collectors": "str(debt_collectors)",
-  # "creditors": "str(creditors)",
-  # "courts": "str(courts)",
-  # "other_parties": "str(other_parties)",
-  # "children": "str(children)",
-  # "guardians_ad_litem": "str(guardians_ad_litem)",
-  # "witnesses": "str(witnesses)",
+  "plaintiff": "str(plaintiffs[0])",
+  "defendant": "str(defendants[0])",
+  "petitioner": "str(petitioners[0])",
+  "respondent": "str(respondents[0])",
+  "spouse": "str(spouses[0])",
+  "parent": "str(parents[0])",
+  "guardian": "str(guardians[0])",
+  "caregiver": "str(caregivers[0])",
+  "attorney": "str(attorneys[0])",
+  "translator": "str(translators[0])",
+  "debt_collector": "str(debt_collectors[0])",
+  "creditor": "str(creditors[0])",
+  "court": "str(courts[0])",
+  "other_party": "str(other_parties[0])",
+  "child": "str(children[0])",
+  "guardian_ad_litem": "str(guardians_ad_litem[0])",
+  "witness": "str(witnesses[0])",
+  "users": "str(users)",
+  "plaintiffs": "str(plaintiffs)",
+  "defendants": "str(defendants)",
+  "petitioners": "str(petitioners)",
+  "respondents": "str(respondents)",
+  "spouses": "str(spouses)",
+  "parents": "str(parents)",
+  "guardians": "str(guardians)",
+  "caregivers": "str(caregivers)",
+  "attorneys": "str(attorneys)",
+  "translators": "str(translators)",
+  "debt_collectors": "str(debt_collectors)",
+  "creditors": "str(creditors)",
+  "courts": "str(courts)",
+  "other_parties": "str(other_parties)",
+  "children": "str(children)",
+  "guardians_ad_litem": "str(guardians_ad_litem)",
+  "witnesses": "str(witnesses)",
   
   # Starts with no names
   "docket_number": "docket_numbers[0]",
-  "docket_numbers": "docket_numbers[1-1]",
+  "docket_numbers": "str(docket_numbers)",
   "signature_date": "signature_date",
   
   # Reserved start with unreserved end
