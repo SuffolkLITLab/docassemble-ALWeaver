@@ -4,6 +4,7 @@ metadata:
 ---
 features:
   question help button: True
+  labels above fields: True
 ---
 modules:
   - docassemble.base.util
