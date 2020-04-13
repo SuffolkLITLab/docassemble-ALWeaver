@@ -94,6 +94,11 @@ subquestion: |
   
   Use plain language that will be understandable to someone who
   uses this form without a lawyer. Remember, we can change it later.
+  
+  % if len(all_fields) != len(fields) + len(signature_fields) + len(built_in_fields_used):
+  ** There may be a problem with this file. Check for the wrong number
+  of fields**
+  % endif
 fields:
   - Title: interview.title
     default: ${short_filename_with_spaces}
@@ -198,6 +203,13 @@ code: |
 comment: |
   Convert the PDF fields into Docassemble fields
 code: |
+  # These all must be defined in advance to avoid duplicates
+  all_fields
+  variables_to_skip
+  fields
+  signature_fields
+  built_in_fields_used  
+  
   # Probably all of this should move into a class
   for pdf_field_tuple in all_fields:
     pdf_field_name = pdf_field_tuple[0]
@@ -215,7 +227,7 @@ code: |
     # This function determines what type of variable
     # we're dealing with
     fill_in_field_attributes(new_field, pdf_field_tuple)    
-
+    
   get_fields = True
 ---
 code: |
