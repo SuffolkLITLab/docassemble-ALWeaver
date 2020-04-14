@@ -17,10 +17,12 @@ import datetime
 import types
 
 #from docassemble.base.util import prevent_dependency_satisfaction
-
+ 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
+# __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
+
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -40,7 +42,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     #try:
         # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
-    new_field.transformed_variable = map_names(pdf_field_tuple[0])
+    new_field.transformed_variable = map_names(pdf_field_tuple[0]) # TODO: wrap in varname
 
     variable_name_guess = new_field.variable.replace('_',' ').capitalize()        
     new_field.has_label = True
@@ -66,22 +68,25 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     #except:
     #    raise Exception # prevent a NameError from being raised
 
-class DADecoration(DAObject):
-    def init(self, **kwargs):
-        return super().init(**kwargs)
+# TODO: To be deleted on a different PR
+# class DADecoration(DAObject):
+#     def init(self, **kwargs):
+#         return super().init(**kwargs)
 
-class DADecorationDict(DADict):
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DADecoration
-        self.auto_gather = False
-        self.there_are_any = True
+# class DADecorationDict(DADict):
+#     def init(self, **kwargs):
+#         super().init(**kwargs)
+#         self.object_type = DADecoration
+#         self.auto_gather = False
+#         self.there_are_any = True
 
 class DAAttachment(DAObject):
+    """This class represents the attachment block we will create in the final output YAML"""
     def init(self, **kwargs):
         return super().init(**kwargs)
 
 class DAAttachmentList(DAList):
+    """This is a list of DAAttachment objects"""
     def init(self, **kwargs):
         super().init(**kwargs)
         self.object_type = DAAttachment
@@ -97,26 +102,29 @@ class DAAttachmentList(DAList):
                 output_list.append('[`' + x.docx_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
         return docassemble.base.functions.comma_and_list(output_list)
 
-class DAUploadMultiple(DAObject):
-    def init(self, **kwargs):
-        return super().init(**kwargs)
+# TODO: FUTURE: remove in a diffferent PR
+# class DAUploadMultiple(DAObject):
+#     def init(self, **kwargs):
+#         return super().init(**kwargs)
 
-class DAUpload(DAObject):
-    def init(self, **kwargs):
-        return super().init(**kwargs)
+# class DAUpload(DAObject):
+#     def init(self, **kwargs):
+#         return super().init(**kwargs)
 
 class DAInterview(DAObject):
+    """ This class represents the final YAML output. It has a method to output to a string."""
     def init(self, **kwargs):
         self.blocks = list()
         self.questions = DAQuestionDict()
         self.final_screen = DAQuestion()
-        self.decorations = DADecorationDict()
+        #self.decorations = DADecorationDict()
         self.target_variable = None
         return super().init(**kwargs)
     def has_decorations(self):
-        if self.decorations.gathered and len(self.decorations) > 0:
-            return True
         return False
+        # if self.decorations.gathered and len(self.decorations) > 0:
+        #     return True
+        # return False
     def decoration_list(self):
         out_list = [["None", "No decoration"]]
         for key, data in self.decorations.items():
@@ -161,6 +169,7 @@ class DAInterview(DAObject):
         for block in self.all_blocks():
             block.demonstrated
     def source(self):
+        """This method creates a YAML string that represents the entire interview"""
         return "---\n".join(map(lambda x: x.source(), self.all_blocks()))
     def known_source(self, skip=None):
         output = list()
@@ -174,20 +183,23 @@ class DAInterview(DAObject):
         return "---\n".join(output)
 
 class DAField(DAObject):
+    """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user."""
     def init(self, **kwargs):
         return super().init(**kwargs)
 
-class DAFieldList(DAList):  
+class DAFieldList(DAList):
+    """A DAFieldList contains multiple DAFields."""
     def init(self, **kwargs):
         self.object_type = DAField
         self.auto_gather = False
         # self.gathered = True
         return super().init(**kwargs)
     def __str__(self):
+        """I don't think this method has a real function in our code base. Perhaps debugging."""
         return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
 class DAQuestion(DAObject):
-    '''Builds the string for each question block with its attributes/atoms.'''
+    """This class represents a "question" in the generated YAML file. TODO: move some of the "questions" into other block types. """
 
     # TODO: subclass question or come up with other types for things
     # that aren't really questions instead of giant IF block
@@ -198,15 +210,9 @@ class DAQuestion(DAObject):
         self.templates_used = set()
         self.static_files_used = set()
         return super().init(**kwargs)
-    # def names_reduced(self):
-    #     varsinuse = Playground().variables_from(self.interview.known_source(skip=self))
-    #     var_list = sorted([field.variable for field in self.field_list])
-    #     return [var for var in sorted(varsinuse['all_names_reduced']) if var not in var_list and var != self.interview.target_variable]
-    # def other_variables(self):
-    #     varsinuse = Playground().variables_from(self.interview.known_source(skip=self))
-    #     var_list = sorted([field.variable for field in self.field_list])
-    #     return [var for var in sorted(varsinuse['undefined_names']) if var not in var_list and var != self.interview.target_variable]
     def source(self, follow_additional_fields=True):
+        """This method outputs the YAML code representing a single "question" in the interview."""
+        content = ''
         if hasattr(self, 'progress'):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
@@ -236,10 +242,6 @@ class DAQuestion(DAObject):
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
                 # TODO / FUTURE we could let this handle multiple forms at once
-                # content =+ "---\n"
-                # content += "code: |\n"
-                # for attachment in self.attachments:
-                # Put in some code to give each attachment its own variable name
                 for attachment in self.attachments: # We will only have ONE attachment
                     # TODO: if we really use multiple attachments, we need to change this
                     # So there is a unique variable name
@@ -303,8 +305,6 @@ class DAQuestion(DAObject):
                         content += "    min: " + field.range_min + "\n"
                         content += "    max: " + field.range_max + "\n"
                         content += "    step: " + field.range_step + "\n"
-            # if self.interview.has_decorations() and self.decoration and self.decoration != 'None':
-            #     content += "decoration: " + str(self.decoration) + "\n"
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
             self.under_text
@@ -422,22 +422,10 @@ class DAQuestion(DAObject):
             #content += "Trigger the data blocks that list the fields we're using \n"
             #content += "interview_medatata['"+ self.interview_label +  "']['built_in_fields_used']\n"
             #content += "interview_metadata['"+ self.interview_label +  "']['fields']\n"
-
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
                 content += " - " + str(module) + "\n"
-        # # The variable block probably is unneeded now
-        # # We moved this content into the metadata_code block
-        # elif self.type == 'variables':
-        #   content += "variable name: interview_metadata['"+ self.interview_label +"']['" + str(self).partition(' ')[0] + "']"  + "\n" # 'field_list' + "\n"
-        #   content += "data:" + "\n"
-        #   for field in self.field_list:
-        #     content += "  - variable: " + varname(field.variable) + "\n"
-        #     if hasattr(field, 'field_type'):
-        #       content += "    " + "field_type: " + field.field_type + "\n"             
-        #     if hasattr(field, 'field_data_type'):
-        #       content += "    " + "field_data_type: " + field.field_data_type + "\n"
         elif self.type == 'includes':
           content += "include:\n"
           for include in self.includes:
@@ -450,19 +438,17 @@ class DAQuestion(DAObject):
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text,2)
-        # elif self.type == 'images':
-        #     content += "images:\n"
-        #     for key, value in self.interview.decorations.items():
-        #         content += "  " + repr_str(key) + ": " + oneline(value.filename) + "\n"
-        #         self.static_files_used.add(value.filename)
-        #sys.stderr.write(content)
         return content
 
 class DAQuestionList(DAList):
+  """This represents a list of DAQuestions."""
   def init(self, **kwargs): 
     super().init(**kwargs)
     self.object_type = DAQuestion
   def all_fields_used(self):
+    """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
+      in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
+      It prevents the formatter of the wizard to put the same fields on two different screens."""
     fields = set()
     for question in self.elements:
       if hasattr(question,'field_list'):
@@ -471,6 +457,7 @@ class DAQuestionList(DAList):
     return fields
 
 class DAQuestionDict(DADict):
+    """TODO: Remove references to this object. Duplicative of the DAQuestionList, but unordered. We also don't use the key anywhere."""
     def init(self, **kwargs):
         super().init(**kwargs)
         self.object_type = DAQuestion
