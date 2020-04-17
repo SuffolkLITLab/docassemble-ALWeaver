@@ -4,6 +4,7 @@ metadata:
 ---
 features:
   question help button: True
+  labels above fields: True
 ---
 modules:
   - docassemble.base.util
@@ -387,7 +388,7 @@ code: |
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
-        logic_list.append(varname(question.field_list[0].variable))
+        logic_list.append(question.field_list[0].transformed_variable)
       else:
         logic_list.append(varname(question.question_text))              
   for field in built_in_fields_used:
