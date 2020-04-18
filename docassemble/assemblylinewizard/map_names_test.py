@@ -1,12 +1,12 @@
 import unittest
 
-from .interview_generator import map_names
+from interview_generator import map_names
 from docassemble.base.util import log
 
 __all__ = ['TestMapNames']
 
 class TestMapNames(unittest.TestCase):
- 
+
     def setUp(self):
         pass
 
@@ -32,7 +32,7 @@ class TestMapNames(unittest.TestCase):
       results = {"errored": errored, "passed": passed}
       log(results, 'console')
       return results
- 
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -40,7 +40,7 @@ if __name__ == '__main__':
 scenarios = {
   # Reserved whole words
   "signature_date": "signature_date",
-  
+
   # Reserved endings
   "user1": "str(users[1-1])",
   "user2": "str(users[2-1])",
@@ -67,11 +67,11 @@ scenarios = {
   "user_address_one_line": "users[0].address.on_one_line()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
-  
+
   # Combo all
   "user3_birthdate__4": "users[3-1].birthdate.format()",
   "user3_birthdate____4": "users[3-1].birthdate.format()",
-  
+
   # County
   # "county_name_short": not implemented,
   # "county_division": not implemented,
@@ -115,12 +115,12 @@ scenarios = {
   "children": "str(children)",
   "guardians_ad_litem": "str(guardians_ad_litem)",
   "witnesses": "str(witnesses)",
-  
+
   # Starts with no names
   "docket_number": "docket_numbers[0]",
   "docket_numbers": "str(docket_numbers)",
   "signature_date": "signature_date",
-  
+
   # Reserved start with unreserved end
   "user_address_street2_zip": "users[0].address_street2_zip",
 
