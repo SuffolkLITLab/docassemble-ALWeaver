@@ -322,7 +322,7 @@ class DAQuestion(DAObject):
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             content += "  # It was generated from interview_generator.py as an 'interview order' type question."
-            content += "  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
+            content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = []
             for field in self.logic_list:
