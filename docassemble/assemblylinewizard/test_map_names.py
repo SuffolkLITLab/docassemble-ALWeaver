@@ -10,7 +10,7 @@ class TestMapNames(unittest.TestCase):
     def setUp(self):
         pass
 
-    def mapped_tests(self):
+    def test_mapped_scenarios(self):
         # Look in the console for a prettier version of the messages
         errored = []
         passed = []
@@ -31,7 +31,8 @@ class TestMapNames(unittest.TestCase):
 
         results = {"errored": errored, "passed": passed}
         log(results, "console")
-        return results
+        self.assertEqual(len(passed), len(scenarios))
+        self.assertEqual(len(errored), 0)
 
 
 if __name__ == "__main__":
