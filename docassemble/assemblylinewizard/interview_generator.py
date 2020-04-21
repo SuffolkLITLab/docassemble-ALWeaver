@@ -116,6 +116,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
         new_field.variable_name_guess = variable_name_guess
     elif pdf_field_tuple[4] == "/Sig":
         new_field.field_type_guess = "signature"
+        new_field.field_data_type_guess = None
         new_field.variable_name_guess = variable_name_guess
     else:
         new_field.field_type_guess = "text"
