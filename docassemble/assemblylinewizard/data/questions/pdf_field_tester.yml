@@ -39,23 +39,38 @@ question: |
   Field list
 subquestion: |
 
-  Field name (bold if reserved) | Field type | Mapped name field (if different)
+  Field name (bold if {reserved}) | Field type | {Internal docassemble name} (if different)
   -----------|------------|-------------------
   % for field in fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''}${'**' + str(field[0]) + '**' if field[0] in variables_to_skip else field[0]} | ${'Signature' if field[4] == '/Sig' else 'Checkbox' if field[4] == '/Btn' else "Text" if field[4] == '/Tx' else ':skull-crossbones:'} (${field[4]}) | ${map_names(field[0]) if not (map_names(field[0]) == field[0]) else ''}
+  ${":exclamation-triangle: " if ' ' in field[0] else ''}${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${'Signature' if field[4] == '/Sig' else 'Checkbox' if field[4] == '/Btn' else "Text" if field[4] == '/Tx' else ':skull-crossbones:'} (${field[4]}) | ${map_names(field[0]) if not (map_names(field[0]) == field[0]) else ''}
   % endfor
 
   The following are signature fields: ${comma_and_list(signature_fields)} 
   
   The following are checkbox fields: ${comma_and_list(checkbox_fields)}
   
+  **Bold**/reserved names means that we wrote and translated a question for this
+  field that will be used as a default in every interview. If you expect it
+  to be bold, check spelling.
+  
+  Names for groups of **people** should be bold if you followed our naming guidelines.
+  Please make sure that you used the right name. E.g., use "plaintiff" not
+  "plaintiff_tenant". Check for misspellings if a name is not bold.
+  
+  Let us know if we should add a new type of person.
+    
   :exclamation-triangle: Indicates that the field name has a space in it. Please
   replace any spaces with underscores in the PDF field name before uploading to 
   Trello.
   
   :skull-crossbones: Indicates it's a field type that our interview generator
-  does not currently handle. Please make sure the field is a checkbox, text 
-  input, or digital signature field.
+  does not currently handle. OR that the field has a duplicate name. 
+  Please make sure the field is a checkbox, text 
+  input, or digital signature field and that it is not a duplicate.
+  
+  The internal Docassemble field name may be different from the name in the PDF
+  even if it is not a "reserved" name. This check is mostly to help interview
+  authors, not quality control.
 
 continue button field: field_list_display
 mandatory: True
@@ -63,6 +78,13 @@ help: |
   % for field in fields:
   * ${field}
   % endfor
+terms: 
+  - reserved: |
+      Means there is a built-in question for this field.
+  - Internal docassemble name: |
+      Means that the variable name will be changed for Docassemble. 
+      We change names that have built-in questions, as well as those starting
+      with the name of a person/group of people, which we turn into "attributes" of that person.
 ---
 code: |
   signatures = [{field: placeholder_signature} for field in signature_fields]
