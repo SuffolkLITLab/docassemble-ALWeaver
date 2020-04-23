@@ -352,7 +352,7 @@ class DAQuestion(DAObject):
             self.templates_used.add(self.template_file)
         elif self.type == 'metadata':
             content += "metadata:\n"
-            content += "  title: '" + oneline(self.title) + "'\n"
+            content += "  title: " + oneline(self.title) + "\n"
             content += "  short title: " + oneline(self.short_title) + "\n"
             content += "  description: " + oneline(self.description) + "\n"
             content += "  original_form: " + oneline(self.original_form) + "\n"
