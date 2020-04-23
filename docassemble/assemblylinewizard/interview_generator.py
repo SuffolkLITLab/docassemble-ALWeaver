@@ -376,10 +376,10 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + oneline(self.title) + "',\n"
-            content += "    'short title': '" + oneline(self.short_title) + "',\n"
-            content += "    'description': '" + oneline(self.description) + "',\n"
-            content += "    'original_form': '" + oneline(self.original_form) + "',\n"
+            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
+            content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
+            content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
+            content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
             content += "    'allowed courts': " + "[\n"
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
@@ -390,7 +390,7 @@ class DAQuestion(DAObject):
               content += "      '" + oneline(category) + "',\n"
             if self.categories['Other']:
               for category in self.other_categories.split(','):
-                content += "      '" + oneline(category.strip()) + "',\n"
+                content += "      '" + escape_quote(oneline(category.strip())) + "',\n"
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
@@ -701,6 +701,9 @@ def oneline(text):
     '''Replaces all new line characters with a space'''
     text = newlines.sub(r' ', text)
     return text
+
+def escape_quote(text):
+  return text.replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
