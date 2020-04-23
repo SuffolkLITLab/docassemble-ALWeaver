@@ -698,7 +698,8 @@ def varname(var_name):
     return var_name
 
 def oneline(text):
-    text = newlines.sub(r'', text)
+    '''Replaces all new line characters with a space'''
+    text = newlines.sub(r' ', text)
     return text
 
 def to_yaml_file(text):
