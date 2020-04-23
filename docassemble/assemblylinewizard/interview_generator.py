@@ -376,7 +376,7 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': " + escape_quote(oneline(self.title)) + ",\n"
+            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
             content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
             content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
             content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
