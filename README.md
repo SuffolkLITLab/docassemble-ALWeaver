@@ -3,6 +3,10 @@
 ## Developing Tests
 
 To write and run the tests, you'll need to set up your testing environment in Python.
+Be forewarned, as part of the requirements,
+you have to install the `docassemble` package, which is complex. If you have trouble downloading that
+package, take a look at the [installation instructions](https://docassemble.org/docs/installation.html)
+or post your question in the [Docassemble Slack channel](docassemble.slack.com).
 
 ### Set up a virtual environment
 
@@ -20,9 +24,10 @@ $ pip install -r requirements.txt
 ```
 
 (I used `pip3` and `python3` above, because I have both Python 2 and Python 3 on my machine, but you
-can use just `pip` and `python` if you only have Python 3.) Be forewarned, as part of the requirements,
-you have to install the `docassemble` package, which is complex. If you have trouble downloading that
-package, take a look at the [installation instructions](https://docassemble.org/docs/installation.html).
+can use just `pip` and `python` if you only have Python 3.)
+
+If your errors show something like `mysql_config: command not found` it means you're missing
+`mysql`, which is a dependency. You can search how to install it for your system.
 
 Then, everytime you work on this project, enter your virtual environment with
 
