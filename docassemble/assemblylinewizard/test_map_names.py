@@ -45,6 +45,7 @@ if __name__ == "__main__":
 scenarios = {
   # Reserved whole words
   "signature_date": "signature_date",
+  "attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
 
   # Reserved endings
   "user1": "str(users[1-1])",

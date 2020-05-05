@@ -1,0 +1,43 @@
+---
+question: |
+  Please upload a PDF template
+  
+fields:
+  - File: template_upload
+    datatype: file
+---
+code: |
+  fields = template_upload.get_pdf_fields()
+  signature_fields = [field[0] for field in fields if len(field) >4 and field[4] == '/Sig']
+---
+question: |
+  Field list
+subquestion: |
+  % for field in fields:
+  * ${field}
+  % endfor
+
+  The following are signature fields: ${comma_and_list(signature_fields)}
+continue button field: field_list_display
+mandatory: True
+---
+question: |
+  Sign below
+signature: the_signature
+---
+code: |
+  pdf_fields = [{field: the_signature} for field in signature_fields]
+---
+mandatory: True
+question: |
+  Here is the filled-in PDF signature
+subquestion: |
+  ${my_pdf}
+---
+attachment:
+  variable name: my_pdf
+  pdf template file:
+    code: |
+      template_upload
+  code: |
+    pdf_fields

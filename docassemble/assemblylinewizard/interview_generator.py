@@ -323,7 +323,7 @@ class DAQuestion(DAObject):
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             content += "  # It was generated from interview_generator.py as an 'interview order' type question."
-            content += "  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
+            content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = []
             for field in self.logic_list:
@@ -377,10 +377,10 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + oneline(self.title) + "',\n"
-            content += "    'short title': '" + oneline(self.short_title) + "',\n"
-            content += "    'description': '" + oneline(self.description) + "',\n"
-            content += "    'original_form': '" + oneline(self.original_form) + "',\n"
+            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
+            content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
+            content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
+            content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
             content += "    'allowed courts': " + "[\n"
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
@@ -391,7 +391,7 @@ class DAQuestion(DAObject):
               content += "      '" + oneline(category) + "',\n"
             if self.categories['Other']:
               for category in self.other_categories.split(','):
-                content += "      '" + oneline(category.strip()) + "',\n"
+                content += "      '" + escape_quote(oneline(category.strip())) + "',\n"
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
@@ -699,8 +699,12 @@ def varname(var_name):
     return var_name
 
 def oneline(text):
-    text = newlines.sub(r'', text)
+    '''Replaces all new line characters with a space'''
+    text = newlines.sub(r' ', text)
     return text
+
+def escape_quote(text):
+  return text.replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
@@ -740,6 +744,7 @@ import re
 # Words that are reserved exactly as they are
 reserved_whole_words = [
   'signature_date',  # this is the plural version of this?
+  'attorney_of_record_address_on_one_line', 
 ]
 
 # Part of handling plural labels
