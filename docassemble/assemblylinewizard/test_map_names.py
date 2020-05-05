@@ -10,7 +10,7 @@ class TestMapNames(unittest.TestCase):
     def setUp(self):
         pass
 
-    def test_mapped_scenarios(self):
+    def test_mapped_scenarios(self, run_from_yaml=False):
         # Look in the console for a prettier version of the messages
         errored = []
         passed = []
@@ -31,6 +31,9 @@ class TestMapNames(unittest.TestCase):
 
         results = {"errored": errored, "passed": passed}
         log(results, "console")
+        # This is True if this test is run from generator-test.yml
+        if (run_from_yaml):
+            return results
         self.assertEqual(len(passed), len(scenarios))
         self.assertEqual(len(errored), 0)
 
