@@ -17,7 +17,7 @@ import datetime
 import types
 
 #from docassemble.base.util import prevent_dependency_satisfaction
- 
+
 TypeType = type(type(None))
 
 # __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
@@ -44,7 +44,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     new_field.variable = varname(pdf_field_tuple[0])
     new_field.transformed_variable = map_names(pdf_field_tuple[0]) # TODO: wrap in varname
 
-    variable_name_guess = new_field.variable.replace('_',' ').capitalize()        
+    variable_name_guess = new_field.variable.replace('_',' ').capitalize()
     new_field.has_label = True
     if new_field.variable.endswith('_date'):
         new_field.field_type_guess = 'text'
@@ -58,8 +58,9 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
         new_field.field_type_guess = 'yesno'
         new_field.field_data_type_guess = None
         new_field.variable_name_guess = variable_name_guess
-    elif pdf_field_tuple[4] == '/Sig':
-        new_field.field_type_guess = 'signature'
+    elif pdf_field_tuple[4] == "/Sig":
+        new_field.field_type_guess = "signature"
+        new_field.field_data_type_guess = None
         new_field.variable_name_guess = variable_name_guess
     else:
         new_field.field_type_guess = 'text'
@@ -329,7 +330,7 @@ class DAQuestion(DAObject):
               if field.endswith('.signature'): # save the signatures for the end
                 signatures.append(field)
               else:
-                content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen                
+                content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
             content += "  # By default, we'll mark any un-filled fields as DAEmpty(). This helps avoid errors if you intentionally hide a logic branch or mark a question not required\n"
             content += "  # Comment out the line below if you don't want this behavior. \n"
             content += "  mark_unfilled_fields_empty(interview_metadata[\"" + self.interview_label + "\"])\n"
@@ -402,7 +403,7 @@ class DAQuestion(DAObject):
                 content += "      {'variable': '" + varname(field.variable) + "',\n"
                 content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
                 if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"             
+                  content += "      'field_type': '" + field.field_type + "',\n"
                 if hasattr(field, 'field_data_type'):
                   content += "      'field_data_type': '" + field.field_data_type + "',\n"
                 content += "      },\n"
@@ -413,10 +414,10 @@ class DAQuestion(DAObject):
                 content += "      {'variable': '" + varname(field.variable) + "',\n"
                 content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
                 if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"             
+                  content += "      'field_type': '" + field.field_type + "',\n"
                 if hasattr(field, 'field_data_type'):
                   content += "      'field_data_type': '" + field.field_data_type + "',\n"
-                content += "      },\n"                  
+                content += "      },\n"
               content += "      ],\n"
             content += "  })\n"
             #content += "Trigger the data blocks that list the fields we're using \n"
@@ -432,7 +433,7 @@ class DAQuestion(DAObject):
             content += "  - " + include + "\n"
         elif self.type == 'interstitial':
           content += 'comment: |\n'
-          content += indent_by(self.comment, 2) 
+          content += indent_by(self.comment, 2)
           content += 'continue button field: '+ self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
@@ -442,7 +443,7 @@ class DAQuestion(DAObject):
 
 class DAQuestionList(DAList):
   """This represents a list of DAQuestions."""
-  def init(self, **kwargs): 
+  def init(self, **kwargs):
     super().init(**kwargs)
     self.object_type = DAQuestion
   def all_fields_used(self):
@@ -485,11 +486,11 @@ class PlaygroundSection(object):
             extension, mimetype = get_ext_and_mimetype(the_file)
             if re.search(r'^image', mimetype):
                 out_list.append(the_file)
-        return out_list            
+        return out_list
     def reduced_file_list(self):
         lower_list = [f.lower() for f in self.file_list]
         out_list = [f for f in self.file_list if os.path.splitext(f)[1].lower() in ['.md', '.pdf', '.docx'] or os.path.splitext(f)[0].lower() + '.md' not in lower_list]
-        return out_list            
+        return out_list
     def get_file(self, filename):
         return os.path.join(directory_for(self.get_area(), self.project), filename)
     def file_exists(self, filename):
@@ -628,7 +629,7 @@ class Playground(PlaygroundSection):
         interview_status = docassemble.base.parse.InterviewStatus(current_info=temp_current_info)
         user_dict = docassemble.base.parse.get_initial_dict()
         user_dict['_internal']['starttime'] = datetime.datetime.utcnow()
-        user_dict['_internal']['modtime'] = datetime.datetime.utcnow() 
+        user_dict['_internal']['modtime'] = datetime.datetime.utcnow()
         try:
             interview.assemble(user_dict, interview_status)
             has_error = False
@@ -719,7 +720,7 @@ def to_package_name(text):
     text = re.sub(r'\..*', r'', text)
     text = re.sub(r'[^A-Za-z0-9]', r'', text)
     return text
-    
+
 def repr_str(text):
     return remove_u.sub(r'', repr(text))
 
@@ -864,7 +865,7 @@ def map_names(label):
   # For the sake of time, this is the fastest way to get around something being plural
   if is_a_plural(reserved_var_plurals, label):
     return get_stringifiable_version(label)
-  
+
   # Break up label into its parts
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 
@@ -913,7 +914,7 @@ def is_reserved_label(label):
   # For the sake of time, this is the fastest way to get around something being plural
   if is_a_plural(reserved_var_plurals, label):
     return True
-  
+
   # Break up label into its parts
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 

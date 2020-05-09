@@ -1,39 +1,44 @@
 import unittest
 
-from .interview_generator import map_names
+from interview_generator import map_names
 from docassemble.base.util import log
 
 __all__ = ['TestMapNames']
 
 class TestMapNames(unittest.TestCase):
- 
+
     def setUp(self):
         pass
 
-    def mapped_tests(self):
-      # Look in the console for a prettier version of the messages
-      errored = []
-      passed = []
-      for scenario_input in scenarios:
-        log('~~~~~~~~~~', 'console')
+    def test_mapped_scenarios(self, run_from_yaml=False):
+        # Look in the console for a prettier version of the messages
+        errored = []
+        passed = []
+        for scenario_input in scenarios:
+            log("~~~~~~~~~~", "console")
 
-        # Add our result to the collection
-        try:
-          desired_output = scenarios[ scenario_input ]
-          result = self.assertEqual( desired_output, map_names( scenario_input ) )
-          log( result, 'console' )
-          passed.append(scenario_input)
+            # Add our result to the collection
+            try:
+                desired_output = scenarios[scenario_input]
+                result = self.assertEqual(desired_output, map_names(scenario_input))
+                log(result, "console")
+                passed.append(scenario_input)
 
-        # The error should show us what specifically didn't match up
-        except AssertionError as error:
-          log( error, 'console' )
-          errored.append({ "test": scenario_input, "result": error })
+            # The error should show us what specifically didn't match up
+            except AssertionError as error:
+                log(error, "console")
+                errored.append({"test": scenario_input, "result": error})
 
-      results = {"errored": errored, "passed": passed}
-      log(results, 'console')
-      return results
- 
-if __name__ == '__main__':
+        results = {"errored": errored, "passed": passed}
+        log(results, "console")
+        # This is True if this test is run from generator-test.yml
+        if (run_from_yaml):
+            return results
+        self.assertEqual(len(passed), len(scenarios))
+        self.assertEqual(len(errored), 0)
+
+
+if __name__ == "__main__":
     unittest.main()
 
 # Some basic test strings with desired results
@@ -41,7 +46,7 @@ scenarios = {
   # Reserved whole words
   "signature_date": "signature_date",
   "attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
-  
+
   # Reserved endings
   "user1": "str(users[1-1])",
   "user2": "str(users[2-1])",
@@ -68,11 +73,11 @@ scenarios = {
   "user_address_one_line": "users[0].address.on_one_line()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
-  
+
   # Combo all
   "user3_birthdate__4": "users[3-1].birthdate.format()",
   "user3_birthdate____4": "users[3-1].birthdate.format()",
-  
+
   # County
   # "county_name_short": not implemented,
   # "county_division": not implemented,
@@ -116,12 +121,12 @@ scenarios = {
   "children": "str(children)",
   "guardians_ad_litem": "str(guardians_ad_litem)",
   "witnesses": "str(witnesses)",
-  
+
   # Starts with no names
   "docket_number": "docket_numbers[0]",
   "docket_numbers": "str(docket_numbers)",
   "signature_date": "signature_date",
-  
+
   # Reserved start with unreserved end
   "user_address_street2_zip": "users[0].address_street2_zip",
 

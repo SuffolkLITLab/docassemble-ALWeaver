@@ -23,7 +23,7 @@ subquestion: |
   #### Selected scenarios
 
   <%
-      results = map_names_tests.mapped_tests()
+      results = map_names_tests.test_mapped_scenarios(True)
       failed = results["errored"]
       passed = results["passed"]
   %>
@@ -49,18 +49,18 @@ comment: |
   ${one_test.replace("_", "\\_")}[BR]
   #  ${ map_names_tests.broken_test() }
   #  Single individuals errors: ${ map_names_tests.test_single_individuals() }
-  #  Multiple appearences errors: ${ map_names_tests.test_multiple_appearances() } 
+  #  Multiple appearences errors: ${ map_names_tests.test_multiple_appearances() }
   #  Send individual errors: ${ map_names_tests.test_multiple_individuals() }
   #  ${ map_names_tests.mapped_tests() }
   # { test: scenario_input, result: error }
   Failed: ${ len(failed) }
   Passed: ${ len(passed) }
-  
+
   Failed:
   % for one_test in passed:
     **${one_test["test"]}:**[BR]${one_test["result"]}[BR][BR]
   % endfor
-  
+
   Passed:
   % for one_test in passed:
     ${one_test}[BR]
