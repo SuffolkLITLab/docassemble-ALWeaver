@@ -19,7 +19,7 @@ objects:
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
-  - built_in_fields_used: DAFieldList.using(gathered=True)
+  # - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
   - signature_fields: DAFieldList.using(gathered=True)
   - questions: DAQuestionList.using(complete_attribute='question_text')
@@ -117,16 +117,16 @@ fields:
       - Probate and Family Court
       - Juvenile Court
       - Land Court
-  - Preferred court: interview.preferred_court
-    choices:
-      - Boston Municipal Court
-      - District Court
-      - Superior Court
-      - Housing Court
-      - Probate and Family Court
-      - Juvenile Court
-      - Land Court
-      - Any court (no preferred court)
+  # - Preferred court: interview.preferred_court
+  #   choices:
+  #     - Boston Municipal Court
+  #     - District Court
+  #     - Superior Court
+  #     - Housing Court
+  #     - Probate and Family Court
+  #     - Juvenile Court
+  #     - Land Court
+  #     - Any court (no preferred court)
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -262,12 +262,12 @@ code: |
   metadata.description = interview.description
   metadata.original_form = interview.original_form
   metadata.allowed_courts = interview.allowed_courts
-  metadata.preferred_court = interview.preferred_court
+  # metadata.preferred_court = interview.preferred_court
   metadata.categories = interview.categories
   metadata.other_categories = interview.other_categories if defined('interview.other_categories') else None
   metadata.typical_role = interview.typical_role
-  metadata.built_in_fields_used = built_in_fields_used
-  metadata.fields = fields
+  # metadata.built_in_fields_used = built_in_fields_used
+  # metadata.fields = fields
   interview.blocks.append(metadata)
   set_metadata = True
 ---
@@ -381,7 +381,7 @@ code: |
   # Build the mandatory code block that will control question flow
   logic_list = []
   logic_list.append('# Set the preferred/allowed courts for this interview')
-  logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
+  # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   for question in questions:
     if question.type == 'question':
@@ -390,9 +390,10 @@ code: |
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
         logic_list.append(question.field_list[0].transformed_variable)
       else:
-        logic_list.append(varname(question.question_text))              
-  for field in built_in_fields_used:
-    logic_list.append(map_names(field.variable))
+        logic_list.append(varname(question.question_text))
+  # TODO: cleanup              
+  # for field in built_in_fields_used:
+  #   logic_list.append(map_names(field.variable))
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
   interview.questions.initializeObject('main code block')
@@ -405,7 +406,8 @@ code: |
   # This interview_label field is used throughout the 
   # generated interview to let us store interview-specific
   # metadata
-  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)) + str(sequence).zfill(4)
+  # TODO: cleanup. Remove random number sequence from interview name
+  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)) # + str(sequence).zfill(4)
 ---
 code: |
   attachment_variable_name = interview_label + '_attachment'

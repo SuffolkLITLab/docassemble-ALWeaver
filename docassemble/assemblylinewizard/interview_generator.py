@@ -221,6 +221,7 @@ class DAQuestion(DAObject):
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
+            content += "id: " + self.question_text.replace("\r","").replace("\n","") + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -293,10 +294,12 @@ class DAQuestion(DAObject):
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
                         content += "    datatype: integer\n"
+                        content += "    min: 0\n"
                     elif field.field_data_type == 'number':
                         content += "    datatype: number\n"
                     elif field.field_data_type == 'currency':
                         content += "    datatype: currency\n"
+                        content += "    min: 0\n"
                     elif field.field_data_type == 'date':
                         content += "    datatype: date\n"
                     elif field.field_data_type == 'email':
@@ -322,7 +325,6 @@ class DAQuestion(DAObject):
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
-            content += "  # It was generated from interview_generator.py as an 'interview order' type question."
             content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = []
@@ -360,7 +362,7 @@ class DAQuestion(DAObject):
             content += "  allowed courts: " + "\n"
             for court in self.allowed_courts.true_values():
               content += "    - " + oneline(court) + "\n"
-            content += "  preferred court: " + oneline(self.preferred_court) + "\n"
+            # content += "  preferred court: " + oneline(self.preferred_court) + "\n"
             content += "  categories: " + "\n"
             for category in self.categories.true_values():
               content += "    - " + oneline(category) + "\n"
@@ -397,29 +399,30 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            if hasattr(self, 'built_in_fields_used'):
-              content += "    'built_in_fields_used': [\n"
-              for field in self.built_in_fields_used:
-                content += "      {'variable': '" + varname(field.variable) + "',\n"
-                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-                if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"
-                if hasattr(field, 'field_data_type'):
-                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
-                content += "      },\n"
-              content += "      ],\n"
-            if hasattr(self, 'fields'):
-              content += "    'fields': [\n"
-              for field in self.fields:
-                content += "      {'variable': '" + varname(field.variable) + "',\n"
-                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-                if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"
-                if hasattr(field, 'field_data_type'):
-                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
-                content += "      },\n"
-              content += "      ],\n"
-            content += "  })\n"
+            # TODO: Remove commented code
+            # if hasattr(self, 'built_in_fields_used'):
+            #   content += "    'built_in_fields_used': [\n"
+            #   for field in self.built_in_fields_used:
+            #     content += "      {'variable': '" + varname(field.variable) + "',\n"
+            #     content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
+            #     if hasattr(field, 'field_type'):
+            #       content += "      'field_type': '" + field.field_type + "',\n"
+            #     if hasattr(field, 'field_data_type'):
+            #       content += "      'field_data_type': '" + field.field_data_type + "',\n"
+            #     content += "      },\n"
+            #   content += "      ],\n"
+            # if hasattr(self, 'fields'):
+            #   content += "    'fields': [\n"
+            #   for field in self.fields:
+            #     content += "      {'variable': '" + varname(field.variable) + "',\n"
+            #     content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
+            #     if hasattr(field, 'field_type'):
+            #       content += "      'field_type': '" + field.field_type + "',\n"
+            #     if hasattr(field, 'field_data_type'):
+            #       content += "      'field_data_type': '" + field.field_data_type + "',\n"
+            #     content += "      },\n"
+            #   content += "      ],\n"
+            # content += "  })\n"
             #content += "Trigger the data blocks that list the fields we're using \n"
             #content += "interview_medatata['"+ self.interview_label +  "']['built_in_fields_used']\n"
             #content += "interview_metadata['"+ self.interview_label +  "']['fields']\n"
@@ -962,17 +965,21 @@ def pluralize_base(pluralizers_map, key):
 
 # Return label digit as the correct syntax for an index
 def indexify(digit):
-  if (digit == ''): return '[0]'
-  else: return '[' + digit + '-1]'
+  if (digit == ''): 
+    return '[0]'
+  else: 
+    return '[' + str(int(digit)-1) + ']'
 
 def turn_any_suffix_into_an_attribute(suffix_map, suffix):
   # If this can be turned int a reserved suffix,
   # that suffix is used
   try: suffix = suffix_map[suffix]
+  # NO LONGER TRANSFORMING ARBITRARY ATTRIBUTES
   # Otherwise, the suffix is not transformed. It's used
   # as it is, except turned into an attribute
   except KeyError:
-    suffix = re.sub(r'^_', '.', suffix)
+    pass
+    # suffix = re.sub(r'^_', '.', suffix)
   return suffix
 
 def reconstruct_var_name(to_join):
