@@ -240,7 +240,7 @@ class DAQuestion(DAObject):
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'): # this tells us its the ending screen
                   # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  content += "attachment code: " + self.attachment_variable_name + "\n"
+                  content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
                 # TODO / FUTURE we could let this handle multiple forms at once
@@ -248,15 +248,20 @@ class DAQuestion(DAObject):
                     # TODO: if we really use multiple attachments, we need to change this
                     # So there is a unique variable name
                     content += "---\n"
+                    # Use a DADict to store the attachment here
+                    content += "objects:\n"
+                    content += "  - " + self.attachment_variable_name + ': DADict\n'
+                    content += "---\n"
                     if hasattr(self, 'interview_label'):
                       content += "need: " + self.interview_label + "\n"
                     content += "attachment:\n"
-                    content += "    variable name: " + self.attachment_variable_name + "\n"
+                    content += "    variable name: " + self.attachment_variable_name + "[i]\n"
                     content += "    name: " + oneline(attachment.name) + "\n"
                     content += "    filename: " + varname(attachment.name) + "\n"
                     if attachment.type == 'md':
                         content += "    content: " + oneline(attachment.content) + "\n"
                     elif attachment.type == 'pdf':
+                        content += "    skip undefined: True" + "\n"
                         content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
                         self.templates_used.add(attachment.pdf_filename)
                         content += "    fields: " + "\n"
@@ -269,6 +274,9 @@ class DAQuestion(DAObject):
                               content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
                             elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
                               content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
+                            elif '_signature' in field.variable:
+                              content += "      # If it is a signature, test which file version we're expecting. leave it empty unless it's the final attachment version"
+                              content += '      - "' + field.variable +'": ${ ' + map_names(varname(field.variable)) if i == 'final' else '' + " }\n"
                             else:
                               # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
                               content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
@@ -333,9 +341,6 @@ class DAQuestion(DAObject):
                 signatures.append(field)
               else:
                 content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
-            content += "  # By default, we'll mark any un-filled fields as DAEmpty(). This helps avoid errors if you intentionally hide a logic branch or mark a question not required\n"
-            content += "  # Comment out the line below if you don't want this behavior. \n"
-            content += "  mark_unfilled_fields_empty(interview_metadata[\"" + self.interview_label + "\"])\n"
             content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
@@ -387,7 +392,7 @@ class DAQuestion(DAObject):
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
             content += "    ],\n"
-            content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
+            # content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
             content += "    'categories': [" + "\n"
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
@@ -399,33 +404,6 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            # TODO: Remove commented code
-            # if hasattr(self, 'built_in_fields_used'):
-            #   content += "    'built_in_fields_used': [\n"
-            #   for field in self.built_in_fields_used:
-            #     content += "      {'variable': '" + varname(field.variable) + "',\n"
-            #     content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-            #     if hasattr(field, 'field_type'):
-            #       content += "      'field_type': '" + field.field_type + "',\n"
-            #     if hasattr(field, 'field_data_type'):
-            #       content += "      'field_data_type': '" + field.field_data_type + "',\n"
-            #     content += "      },\n"
-            #   content += "      ],\n"
-            # if hasattr(self, 'fields'):
-            #   content += "    'fields': [\n"
-            #   for field in self.fields:
-            #     content += "      {'variable': '" + varname(field.variable) + "',\n"
-            #     content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-            #     if hasattr(field, 'field_type'):
-            #       content += "      'field_type': '" + field.field_type + "',\n"
-            #     if hasattr(field, 'field_data_type'):
-            #       content += "      'field_data_type': '" + field.field_data_type + "',\n"
-            #     content += "      },\n"
-            #   content += "      ],\n"
-            # content += "  })\n"
-            #content += "Trigger the data blocks that list the fields we're using \n"
-            #content += "interview_medatata['"+ self.interview_label +  "']['built_in_fields_used']\n"
-            #content += "interview_metadata['"+ self.interview_label +  "']['fields']\n"
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:

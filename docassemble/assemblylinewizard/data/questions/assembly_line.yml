@@ -19,7 +19,7 @@ objects:
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
-  # - built_in_fields_used: DAFieldList.using(gathered=True)
+  - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
   - signature_fields: DAFieldList.using(gathered=True)
   - questions: DAQuestionList.using(complete_attribute='question_text')
@@ -67,10 +67,8 @@ code: |
   #debug_questions  
   add_logic_tree    
   add_questions_to_interview
-  # get_vars
-  # created_package
+  created_preview_question
   created_attachment
-  created_preview_attachment
   wrote_interview
   increment_sequence
   show_interview
@@ -268,7 +266,7 @@ code: |
   metadata.typical_role = interview.typical_role
   # metadata.built_in_fields_used = built_in_fields_used
   # metadata.fields = fields
-  interview.blocks.append(metadata)
+  # interview.blocks.append(metadata)
   set_metadata = True
 ---
 code: |
@@ -374,7 +372,6 @@ code: |
   for question in questions:
     interview.questions[question.question_text] = question
     question.type = "question"
-  # add_variable_list # We moved this into the metadata block
   add_questions_to_interview = True
 ---
 code: |
@@ -406,8 +403,8 @@ code: |
   # This interview_label field is used throughout the 
   # generated interview to let us store interview-specific
   # metadata
-  # TODO: cleanup. Remove random number sequence from interview name
-  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name)) # + str(sequence).zfill(4)
+  # We removed random ID, so make sure the file names are unique
+  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name))
 ---
 code: |
   attachment_variable_name = interview_label + '_attachment'
@@ -442,52 +439,34 @@ code: |
   attachments.gathered = True
 ---
 code: |
-  # We're making a preview version of the PDF attachment
-  preview_attachment = preview_attachments.appendObject()
-  preview_attachment.type = 'pdf'
-  preview_attachment.pdf_filename = template_upload[0].filename
-  all_gathered_fields = built_in_fields_used + fields + signature_fields
-  preview_attachment.fields = [field for field in all_gathered_fields if not field.field_type_guess == 'signature']
-  preview_attachment.name = metadata.short_title
-  preview_attachments.gathered = True
-  created_preview_attachment = True
+  preview_question = interview.questions.initializeObject('preview_question')
+  preview_question.type = 'interstitial'
+  preview_question.question_text = 'Placeholder preview screen'
+  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "['preview']}"
+  preview_question.is_mandatory = False
+  preview_question.continue_button_field = interview_label + '_preview_question' 
+
+  created_preview_question = True
 ---
 code: |
-  # This is the question that goes with the preview attachment
-  preview_form = interview.questions.initializeObject('preview_form')
-  preview_form.type = 'question'
-  preview_form.question_text = 'Placeholder preview screen'
-  preview_form.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "_preview}"
-  preview_form.is_mandatory = False
-  preview_form.continue_button_field = interview_label + '_preview_question'
-  # We added this feature -- a variable to reference the attachment with
-  preview_form.attachment_variable_name = attachment_variable_name + '_preview'
-  preview_form.interview = interview
-  # preview_form.interview_label = None # skip this for the preview
-  preview_form.attachments = preview_attachments
-  preview_form.field_list.appendObject()
-  preview_form.field_list[0].field_type = 'end_attachment'
-  preview_form.field_list[0].variable = 'preview'
-  preview_form.field_list[0].question = preview_form
-  preview_form.field_list.gathered = True
-
   # This is the question that goes with the regular attachment
   end_question = interview.questions.initializeObject('all_done')
   end_question.type = 'question'
   end_question.progress = "100"
   end_question.question_text = 'Placeholder download screen'
+
   # Add a preview of the form to the draft ending screen
   end_question.subquestion_text = 'Placeholder\n\n'
   end_question.subquestion_text += '### Next steps\n\n'
   end_question.subquestion_text += '1. Step 1\n'
   end_question.subquestion_text += '1. Step 2\n\n'
   end_question.subquestion_text += 'Below is a preview of your form.\n\n'
-  end_question.subquestion_text += '${' + attachment_variable_name +' }'
+  end_question.subquestion_text += '${' + attachment_variable_name +"['final'] }"
   end_question.is_mandatory = True # Keep this in so you can run the interview right away
-  # We added this feature -- a variable to reference the attachment with
   end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview
   end_question.interview_label = interview_label
+
   # This only gets the one regular PDF attachment
   end_question.attachments = attachments
   end_question.field_list.appendObject()
