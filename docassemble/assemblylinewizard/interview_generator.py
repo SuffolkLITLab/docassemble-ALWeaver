@@ -274,9 +274,9 @@ class DAQuestion(DAObject):
                               content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
                             elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
                               content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
-                            elif '_signature' in field.variable:
-                              content += "      # If it is a signature, test which file version we're expecting. leave it empty unless it's the final attachment version"
-                              content += '      - "' + field.variable +'": ${ ' + map_names(varname(field.variable)) if i == 'final' else '' + " }\n"
+                            elif map_names(varname(field.variable)).endswith('.signature'):
+                              content += "      # If it is a signature, test which file version we're expecting. leave it empty unless it's the final attachment version\n"
+                              content += '      - "' + field.variable +'": ${ ' + map_names(varname(field.variable)) + " if i == 'final' else '' }\n"
                             else:
                               # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
                               content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
@@ -413,8 +413,9 @@ class DAQuestion(DAObject):
           for include in self.includes:
             content += "  - " + include + "\n"
         elif self.type == 'interstitial':
-          content += 'comment: |\n'
-          content += indent_by(self.comment, 2)
+          if hasattr(self, 'comment'):
+            content += 'comment: |\n'
+            content += indent_by(self.comment, 2)
           content += 'continue button field: '+ self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
