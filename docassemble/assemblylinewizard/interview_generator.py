@@ -220,6 +220,7 @@ class DAQuestion(DAObject):
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'): # this tells us its the ending screen
                   # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
+                  content += "need: " + self.interview_label + "\n"
                   content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
@@ -232,8 +233,6 @@ class DAQuestion(DAObject):
                     content += "objects:\n"
                     content += "  - " + self.attachment_variable_name + ': DADict\n'
                     content += "---\n"
-                    if hasattr(self, 'interview_label'):
-                      content += "need: " + self.interview_label + "\n"
                     content += "attachment:\n"
                     content += "    variable name: " + self.attachment_variable_name + "[i]\n"
                     content += "    name: " + oneline(attachment.name) + "\n"
@@ -384,6 +383,7 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
+            content += "  })\n"              
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
