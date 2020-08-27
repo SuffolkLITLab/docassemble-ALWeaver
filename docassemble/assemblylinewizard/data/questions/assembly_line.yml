@@ -388,7 +388,11 @@ code: |
         logic_list.append(question.field_list[0].transformed_variable)
       else:
         logic_list.append(varname(question.question_text))
-
+        
+  # Add in the built-in fields to the logic list        
+  for field in built_in_fields_used:
+    logic_list.append(map_names(field.variable))
+    
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
   code_block =  interview.questions.appendObject() # 'main code block')

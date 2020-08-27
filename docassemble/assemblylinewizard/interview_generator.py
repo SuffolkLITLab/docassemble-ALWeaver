@@ -835,6 +835,8 @@ def map_names(label):
   # of the plural version of the prefix of the label
   prefix = label_groups[1]
   var_start = pluralize_base(reserved_pluralizers_map, prefix)
+  if prefix == label: # it's just a standalone, like "defendant"
+    return var_start # Return the pluralized standalone variable
 
   digit = label_groups[2]
   index = indexify(digit)
