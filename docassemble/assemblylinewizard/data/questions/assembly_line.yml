@@ -58,18 +58,19 @@ code: |
   get_fields
   interview.title
   interview.typical_role  
-  set_metadata
-  add_draft_intro_screen
-  created_preview_question
-  add_includes  
+  add_includes
+  set_metadata # Adds metadata block to the interview as first block
   choose_field_types
   questions.gather()
+
   add_logic_tree
-  add_questions_to_interview  
-  
+  add_draft_intro_screen
+  created_preview_question
+  add_questions_to_interview
   created_attachment
   wrote_interview
   increment_sequence
+
   show_interview
 ---
 question: |

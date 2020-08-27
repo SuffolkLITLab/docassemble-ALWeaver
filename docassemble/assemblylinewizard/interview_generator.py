@@ -801,7 +801,7 @@ reserved_suffixes_map = {
   '_signature': ".signature",
   # Court-specific
   # '_name_short': not implemented,
-  # '_division': not implemented,
+  '_division': ".division",
   '_address_county': ".address.county",
   '_county': ".address.county",
 }
@@ -842,17 +842,22 @@ def map_names(label):
   # Here's where we split to avoid conflict with generator
 
   suffix = label_groups[3]
-  suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
+  # We're not transforming arbitrary suffixes, so only go through this
+  # if the suffix is on our reserved list
+  if not suffix in reserved_suffixes_map:
+    return label
+  else:    
+    suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
 
-  to_join = [var_start, index, suffix_as_attribute]
-  combo = reconstruct_var_name(to_join)
+    to_join = [var_start, index, suffix_as_attribute]
+    combo = reconstruct_var_name(to_join)
 
-  # Has to happen after docket number has been created
-  if (should_be_stringified(combo)):
-    result = get_stringifiable_version(combo)
-  else: result = combo
+    # Has to happen after docket number has been created
+    if (should_be_stringified(combo)):
+        result = get_stringifiable_version(combo)
+    else: result = combo
 
-  return result
+    return result
 
 
 ############################
