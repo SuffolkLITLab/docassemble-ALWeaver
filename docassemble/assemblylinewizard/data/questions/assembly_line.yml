@@ -60,15 +60,14 @@ code: |
   interview.typical_role  
   set_metadata
   add_draft_intro_screen
+  created_preview_question
   add_includes  
-  # debug
   choose_field_types
   questions.gather()
-  #debug_questions  
-  add_logic_tree   
-  created_preview_question 
-  add_questions_to_interview
-  created_attachment  
+  add_logic_tree
+  add_questions_to_interview  
+  
+  created_attachment
   wrote_interview
   increment_sequence
   show_interview
@@ -240,7 +239,7 @@ code: |
 ---
 code: |
   # Create an introduction question
-  intro_question = interview.questions.appendObject() # 'intro')
+  intro_question = interview.questions.appendObject()
   intro_question.type = 'interstitial'
   intro_question.comment = "This question is used to introduce your interview. Please customize"
   intro_question.continue_button_field = interview_label + '_intro'
@@ -436,8 +435,11 @@ code: |
   attachment.name = metadata.short_title
   attachments.gathered = True
 ---
+need:
+  - interview_label
+  - attachment_variable_name
 code: |
-  preview_question = interview.questions.appendObject() # 'preview_question')
+  preview_question = interview.questions.appendObject()
   preview_question.type = 'interstitial'
   preview_question.continue_button_field = interview_label + '_preview_question' 
   preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "['preview']}"
@@ -467,10 +469,14 @@ code: |
 
   # This only gets the one regular PDF attachment
   end_question.attachments = attachments
-  end_question.field_list.appendObject()
-  end_question.field_list[0].field_type = 'end_attachment'
-  end_question.field_list[0].variable = 'all_done'
-  end_question.field_list[0].question = end_question
-  end_question.field_list.gathered = True
+  end_question.field_list.gathered
   
   created_attachment = True
+---
+code: |
+  end_question.field_list.auto_gather = False
+  item = end_question.field_list.appendObject()
+  item.field_type = 'end_attachment'
+  item.variable = 'all_done'
+  # item.question = end_question
+  end_question.field_list.gathered = True

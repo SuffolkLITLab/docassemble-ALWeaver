@@ -69,18 +69,6 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     #except:
     #    raise Exception # prevent a NameError from being raised
 
-# TODO: To be deleted on a different PR
-# class DADecoration(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
-# class DADecorationDict(DADict):
-#     def init(self, **kwargs):
-#         super().init(**kwargs)
-#         self.object_type = DADecoration
-#         self.auto_gather = False
-#         self.there_are_any = True
-
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
     def init(self, **kwargs):
@@ -103,20 +91,11 @@ class DAAttachmentList(DAList):
                 output_list.append('[`' + x.docx_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
         return docassemble.base.functions.comma_and_list(output_list)
 
-# TODO: FUTURE: remove in a diffferent PR
-# class DAUploadMultiple(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
-# class DAUpload(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
 class DAInterview(DAObject):
     """ This class represents the final YAML output. It has a method to output to a string."""
     def init(self, **kwargs):
         self.blocks = list()
-        self.questions = DAQuestionList()
+        self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
         self.final_screen = DAQuestion()
         #self.decorations = DADecorationDict()
         self.target_variable = None
@@ -161,7 +140,7 @@ class DAInterview(DAObject):
             if block not in seen:
                 out.append(block)
                 seen.add(block)
-        for var in self.questions:# sorted(self.questions.keys()):
+        for var in self.questions.elements:# sorted(self.questions.keys()):
             if var not in seen:
                 out.append(var)
                 seen.add(var)
@@ -229,7 +208,7 @@ class DAQuestion(DAObject):
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if len(self.field_list) == 1:
+            if len(self.field_list.elements) == 1:
                 field_name_to_use = map_names(self.field_list[0].variable)
                 if self.field_list[0].field_type == 'yesno':
                     content += "yesno: " + field_name_to_use + "\n"
@@ -428,29 +407,20 @@ class DAQuestionList(DAList):
   def init(self, **kwargs):
     super().init(**kwargs)
     self.object_type = DAQuestion
-    self.auto_gather = False
-    self.gathered = True
-    self.is_mandatory = False
+    # self.auto_gather = False
+    # self.gathered = True
+    # self.is_mandatory = False
 
   def all_fields_used(self):
     """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
       in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-      It prevents the formatter of the wizard to put the same fields on two different screens."""
+      It prevents the formatter of the wizard from putting the same fields on two different screens."""
     fields = set()
     for question in self.elements:
       if hasattr(question,'field_list'):
         for field in question.field_list.elements:
           fields.add(field)
     return fields
-
-# class DAQuestionDict(DADict):
-#     """TODO: Remove references to this object. Duplicative of the DAQuestionList, but unordered. We also don't use the key anywhere."""
-#     def init(self, **kwargs):
-#         super().init(**kwargs)
-#         self.object_type = DAQuestion
-#         self.auto_gather = False
-#         self.gathered = True
-#         self.is_mandatory = False
 
 class PlaygroundSection(object):
     def __init__(self, section='', project='default'):
