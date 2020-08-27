@@ -265,7 +265,7 @@ code: |
   metadata.typical_role = interview.typical_role
   # metadata.built_in_fields_used = built_in_fields_used
   # metadata.fields = fields
-  # interview.blocks.append(metadata)
+  interview.blocks.append(metadata)
   set_metadata = True
 ---
 code: |
@@ -427,6 +427,12 @@ code: |
   interview_download.commit()
   wrote_interview = True
 ---
+need:
+  - template_upload[0].filename
+  - built_in_fields_used
+  - fields
+  - signature_fields
+  - metadata.short_title
 code: |
   attachment = attachments.appendObject()
   attachment.type = 'pdf'
@@ -448,6 +454,11 @@ code: |
 
   created_preview_question = True
 ---
+need:
+  - attachments
+  - attachment_variable_name
+  - interview
+  - interview_label
 code: |
   # This is the question that goes with the regular attachment
   end_question = interview.questions.appendObject() # 'all_done')
@@ -469,14 +480,11 @@ code: |
 
   # This only gets the one regular PDF attachment
   end_question.attachments = attachments
-  end_question.field_list.gathered
-  
-  created_attachment = True
----
-code: |
   end_question.field_list.auto_gather = False
   item = end_question.field_list.appendObject()
   item.field_type = 'end_attachment'
   item.variable = 'all_done'
   # item.question = end_question
-  end_question.field_list.gathered = True
+  end_question.field_list.gathered = True  
+  
+  created_attachment = True

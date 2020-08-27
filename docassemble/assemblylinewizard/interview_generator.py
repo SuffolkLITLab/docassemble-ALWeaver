@@ -134,17 +134,18 @@ class DAInterview(DAObject):
     def yaml_file_name(self):
         return to_yaml_file(self.file_name)
     def all_blocks(self):
-        seen = set()
-        out = list()
-        for block in self.blocks:
-            if block not in seen:
-                out.append(block)
-                seen.add(block)
-        for var in self.questions.elements:# sorted(self.questions.keys()):
-            if var not in seen:
-                out.append(var)
-                seen.add(var)
-        return out
+        return self.blocks + self.questions.elements
+        # seen = set()
+        # out = list()
+        # for block in self.blocks:
+        #     if block not in seen:
+        #         out.append(block)
+        #         seen.add(block)
+        # for var in self.questions.elements:# sorted(self.questions.keys()):
+        #     #if var not in seen:
+        #     #    out.append(var)
+        #     #    seen.add(var)
+        # return out
     def demonstrate(self):
         for block in self.all_blocks():
             block.demonstrated
@@ -208,7 +209,7 @@ class DAQuestion(DAObject):
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if len(self.field_list.elements) == 1:
+            if len(self.field_list) == 1:
                 field_name_to_use = map_names(self.field_list[0].variable)
                 if self.field_list[0].field_type == 'yesno':
                     content += "yesno: " + field_name_to_use + "\n"
