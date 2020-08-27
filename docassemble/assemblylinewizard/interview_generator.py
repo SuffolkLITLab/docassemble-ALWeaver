@@ -21,7 +21,7 @@ import types
 TypeType = type(type(None))
 
 # __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
 
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -69,18 +69,6 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     #except:
     #    raise Exception # prevent a NameError from being raised
 
-# TODO: To be deleted on a different PR
-# class DADecoration(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
-# class DADecorationDict(DADict):
-#     def init(self, **kwargs):
-#         super().init(**kwargs)
-#         self.object_type = DADecoration
-#         self.auto_gather = False
-#         self.there_are_any = True
-
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
     def init(self, **kwargs):
@@ -103,20 +91,11 @@ class DAAttachmentList(DAList):
                 output_list.append('[`' + x.docx_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
         return docassemble.base.functions.comma_and_list(output_list)
 
-# TODO: FUTURE: remove in a diffferent PR
-# class DAUploadMultiple(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
-# class DAUpload(DAObject):
-#     def init(self, **kwargs):
-#         return super().init(**kwargs)
-
 class DAInterview(DAObject):
     """ This class represents the final YAML output. It has a method to output to a string."""
     def init(self, **kwargs):
         self.blocks = list()
-        self.questions = DAQuestionDict()
+        self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
         self.final_screen = DAQuestion()
         #self.decorations = DADecorationDict()
         self.target_variable = None
@@ -155,17 +134,18 @@ class DAInterview(DAObject):
     def yaml_file_name(self):
         return to_yaml_file(self.file_name)
     def all_blocks(self):
-        seen = set()
-        out = list()
-        for block in self.blocks:
-            if block not in seen:
-                out.append(block)
-                seen.add(block)
-        for var in sorted(self.questions.keys()):
-            if self.questions[var] not in seen:
-                out.append(self.questions[var])
-                seen.add(self.questions[var])
-        return out
+        return self.blocks + self.questions.elements
+        # seen = set()
+        # out = list()
+        # for block in self.blocks:
+        #     if block not in seen:
+        #         out.append(block)
+        #         seen.add(block)
+        # for var in self.questions.elements:# sorted(self.questions.keys()):
+        #     #if var not in seen:
+        #     #    out.append(var)
+        #     #    seen.add(var)
+        # return out
     def demonstrate(self):
         for block in self.all_blocks():
             block.demonstrated
@@ -221,6 +201,7 @@ class DAQuestion(DAObject):
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
+            content += "id: " + self.question_text.replace("\r","").replace("\n","") + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -239,7 +220,8 @@ class DAQuestion(DAObject):
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'): # this tells us its the ending screen
                   # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  content += "attachment code: " + self.attachment_variable_name + "\n"
+                  content += "need: " + self.interview_label + "\n"
+                  content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
                 # TODO / FUTURE we could let this handle multiple forms at once
@@ -247,15 +229,18 @@ class DAQuestion(DAObject):
                     # TODO: if we really use multiple attachments, we need to change this
                     # So there is a unique variable name
                     content += "---\n"
-                    if hasattr(self, 'interview_label'):
-                      content += "need: " + self.interview_label + "\n"
+                    # Use a DADict to store the attachment here
+                    content += "objects:\n"
+                    content += "  - " + self.attachment_variable_name + ': DADict\n'
+                    content += "---\n"
                     content += "attachment:\n"
-                    content += "    variable name: " + self.attachment_variable_name + "\n"
+                    content += "    variable name: " + self.attachment_variable_name + "[i]\n"
                     content += "    name: " + oneline(attachment.name) + "\n"
                     content += "    filename: " + varname(attachment.name) + "\n"
                     if attachment.type == 'md':
                         content += "    content: " + oneline(attachment.content) + "\n"
                     elif attachment.type == 'pdf':
+                        content += "    skip undefined: True" + "\n"
                         content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
                         self.templates_used.add(attachment.pdf_filename)
                         content += "    fields: " + "\n"
@@ -268,6 +253,9 @@ class DAQuestion(DAObject):
                               content += '      - "' + field.variable + '": ${ ' + varname(field.variable).format() + " }\n"
                             elif hasattr(field, 'field_data_type') and field.field_data_type == 'currency':
                               content += '      - "' + field.variable + '": ${ currency(' + varname(field.variable) + " ) }\n"
+                            elif map_names(varname(field.variable)).endswith('.signature'):
+                              content += "      # If it is a signature, test which file version we're expecting. leave it empty unless it's the final attachment version\n"
+                              content += '      - "' + field.variable +'": ${ ' + map_names(varname(field.variable)) + " if i == 'final' else '' }\n"
                             else:
                               # content += '      "' + field.variable + '": ${ ' + process_variable_name(varname(field.variable)) + " }\n"
                               content += '      - "' + field.variable + '": ${ ' + map_names(varname(field.variable)) + " }\n"
@@ -293,10 +281,12 @@ class DAQuestion(DAObject):
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
                         content += "    datatype: integer\n"
+                        content += "    min: 0\n"
                     elif field.field_data_type == 'number':
                         content += "    datatype: number\n"
                     elif field.field_data_type == 'currency':
                         content += "    datatype: currency\n"
+                        content += "    min: 0\n"
                     elif field.field_data_type == 'date':
                         content += "    datatype: date\n"
                     elif field.field_data_type == 'email':
@@ -322,7 +312,6 @@ class DAQuestion(DAObject):
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
-            content += "  # It was generated from interview_generator.py as an 'interview order' type question."
             content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = []
@@ -331,9 +320,6 @@ class DAQuestion(DAObject):
                 signatures.append(field)
               else:
                 content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
-            content += "  # By default, we'll mark any un-filled fields as DAEmpty(). This helps avoid errors if you intentionally hide a logic branch or mark a question not required\n"
-            content += "  # Comment out the line below if you don't want this behavior. \n"
-            content += "  mark_unfilled_fields_empty(interview_metadata[\"" + self.interview_label + "\"])\n"
             content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
@@ -360,7 +346,7 @@ class DAQuestion(DAObject):
             content += "  allowed courts: " + "\n"
             for court in self.allowed_courts.true_values():
               content += "    - " + oneline(court) + "\n"
-            content += "  preferred court: " + oneline(self.preferred_court) + "\n"
+            # content += "  preferred court: " + oneline(self.preferred_court) + "\n"
             content += "  categories: " + "\n"
             for category in self.categories.true_values():
               content += "    - " + oneline(category) + "\n"
@@ -385,7 +371,7 @@ class DAQuestion(DAObject):
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
             content += "    ],\n"
-            content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
+            # content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
             content += "    'categories': [" + "\n"
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
@@ -397,32 +383,7 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            if hasattr(self, 'built_in_fields_used'):
-              content += "    'built_in_fields_used': [\n"
-              for field in self.built_in_fields_used:
-                content += "      {'variable': '" + varname(field.variable) + "',\n"
-                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-                if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"
-                if hasattr(field, 'field_data_type'):
-                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
-                content += "      },\n"
-              content += "      ],\n"
-            if hasattr(self, 'fields'):
-              content += "    'fields': [\n"
-              for field in self.fields:
-                content += "      {'variable': '" + varname(field.variable) + "',\n"
-                content += "       'transformed_variable': '" + field.transformed_variable + "',\n"
-                if hasattr(field, 'field_type'):
-                  content += "      'field_type': '" + field.field_type + "',\n"
-                if hasattr(field, 'field_data_type'):
-                  content += "      'field_data_type': '" + field.field_data_type + "',\n"
-                content += "      },\n"
-              content += "      ],\n"
-            content += "  })\n"
-            #content += "Trigger the data blocks that list the fields we're using \n"
-            #content += "interview_medatata['"+ self.interview_label +  "']['built_in_fields_used']\n"
-            #content += "interview_metadata['"+ self.interview_label +  "']['fields']\n"
+            content += "  })\n"              
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
@@ -432,8 +393,9 @@ class DAQuestion(DAObject):
           for include in self.includes:
             content += "  - " + include + "\n"
         elif self.type == 'interstitial':
-          content += 'comment: |\n'
-          content += indent_by(self.comment, 2)
+          if hasattr(self, 'comment'):
+            content += 'comment: |\n'
+            content += indent_by(self.comment, 2)            
           content += 'continue button field: '+ self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
@@ -446,25 +408,20 @@ class DAQuestionList(DAList):
   def init(self, **kwargs):
     super().init(**kwargs)
     self.object_type = DAQuestion
+    # self.auto_gather = False
+    # self.gathered = True
+    # self.is_mandatory = False
+
   def all_fields_used(self):
     """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
       in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-      It prevents the formatter of the wizard to put the same fields on two different screens."""
+      It prevents the formatter of the wizard from putting the same fields on two different screens."""
     fields = set()
     for question in self.elements:
       if hasattr(question,'field_list'):
         for field in question.field_list.elements:
           fields.add(field)
     return fields
-
-class DAQuestionDict(DADict):
-    """TODO: Remove references to this object. Duplicative of the DAQuestionList, but unordered. We also don't use the key anywhere."""
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DAQuestion
-        self.auto_gather = False
-        self.gathered = True
-        self.is_mandatory = False
 
 class PlaygroundSection(object):
     def __init__(self, section='', project='default'):
@@ -844,7 +801,7 @@ reserved_suffixes_map = {
   '_signature': ".signature",
   # Court-specific
   # '_name_short': not implemented,
-  # '_division': not implemented,
+  '_division': ".division",
   '_address_county': ".address.county",
   '_county': ".address.county",
 }
@@ -878,6 +835,8 @@ def map_names(label):
   # of the plural version of the prefix of the label
   prefix = label_groups[1]
   var_start = pluralize_base(reserved_pluralizers_map, prefix)
+  if prefix == label: # it's just a standalone, like "defendant"
+    return var_start # Return the pluralized standalone variable
 
   digit = label_groups[2]
   index = indexify(digit)
@@ -885,17 +844,22 @@ def map_names(label):
   # Here's where we split to avoid conflict with generator
 
   suffix = label_groups[3]
-  suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
+  # We're not transforming arbitrary suffixes, so only go through this
+  # if the suffix is on our reserved list
+  if not suffix in reserved_suffixes_map:
+    return label
+  else:    
+    suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
 
-  to_join = [var_start, index, suffix_as_attribute]
-  combo = reconstruct_var_name(to_join)
+    to_join = [var_start, index, suffix_as_attribute]
+    combo = reconstruct_var_name(to_join)
 
-  # Has to happen after docket number has been created
-  if (should_be_stringified(combo)):
-    result = get_stringifiable_version(combo)
-  else: result = combo
+    # Has to happen after docket number has been created
+    if (should_be_stringified(combo)):
+        result = get_stringifiable_version(combo)
+    else: result = combo
 
-  return result
+    return result
 
 
 ############################
@@ -962,17 +926,21 @@ def pluralize_base(pluralizers_map, key):
 
 # Return label digit as the correct syntax for an index
 def indexify(digit):
-  if (digit == ''): return '[0]'
-  else: return '[' + digit + '-1]'
+  if (digit == ''): 
+    return '[0]'
+  else: 
+    return '[' + str(int(digit)-1) + ']'
 
 def turn_any_suffix_into_an_attribute(suffix_map, suffix):
   # If this can be turned int a reserved suffix,
   # that suffix is used
   try: suffix = suffix_map[suffix]
+  # NO LONGER TRANSFORMING ARBITRARY ATTRIBUTES
   # Otherwise, the suffix is not transformed. It's used
   # as it is, except turned into an attribute
   except KeyError:
-    suffix = re.sub(r'^_', '.', suffix)
+    pass
+    # suffix = re.sub(r'^_', '.', suffix)
   return suffix
 
 def reconstruct_var_name(to_join):
