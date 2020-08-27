@@ -21,7 +21,7 @@ import types
 TypeType = type(type(None))
 
 # __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
 
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -116,7 +116,7 @@ class DAInterview(DAObject):
     """ This class represents the final YAML output. It has a method to output to a string."""
     def init(self, **kwargs):
         self.blocks = list()
-        self.questions = DAQuestionDict()
+        self.questions = DAQuestionList()
         self.final_screen = DAQuestion()
         #self.decorations = DADecorationDict()
         self.target_variable = None
@@ -161,10 +161,10 @@ class DAInterview(DAObject):
             if block not in seen:
                 out.append(block)
                 seen.add(block)
-        for var in sorted(self.questions.keys()):
-            if self.questions[var] not in seen:
-                out.append(self.questions[var])
-                seen.add(self.questions[var])
+        for var in self.questions:# sorted(self.questions.keys()):
+            if var not in seen:
+                out.append(var)
+                seen.add(var)
         return out
     def demonstrate(self):
         for block in self.all_blocks():
@@ -415,7 +415,7 @@ class DAQuestion(DAObject):
         elif self.type == 'interstitial':
           if hasattr(self, 'comment'):
             content += 'comment: |\n'
-            content += indent_by(self.comment, 2)
+            content += indent_by(self.comment, 2)            
           content += 'continue button field: '+ self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
@@ -428,6 +428,10 @@ class DAQuestionList(DAList):
   def init(self, **kwargs):
     super().init(**kwargs)
     self.object_type = DAQuestion
+    self.auto_gather = False
+    self.gathered = True
+    self.is_mandatory = False
+
   def all_fields_used(self):
     """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
       in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
@@ -439,14 +443,14 @@ class DAQuestionList(DAList):
           fields.add(field)
     return fields
 
-class DAQuestionDict(DADict):
-    """TODO: Remove references to this object. Duplicative of the DAQuestionList, but unordered. We also don't use the key anywhere."""
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DAQuestion
-        self.auto_gather = False
-        self.gathered = True
-        self.is_mandatory = False
+# class DAQuestionDict(DADict):
+#     """TODO: Remove references to this object. Duplicative of the DAQuestionList, but unordered. We also don't use the key anywhere."""
+#     def init(self, **kwargs):
+#         super().init(**kwargs)
+#         self.object_type = DAQuestion
+#         self.auto_gather = False
+#         self.gathered = True
+#         self.is_mandatory = False
 
 class PlaygroundSection(object):
     def __init__(self, section='', project='default'):

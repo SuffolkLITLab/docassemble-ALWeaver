@@ -65,10 +65,10 @@ code: |
   choose_field_types
   questions.gather()
   #debug_questions  
-  add_logic_tree    
+  add_logic_tree   
+  created_preview_question 
   add_questions_to_interview
-  created_preview_question
-  created_attachment
+  created_attachment  
   wrote_interview
   increment_sequence
   show_interview
@@ -233,14 +233,14 @@ code: |
 ---
 code: |
   # Build the list of includes
-  include_question = interview.questions.initializeObject('includes')
+  include_question = interview.questions.appendObject()
   include_question.type = 'includes'
   include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
   add_includes = True
 ---
 code: |
   # Create an introduction question
-  intro_question = interview.questions.initializeObject('intro')
+  intro_question = interview.questions.appendObject() # 'intro')
   intro_question.type = 'interstitial'
   intro_question.comment = "This question is used to introduce your interview. Please customize"
   intro_question.continue_button_field = interview_label + '_intro'
@@ -370,8 +370,8 @@ code: |
 ---
 code: |
   for question in questions:
-    interview.questions[question.question_text] = question
     question.type = "question"
+    interview.questions.append(question)
   add_questions_to_interview = True
 ---
 code: |
@@ -388,15 +388,13 @@ code: |
         logic_list.append(question.field_list[0].transformed_variable)
       else:
         logic_list.append(varname(question.question_text))
-  # TODO: cleanup              
-  # for field in built_in_fields_used:
-  #   logic_list.append(map_names(field.variable))
+
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
-  interview.questions.initializeObject('main code block')
-  interview.questions['main code block'].type = 'interview order'
-  interview.questions['main code block'].logic_list = logic_list
-  interview.questions['main code block'].interview_label = interview_label
+  code_block =  interview.questions.appendObject() # 'main code block')
+  code_block.type = 'interview order'
+  code_block.logic_list = logic_list
+  code_block.interview_label = interview_label
   add_logic_tree = True  
 ---
 code: |
@@ -439,18 +437,18 @@ code: |
   attachments.gathered = True
 ---
 code: |
-  preview_question = interview.questions.initializeObject('preview_question')
+  preview_question = interview.questions.appendObject() # 'preview_question')
   preview_question.type = 'interstitial'
-  preview_question.question_text = 'Placeholder preview screen'
-  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "['preview']}"
-  preview_question.is_mandatory = False
   preview_question.continue_button_field = interview_label + '_preview_question' 
+  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "['preview']}"
+  preview_question.is_mandatory = False  
+  preview_question.question_text = 'Placeholder preview screen'
 
   created_preview_question = True
 ---
 code: |
   # This is the question that goes with the regular attachment
-  end_question = interview.questions.initializeObject('all_done')
+  end_question = interview.questions.appendObject() # 'all_done')
   end_question.type = 'question'
   end_question.progress = "100"
   end_question.question_text = 'Placeholder download screen'
