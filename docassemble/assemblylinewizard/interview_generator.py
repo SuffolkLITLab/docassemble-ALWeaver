@@ -201,7 +201,11 @@ class DAQuestion(DAObject):
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
-            content += "id: " + self.question_text.replace("\r","").replace("\n","") + "\n"
+            if hasattr(self, 'id') and self.id:
+                # TODO: ask for ID in the wizard
+                content += "id: " + self.id + "\n"
+            else:                
+                content += "id: " + oneline(self.question_text) + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -383,7 +387,7 @@ class DAQuestion(DAObject):
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
             if hasattr(self, 'typical_role'):
               content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            content += "  })\n"              
+            content += "  })\n"
         elif self.type == 'modules':
             content += "modules:\n"
             for module in self.modules:
@@ -395,12 +399,54 @@ class DAQuestion(DAObject):
         elif self.type == 'interstitial':
           if hasattr(self, 'comment'):
             content += 'comment: |\n'
-            content += indent_by(self.comment, 2)            
+            content += indent_by(self.comment, 2)
+          if hasattr(self, 'id') and self.id:
+            content += "id: " + self.id + "\n"
+          else:
+            content += "id: " + oneline(self.question_text) + "\n"
           content += 'continue button field: '+ self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text,2)
+        elif self.type == "review":
+          if hasattr(self, 'id') and self.id:
+              content += "id: " + self.id + "\n"
+          else:
+              content += "id: " + oneline(question_text) + "\n"
+          content += "question: |\n"
+          content += indent_by(self.question_text, 2)
+          content += "subquestion: |\n"
+          content += indent_by(self.subquestion_text,2)
+          content += "review: \n"
+          for field in self.field_list:
+              field_name_to_use = map_names(field.variable)
+              if hasattr(field, 'field_type'):
+                  content += '  - Edit: ' + field_name_to_use + "\n"
+              else:
+                  content += '  - Edit: ' + remove_string_wrapper(field_name_to_use) + "\n"
+              content += '    button: |' + "\n"
+              if hasattr(field,'label'):
+                  content += indent_by(field.label + ": ", 6)
+              if hasattr(field, 'field_type'):
+                if field.field_type in ['yesno', 'yesnomaybe']:
+                    content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
+                elif field.field_data_type in ['integer', 'number','range']:
+                    content += indent_by('${ ' + field_name_to_use + ' }', 6)
+                elif field.field_type == 'area':
+                    content += indent_by('> ${ single_paragraph(' + field_name_to_use + ') }', 6)
+                elif field.field_type == 'file':
+                    content += "      \n"
+                    content += indent_by('${ ' + field_name_to_use + ' }', 6)
+                elif field.field_data_type == 'currency':
+                    content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
+                elif field.field_data_type == 'date':
+                    content += indent_by('${ ' + field_name_to_use + '.format() }', 6)                        
+                # elif field.field_data_type == 'email':
+                else:
+                    content += indent_by('${ ' + field_name_to_use + ' }', 6)
+              else:
+                  content += indent_by('${ ' + field_name_to_use + ' }', 6)
         return content
 
 class DAQuestionList(DAList):
@@ -796,7 +842,7 @@ reserved_suffixes_map = {
   '_address_state': ".address.state",
   '_address_zip': ".address.zip",
   '_address_on_one_line': ".address.on_one_line()",
-  '_address_one_line': ".address.on_one_line()",
+  '_address_line_one': ".address.line_one()",
   '_address_city_state_zip': ".address.line_two()",
   '_signature': ".signature",
   # Court-specific
@@ -804,6 +850,15 @@ reserved_suffixes_map = {
   '_division': ".division",
   '_address_county': ".address.county",
   '_county': ".address.county",
+}
+
+unmap_suffixes = {
+  ".birthdate.format()": '.birthdate',
+  ".age_in_years()": ".birthdate",
+  ".address.block()": ".address.address",
+  ".address.on_one_line()": ".address.address",
+  ".address.line_one()": ".address.address",
+  ".address.line_two()": ".address.address",
 }
 
 #def labels_to_pdf_vars(label):
@@ -917,6 +972,16 @@ def is_a_plural(plurals, label):
 
 def get_stringifiable_version(label):
   return 'str(' + label + ')'
+
+def remove_string_wrapper(label):
+    if label.startswith('str('):
+        return label[4:-1]
+    # map address() etc backwards
+    else:
+        for suffix in unmap_suffixes:
+            if label.endswith(suffix):
+                return label.replace(suffix, unmap_suffixes[suffix])
+    return label
 
 def get_reserved_label_parts(prefixes, label):
    return re.search(fr"{prefixes}(\d*)(.*)", label)
