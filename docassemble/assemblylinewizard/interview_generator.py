@@ -180,7 +180,8 @@ class DAFieldList(DAList):
         return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
 class DAQuestion(DAObject):
-    """This class represents a "question" in the generated YAML file. TODO: move some of the "questions" into other block types. """
+    """This class represents a "question" in the generated YAML file. TODO: move
+    some of the "questions" into other block types. """
 
     # TODO: subclass question or come up with other types for things
     # that aren't really questions instead of giant IF block
@@ -191,7 +192,7 @@ class DAQuestion(DAObject):
         self.templates_used = set()
         self.static_files_used = set()
         return super().init(**kwargs)
-    def source(self, follow_additional_fields=True):
+    def source(self, follow_additional_fields=True, document_type="pdf"):
         """This method outputs the YAML code representing a single "question" in the interview."""
         content = ''
         if hasattr(self, 'progress'):
@@ -214,7 +215,7 @@ class DAQuestion(DAObject):
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
             if len(self.field_list) == 1:
-                field_name_to_use = map_names(self.field_list[0].variable)
+                field_name_to_use = map_names(self.field_list[0].variable, document_type=document_type)
                 if self.field_list[0].field_type == 'yesno':
                     content += "yesno: " + field_name_to_use + "\n"
                     done_with_content = True
@@ -270,7 +271,7 @@ class DAQuestion(DAObject):
             if not done_with_content:
                 content += "fields:\n"
                 for field in self.field_list:
-                    field_name_to_use = map_names(field.variable)
+                    field_name_to_use = map_names(field.variable, document_type=document_type)
                     if field.has_label:
                         content += "  - " + repr_str(field.label) + ": " + field_name_to_use + "\n"
                     else:
@@ -318,12 +319,14 @@ class DAQuestion(DAObject):
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
-            signatures = []
+            signatures = set()
+            field_names = set()
             for field in self.logic_list:
               if field.endswith('.signature'): # save the signatures for the end
-                signatures.append(field)
-              else:
+                signatures.add(field)
+              elif not field in field_names:
                 content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
+              field_names.add(field)
             content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
@@ -341,26 +344,32 @@ class DAQuestion(DAObject):
             content += "template: " + varname(self.field_list[0].variable) + "\n"
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
+        elif self.type == 'sections':
+            content += "features: \n  navigation: True\n"
+            content += "---\n"
+            content += "sections:\n"
+            for section in self.sections:
+                if isinstance(section, dict):
+                    section_item = next(iter(section.items()))
+                    if section_item and len(section_item) > 1:
+                        content += '  - ' + str(section_item[0]) + ': ' + str(section_item[1]) + "\n"
+                elif isinstance(section, str):
+                    content += '  - ' + section_item
         elif self.type == 'metadata':
+            if hasattr(self, 'comment'):
+                content += 'comment: |\n'
+                content += indent_by(self.comment, 2) 
             content += "metadata:\n"
-            content += "  title: " + oneline(self.title) + "\n"
-            content += "  short title: " + oneline(self.short_title) + "\n"
-            content += "  description: " + oneline(self.description) + "\n"
-            content += "  original_form: " + oneline(self.original_form) + "\n"
-            content += "  allowed courts: " + "\n"
-            for court in self.allowed_courts.true_values():
-              content += "    - " + oneline(court) + "\n"
-            # content += "  preferred court: " + oneline(self.preferred_court) + "\n"
-            content += "  categories: " + "\n"
-            for category in self.categories.true_values():
-              content += "    - " + oneline(category) + "\n"
-            if self.categories['Other']:
-              for category in self.other_categories.split(','):
-                content += "    - " + oneline(category) + "\n"
+            for setting in self.settings: 
+                content += '  ' + setting + ': |\n'
+                content += indent_by(self.settings[setting], 4)
         elif self.type == 'metadata_code':
             # TODO: this is begging to be refactored into
             # just dumping out a dictionary in json-like format
             # rather than us hand-writing the data structure
+            if hasattr(self, 'comment'):
+                content += 'comment: |\n'
+                content += indent_by(self.comment, 2)
             content += "mandatory: True\n" # We need this block to run every time to build our metadata variable
             content += "code: |\n"
             content += "  interview_metadata # make sure we initialize the object\n"
@@ -375,7 +384,6 @@ class DAQuestion(DAObject):
             for court in self.allowed_courts.true_values():
               content += "      '" + oneline(court) + "',\n"
             content += "    ],\n"
-            # content += "    'preferred court': '" + oneline(self.preferred_court) + "',\n"
             content += "    'categories': [" + "\n"
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
@@ -414,39 +422,41 @@ class DAQuestion(DAObject):
               content += "id: " + self.id + "\n"
           else:
               content += "id: " + oneline(question_text) + "\n"
+          if hasattr(self, 'event'):
+              content += "event: " + self.event + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text,2)
           content += "review: \n"
+          field_names = set()
           for field in self.field_list:
-              field_name_to_use = map_names(field.variable)
-              if hasattr(field, 'field_type'):
-                  content += '  - Edit: ' + field_name_to_use + "\n"
-              else:
-                  content += '  - Edit: ' + remove_string_wrapper(field_name_to_use) + "\n"
-              content += '    button: |' + "\n"
-              if hasattr(field,'label'):
-                  content += indent_by(field.label + ": ", 6)
-              if hasattr(field, 'field_type'):
-                if field.field_type in ['yesno', 'yesnomaybe']:
-                    content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
-                elif field.field_data_type in ['integer', 'number','range']:
-                    content += indent_by('${ ' + field_name_to_use + ' }', 6)
-                elif field.field_type == 'area':
-                    content += indent_by('> ${ single_paragraph(' + field_name_to_use + ') }', 6)
-                elif field.field_type == 'file':
-                    content += "      \n"
-                    content += indent_by('${ ' + field_name_to_use + ' }', 6)
-                elif field.field_data_type == 'currency':
-                    content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
-                elif field.field_data_type == 'date':
-                    content += indent_by('${ ' + field_name_to_use + '.format() }', 6)                        
-                # elif field.field_data_type == 'email':
+              field_name_to_use = remove_string_wrapper(map_names(field.variable, document_type=document_type))
+              if field_name_to_use not in field_names:
+                content += '  - Edit: ' + field_name_to_use + "\n"
+                content += '    button: |' + "\n"
+                if hasattr(field,'label'):
+                    content += indent_by(field.label + ": ", 6)
+                if hasattr(field, 'field_type'):
+                    if field.field_type in ['yesno', 'yesnomaybe']:
+                        content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
+                    elif field.field_data_type in ['integer', 'number','range']:
+                        content += indent_by('${ ' + field_name_to_use + ' }', 6)
+                    elif field.field_type == 'area':
+                        content += indent_by('> ${ single_paragraph(' + field_name_to_use + ') }', 6)
+                    elif field.field_type == 'file':
+                        content += "      \n"
+                        content += indent_by('${ ' + field_name_to_use + ' }', 6)
+                    elif field.field_data_type == 'currency':
+                        content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
+                    elif field.field_data_type == 'date':
+                        content += indent_by('${ ' + field_name_to_use + '.format() }', 6)                        
+                    # elif field.field_data_type == 'email':
+                    else:
+                        content += indent_by('${ ' + field_name_to_use + ' }', 6)
                 else:
                     content += indent_by('${ ' + field_name_to_use + ' }', 6)
-              else:
-                  content += indent_by('${ ' + field_name_to_use + ' }', 6)
+                field_names.add(field_name_to_use)
         return content
 
 class DAQuestionList(DAList):
@@ -862,11 +872,12 @@ unmap_suffixes = {
 }
 
 #def labels_to_pdf_vars(label):
-def map_names(label):
+def map_names(label, document_type="pdf"):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
-
+  if document_type.lower() == "docx":
+      return label # don't transform DOCX variables
   # Get rid of all underscores
   # Doesn't matter if it's a first appearance or more
   label = remove_multiple_appearance_indicator(label)

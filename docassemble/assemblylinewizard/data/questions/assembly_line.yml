@@ -15,8 +15,10 @@ objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview
   - main_code: DAQuestion
+  - metadata_code: DAQuestion
   - metadata: DAQuestion
   - modules: DAQuestion
+  - sections: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
   - built_in_fields_used: DAFieldList.using(gathered=True)
@@ -60,9 +62,10 @@ code: |
   interview.typical_role  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
+  add_sections
   choose_field_types
   questions.gather()
-
+  
   add_logic_tree
   add_draft_intro_screen
   created_preview_question
@@ -240,6 +243,19 @@ code: |
   add_includes = True
 ---
 code: |
+  # Build list of section headings
+  # Our current interview only uses one
+  sections.comment = """Section headings appear on the left and can be clicked
+  upon to visit an event (usually a review screen) with the section's variable
+  name.
+  Normally you will break up the review screen into multiple pages
+  to show progress."""
+  sections.type = "sections"
+  sections.sections = [{"review_" + interview_label: "Review your answers"}]
+  interview.questions.append(sections)
+  add_sections = True
+---
+code: |
   # Create an introduction question
   intro_question = interview.questions.appendObject()
   intro_question.type = 'interstitial'
@@ -252,22 +268,27 @@ code: |
 code: |
   # Build the dictionary of info we want the interview
   # to know about itself.
-  metadata.type = 'metadata_code'
-  metadata.interview_label = interview_label
-  metadata.interview = interview
-  metadata.file_name = interview.file_name
-  metadata.title = interview.title
-  metadata.short_title = interview.short_title
-  metadata.description = interview.description
-  metadata.original_form = interview.original_form
-  metadata.allowed_courts = interview.allowed_courts
-  # metadata.preferred_court = interview.preferred_court
-  metadata.categories = interview.categories
-  metadata.other_categories = interview.other_categories if defined('interview.other_categories') else None
-  metadata.typical_role = interview.typical_role
-  # metadata.built_in_fields_used = built_in_fields_used
-  # metadata.fields = fields
+  metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
+  metadata.type = 'metadata'
+  metadata.settings = {
+                        'title': interview.title,
+                        'short title': interview.short_title}  
+
+  metadata_code.comment = "This section is used by MAVirtualCourts to control how some of the questions work."
+  metadata_code.type = 'metadata_code'
+  metadata_code.interview_label = interview_label
+  metadata_code.interview = interview
+  metadata_code.file_name = interview.file_name
+  metadata_code.title = interview.title
+  metadata_code.short_title = interview.short_title
+  metadata_code.description = interview.description
+  metadata_code.original_form = interview.original_form
+  metadata_code.allowed_courts = interview.allowed_courts
+  metadata_code.categories = interview.categories
+  metadata_code.other_categories = interview.other_categories if defined('interview.other_categories') else None
+  metadata_code.typical_role = interview.typical_role
   interview.blocks.append(metadata)
+  interview.blocks.append(metadata_code)
   set_metadata = True
 ---
 code: |
@@ -381,6 +402,8 @@ code: |
   logic_list.append('# Set the preferred/allowed courts for this interview')
   # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
+  # The placeholder section label just reviews all of the questions
+  logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
   for question in questions:
     if question.type == 'question':
       # Add the first field in every question to our logic tree
@@ -409,10 +432,12 @@ need:
 code: |
   review_block = interview.questions.appendObject()
   review_block.type = "review"
+  # Add the fields, removing any duplicates by assigning to a dict first
   review_block.field_list = fields + built_in_fields_used + signature_fields
   review_block.question_text = "Placeholder Review Screen"
   review_block.subquestion_text = "Edit your answers below"
   review_block.id = interview_label + ' review screen'
+  review_block.event = "review_" + interview_label
   add_review_screen = True
 ---
 code: |
@@ -441,7 +466,7 @@ subquestion: |
   
 ---
 code: |
-  interview_download.initialize(filename = metadata.file_name + '.yml')
+  interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()
   wrote_interview = True
@@ -451,13 +476,13 @@ need:
   - built_in_fields_used
   - fields
   - signature_fields
-  - metadata.short_title
+  - interview.short_title
 code: |
   attachment = attachments.appendObject()
   attachment.type = 'pdf'
   attachment.pdf_filename = template_upload[0].filename
   attachment.fields = built_in_fields_used + fields + signature_fields
-  attachment.name = metadata.short_title
+  attachment.name = interview.short_title
   attachments.gathered = True
 ---
 need:
