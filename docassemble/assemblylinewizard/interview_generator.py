@@ -6,7 +6,7 @@ import yaml
 import tempfile
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
-from docassemble.base.core import DAObject, DADict, DAList
+from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
 from docassemble.base.error import DAError
 from docassemble.base.logger import logmessage
 import docassemble.base.functions
@@ -21,8 +21,7 @@ import types
 TypeType = type(type(None))
 
 # __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_regex']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -37,10 +36,40 @@ remove_u = re.compile(r'^u')
 def attachment_download_html(url, label):
   return '<a href="' + url + '" download="">' + label + '</a>'
 
+def fill_in_docx_field_attributes(new_field, new_field_name):
+    """The DAField class expects a few attributes to be filled in.
+    In a future version of this, maybe we can use context to identify
+    true/false variables. For now, we can only use the name.
+    We have a lot less info than for PDF fields.
+    """
+    new_field.variable = new_field_name
+    new_field.transformed_variable = new_field_name # no transformation changes
+    new_field.has_label = True
+
+    # this will let us edit the name field if document just refers to
+    # the whole object
+    if new_field_name in reserved_pluralizers_map.values():
+        new_field.edit_attribute = new_field_name + '[0].name.first'
+    if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
+        new_field.edit_attribute = new_field_name + '.name.first'
+    
+    # variable_name_guess is the placeholder label for the field
+    variable_name_guess = new_field.variable.replace('_',' ').capitalize()
+    if new_field.variable.endswith('_date'):
+        new_field.field_type_guess = 'text'
+        new_field.field_data_type_guess = 'date'
+        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_',' ')
+    elif new_field.variable.endswith('.signature'):
+        new_field.field_type_guess = "signature"
+        new_field.field_data_type_guess = None
+        new_field.variable_name_guess = variable_name_guess
+    else:
+        new_field.field_type_guess = 'text'
+        new_field.field_data_type_guess = 'text'
+        new_field.variable_name_guess = variable_name_guess                
+
 def fill_in_field_attributes(new_field, pdf_field_tuple):
-    # Prevent Docassemble from finding any undefined variables. Trying to track down mysterious duplicate
-    #try:
-        # Let's guess the type of each field from the name / info from PDF
+    # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
     new_field.transformed_variable = map_names(pdf_field_tuple[0]) # TODO: wrap in varname
 
@@ -66,8 +95,6 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'text'
         new_field.variable_name_guess = variable_name_guess
-    #except:
-    #    raise Exception # prevent a NameError from being raised
 
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
@@ -345,14 +372,11 @@ class DAQuestion(DAObject):
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
-            content += "features: \n  navigation: True\n"
-            content += "---\n"
             content += "sections:\n"
             for section in self.sections:
                 if isinstance(section, dict):
-                    section_item = next(iter(section.items()))
-                    if section_item and len(section_item) > 1:
-                        content += '  - ' + str(section_item[0]) + ': ' + str(section_item[1]) + "\n"
+                    for key in section: # Should just be one key
+                        content += '  - ' + str(key) + ': ' + str(section[key]) + "\n"
                 elif isinstance(section, str):
                     content += '  - ' + section_item
         elif self.type == 'metadata':
@@ -433,7 +457,10 @@ class DAQuestion(DAObject):
           for field in self.field_list:
               field_name_to_use = remove_string_wrapper(map_names(field.variable, document_type=document_type))
               if field_name_to_use not in field_names:
-                content += '  - Edit: ' + field_name_to_use + "\n"
+                if hasattr(field, 'edit_attribute'):
+                    content += '  - Edit: ' + field.edit_attribute + "\n"  
+                else:
+                    content += '  - Edit: ' + field_name_to_use + "\n"
                 content += '    button: |' + "\n"
                 if hasattr(field,'label'):
                     content += indent_by(field.label + ": ", 6)
@@ -751,8 +778,74 @@ def directory_for(area, current_project):
 def project_name(name):
     return '' if name == 'default' else name
 
+def get_fields(the_file, include_attributes=False):
+  """ Get the list of fields needed inside a template file (PDF or Docx Jinja
+  tags). Unlike get_docx_variables(), this will include attributes
+  referenced."""
+  if isinstance(the_file,DAFileList):
+    if the_file[0].mimetype == 'application/pdf':
+      return [field[0] for field in the_file[0].get_pdf_fields()]
+  else:
+    if the_file.mimetype == 'application/pdf':
+      return [field[0] for field in the_file.get_pdf_fields()]
 
+  result_file = word_to_markdown(the_file.path(), 'docx')
+  if result_file is None:
+    # fields = word("Error: no fields could be found in the file")
+    return []
+  else:
+    with open(result_file.name, 'rU', encoding='utf-8') as fp:
+      result = fp.read()
+      fields = set()
+      addresses = r"(\b\S*)(((\.address_block\(\))|(\.address\.on_one_line())))"
+      methods = r"(.*)(\..*\(\))"
+      # look for variables inside {{ }} tags
+      for variable in re.findall(r'{{ *([^\} ]+) *}}', result): # look for all regular fields
+        variable = variable.replace("\\","")
+        # test if it's a method. if so, scan inside it for variables mentioned
+        matches = re.match(methods, variable) 
+        if matches:
+          fields.add(matches.groups()[0])
+        else:           
+          fields.add(variable)
+        
+        # check for implicit reference to address fields in common methods
+        matches = re.match(addresses, variable)
+        if matches:
+          fields.add(matches.groups()[0] + '.address.address')
+
+      # look for all variables inside for loops            
+      for variable in re.findall(r'{%[a-z]* for [A-Za-z\_][A-Za-z0-9\_]* in *([^\} ]+) *%}', result): 
+        variable = variable.replace("\\","")
+        # same test for method as above
+        matches = re.match(methods, variable) 
+        if matches:
+          fields.add(matches.groups()[0])
+        else:           
+          fields.add(variable)
+        del matches
+      
+      # Look inside very simple `if` statements
+      # this won't handle dictionaries, lists, attributes, etc.
+      for variable in re.findall(r'{%[a-z]* if ([^\} ]+) *%}', result): 
+        variable = variable.replace("\\","")
+        # same test for method as above
+        matches = re.match(methods, variable) 
+        if matches:
+          if matches.groups()[0].isidentifier():
+            fields.add(matches.groups()[0])
+        else:
+          if variable.isidentifier():           
+            fields.add(variable)
+        del matches        
+    return [x for x in fields if not "(" in x] # strip out functions/method calls
+
+########################################################
+# Map names code
 import re
+
+# TODO: Design with many global variable is not very Pythonic
+# Revisit this
 
 # Words that are reserved exactly as they are
 reserved_whole_words = [
@@ -862,6 +955,17 @@ reserved_suffixes_map = {
   '_county': ".address.county",
 }
 
+# these might be used in a docx, but we don't transform PDF fields to use these
+# suffixes
+docx_only_suffixes = [
+    r'.birthdate',
+    r'.birthdate.format\(.*\)',
+    r'.familiar\(\)',
+    r'.familiar_or\(\)',
+    r'phone_numbers\(\)',
+    r'formatted_age\(\)'
+]
+
 unmap_suffixes = {
   ".birthdate.format()": '.birthdate',
   ".age_in_years()": ".birthdate",
@@ -927,6 +1031,40 @@ def map_names(label, document_type="pdf"):
 
     return result
 
+def is_reserved_docx_label(label):
+    is_reserved = False
+
+    if label in reserved_whole_words:
+        return True
+
+    # Is this a standalone reserved object reference, like `users` or `other_parties`?
+    if label in reserved_pluralizers_map.values():
+        return True
+    
+    # Is this a reserved object reference with a list index?
+    reserved_with_list_index_regex = r'^' + '\[.*\]|'.join(reserved_pluralizers_map.values())
+    if re.match(reserved_with_list_index_regex, label):
+        return True
+
+    # Does the beginning of the variable name match a reserved name?
+    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
+
+    # Does the ending matching a reserved name?
+    # Note the ending list includes the . already
+    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
+    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
+
+    return re.match(reserved_beginning_regex + '(.*)' + ending_reserved_regex, label)
+
+def get_regex():
+    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
+
+    # Does the ending matching a reserved name?
+    # Note the ending list includes the . already
+    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
+    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
+
+    return reserved_beginning_regex + '(.*)' + ending_reserved_regex
 
 ############################
 #  Identify reserved suffixes
