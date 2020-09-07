@@ -372,6 +372,8 @@ class DAQuestion(DAObject):
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
+            content += "features:\n  navigation: True\n"
+            content += '---\n'
             content += "sections:\n"
             for section in self.sections:
                 if isinstance(section, dict):
@@ -464,6 +466,8 @@ class DAQuestion(DAObject):
                 content += '    button: |' + "\n"
                 if hasattr(field,'label'):
                     content += indent_by(field.label + ": ", 6)
+                else:
+                    content += indent_by(field_name_to_use + ":", 6)                    
                 if hasattr(field, 'field_type'):
                     if field.field_type in ['yesno', 'yesnomaybe']:
                         content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
