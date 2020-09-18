@@ -167,6 +167,7 @@ fields:
       It won't be shown to the end user.
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
+    required: False
 help: |
   ${len(all_fields)}
   
@@ -422,11 +423,17 @@ code: |
 code: |
   # Build the mandatory code block that will control question flow
   logic_list = []
-  logic_list.append('# Set the preferred/allowed courts for this interview')
+  logic_list.append('# Set the allowed courts for this interview')
   # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
+  if interview.typical_role == 'unknown':
+    logic_list.append("# Below sets the user_role by asking a question.")
+    logic_list.append("# You can set user_role directly instead to either 'plaintiff' or 'defendant'")
+    logic_list.append("user_ask_role")
+  else:
+    logic_list.append("user_role = '" + interview.typical_role +"'")
   for question in questions:
     if question.type == 'question':
       # Add the first field in every question to our logic tree
