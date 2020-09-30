@@ -3,10 +3,11 @@ modules:
   - .interview_generator
 ---
 question: |
-  Please upload a PDF template
-  
+  PDF Pre-flight checker
+subquestion: |
+  Use this tool to validate your PDF once you have labeled all fields.
 fields:
-  - File: template_upload
+  - Please upload a PDF template: template_upload
     datatype: file
 ---
 objects:
@@ -35,6 +36,16 @@ data:
   - other_parties
   - children
 ---
+code: |
+  warnings_temp = set()
+  for field in fields:
+    if ' ' in field[0]:
+      warnings_temp.add('space')
+    if field[4] not in ['/Sig','/Btn','/Tx']:
+      'not handled'
+  warnings = warnings_temp
+  del warnings_temp
+---
 question: |
   Field list
 subquestion: |
@@ -58,15 +69,19 @@ subquestion: |
   "plaintiff_tenant". Check for misspellings if a name is not bold.
   
   Let us know if we should add a new type of person.
-    
+  
+  % if 'space' in warnings:
   :exclamation-triangle: Indicates that the field name has a space in it. Please
   replace any spaces with underscores in the PDF field name before uploading to 
   Trello.
+  % endif
   
+  % if 'not handled' in warnings:
   :skull-crossbones: Indicates it's a field type that our interview generator
   does not currently handle. OR that the field has a duplicate name. 
   Please make sure the field is a checkbox, text 
   input, or digital signature field and that it is not a duplicate.
+  % endif
   
   The internal Docassemble field name may be different from the name in the PDF
   even if it is not a "reserved" name. This check is mostly to help interview

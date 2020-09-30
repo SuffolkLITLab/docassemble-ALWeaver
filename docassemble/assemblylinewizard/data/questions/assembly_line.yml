@@ -83,9 +83,16 @@ question: |
   ${ template_upload }
 ---
 question: |
-  Please upload a PDF or Word template
+  Assembly Line Wizard
+subquestion: |
+  Use this tool to turn a PDF or Word document into a draft
+  interactive online form.
+  
+  This tool is part of the [Doc Assembly 
+  Line](https://suffolklitlab.org/doc-assembly-line/)
+  project.
 fields:
-  - File: template_upload
+  - Please upload a PDF or Word template below: template_upload
     datatype: file
 help: |
   This interview has been run ${sequence} times.
