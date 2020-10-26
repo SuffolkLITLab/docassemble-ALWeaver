@@ -878,6 +878,8 @@ reserved_var_plurals = [
   'children',
   'guardians_ad_litem',
   'witnesses',
+  'decedents',
+  'interested_parties',
 ]
 
 reserved_prefixes = (r"^(user"  # deprecated, but still supported
@@ -902,6 +904,8 @@ reserved_prefixes = (r"^(user"  # deprecated, but still supported
 # without making everything in general more messy
 + r"|guardian_ad_litem"
 + r"|guardian"
++ r"|decedent"
++ r"|interested_party"
 + r")")
 
 reserved_pluralizers_map = {
@@ -925,6 +929,8 @@ reserved_pluralizers_map = {
   'child': 'children',
   'guardian_ad_litem': 'guardians_ad_litem',
   'witness': 'witnesses',
+  'decedent': 'decedents',
+  'interested_party': 'interested_parties',
 }
 
 # Any reason to not make all suffixes available to everyone?
