@@ -452,14 +452,14 @@ code: |
   else:
     screen_divisor = 3
   
-  total_steps = round(total_num_screens / screen_divisor)
+  total_steps = round(total_num_screens / screen_divisor) + 5 # fudge factor: signature screen etc.
   increment = 100/total_steps
   progress = 0
   
   for index, question in enumerate(questions):
-    if index % screen_divisor == 0:
+    if index and index % screen_divisor == 0:
       progress += increment
-      logic_list.append("set_progress(" + str(progress) +")")
+      logic_list.append("set_progress(" + str(round(progress,2)) +")")
     if question.type == 'question':
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
@@ -470,7 +470,7 @@ code: |
         
   # Add in the built-in fields to the logic list        
   for index, field in enumerate(built_in_fields_used, start=len(questions) + 1):
-    if index % screen_divisor == 0:
+    if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(progress) +")")    
     logic_list.append(map_names(field.variable))
