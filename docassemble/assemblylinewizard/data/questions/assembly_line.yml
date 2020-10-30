@@ -268,7 +268,7 @@ code: |
 ---
 code: |
   # Build the list of includes
-  include_question = interview.questions.appendObject()
+  include_question = interview.blocks.appendObject()
   include_question.type = 'includes'
   include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
   add_includes = True

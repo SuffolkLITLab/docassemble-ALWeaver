@@ -121,7 +121,7 @@ class DAAttachmentList(DAList):
 class DAInterview(DAObject):
     """ This class represents the final YAML output. It has a method to output to a string."""
     def init(self, **kwargs):
-        self.blocks = list()
+        self.blocks = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
         self.final_screen = DAQuestion()
         #self.decorations = DADecorationDict()
