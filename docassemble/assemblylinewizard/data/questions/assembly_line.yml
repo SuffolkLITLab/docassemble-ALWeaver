@@ -441,7 +441,25 @@ code: |
     logic_list.append("user_ask_role")
   else:
     logic_list.append("user_role = '" + interview.typical_role +"'")
-  for question in questions:
+  
+  # Figure out how many steps the interview has
+  total_num_screens = len(questions.elements) + len(built_in_fields_used)
+  
+  # We'll have a progress step every 5 screens, 
+  # unless it's very short
+  if total_num_screens > 20:
+    screen_divisor = 5
+  else:
+    screen_divisor = 3
+  
+  total_steps = round(total_num_screens / screen_divisor)
+  increment = 100/total_steps
+  progress = 0
+  
+  for index, question in enumerate(questions):
+    if index % screen_divisor == 0:
+      progress += increment
+      logic_list.append("set_progress(" + str(progress) +")")
     if question.type == 'question':
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
@@ -451,7 +469,10 @@ code: |
         logic_list.append(varname(question.question_text))
         
   # Add in the built-in fields to the logic list        
-  for field in built_in_fields_used:
+  for index, field in enumerate(built_in_fields_used, start=len(questions) + 1):
+    if index % screen_divisor == 0:
+      progress += increment
+      logic_list.append("set_progress(" + str(progress) +")")    
     logic_list.append(map_names(field.variable))
     
   # TODO: some of the logic in interview_generator.py should
@@ -533,9 +554,9 @@ code: |
   preview_question = interview.questions.appendObject()
   preview_question.type = 'interstitial'
   preview_question.continue_button_field = interview_label + '_preview_question' 
-  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${" + attachment_variable_name + "['preview']}"
+  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${ pdf_concatenate(" + attachment_variable_name + "['preview'], filename='" + interview_label + ".pdf')}"
   preview_question.is_mandatory = False  
-  preview_question.question_text = 'Placeholder preview screen'
+  preview_question.question_text = 'Review your form before you sign it'
 
   created_preview_question = True
 ---
@@ -549,13 +570,10 @@ code: |
   end_question = interview.questions.appendObject() # 'all_done')
   end_question.type = 'question'
   end_question.progress = "100"
-  end_question.question_text = 'Placeholder download screen'
+  end_question.question_text = 'Your form is ready to download and file'
 
   # Add a preview of the form to the draft ending screen
-  end_question.subquestion_text = 'Placeholder\n\n'
-  end_question.subquestion_text += '### Next steps\n\n'
-  end_question.subquestion_text += '1. Step 1\n'
-  end_question.subquestion_text += '1. Step 2\n\n'
+  end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
   end_question.subquestion_text += 'Below is a preview of your form.\n\n'
   end_question.subquestion_text += '${' + attachment_variable_name +"['final'] }"
   end_question.is_mandatory = True # Keep this in so you can run the interview right away

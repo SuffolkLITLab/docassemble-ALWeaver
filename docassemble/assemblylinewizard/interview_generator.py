@@ -805,7 +805,7 @@ def get_fields(the_file, include_attributes=False):
       methods = r"(.*)(\..*\(\))"
       # look for variables inside {{ }} tags
       for variable in re.findall(r'{{ *([^\} ]+) *}}', result): # look for all regular fields
-        variable = variable.replace("\\","")
+        variable = variable.replace("\\","").replace('\n',"") # Filter out any new lines
         # test if it's a method. if so, scan inside it for variables mentioned
         matches = re.match(methods, variable) 
         if matches:
@@ -820,7 +820,7 @@ def get_fields(the_file, include_attributes=False):
 
       # look for all variables inside for loops            
       for variable in re.findall(r'{%[a-z]* for [A-Za-z\_][A-Za-z0-9\_]* in *([^\} ]+) *%}', result): 
-        variable = variable.replace("\\","")
+        variable = variable.replace("\\","").replace('\n',"")
         # same test for method as above
         matches = re.match(methods, variable) 
         if matches:
@@ -832,7 +832,7 @@ def get_fields(the_file, include_attributes=False):
       # Look inside very simple `if` statements
       # this won't handle dictionaries, lists, attributes, etc.
       for variable in re.findall(r'{%[a-z]* if ([^\} ]+) *%}', result): 
-        variable = variable.replace("\\","")
+        variable = variable.replace("\\","").replace('\n',"")
         # same test for method as above
         matches = re.match(methods, variable) 
         if matches:
