@@ -21,7 +21,7 @@ import types
 TypeType = type(type(None))
 
 # __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_regex']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_regex','get_character_limit']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -35,6 +35,34 @@ remove_u = re.compile(r'^u')
 
 def attachment_download_html(url, label):
   return '<a href="' + url + '" download="">' + label + '</a>'
+
+def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
+  """
+  Take the pdf_field_tuple and estimate the number of characters that can fit
+  in the field, based on the x/y bounding box.
+  
+  0: horizontal start
+  1: vertical start
+  2: horizontal end
+  3: vertical end
+  """
+  # Make sure it's the right kind of tuple
+  if len(pdf_field_tuple) < 3 or (pdf_field_tuple[3] and len(pdf_field_tuple[3]) < 4):
+    return None # we can't really guess
+  
+  # Did a little testing for typical field width/number of chars with both w and e.
+  # 176 = 25-34 chars. from w to e
+  # 121 = 17-22
+  # Average about 6 pixels width per character
+  # about 12 pixels high is one row
+  
+  length = pdf_field_tuple[3][2] - pdf_field_tuple[3][0]
+  height = pdf_field_tuple[3][3] - pdf_field_tuple[3][1]
+  num_rows = int(height / row_height) if height > 12 else 1 
+  num_cols = int(length / char_width )
+  
+  max_chars = num_rows * num_cols
+  return max_chars
 
 def fill_in_docx_field_attributes(new_field, new_field_name):
     """The DAField class expects a few attributes to be filled in.
@@ -66,7 +94,9 @@ def fill_in_docx_field_attributes(new_field, new_field_name):
     else:
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'text'
-        new_field.variable_name_guess = variable_name_guess                
+        new_field.variable_name_guess = variable_name_guess    
+        
+    new_field.maxlength = None
 
 def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Let's guess the type of each field from the name / info from PDF
@@ -95,6 +125,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'text'
         new_field.variable_name_guess = variable_name_guess
+    new_field.maxlength = get_character_limit(pdf_field_tuple)
 
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
@@ -309,6 +340,8 @@ class DAQuestion(DAObject):
                         content += "    datatype: yesnomaybe\n"
                     elif field.field_type == 'area':
                         content += "    input type: area\n"
+                        if hasattr(field, 'maxlength'):
+                          content += "    maxlength:" + str(field.maxlength) + "\n" 
                     elif field.field_type == 'file':
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
@@ -323,11 +356,17 @@ class DAQuestion(DAObject):
                         content += "    datatype: date\n"
                     elif field.field_data_type == 'email':
                         content += "    datatype: email\n"
+                        if hasattr(field, 'maxlength'):
+                          content += "    maxlength:" + str(field.maxlength) + "\n" 
                     elif field.field_data_type == 'range':
                         content += "    datatype: range\n"
                         content += "    min: " + field.range_min + "\n"
                         content += "    max: " + field.range_max + "\n"
                         content += "    step: " + field.range_step + "\n"
+                    else: # a standard text field
+                        if hasattr(field, 'maxlength'):
+                          content += "    maxlength:" + str(field.maxlength) + "\n" 
+                      
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
             self.under_text
