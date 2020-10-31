@@ -4,7 +4,7 @@ metadata:
 ---
 features:
   question help button: True
-  labels above fields: True
+  # labels above fields: True
 ---
 modules:
   - docassemble.base.util
@@ -92,7 +92,7 @@ subquestion: |
   Line](https://suffolklitlab.org/doc-assembly-line/)
   project.
 fields:
-  - Please upload a PDF or Word template below: template_upload
+  - Select a PDF or Word template: template_upload
     datatype: file
 help: |
   This interview has been run ${sequence} times.
@@ -339,18 +339,18 @@ code: |
         'note': '**' + field.variable + '**'
       })
     temp_field_question.append({
-      'label': "What should the label be for `" + field.variable + "`?",
+      'label': "On-screen prompt",
       'field': 'fields[' + str(index) + '].label',
       'default': field.variable_name_guess
     })
     temp_field_question.append({
-      'label': "What type of input is `" + field.variable + "`?",
+      'label': "Input style",
       'field': 'fields[' + str(index) + '].field_type',
       'choices': field_types,
       'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
     })
     temp_field_question.append({
-      'label': "What datatype is `" + field.variable + "`?",
+      'label': "Datatype",
       'field': 'fields[' + str(index) + '].field_data_type',
       'choices': field_data_types,
       'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
@@ -361,25 +361,27 @@ code: |
 ---
 continue button field: choose_field_types
 question: |
-  Label the fields
-subquestion: |
-  Below is a list of the field names in this PDF.
-  
-  We left out the fields that are included in our basic interview already.
-  
-  For each field, please enter in a descriptive label (this shows to the user),
-  as well as selecting the type of information the field will hold.
-  
-  * `yesno` is a checkbox
+  On-screen prompts
+subquestion: |  
+
+  1. Look at each field below. It represents a blank space on your template.
+  1. If the field is handled as a "basic question", it will not be shown
+  below. Instead, we will use a pre-written prompt for it.
+  2. Assign each field an on-screen prompt. The prompt is shown to the user
+  of your form. We start with the name of the field as a prompt. Edit it so it makes sense.
+  2. Double-check the kind of input your field uses, as well as the type
+  of data it will hold.
+    
+  * `yesno` is for true/false checkboxes
   * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
   * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
-  
-  We have tried to guess the type of field from the name of the variable.
+  * `date` is a standard date picker, which shows a calendar in most browsers.
+    
 fields:
   - code: field_question
 ---
 code: |
-  questions.there_are_any = True
+  questions.there_are_any = len(all_fields) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
@@ -387,23 +389,17 @@ code: |
   questions.there_is_another = len(questions.all_fields_used()) < len(fields)
 ---
 question: |
-  Create a draft of the ${ordinal(i)} question
+  Create a draft of the ${ordinal(i)} screen
 subquestion: |
-  Remember, this is a draft you can edit later. It does not need to be perfect.
-  You can accept the default if you're not sure yet.
+  Each screen can define multiple fields at a time. Give this screen
+  a title, some context for the screen, and decide which fields are
+  shown on this screen.
 fields:
-  - What should the title of this question be? : questions[i].question_text
+  - What should the title of this screen be? : questions[i].question_text
     default: Screen ${nice_number(i+1)}
   - What is the text that appears under the title? : questions[i].subquestion_text
     default: Placeholder text
     input type: area
-  - Is at least one question on this screen required?: questions[i].has_mandatory_field
-    datatype: yesnoradio
-    default: True
-    help: |
-      Select "No" only if all of the fields will be optional. For example,
-      you might ask an optional "Tell us more" question that the user
-      can leave empty if they don't have anything to say for that question.
   - Select the fields that will appear on this screen: questions[i].field_list
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
@@ -411,7 +407,13 @@ fields:
     exclude: questions.all_fields_used()
     choices: fields
     object labeler: |
-      lambda y: y.variable + ' (' + y.label + ')'
+      lambda y: "**" + y.variable + "**" + "[BR]" + y.label      
+  - Add a "continue button field" on this screen: questions[i].has_mandatory_field
+    datatype: noyes
+    help: |
+      If you are not sure, leave this unchecked.
+      You may want to do this if all of the questions on this
+      screen will be optional.
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
