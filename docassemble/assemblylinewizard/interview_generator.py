@@ -96,8 +96,6 @@ def fill_in_docx_field_attributes(new_field, new_field_name):
         new_field.field_data_type_guess = 'text'
         new_field.variable_name_guess = variable_name_guess    
         
-    new_field.maxlength = None
-
 def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
@@ -340,7 +338,7 @@ class DAQuestion(DAObject):
                         content += "    datatype: yesnomaybe\n"
                     elif field.field_type == 'area':
                         content += "    input type: area\n"
-                        if hasattr(field, 'maxlength'):
+                        if hasattr(field, 'maxlength') and field.maxlength:
                           content += "    maxlength: " + str(field.maxlength) + "\n" 
                     elif field.field_type == 'file':
                         content += "    datatype: file\n"
@@ -356,7 +354,7 @@ class DAQuestion(DAObject):
                         content += "    datatype: date\n"
                     elif field.field_data_type == 'email':
                         content += "    datatype: email\n"
-                        if hasattr(field, 'maxlength'):
+                        if hasattr(field, 'maxlength') and field.maxlength:
                           content += "    maxlength: " + str(field.maxlength) + "\n" 
                     elif field.field_data_type == 'range':
                         content += "    datatype: range\n"
@@ -364,7 +362,7 @@ class DAQuestion(DAObject):
                         content += "    max: " + field.range_max + "\n"
                         content += "    step: " + field.range_step + "\n"
                     else: # a standard text field
-                        if hasattr(field, 'maxlength'):
+                        if hasattr(field, 'maxlength') and field.maxlength:
                           content += "    maxlength: " + str(field.maxlength) + "\n" 
                       
         elif self.type == 'signature':
