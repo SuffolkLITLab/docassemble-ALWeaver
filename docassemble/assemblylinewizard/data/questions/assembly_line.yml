@@ -469,14 +469,24 @@ code: |
         logic_list.append(question.field_list[0].transformed_variable)
       else:
         logic_list.append(varname(question.question_text))
-        
-  # Add in the built-in fields to the logic list        
+
+  logic_list.append("# Set the answer file name.")
+  logic_list.append("set_parts(subtitle=str(users))")
+  
+  # Add in the built-in fields to the logic list     
+  # Something here should happen to eliminate duplicates before adding
+  # to the logic list
   for index, field in enumerate(built_in_fields_used, start=len(questions) + 1):
     if index and index % screen_divisor == 0:
       progress += increment
-      logic_list.append("set_progress(" + str(progress) +")")    
+      logic_list.append("set_progress(" + str(round(progress,2)) +")")    
     logic_list.append(map_names(field.variable))
-    
+  
+  # Save a snapshot of interview answers. 
+  # We only want a few anonymous variables
+  logic_list.append("# Save (anonymized) interview statistics.")
+  logic_list.append("store_variables_snapshot(data={'zip': users[0].address.zip})")
+  
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
   code_block =  interview.questions.appendObject() # 'main code block')
