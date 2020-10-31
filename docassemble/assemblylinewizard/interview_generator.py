@@ -341,7 +341,7 @@ class DAQuestion(DAObject):
                     elif field.field_type == 'area':
                         content += "    input type: area\n"
                         if hasattr(field, 'maxlength'):
-                          content += "    maxlength:" + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n" 
                     elif field.field_type == 'file':
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
@@ -357,7 +357,7 @@ class DAQuestion(DAObject):
                     elif field.field_data_type == 'email':
                         content += "    datatype: email\n"
                         if hasattr(field, 'maxlength'):
-                          content += "    maxlength:" + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n" 
                     elif field.field_data_type == 'range':
                         content += "    datatype: range\n"
                         content += "    min: " + field.range_min + "\n"
@@ -365,7 +365,7 @@ class DAQuestion(DAObject):
                         content += "    step: " + field.range_step + "\n"
                     else: # a standard text field
                         if hasattr(field, 'maxlength'):
-                          content += "    maxlength:" + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n" 
                       
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
