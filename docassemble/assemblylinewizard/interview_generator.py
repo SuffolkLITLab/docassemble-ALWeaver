@@ -260,9 +260,9 @@ class DAQuestion(DAObject):
             done_with_content = False
             if hasattr(self, 'id') and self.id:
                 # TODO: ask for ID in the wizard
-                content += "id: " + self.id + "\n"
+                content += "id: " + fix_id(self.id) + "\n"
             else:                
-                content += "id: " + oneline(self.question_text) + "\n"
+                content += "id: " + fix_id(self.question_text) + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -756,6 +756,9 @@ class Playground(PlaygroundSection):
         all_names_reduced = all_names.difference( set(['url_args']) )
         return dict(names_used=names_used, undefined_names=undefined_names, fields_used=fields_used, all_names=all_names, all_names_reduced=all_names_reduced)
 
+def fix_id(string):
+  return re.sub('[\W_]+', ' ', string).strip()
+      
 def fix_variable_name(match):
     var_name = match.group(1)
     var_name = end_spaces.sub(r'', var_name)
