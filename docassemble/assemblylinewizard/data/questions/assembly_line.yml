@@ -379,6 +379,17 @@ subquestion: |
     
 fields:
   - code: field_question
+  - note: |
+      **Built-in questions this form triggers**[BR]
+      % if len(built_in_fields_used) > 1:
+      These fields are not listed above because a basic-question already handles them: ${ built_in_fields_used }.
+      % else:
+      This field is not listed above because a basic-question already handles
+      it: ${ built_in_fields_used }.
+      % endif
+    show if:
+      code: |
+        len(built_in_fields_used)
 ---
 code: |
   questions.there_are_any = len(all_fields) > 0
