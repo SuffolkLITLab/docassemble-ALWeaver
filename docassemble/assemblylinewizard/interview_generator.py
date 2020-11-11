@@ -1093,12 +1093,12 @@ def is_reserved_docx_label(label):
     
     # If the complete string has a known prefix, get the rest of the string
     # Does not control for really messed up variable name attempts
-    endOfKnownPrefix = re.findall(r'.*\[.*\]\..+', label);
+    afterKnownPrefix = re.findall(r'.*\[.*\]\..+', label);
     
     # If the complete string a combination of a known prefix and known suffix
-    if len(endOfKnownPrefix) === 1
-      && ( endOfKnownPrefix[0] in reserved_suffixes_map.values()
-        or endOfKnownPrefix[0] in docx_only_suffixes ):
+    if ( len(afterKnownPrefix) == 1
+      and ( afterKnownPrefix[0] in reserved_suffixes_map.values()
+        or afterKnownPrefix[0] in docx_only_suffixes )):
       return True;
       
     return False;
