@@ -1087,24 +1087,40 @@ def is_reserved_docx_label(label):
     if label in reserved_whole_words:
         return True
 
-    # Is this a standalone reserved object reference, like `users` or `other_parties`?
-    if label in reserved_pluralizers_map.values():
-        return True
+    # If the complete string is a known prefix with or without brackets and nothing else?
+    if re.sub('\[.*\]$', '', label) in reserved_pluralizers_map.values():
+      return True
     
-    # Is this a reserved object reference with a list index?
-    reserved_with_list_index_regex = r'^' + '\[.*\]|'.join(reserved_pluralizers_map.values())
-    if re.match(reserved_with_list_index_regex, label):
-        return True
-
-    # Does the beginning of the variable name match a reserved name?
-    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
-
-    # Does the ending matching a reserved name?
-    # Note the ending list includes the . already
-    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
-    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
-
-    return re.match(reserved_beginning_regex + '(.*)' + ending_reserved_regex, label)
+    # If the complete string has a known prefix, get the rest of the string
+    # Does not control for really messed up variable name attempts
+    endOfKnownPrefix = re.findall(r'.*\[.*\]\..+', label);
+    
+    # If the complete string a combination of a known prefix and known suffix
+    if len(endOfKnownPrefix) === 1
+      && ( endOfKnownPrefix[0] in reserved_suffixes_map.values()
+        or endOfKnownPrefix[0] in docx_only_suffixes ):
+      return True;
+      
+    return False;
+  
+#    # Is this a standalone reserved object reference, like `users` or `other_parties`?
+#    if label in reserved_pluralizers_map.values():
+#        return True
+#    
+#    # Is this a reserved object reference with a list index?
+#    reserved_with_list_index_regex = r'^' + '\[.*\]|'.join(reserved_pluralizers_map.values())
+#    if re.match(reserved_with_list_index_regex, label):
+#        return True
+#    
+#    # Does the beginning of the variable name match a reserved name?
+#    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
+#    
+#    # Does the ending matching a reserved name?
+#    # Note the ending list includes the . already
+#    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
+#    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
+#    
+#    return re.match(reserved_beginning_regex + '(.*)' + ending_reserved_regex, label)
 
 def get_regex():
     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
