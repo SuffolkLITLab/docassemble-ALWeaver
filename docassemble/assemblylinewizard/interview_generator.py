@@ -1081,34 +1081,29 @@ def map_names(label, document_type="pdf"):
 
     return result
 
+docx_only_suffixes_regex = '|'.join(docx_only_suffixes)
+  
 def is_reserved_docx_label(label):
-    is_reserved = False
+    #is_reserved = False
 
+    docassemble.base.functions.log( label, 'console' )
     if label in reserved_whole_words:
-        print('whole word true')
         return True
     
-    # just prefix working so far
-    print('~ just prefix ~')
-    print(re.sub('.+\[.*\]$', '', label) or 'full replace')
     # If the complete string is a known prefix with or #without brackets and nothing else
     withoutPrefix = re.sub('.+\[.*\]$', '', label)
     if len(withoutPrefix) == 0 or withoutPrefix in reserved_pluralizers_map.values():
-        print('prefix true')
         return True
     
     # If the complete string has a known prefix, get the #rest of the string
     # Does not control for really messed up variable name #attempts
     afterKnownPrefix = re.findall(r'.*\[.*\](\..+)', label)
-    print('~ just suffix ~')
-    print(afterKnownPrefix)
     
     # If the complete is string a combination of a known #prefix and known suffix
     if ( len(afterKnownPrefix) == 1
      and ( afterKnownPrefix[0] in reserved_suffixes_map.values()
-        or afterKnownPrefix[0] in docx_only_suffixes )):
+          or len(re.findall(docx_only_suffixes_regex, afterKnownPrefix[0])) > 0 )):
      return True;
-     print('suffix true')
      
     return False;
   
