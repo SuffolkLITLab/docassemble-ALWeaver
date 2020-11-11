@@ -842,7 +842,8 @@ def get_fields(the_file, include_attributes=False):
       result = fp.read()
       fields = set()
       addresses = r"(\b\S*)(((\.address_block\(\))|(\.address\.on_one_line())))"
-      methods = r"(.*)(\..*\(\))"
+      methods = r"(.*)(\..*\(.*\))"
+      
       # look for variables inside {{ }} tags
       for variable in re.findall(r'{{ *([^\} ]+) *}}', result): # look for all regular fields
         variable = variable.replace("\\","").replace('\n',"") # Filter out any new lines
@@ -881,7 +882,8 @@ def get_fields(the_file, include_attributes=False):
         else:
           if variable.isidentifier():           
             fields.add(variable)
-        del matches        
+        del matches
+        
     return [x for x in fields if not "(" in x] # strip out functions/method calls
 
 ########################################################
