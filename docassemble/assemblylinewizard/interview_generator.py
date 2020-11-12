@@ -1083,51 +1083,35 @@ def map_names(label, document_type="pdf"):
 
     return result
 
-docx_only_suffixes_regex = '|'.join(docx_only_suffixes)
-  
-def is_reserved_docx_label(label):
-    #is_reserved = False
+# Regex for finding all exact matches of docx suffixes
+docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
 
-    docassemble.base.functions.log( label, 'console' )
+def is_reserved_docx_label(label):
     if label in reserved_whole_words:
         return True
-    
-    # If the complete string is a known prefix with or #without brackets and nothing else
-    withoutPrefix = re.sub('.+\[.*\]$', '', label)
-    if len(withoutPrefix) == 0 or withoutPrefix in reserved_pluralizers_map.values():
-        return True
-    
-    # If the complete string has a known prefix, get the #rest of the string
-    # Does not control for really messed up variable name #attempts
-    afterKnownPrefix = re.findall(r'.*\[.*\](\..+)', label)
-    
-    # If the complete is string a combination of a known #prefix and known suffix
-    if ( len(afterKnownPrefix) == 1
-     and ( afterKnownPrefix[0] in reserved_suffixes_map.values()
-          or len(re.findall(docx_only_suffixes_regex, afterKnownPrefix[0])) > 0 )):
-     return True;
-     
-    return False;
-  
-#    # Is this a standalone reserved object reference, like `users` or `other_parties`?
-#    if label in reserved_pluralizers_map.values():
-#        return True
-#    
-#    # Is this a reserved object reference with a list index?
-#    reserved_with_list_index_regex = r'^' + '\[.*\]|'.join(reserved_pluralizers_map.values())
-#    if re.match(reserved_with_list_index_regex, label):
-#        return True
-#    
-#    # Does the beginning of the variable name match a reserved name?
-#    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
-#    
-#    # Does the ending matching a reserved name?
-#    # Note the ending list includes the . already
-#    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
-#    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
-#    
-#    return re.match(reserved_beginning_regex + '(.*)' + ending_reserved_regex, label)
 
+    # Everything before the first period and everything from the first period to the end
+    label_parts = re.findall(r'([^.]*)(\..*)*', label)
+
+    # The prefix, ensuring no key or index
+    prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
+    has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+
+    if has_reserved_prefix:
+      suffix = label_parts[0][1]
+      if not suffix:  # If only the prefix
+        return True
+      # If the suffix is also reserved
+      docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
+      if (suffix in reserved_suffixes_map.values()
+        or len(docx_suffixes_matches) > 0 ):
+          return True
+    
+    # For all other cases
+    return False
+
+
+# TODO: Remove unused function
 def get_regex():
     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
 
