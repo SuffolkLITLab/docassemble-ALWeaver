@@ -1082,17 +1082,18 @@ def map_names(label, document_type="pdf"):
     else: result = combo
 
     return result
-
-# Regex for finding all exact matches of docx suffixes
-docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
+  
 
 def is_reserved_docx_label(label):
+    '''Given a string, will return whether the string matches
+      reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
         return True
 
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r'([^.]*)(\..*)*', label)
 
+    if not label_parts[0]: return False  # test for existance (empty strings result in a tuple) 
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
     has_reserved_prefix = prefix in reserved_pluralizers_map.values()
@@ -1102,6 +1103,8 @@ def is_reserved_docx_label(label):
       if not suffix:  # If only the prefix
         return True
       # If the suffix is also reserved
+      # Regex for finding all exact matches of docx suffixes
+      docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
       docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
       if (suffix in reserved_suffixes_map.values()
         or len(docx_suffixes_matches) > 0 ):
