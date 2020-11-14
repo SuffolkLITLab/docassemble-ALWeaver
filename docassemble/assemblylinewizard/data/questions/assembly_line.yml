@@ -260,8 +260,6 @@ code: |
       else:                
         new_field = fields.appendObject()
       fill_in_docx_field_attributes(new_field, field)
-      
-      log(new_field, 'console')
     
   get_all_fields = True
 ---

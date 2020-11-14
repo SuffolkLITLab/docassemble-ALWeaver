@@ -1,9 +1,11 @@
 import os
 import re
+import keyword
 import copy
 import sys
 import yaml
 import tempfile
+from docx2python import docx2python
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
@@ -822,10 +824,11 @@ def directory_for(area, current_project):
 def project_name(name):
     return '' if name == 'default' else name
 
-def get_fields(the_file, include_attributes=False):
-  """ Get the list of fields needed inside a template file (PDF or Docx Jinja
-  tags). Unlike get_docx_variables(), this will include attributes
-  referenced."""
+
+def get_fields(the_file):
+  """Get the list of fields needed inside a template file (PDF or Docx Jinja
+  tags). This will include attributes referenced. Assumes a file that
+  has a valid and exiting filepath."""
   if isinstance(the_file,DAFileList):
     if the_file[0].mimetype == 'application/pdf':
       return [field[0] for field in the_file[0].get_pdf_fields()]
@@ -833,86 +836,62 @@ def get_fields(the_file, include_attributes=False):
     if the_file.mimetype == 'application/pdf':
       return [field[0] for field in the_file.get_pdf_fields()]
 
-  result_file = word_to_markdown(the_file.path(), 'docx')
-  if result_file is None:
-    # fields = word("Error: no fields could be found in the file")
-    return []
-  else:
-    with open(result_file.name, 'rU', encoding='utf-8') as fp:
-      result = fp.read()
-      fields = set()
-      addresses = r"(\b\S*)(((\.address\.block\(\))|(\.address\.on_one_line())))"
-      methods = r"(.*)(\..*\(.*\))"
-      
-      # something we already know about (skip the rest)
-      # Address look for anything that has `.address.` in the middle? Does it have to be attached to a 'Person'?
-      
-      # otherwise the base without the method (functions should disappear)
-      
-      # and the base of the base?
-      
-      # TODO: Discuss adding convention/practice of always using `.gather()` for lists as opposed to individual indexes
-      
-      # look for variables inside {{ }} tags
-      for variable in re.findall(r'{{ *([^\} ]+) *}}', result): # look for all regular fields
-        docassemble.base.functions.log( '======= docx loop start ==========', 'console' )
-        variable = variable.replace("\\","").replace('\n',"") # Filter out any new lines
-        # test if it's a method. if so, scan inside it for variables mentioned
-        matches = re.match(methods, variable) 
-        if matches:
-          fields.add(matches.groups()[0])
-          docassemble.base.functions.log( 'add method root: ' + matches.groups()[0], 'console' )
-        else:           
-          fields.add(variable)
-          docassemble.base.functions.log( 'add with no method: ' + variable, 'console' )
-        
-        # check for implicit reference to address fields in common methods
-        matches = re.match(addresses, variable)
-        docassemble.base.functions.log( '~ address matching ~', 'console' )
-        docassemble.base.functions.log( variable, 'console' )
-        docassemble.base.functions.log( matches, 'console' )
-        if matches:
-          fields.add(matches.groups()[0] + '.address.address')
-          docassemble.base.functions.log( 'add address: ' + matches.groups()[0] + '.address.address', 'console' )
+  docx_data = docx2python( the_file.path() )  # Will error with invalid value
+  text = docx_data.text
+  return get_docx_variables( text )
+  
+  
+def get_docx_variables( text ):
+  '''Given the string from a docx file with fairly simple
+  code), returns a list of the jinja variables used there.
+  Can be easily tested in a repl using the libs keyword and re.'''
 
-      # TODO: Add for loops to test doc
-      # look for all variables inside for loops            
-      for variable in re.findall(r'{%[a-z]* for [A-Za-z\_][A-Za-z0-9\_]* in *([^\} ]+) *%}', result): 
-        variable = variable.replace("\\","").replace('\n',"")
-        # same test for method as above
-        matches = re.match(methods, variable) 
-        if matches:
-          fields.add(matches.groups()[0])
-        else:           
-          fields.add(variable)
-        del matches
-        #docassemble.base.functions.log( list(fields)[-1], 'console' )
-      
-      # TODO: Add if statements to test doc
-      # Look inside very simple `if` statements
-      # this won't handle dictionaries, lists, attributes, etc.
-      for variable in re.findall(r'{%[a-z]* if ([^\} ]+) *%}', result): 
-        variable = variable.replace("\\","").replace('\n',"")
-        # same test for method as above
-        matches = re.match(methods, variable) 
-        if matches:
-          if matches.groups()[0].isidentifier():
-            fields.add(matches.groups()[0])
-        else:
-          if variable.isidentifier():           
-            fields.add(variable)
-        del matches
-        #docassemble.base.functions.log( list(fields)[-1], 'console' )
-        
-    without_methods_or_functions = [x for x in fields if not "(" in x] # strip out functions/method calls
-    return without_methods_or_functions
+  minimally_filtered = set()
+  for possible_variable in re.findall(r'{{ *([^\} ]+) *}}', text): # Simple single variable use
+    minimally_filtered.add( possible_variable )
+  # Variables in the second parts of for loops (allow paragraph and whitespace flags)
+  for possible_variable in re.findall(r'\{%[^ \t]* +for [A-Za-z\_][A-Za-z0-9\_]* in ([^\} ]+) +[^ \t]*%}', text):
+    minimally_filtered.add( possible_variable )
+  # Variables in very simple `if` statements (allow paragraph and whitespace flags)
+  for possible_variable in re.findall(r'{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}', text): 
+    minimally_filtered.add( possible_variable )
+  
+  fields = set()
 
-import re
+  for possible_var in minimally_filtered:
+    # If no suffix exists, it's just the whole string
+    prefix = re.findall(r'([^.]*)(?:\..+)*', possible_var)
+    if not prefix[0]: continue  # This should never occur as they're all strings
+    prefix_with_key = prefix[0]  # might have brackets
+    
+    prefix_root = re.sub(r'\[.+\]', '', prefix_with_key)  # no brackets
+    # Filter out non-identifiers (invalid variable names), like functions
+    if not prefix_root.isidentifier(): continue
+    # Filter out keywords like `in`
+    if keyword.iskeyword( prefix_root ): continue
+    
+    # Deal with special cases harshly
+    if '.address' in possible_var:  # an address
+      if '.address.county' in possible_var:  # a county is special
+        fields.add( possible_var )
+      else:  # all other addresses (replaces .zip and such)
+        fields.add( re.sub(r'\.address.*', '.address.address', possible_var ))
+      fields.add( prefix_with_key )
+      continue
+    
+    if '.name' in possible_var:  # a name
+      if '.name.text' in possible_var:  # Names for non-Individuals
+        fields.add( possible_var )
+      else:  # Names for Individuals
+        fields.add( re.sub(r'\.name.*', '.name.first', possible_var ))
+      fields.add( prefix_with_key )
+      continue
 
-addresses = r"(\b\S*)(((\.address\.block\(\))|(\.address\.on_one_line())))"
-methods = r"(.*)(\..*\(.*\))"
-def extract_interview_order_vars ( original_var ):
-  return original_var
+    # Remove any methods from the end of the variable
+    methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var )
+    fields.add( methods_removed )
+  
+  return fields
 
 
 ########################################################
