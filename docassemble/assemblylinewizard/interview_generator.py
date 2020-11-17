@@ -842,7 +842,8 @@ def get_fields(the_file, include_attributes=False):
       result = fp.read()
       fields = set()
       addresses = r"(\b\S*)(((\.address_block\(\))|(\.address\.on_one_line())))"
-      methods = r"(.*)(\..*\(\))"
+      methods = r"(.*)(\..*\(.*\))"
+      
       # look for variables inside {{ }} tags
       for variable in re.findall(r'{{ *([^\} ]+) *}}', result): # look for all regular fields
         variable = variable.replace("\\","").replace('\n',"") # Filter out any new lines
@@ -881,7 +882,8 @@ def get_fields(the_file, include_attributes=False):
         else:
           if variable.isidentifier():           
             fields.add(variable)
-        del matches        
+        del matches
+        
     return [x for x in fields if not "(" in x] # strip out functions/method calls
 
 ########################################################
@@ -1080,32 +1082,39 @@ def map_names(label, document_type="pdf"):
     else: result = combo
 
     return result
+  
 
 def is_reserved_docx_label(label):
-    is_reserved = False
-
+    '''Given a string, will return whether the string matches
+      reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
         return True
 
-    # Is this a standalone reserved object reference, like `users` or `other_parties`?
-    if label in reserved_pluralizers_map.values():
+    # Everything before the first period and everything from the first period to the end
+    label_parts = re.findall(r'([^.]*)(\..*)*', label)
+
+    if not label_parts[0]: return False  # test for existance (empty strings result in a tuple) 
+    # The prefix, ensuring no key or index
+    prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
+    has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+
+    if has_reserved_prefix:
+      suffix = label_parts[0][1]
+      if not suffix:  # If only the prefix
         return True
+      # If the suffix is also reserved
+      # Regex for finding all exact matches of docx suffixes
+      docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
+      docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
+      if (suffix in reserved_suffixes_map.values()
+        or len(docx_suffixes_matches) > 0 ):
+          return True
     
-    # Is this a reserved object reference with a list index?
-    reserved_with_list_index_regex = r'^' + '\[.*\]|'.join(reserved_pluralizers_map.values())
-    if re.match(reserved_with_list_index_regex, label):
-        return True
+    # For all other cases
+    return False
 
-    # Does the beginning of the variable name match a reserved name?
-    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
 
-    # Does the ending matching a reserved name?
-    # Note the ending list includes the . already
-    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
-    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
-
-    return re.match(reserved_beginning_regex + '(.*)' + ending_reserved_regex, label)
-
+# TODO: Remove unused function
 def get_regex():
     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
 
