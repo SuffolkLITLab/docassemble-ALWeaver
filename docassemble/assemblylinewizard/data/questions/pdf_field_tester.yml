@@ -111,7 +111,7 @@ mandatory: True
 question: |
   Here is the filled-in PDF
 subquestion: |
-  The fields are filled in with the name that we'll use in the YAML file
+  The fields are filled in with the name that we'll use in the YAML file.
   
   All checkboxes should be checked. If not, please check the field's
   "export" value. It should be set to "Yes".
@@ -122,6 +122,10 @@ subquestion: |
   All signature fields should be filled in with this image: ${placeholder_signature}
   
   ${my_pdf}
+  
+  **Note: you do not need to download this form.** This is just a preview
+  to help you catch any errors. Use the original PDF that you uploaded
+  for the next step.
 ---
 attachment:
   variable name: my_pdf
