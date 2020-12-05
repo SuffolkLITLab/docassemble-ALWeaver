@@ -17,13 +17,12 @@ import docassemble.base.pdftk
 import shutil
 import datetime
 import types
-
-#from docassemble.base.util import prevent_dependency_satisfaction
+# Get local constants for interview_generator.py
+from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-# __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAQuestionDict', 'DAInterview', 'DAUpload', 'DAUploadMultiple', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html']
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_regex','get_character_limit']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -66,7 +65,7 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
   max_chars = num_rows * num_cols
   return max_chars
 
-def fill_in_docx_field_attributes(new_field, new_field_name):
+def fill_in_docx_field_attributes(new_field, new_field_name, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
     In a future version of this, maybe we can use context to identify
     true/false variables. For now, we can only use the name.
@@ -897,145 +896,8 @@ def get_docx_variables( text ):
 ########################################################
 # Map names code
 
-# TODO: Design with many global variable is not very Pythonic
-# Revisit this
-
-# Words that are reserved exactly as they are
-reserved_whole_words = [
-  'signature_date',  # this is the plural version of this?
-  'attorney_of_record_address_on_one_line', 
-]
-
-# Part of handling plural labels
-reserved_var_plurals = [
-  'users',
-  'plaintiffs',
-  'defendants',
-  'petitioners',
-  'respondents',
-  'spouses',
-  'parents',
-  'guardians',
-  'caregivers',
-  'attorneys',
-  'translators',
-  'debt_collectors',
-  'creditors',
-  'courts',
-  'docket_numbers',  # Not a person
-  'other_parties',
-  'children',
-  'guardians_ad_litem',
-  'witnesses',
-  'decedents',
-  'interested_parties',
-]
-
-reserved_prefixes = (r"^(user"  # deprecated, but still supported
-+ r"|other_party"  # deprecated, but still supported
-+ r"|child"
-+ r"|plaintiff"
-+ r"|defendant"
-+ r"|petitioner"
-+ r"|respondent"
-+ r"|spouse"
-+ r"|parent"
-+ r"|caregiver"
-+ r"|attorney"
-+ r"|translator"
-+ r"|debt_collector"
-+ r"|creditor"
-+ r"|witness"
-+ r"|court"
-+ r"|docket_number"
-+ r"|signature_date"
-# Can't find a way to make order not matter here
-# without making everything in general more messy
-+ r"|guardian_ad_litem"
-+ r"|guardian"
-+ r"|decedent"
-+ r"|interested_party"
-+ r")")
-
-reserved_pluralizers_map = {
-  'user': 'users',
-  'plaintiff': 'plaintiffs',
-  'defendant': 'defendants',
-  'petitioner': 'petitioners',
-  'respondent': 'respondents',
-  'spouse': 'spouses',
-  'parent': 'parents',
-  'guardian': 'guardians',
-  'caregiver': 'caregivers',
-  'attorney': 'attorneys',
-  'translator': 'translators',
-  'debt_collector': 'debt_collectors',
-  'creditor': 'creditors',
-  'court': 'courts',
-  'docket_number': 'docket_numbers',
-  # Non-s plurals
-  'other_party': 'other_parties',
-  'child': 'children',
-  'guardian_ad_litem': 'guardians_ad_litem',
-  'witness': 'witnesses',
-  'decedent': 'decedents',
-  'interested_party': 'interested_parties',
-}
-
-# Any reason to not make all suffixes available to everyone?
-reserved_suffixes_map = {
-  '_name': "",  # full name
-  '_name_full': "",  # full name
-  '_name_first': ".name.first",
-  '_name_middle': ".name.middle",
-  '_name_last': ".name.last",
-  '_name_suffix': ".name.suffix",
-  '_gender': ".gender",
-  # '_gender_male': ".gender == 'male'",
-  # '_gender_female': ".gender == 'female'",
-  '_birthdate': ".birthdate.format()",
-  '_age': ".age_in_years()",
-  '_email': ".email",
-  '_phone': ".phone_number",
-  '_address_block': ".address.block()",
-  '_address_street': ".address.address",
-  '_address_street2': ".address.unit",
-  '_address_city': ".address.city",
-  '_address_state': ".address.state",
-  '_address_zip': ".address.zip",
-  '_address_on_one_line': ".address.on_one_line()",
-  '_address_line_one': ".address.line_one()",
-  '_address_city_state_zip': ".address.line_two()",
-  '_signature': ".signature",
-  # Court-specific
-  # '_name_short': not implemented,
-  '_division': ".division",
-  '_address_county': ".address.county",
-  '_county': ".address.county",
-}
-
-# these might be used in a docx, but we don't transform PDF fields to use these
-# suffixes
-docx_only_suffixes = [
-    r'.birthdate',
-    r'.birthdate.format\(.*\)',
-    r'.familiar\(\)',
-    r'.familiar_or\(\)',
-    r'phone_numbers\(\)',
-    r'formatted_age\(\)'
-]
-
-unmap_suffixes = {
-  ".birthdate.format()": '.birthdate',
-  ".age_in_years()": ".birthdate",
-  ".address.block()": ".address.address",
-  ".address.on_one_line()": ".address.address",
-  ".address.line_one()": ".address.address",
-  ".address.line_two()": ".address.address",
-}
-
 #def labels_to_pdf_vars(label):
-def map_names(label, document_type="pdf"):
+def map_names(label, document_type="pdf", reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
@@ -1091,7 +953,7 @@ def map_names(label, document_type="pdf"):
     return result
   
 
-def is_reserved_docx_label(label):
+def is_reserved_docx_label(label, docx_only_suffixes = generator_constants.DOCX_ONLY_SUFFIXES, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
       reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
@@ -1100,7 +962,7 @@ def is_reserved_docx_label(label):
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r'([^.]*)(\..*)*', label)
 
-    if not label_parts[0]: return False  # test for existance (empty strings result in a tuple) 
+    if not label_parts[0]: return False  # test for existence (empty strings result in a tuple) 
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
     has_reserved_prefix = prefix in reserved_pluralizers_map.values()
@@ -1121,21 +983,21 @@ def is_reserved_docx_label(label):
     return False
 
 
-# TODO: Remove unused function
-def get_regex():
-    reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
+# # TODO: Remove unused function
+# def get_regex(reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+#     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
 
-    # Does the ending matching a reserved name?
-    # Note the ending list includes the . already
-    ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
-    ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
+#     # Does the ending matching a reserved name?
+#     # Note the ending list includes the . already
+#     ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
+#     ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
 
-    return reserved_beginning_regex + '(.*)' + ending_reserved_regex
+#     return reserved_beginning_regex + '(.*)' + ending_reserved_regex
 
 ############################
 #  Identify reserved suffixes
 ############################
-def is_reserved_label(label):
+def is_reserved_label(label, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals = generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   is_reserved = False
 
   # Get rid of all underscores
@@ -1188,7 +1050,7 @@ def is_a_plural(plurals, label):
 def get_stringifiable_version(label):
   return 'str(' + label + ')'
 
-def remove_string_wrapper(label):
+def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFFIXES):
     if label.startswith('str('):
         return label[4:-1]
     # map address() etc backwards
@@ -1212,7 +1074,7 @@ def indexify(digit):
     return '[' + str(int(digit)-1) + ']'
 
 def turn_any_suffix_into_an_attribute(suffix_map, suffix):
-  # If this can be turned int a reserved suffix,
+  # If this can be turned into a reserved suffix,
   # that suffix is used
   try: suffix = suffix_map[suffix]
   # NO LONGER TRANSFORMING ARBITRARY ATTRIBUTES
@@ -1231,70 +1093,39 @@ def should_be_stringified(var_name):
   is_docket_number = var_name.startswith("docket_numbers[")
   return has_no_attributes and not is_docket_number
 
-
-'''
-tests = [
-    # Reserved
-    "signature_date",
-    "plaintiffs__3",
-    "user",
-    "user__2",
-    "user___2",
-    "user_name_first",
-    "user1_name_first",
-    "user1_name_first__34",
-    "user1_name_first____34",
-    "user25_name_first",
-    "user_name_full",
-    "user1_name_full",
-    "user3_name_full",
-    "other_party_name_first",
-    "other_party1_name_first",
-    "other_party5_name_first",
-    "other_party_name_full",
-    "other_party1_name_full",
-    "other_party2_name_full",
-    "child_name_first",
-    "child1_name_first",
-    "child4_name_first",
-    "child_name_full",
-    "child1_name_full",
-    "child5_name_full",
-    "other_party37_address_zip",
-    "user_address_street2",
-    "witness_name_first",
-    "witness1_name_first",
-    "witness_name_full",
-    "witness1_name_full",
-    "court_name",
-    "court1_name",
-    "court_address_county",
-    "court1_address_county",
-    "court_county",
-    "docket_number",
-    "docket_number1",
-    "plaintiff",
-    "defendant",
-    "petitioner",
-    "respondent",
-    "plaintiffs",
-    "defendants",
-    "petitioners",
-    "respondents",
-    # Reserved start
-    "user_address2_zip",
-    "user_address_street2_zip",
-    # Not reserved
-    "my_user_name_last",
-    "foo",
-]
-# tests = ["user_name_first","user25_name_last","other_party_name_full" ]
-#if __name__ == 'main':
-
-for test in tests:
-  print('~~~~~~~~~~~')
-  print('"' + test + '":', '"' + map_names(test) + '",')
-  # map_names(test)
-  # print('"' + test + '":', '"' + labels_to_pdf_vars(test) + '",')
-  # # labels_to_pdf_vars(test)
-'''
+def get_person_variables(fieldslist):
+  """
+  Identify the field names that represent people in the list of
+  DAFields pulled from docx/PDF.    
+  """
+  people = set()
+  for field in fieldslist:
+    if is_person(field.variable):
+      people.add(get_person_identifier(field.variable))
+  return people
+      
+def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
+  """
+  Check if the field name appears to represent a person
+  """
+  # Is it exactly a person variable: e.g., `users`
+  if remove_string_wrapper(field_name) in people_vars:
+    return True
+  if '[' in field_name or '.' in field_name:
+    match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
+    matches = re.match(match_with_brackets_or_attribute, field_name)
+    if matches:
+      if matches.groups()[0] in people_vars:
+        return True
+      else:
+        endings = [
+          "[0].address_block()",
+          "[0].address.block()",
+          "[0].address.on_one_line()",
+          "[0].",
+        ]
+        if matches.groups()[1] in endings:
+            return True
+  
+def get_person_identifier(field_name):
+  pass

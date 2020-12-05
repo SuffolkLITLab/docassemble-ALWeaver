@@ -125,6 +125,14 @@ fields:
   - Description: interview.description
     datatype: area
     default: ${short_filename_with_spaces}
+  - Kind of form: interview.form_type
+    datatype: radio
+    choices:
+      - Starts a new court case: new_court
+      - Part of an existing court case: existing_court
+      - Form that is not filed in a court: other_form
+      - Letter: letter
+      - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
     choices:
@@ -187,7 +195,7 @@ help: |
   ${fields}
 ---
 question: |
-  Interview roles
+  Information about people on this form
 subquestion: |  
   For this ${interview.title} form, is the user of the form typically the 
   Plaintiff/Petitioner or the Defendant/Respondent?
@@ -195,12 +203,17 @@ subquestion: |
   The Plaintiff/Petitioner starts a case. The Defendant/Respondent
   is responding to a case someone else started.
 fields:
-  - no label: interview.typical_role
+  - User's role: interview.typical_role
     input type: radio
     choices:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
+  - Number of users whose information can be filled in on this form: user_count
+    choices:
+      - One user of this form at a time: one
+      - More than one user can sign and file this form at once: multiple
+      
 help: |
   For example, if you are starting a new case, you are always the plaintiff
   or petitioner. 
