@@ -1,6 +1,8 @@
+# This used to work. Not sure why it's broken now.
+# Something about interview-generator.py not existing at the moment.
 # Get output from tests.
 modules:
-  - .map_names_test
+  - .test_map_names
 ---
 mandatory: True
 code: |
