@@ -997,7 +997,7 @@ def is_reserved_docx_label(label, docx_only_suffixes = generator_constants.DOCX_
 ############################
 #  Identify reserved suffixes
 ############################
-def is_reserved_label(label, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals = generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals = generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   is_reserved = False
 
   # Get rid of all underscores
