@@ -283,7 +283,7 @@ code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
   include_question.type = 'includes'
-  include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
+  include_question.includes = ['docassemble.assemblyline:al_package.yml']
   add_includes = True
 ---
 code: |
@@ -547,22 +547,29 @@ code: |
 comment: | 
 event: show_interview
 question: |
-  All done
+  All done.
 subquestion: |
-
-  ### Please download the generated interview below
+  ### Please download your interview package below.   
+  [download it as a package](${ zip_url })  
   
-  [:download: Download](${interview_download.url_for(attachment=True)})
+  After download,<br> 
+  1. Go to your **Playground** to add a new projec.<br>
+  2. Open the new project's **Packages** folder.<br>
+  3. Use the third icon **Upload** to install this package.<br>
+  4. Go back to Playground, delete test.yml file, now you can see your interview file.
   
-  ### Preview of Docassemble interview file
-  
+  ### Before download, you can preview your interview ylm file here:  
   ${indent_by(interview.source(),4)}
-  
+
 ---
+comment: Assemble download package for installation
 code: |
-  interview_download.initialize(filename = interview.file_name + '.yml')
-  interview_download.write(interview.source())
-  interview_download.commit()
+  pg = Playground()  
+  yaml_file = interview.yaml_file_name()
+  pg.write_file(yaml_file, interview.source()) 
+  package_name = to_package_name(interview.file_name)
+  pg.write_package(package_name, interview.package_info())
+  zip_url = url_of('create_playground_package', package=package_name, project='default')
   wrote_interview = True
 ---
 need:
