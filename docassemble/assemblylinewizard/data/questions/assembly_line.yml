@@ -424,6 +424,7 @@ fields:
   - What is the text that appears under the title? : questions[i].subquestion_text
     default: Placeholder text
     input type: area
+    required: False
   - Select the fields that will appear on this screen: questions[i].field_list
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
