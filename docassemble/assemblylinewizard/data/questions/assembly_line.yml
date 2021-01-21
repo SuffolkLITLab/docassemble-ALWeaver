@@ -422,7 +422,6 @@ fields:
   - What should the title of this screen be? : questions[i].question_text
     default: Screen ${nice_number(i+1)}
   - What is the text that appears under the title? : questions[i].subquestion_text
-    default: Placeholder text
     input type: area
     required: False
   - Select the fields that will appear on this screen: questions[i].field_list

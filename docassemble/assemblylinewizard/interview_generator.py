@@ -10,7 +10,7 @@ from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_packa
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
 from docassemble.base.error import DAError
-from docassemble.base.logger import logmessage
+from docassemble.base.util import log
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -904,6 +904,7 @@ def map_names(label, document_type="pdf", reserved_whole_words = generator_const
     
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
+  log(label)
 
   if exactly_matches_reserved_word(reserved_whole_words, label):
     return label
