@@ -502,10 +502,8 @@ class DAQuestion(DAObject):
                 else:
                     content += '  - Edit: ' + field_name_to_use + "\n"
                 content += '    button: |' + "\n"
-                if hasattr(field,'label'):
-                    content += indent_by(field.label + ": ", 6)
-                else:
-                    content += indent_by(field_name_to_use + ":", 6)                    
+                edit_display_name = field.label if hasattr(field,'label') else field_name_to_use
+                content += indent_by(docassemble.base.functions.bold(edit_display_name) + ": ", 6)
                 if hasattr(field, 'field_type'):
                     if field.field_type in ['yesno', 'yesnomaybe']:
                         content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
