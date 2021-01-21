@@ -117,8 +117,11 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_phone': ".phone_number",
   '_phones': ".phone_numbers()",
   '_address_block': ".address.block()",
+  # TODO: deprecate street and street2 from existing forms and documentation
   '_address_street': ".address.address",
   '_address_street2': ".address.unit",
+  '_address_address': ".address.address",
+  '_address_unit': ".address.unit",
   '_address_city': ".address.city",
   '_address_state': ".address.state",
   '_address_zip': ".address.zip",
