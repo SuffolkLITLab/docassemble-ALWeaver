@@ -758,8 +758,8 @@ class Playground(PlaygroundSection):
         return dict(names_used=names_used, undefined_names=undefined_names, fields_used=fields_used, all_names=all_names, all_names_reduced=all_names_reduced)
 
 def fix_id(string):
-  return re.sub('[\W_]+', ' ', string).strip()
-      
+    return re.sub('[\W_]+', ' ', string).strip()
+
 def fix_variable_name(match):
     var_name = match.group(1)
     var_name = end_spaces.sub(r'', var_name)
@@ -789,7 +789,7 @@ def oneline(text):
     return text
 
 def escape_quote(text):
-  return text.replace("'", "\\'")
+    return text.replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
@@ -1038,16 +1038,16 @@ def uses_reserved_suffix(suffix_map, suffix):
 #  Label processing helper functions
 ############################
 def remove_multiple_appearance_indicator(label):
-  return re.sub(r'_{2,}\d+', '', label)
+    return re.sub(r'_{2,}\d+', '', label)
 
 def exactly_matches_reserved_word(reserved_words, label):
-  return label in reserved_words
+    return label in reserved_words
 
 def is_a_plural(plurals, label):
-  return label in plurals
+    return label in plurals
 
 def get_stringifiable_version(label):
-  return 'str(' + label + ')'
+    return 'str(' + label + ')'
 
 def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFFIXES):
     if label.startswith('str('):
@@ -1060,10 +1060,10 @@ def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFF
     return label
 
 def get_reserved_label_parts(prefixes, label):
-   return re.search(fr"{prefixes}(\d*)(.*)", label)
+    return re.search(fr"{prefixes}(\d*)(.*)", label)
 
 def pluralize_base(pluralizers_map, key):
-  return pluralizers_map[key]
+    return pluralizers_map[key]
 
 # Return label digit as the correct syntax for an index
 def indexify(digit):
