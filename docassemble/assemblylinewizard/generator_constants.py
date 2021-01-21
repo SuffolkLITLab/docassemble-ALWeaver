@@ -115,6 +115,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_age': ".age_in_years()",
   '_email': ".email",
   '_phone': ".phone_number",
+  '_phones': ".phone_numbers()",
   '_address_block': ".address.block()",
   '_address_street': ".address.address",
   '_address_street2': ".address.unit",
