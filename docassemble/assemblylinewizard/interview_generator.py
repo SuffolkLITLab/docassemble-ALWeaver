@@ -904,7 +904,6 @@ def map_names(label, document_type="pdf", reserved_whole_words = generator_const
     
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
-  log(label)
 
   if exactly_matches_reserved_word(reserved_whole_words, label):
     return label
