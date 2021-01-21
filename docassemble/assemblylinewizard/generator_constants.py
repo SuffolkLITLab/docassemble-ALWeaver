@@ -11,13 +11,13 @@ generator_constants = Object()
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
   'signature_date',  # this is the plural version of this?
-  'attorney_of_record_address_on_one_line', 
+  'attorney_of_record_address_on_one_line',
 ]
 
 # Vars representing people
 generator_constants.PEOPLE_VARS = [
   'users',
-  'other_parties',  
+  'other_parties',
   'plaintiffs',
   'defendants',
   'petitioners',
@@ -115,9 +115,13 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_age': ".age_in_years()",
   '_email': ".email",
   '_phone': ".phone_number",
+  '_phones': ".phone_numbers()",
   '_address_block': ".address.block()",
+  # TODO: deprecate street and street2 from existing forms and documentation
   '_address_street': ".address.address",
   '_address_street2': ".address.unit",
+  '_address_address': ".address.address",
+  '_address_unit': ".address.unit",
   '_address_city': ".address.city",
   '_address_state': ".address.state",
   '_address_zip': ".address.zip",

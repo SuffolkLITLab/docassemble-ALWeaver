@@ -10,7 +10,7 @@ from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_packa
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
 from docassemble.base.error import DAError
-from docassemble.base.logger import logmessage
+from docassemble.base.util import log
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -502,10 +502,8 @@ class DAQuestion(DAObject):
                 else:
                     content += '  - Edit: ' + field_name_to_use + "\n"
                 content += '    button: |' + "\n"
-                if hasattr(field,'label'):
-                    content += indent_by(field.label + ": ", 6)
-                else:
-                    content += indent_by(field_name_to_use + ":", 6)                    
+                edit_display_name = field.label if hasattr(field,'label') else field_name_to_use
+                content += indent_by(docassemble.base.functions.bold(edit_display_name) + ": ", 6)
                 if hasattr(field, 'field_type'):
                     if field.field_type in ['yesno', 'yesnomaybe']:
                         content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
@@ -758,8 +756,8 @@ class Playground(PlaygroundSection):
         return dict(names_used=names_used, undefined_names=undefined_names, fields_used=fields_used, all_names=all_names, all_names_reduced=all_names_reduced)
 
 def fix_id(string):
-  return re.sub('[\W_]+', ' ', string).strip()
-      
+    return re.sub('[\W_]+', ' ', string).strip()
+
 def fix_variable_name(match):
     var_name = match.group(1)
     var_name = end_spaces.sub(r'', var_name)
@@ -789,7 +787,7 @@ def oneline(text):
     return text
 
 def escape_quote(text):
-  return text.replace("'", "\\'")
+    return text.replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
@@ -1038,16 +1036,16 @@ def uses_reserved_suffix(suffix_map, suffix):
 #  Label processing helper functions
 ############################
 def remove_multiple_appearance_indicator(label):
-  return re.sub(r'_{2,}\d+', '', label)
+    return re.sub(r'_{2,}\d+', '', label)
 
 def exactly_matches_reserved_word(reserved_words, label):
-  return label in reserved_words
+    return label in reserved_words
 
 def is_a_plural(plurals, label):
-  return label in plurals
+    return label in plurals
 
 def get_stringifiable_version(label):
-  return 'str(' + label + ')'
+    return 'str(' + label + ')'
 
 def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFFIXES):
     if label.startswith('str('):
@@ -1060,10 +1058,10 @@ def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFF
     return label
 
 def get_reserved_label_parts(prefixes, label):
-   return re.search(fr"{prefixes}(\d*)(.*)", label)
+    return re.search(fr"{prefixes}(\d*)(.*)", label)
 
 def pluralize_base(pluralizers_map, key):
-  return pluralizers_map[key]
+    return pluralizers_map[key]
 
 # Return label digit as the correct syntax for an index
 def indexify(digit):
