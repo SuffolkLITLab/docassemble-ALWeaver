@@ -381,7 +381,7 @@ class DAQuestion(DAObject):
             # move into the interview YAML or a separate module/subclass
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control logic flow in this interview" + "\n"
+            content += "  # This controls logic flow in this interview" + "\n"
             content += "\n  basic_questions_intro_screen \n" # trigger asking any intro questions at start of interview
             content += "  " + self.interview_label + "_intro" + "\n"
             signatures = set()
