@@ -1,6 +1,6 @@
 # docassemble.assemblylinewizard
 
-A tool to help generate draft documents.
+A tool to help generate draft interviews for the docassemble platform. Tightly linked to https://github.com/SuffolkLITLab/docassemble-AssemblyLine. Currently linked to https://github.com/SuffolkLITLab/docassemble-MassAccess but moving to be more jurisdiction independent.
 
 ## History
 
