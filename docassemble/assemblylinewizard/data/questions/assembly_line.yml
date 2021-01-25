@@ -429,6 +429,7 @@ fields:
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
     exclude: questions.all_fields_used()
+    none of the above: False
     choices: fields
     object labeler: |
       lambda y: "**" + y.variable + "**" + "[BR]" + y.label      
