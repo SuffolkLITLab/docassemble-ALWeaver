@@ -439,6 +439,8 @@ fields:
       If you are not sure, leave this unchecked.
       You may want to do this if all of the questions on this
       screen will be optional.
+    validate: |
+      lambda y: True if questions[i].field_list.number()>0 else validation_error("To add this button, you must select at least one field.")
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
