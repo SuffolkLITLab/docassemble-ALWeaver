@@ -184,7 +184,7 @@ fields:
     hint: http://masslegalhelp.org/my_form
     required: False
 help: |
-  ${len(all_fields)}
+  There are ${len(all_fields)} fields total.
   
   `${all_fields}`
   
@@ -225,7 +225,7 @@ help: |
   might be the defendant, but in some cases you could be the plaintiff.
   
   If you are not sure: please review the form and talk to a subject matter 
-  expert. We can always fix this later.
+  expert. This can always be fixed later.
 ---
 comment: |
   Get the list of fields
@@ -249,9 +249,8 @@ code: |
     # Probably all of this should move into a class
     for pdf_field_tuple in all_fields:
       pdf_field_name = pdf_field_tuple[0]
-      # Check to see if we think this is a built-in field (a
-      # field handled in basic-questions.yml),
-      # a signature field, or an arbitrary field.
+      # Check to see if we think this field is built-in (handled in
+      # basic-questions.yml), a signature, or an arbitrary field.
       is_reserved_name = is_reserved_label(pdf_field_name)
       if is_reserved_name or pdf_field_name in variables_to_skip:
         new_field = built_in_fields_used.appendObject()
@@ -376,7 +375,7 @@ continue button field: choose_field_types
 question: |
   On-screen prompts
 subquestion: |  
-
+  % if len(field_question) > 0:
   1. Look at each field below. It represents a blank space on your template.
   1. If the field is handled as a "basic question", it will not be shown
   below. Instead, we will use a pre-written prompt for it.
@@ -389,6 +388,7 @@ subquestion: |
   * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
   * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
   * `date` is a standard date picker, which shows a calendar in most browsers.
+  % endif
     
 fields:
   - code: field_question
@@ -405,7 +405,7 @@ fields:
         len(built_in_fields_used)
 ---
 code: |
-  questions.there_are_any = len(all_fields) > 0
+  questions.there_are_any = len(fields) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
@@ -528,7 +528,7 @@ code: |
   review_block.type = "review"
   # Add the fields, removing any duplicates by assigning to a dict first
   review_block.field_list = fields + built_in_fields_used + signature_fields
-  review_block.question_text = "Placeholder Review Screen"
+  review_block.question_text = "Review Screen"
   review_block.subquestion_text = "Edit your answers below"
   review_block.id = interview_label + ' review screen'
   review_block.event = "review_" + interview_label
