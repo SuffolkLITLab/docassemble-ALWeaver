@@ -381,7 +381,7 @@ class DAQuestion(DAObject):
             # move into the interview YAML or a separate module/subclass
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control logic flow in this interview" + "\n"
+            content += "  # This controls logic flow in this interview" + "\n"
             signatures = set()
             field_names = set()
             for field in self.logic_list:
@@ -525,24 +525,24 @@ class DAQuestion(DAObject):
         return content
 
 class DAQuestionList(DAList):
-  """This represents a list of DAQuestions."""
-  def init(self, **kwargs):
-    super().init(**kwargs)
-    self.object_type = DAQuestion
-    # self.auto_gather = False
-    # self.gathered = True
-    # self.is_mandatory = False
+    """This represents a list of DAQuestions."""
+    def init(self, **kwargs):
+        super().init(**kwargs)
+        self.object_type = DAQuestion
+        # self.auto_gather = False
+        # self.gathered = True
+        # self.is_mandatory = False
 
-  def all_fields_used(self):
-    """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
-      in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-      It prevents the formatter of the wizard from putting the same fields on two different screens."""
-    fields = set()
-    for question in self.elements:
-      if hasattr(question,'field_list'):
-        for field in question.field_list.elements:
-          fields.add(field)
-    return fields
+    def all_fields_used(self):
+        """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
+        in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
+        It prevents the formatter of the wizard from putting the same fields on two different screens."""
+        fields = set()
+        for question in self.elements:
+            if hasattr(question,'field_list'):
+                for field in question.field_list.elements:
+                    fields.add(field)
+        return fields
 
 class PlaygroundSection(object):
     def __init__(self, section='', project='default'):
