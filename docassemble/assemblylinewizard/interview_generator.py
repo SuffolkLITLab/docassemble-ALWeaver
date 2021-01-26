@@ -957,16 +957,21 @@ def map_names(label, document_type="pdf", reserved_whole_words = generator_const
     return result
   
 
-def is_reserved_docx_label(label, docx_only_suffixes = generator_constants.DOCX_ONLY_SUFFIXES, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES, 
+                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS, 
+                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP, 
+                           reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
-      reserved variable names. `label` must be a string.'''
+       reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
         return True
 
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r'([^.]*)(\..*)*', label)
 
-    if not label_parts[0]: return False  # test for existence (empty strings result in a tuple) 
+    # test for existence (empty strings result in a tuple) 
+    if not label_parts[0]: 
+      return False  
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
     has_reserved_prefix = prefix in reserved_pluralizers_map.values()

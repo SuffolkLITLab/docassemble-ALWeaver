@@ -1,6 +1,6 @@
 import unittest
 
-from interview_generator import map_names
+from .interview_generator import map_names
 from docassemble.base.util import log
 
 __all__ = ['TestMapNames']
@@ -32,7 +32,7 @@ class TestMapNames(unittest.TestCase):
         results = {"errored": errored, "passed": passed}
         log(results, "console")
         # This is True if this test is run from generator-test.yml
-        if (run_from_yaml):
+        if run_from_yaml:
             return results
         self.assertEqual(len(passed), len(scenarios))
         self.assertEqual(len(errored), 0)
@@ -48,8 +48,8 @@ scenarios = {
   "attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
 
   # Reserved endings
-  "user1": "str(users[1-1])",
-  "user2": "str(users[2-1])",
+  "user1": "str(users[0])",
+  "user2": "str(users[1])",
   "user__2": "str(users[0])",
   "user____2": "str(users[0])",
   "user_name": "str(users[0])",
@@ -75,8 +75,8 @@ scenarios = {
   "user_signature": "users[0].signature",
 
   # Combo all
-  "user3_birthdate__4": "users[3-1].birthdate.format()",
-  "user3_birthdate____4": "users[3-1].birthdate.format()",
+  "user3_birthdate__4": "users[2].birthdate.format()",
+  "user3_birthdate____4": "users[2].birthdate.format()",
 
   # County
   # "county_name_short": not implemented,
