@@ -5,6 +5,7 @@ import copy
 import sys
 import yaml
 import tempfile
+import collections
 from docx2python import docx2python
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
@@ -67,6 +68,23 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 
   max_chars = num_rows * num_cols
   return max_chars
+
+
+def consolidate_yesnos(fields):
+    """Go through and combine separate yes-no fields into the same field"""
+    yesno_map = collections.defaultdict(list)
+    consolidated_fields = []
+    for f in fields:
+        if f.variable.endswith('_yes') or f.variable.endswith('_no'):
+            if len(yesno_map[f.variable_name_guess]) == 1:
+                f.paired_yesno = True
+                f.variable = f.variable[:-3] if f.variable.endswith('_no') else f.variable[:-4]
+                consolidated_fields.append(f)
+            yesno_map[f.variable_name_guess].append(f)
+        else:
+            consolidated_fields.append(f)
+    return consolidated_fields
+
 
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
