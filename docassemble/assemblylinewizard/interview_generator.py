@@ -955,7 +955,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
   # Get the mapped suffix attribute if present, else just use the same suffix
   suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
-  return "".join([var_start, index, suffix_as_attribute])
+  return "".join([plural_prefix, index, suffix_as_attribute])
 
 
 def trigger_gather_string(docassemble_var,
@@ -973,17 +973,22 @@ def trigger_gather_string(docassemble_var,
     return docassemble_var + GATHER_CALL
 
   # Everything before the first period and everything from the first period to the end
-  var_parts = re.findall(r'([^.]*)(\..*)*', docassemble_var)
+  var_with_attribute = remove_string_wrapper(docassemble_var)
+  var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
   # test for existence (empty strings result in a tuple)
-  if not var_parts[0]:
+  if not var_parts:
     return docassemble_var
   # The prefix, ensuring no key or index
   prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
   has_plural_prefix = prefix in reserved_pluralizers_map.values()
 
   if has_plural_prefix:
-    return prefix + GATHER_CALL
+    first_attribute = var_parts[0][1]
+    if first_attribute == '' or first_attribute == '.name':
+      return prefix + GATHER_CALL
+    else:
+      return var_parts[0][0] + first_attribute
   else:
     return docassemble_var
 

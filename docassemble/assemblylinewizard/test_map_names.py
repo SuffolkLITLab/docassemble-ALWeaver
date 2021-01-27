@@ -34,7 +34,7 @@ attachment_scenarios = {
   "user_address_state": "users[0].address.state",
   "user_address_zip": "users[0].address.zip",
   "user_address_on_one_line": "users[0].address.on_one_line()",
-  "user_address_line_one": "users[0].address.line_line()",
+  "user_address_line_one": "users[0].address.line_one()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
 
@@ -120,15 +120,15 @@ interview_order_scenarios = {
   "user_address_unit": "users[0].address",
   "user_address_address": "users[0].address",
   "user_address_city": "users[0].address",
-  "user_email": "users[0]_email",
-  "user2_phone": "users[1].phone",
+  "user_email": "users[0].email",
+  "user2_phone": "users[1].phone_number",
   "user_signature": "users[0].signature",
 
   # County
   # "county_name_short": not implemented,
   # "county_division": not implemented,
-  "court_address_county": "courts.gather()",
-  "court_county": "courts.gather()",
+  "court_address_county": "courts[0].address",
+  "court_county": "courts[0].address",
 
   # # Reserved starts (with names)
   "user": "users.gather()",
@@ -141,8 +141,8 @@ interview_order_scenarios = {
   "guardians_ad_litem": "guardians_ad_litem.gather()",
   "witnesses": "witnesses.gather()",
 
-  "defendant0_name": "defendants.gather()",
-  "defendant0_email": "defendants[0].email",
+  "defendant1_name": "defendants.gather()",
+  "defendant1_email": "defendants[0].email",
 
   # Starts with no names
   "docket_number": "docket_numbers.gather()",
@@ -150,7 +150,7 @@ interview_order_scenarios = {
   "signature_date": "signature_date",
 
   # Reserved start with unreserved end
-  "user_address_street2_zip": "users_address_street2_zip",
+  "user_address_street2_zip": "user_address_street2_zip",
 
   # Not reserved
   "my_user_name_last": "my_user_name_last",
