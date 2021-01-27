@@ -23,7 +23,12 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', 'get_person_variables', 'get_court_choices']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
+           'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
+           'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', \
+           'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', \
+           'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
+           'get_person_variables', 'get_court_choices']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -73,7 +78,7 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 def consolidate_yesnos(fields):
     """Go through and combine separate yes-no fields into the same field"""
     yesno_map = collections.defaultdict(list)
-    consolidated_fields = []
+    consolidated_fields = DAFieldList(gathered=True)
     for f in fields:
         if f.variable.endswith('_yes') or f.variable.endswith('_no'):
             if len(yesno_map[f.variable_name_guess]) == 1:
@@ -345,7 +350,11 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
-    if self.variable != self.docassemble_variable:
+    if hasattr(self, 'paired_yesno') and self.paired_yesno:
+      field_questions.append({
+        'note': bold('{} (will be expanded to include _yes and _no)'.format(self.variable))
+      })
+    elif self.variable != self.docassemble_variable:
       field_questions.append({
         'note': bold('{} (will be renamed to {})'.format(self.variable, self.docassemble_variable))
       })
