@@ -959,14 +959,12 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
 
 def trigger_gather_string(docassemble_var,
-                          docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                           reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
-                          reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
-                          reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
-  """For a given set of specific cases, transform a
-  PDF field name into a standardized object name
-  that will be the value for the attachment field."""
+                          reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+  """Turn the docassemble variable string into an expression
+  that makes DA ask a question for it. This is mostly
+  calling `gather()` for lists"""
   GATHER_CALL = '.gather()'
   if docassemble_var in reserved_whole_words:
     return docassemble_var
@@ -982,26 +980,12 @@ def trigger_gather_string(docassemble_var,
     return docassemble_var
   # The prefix, ensuring no key or index
   prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
-  has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+  has_plural_prefix = prefix in reserved_pluralizers_map.values()
 
-  if not has_reserved_prefix:
-    return docassemble_var
-
-  suffix = var_parts[0][1]
-  if not suffix:  # If only the prefix
-    return prefix + GATHER_CALL
-  # If the suffix is also reserved
-  # Regex for finding all exact matches of docx suffixes
-  docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
-  docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
-  if (suffix in reserved_suffixes_map.values()
-      or len(docx_suffixes_matches) > 0):
-    # TODO(brycew): this should call `gather(complete_attribute='...')`
+  if has_plural_prefix:
     return prefix + GATHER_CALL
   else:
-    return prefix + GATHER_CALL
-
-  return docassemble_var
+    return docassemble_var
 
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
