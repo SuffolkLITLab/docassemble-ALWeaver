@@ -150,8 +150,8 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
     r'.birthdate.format\(.*\)',
     r'.familiar\(\)',
     r'.familiar_or\(\)',
-    r'phone_numbers\(\)',
-    r'formatted_age\(\)'
+    r'.phone_numbers\(\)',
+    r'.formatted_age\(\)'
 ]
 
 generator_constants.UNMAP_SUFFIXES = {
