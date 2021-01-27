@@ -282,7 +282,7 @@ code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
   include_question.type = 'includes'
-  include_question.includes = ['docassemble.MAVirtualCourt:basic-questions.yml']
+  include_question.includes = ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
   add_includes = True
 ---
 code: |
@@ -459,6 +459,9 @@ code: |
 code: |
   # Build the mandatory code block that will control question flow
   logic_list = []
+  logic_list.append('# Intro screen/splash screen')
+  logic_list.append('al_intro_screen') # Splash page for your organization
+  logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
   # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
