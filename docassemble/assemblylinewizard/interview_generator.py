@@ -22,7 +22,7 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -74,6 +74,7 @@ def fill_in_docx_field_attributes(new_field, new_field_name,
     """
     new_field.variable = new_field_name
     new_field.docassemble_variable = new_field_name  # no transformation changes
+    new_field.trigger_gather = trigger_gather_string(new_field.docassemble_variable)
     new_field.has_label = True
 
     # this will let us edit the name field if document just refers to
@@ -103,7 +104,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
     new_field.docassemble_variable = map_names(pdf_field_tuple[0])  # TODO: wrap in varname
-    new_field.trigger_gather = trigger_gather_string(pdf_field_tuple[0])
+    new_field.trigger_gather = trigger_gather_string(new_field.docassemble_variable)
 
     variable_name_guess = new_field.variable.replace('_', ' ').capitalize()
     new_field.has_label = True
@@ -350,7 +351,7 @@ class DAQuestion(DAObject):
                     elif field.field_type == 'area':
                         content += "    input type: area\n"
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
                     elif field.field_type == 'file':
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
@@ -366,7 +367,7 @@ class DAQuestion(DAObject):
                     elif field.field_data_type == 'email':
                         content += "    datatype: email\n"
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
                     elif field.field_data_type == 'range':
                         content += "    datatype: range\n"
                         content += "    min: " + field.range_min + "\n"
@@ -374,8 +375,8 @@ class DAQuestion(DAObject):
                         content += "    step: " + field.range_step + "\n"
                     else: # a standard text field
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
-                      
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
+
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
             self.under_text
@@ -902,7 +903,6 @@ def get_docx_variables( text ):
 ########################################################
 # Map names code
 
-#def labels_to_pdf_vars(label):
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -936,11 +936,13 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   prefix = label_groups[1]
   # Turn any singluars into plurals, e.g. 'user' into 'users'
   plural_prefix = reserved_pluralizers_map[prefix]
-  if prefix == label: # it's just a standalone, like "defendant"
-    return plural_prefix # Return the pluralized standalone variable
-
   digit = label_groups[2]
   index = indexify(digit)
+  # it's just a standalone, like "defendant", or it's a numbered singular
+  # prefix, e.g. user3
+  if label == prefix or label == prefix + digit:
+    return plural_prefix + index # Return the pluralized standalone variable
+
   # If it's a numbered singluar reserved prefix, e.g. user3
   if label == prefix + digit:
     # Return the plural plus the index, e.g. users[2]
@@ -956,36 +958,36 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   return "".join([var_start, index, suffix_as_attribute])
 
 
-def trigger_gather_string(docassemble_variable, reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
-              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
-              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
-              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def trigger_gather_string(docassemble_var,
+                          docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
+                          reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                          reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+                          reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+                          reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
   GATHER_CALL = '.gather()'
-  label = remove_multiple_appearance_indicator(label)
-  if label in reserved_whole_words:
-    return label
+  if docassemble_var in reserved_whole_words:
+    return docassemble_var
 
-  if label in reserved_var_plurals:
-    return label + GATHER_CALL
+  if docassemble_var in reserved_var_plurals:
+    return docassemble_var + GATHER_CALL
 
   # Everything before the first period and everything from the first period to the end
-  label_parts = re.findall(r'([^.]*)(\..*)*', label)
+  var_parts = re.findall(r'([^.]*)(\..*)*', docassemble_var)
 
   # test for existence (empty strings result in a tuple)
-  if not label_parts[0]:
-    return False
+  if not var_parts[0]:
+    return docassemble_var
   # The prefix, ensuring no key or index
-  prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
+  prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
   has_reserved_prefix = prefix in reserved_pluralizers_map.values()
 
   if not has_reserved_prefix:
-    return label
+    return docassemble_var
 
-  suffix = label_parts[0][1]
+  suffix = var_parts[0][1]
   if not suffix:  # If only the prefix
     return prefix + GATHER_CALL
   # If the suffix is also reserved
@@ -994,12 +996,12 @@ def trigger_gather_string(docassemble_variable, reserved_whole_words=generator_c
   docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
   if (suffix in reserved_suffixes_map.values()
       or len(docx_suffixes_matches) > 0):
-    # TODO(brycew): this should extend to use attribute
+    # TODO(brycew): this should call `gather(complete_attribute='...')`
     return prefix + GATHER_CALL
   else:
     return prefix + GATHER_CALL
 
-  return label
+  return docassemble_var
 
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,

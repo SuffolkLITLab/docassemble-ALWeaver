@@ -5,6 +5,7 @@ modules:
 mandatory: True
 code: |
   map_names_tests = TestMapNames()
+  map_names_tests.setUp()
   ran_tests
 ---
 event: ran_tests
