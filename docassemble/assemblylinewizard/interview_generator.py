@@ -1005,9 +1005,9 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
       return False
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
-    has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values()
 
-    if has_reserved_prefix:
+    if has_plural_prefix:
       suffix = label_parts[0][1]
       if not suffix:  # If only the prefix
         return True

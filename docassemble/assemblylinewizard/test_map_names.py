@@ -34,7 +34,7 @@ attachment_scenarios = {
   "user_address_state": "users[0].address.state",
   "user_address_zip": "users[0].address.zip",
   "user_address_on_one_line": "users[0].address.on_one_line()",
-  "user_address_on_one_line": "users[0].address.on_one_line()",
+  "user_address_line_one": "users[0].address.line_line()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
 
@@ -92,7 +92,6 @@ attachment_scenarios = {
   "signature_date": "signature_date",
 
   # Reserved start with unreserved end
-  #"user_address_street2_zip": "users[0].address_street2_zip",
   "user_address_street2_zip": "user_address_street2_zip",  
 
   # Not reserved
@@ -115,12 +114,15 @@ interview_order_scenarios = {
   "user_name_middle": "users.gather()",
   "user_name_last": "users.gather()",
   "user_name_suffix": "users.gather()",
-  "user_gender": "users.gather()",
-  "user_birthdate": "users.gather()",
-  "user_age": "users.gather()",
-  "user_email": "users.gather()",
-  "user_phone": "users.gather()",
-  "user_signature": "users.gather()",
+  "user_gender": "users[0].gender",
+  "user_birthdate": "users[0].birthdate",
+  "user_age": "users[0].birthdate",
+  "user_address_unit": "users[0].address",
+  "user_address_address": "users[0].address",
+  "user_address_city": "users[0].address",
+  "user_email": "users[0]_email",
+  "user2_phone": "users[1].phone",
+  "user_signature": "users[0].signature",
 
   # County
   # "county_name_short": not implemented,
@@ -139,14 +141,16 @@ interview_order_scenarios = {
   "guardians_ad_litem": "guardians_ad_litem.gather()",
   "witnesses": "witnesses.gather()",
 
+  "defendant0_name": "defendants.gather()",
+  "defendant0_email": "defendants[0].email",
+
   # Starts with no names
   "docket_number": "docket_numbers.gather()",
   "docket_numbers": "docket_numbers.gather()",
   "signature_date": "signature_date",
 
   # Reserved start with unreserved end
-  # TODO(brycew): what to do with this?
-  # "user_address_street2_zip": "users[0].address_street2_zip",
+  "user_address_street2_zip": "users_address_street2_zip",
 
   # Not reserved
   "my_user_name_last": "my_user_name_last",
