@@ -75,20 +75,21 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
   return max_chars
 
 
-def consolidate_yesnos(fields):
-    """Go through and combine separate yes-no fields into the same field"""
-    yesno_map = collections.defaultdict(list)
-    consolidated_fields = DAFieldList(gathered=True)
-    for f in fields:
-        if f.variable.endswith('_yes') or f.variable.endswith('_no'):
-            if len(yesno_map[f.variable_name_guess]) == 1:
-                f.paired_yesno = True
-                f.variable = f.variable[:-3] if f.variable.endswith('_no') else f.variable[:-4]
-                consolidated_fields.append(f)
-            yesno_map[f.variable_name_guess].append(f)
-        else:
-            consolidated_fields.append(f)
-    return consolidated_fields
+def consolidate_yesnos(new_field, yesno_map):
+  """Retruns True if this field should be used: is not a yesno, or is the first yesno.
+     All yesnos get add to the map"""
+  if not new_field.variable.endswith('_yes') and not new_field.variable.endswith('_no'):
+    return True
+  
+  if len(yesno_map[new_field.variable_name_guess]) == 1:
+    existing_field = yesno_map[new_field.variable_name_guess][0]
+    existing_field.paired_yesno = True
+    if existing_field.variable.endswith('_no'):
+      existing_field.variable = existing_field.variable[:-3] 
+    else:
+      existing_field.variable[:-4]
+  yesno_map[new_field.variable_name_guess].append(new_field)
+  return len(yesno_map[new_field.variable_name_guess]) == 1
 
 
 class DAAttachment(DAObject):

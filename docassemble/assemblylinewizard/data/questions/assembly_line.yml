@@ -22,7 +22,7 @@ modules:
   - docassemble.base.util
   - docassemble.base.logger
   - .interview_generator
-  - .generator_constants
+  - collections
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -333,6 +333,8 @@ code: |
   signature_fields
   built_in_fields_used  
   
+  yesno_map = defaultdict(list)
+
   if template_upload[0].extension == 'pdf':
     # Probably all of this should move into a class
     for pdf_field_tuple in all_fields:
@@ -349,7 +351,10 @@ code: |
       
       # This function determines what type of variable
       # we're dealing with
-      new_field.fill_in_pdf_attributes(pdf_field_tuple)    
+      new_field.fill_in_pdf_attributes(pdf_field_tuple)
+      if not consolidate_yesnos(new_field, yesno_map):
+        del new_field
+        fields.pop()
   else:
     # if this is a docx, fields are a list of strings, not a list of tuples
     for field in all_fields:
@@ -361,6 +366,10 @@ code: |
         new_field = fields.appendObject()
       new_field.fill_in_docx_attributes(field)
     
+      if not consolidate_yesnos(new_field, yesno_map):
+        del new_field
+        fields.pop()
+
   get_all_fields = True
 ---
 code: |
@@ -516,7 +525,7 @@ fields:
     none of the above: False
     choices: fields
     object labeler: |
-      lambda y: "**" + y.variable + "**" + "[BR]" + y.label      
+      lambda y: bold(y.variable) + "[BR]" + y.label
   - Add a "continue button field" on this screen: questions[i].has_mandatory_field
     datatype: noyes
     help: |
