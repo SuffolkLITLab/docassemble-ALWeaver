@@ -385,10 +385,10 @@ code: |
   field_data_types = ['text','integer','number','currency','date','email']
 
   temp_field_question = []
-  for index, field in enumerate(fields.elements):    
-    if field.variable != field.transformed_variable:
+  for index, field in enumerate(fields.elements):
+    if field.variable != field.docassemble_variable:
       temp_field_question.append({
-        'note': '**' + field.variable + ' (will be renamed to ' + field.transformed_variable + ')**'})
+        'note': '**' + field.variable + ' (will be renamed to ' + field.docassemble_variable + ')**'})
     else:
       temp_field_question.append({
         'note': '**' + field.variable + '**'

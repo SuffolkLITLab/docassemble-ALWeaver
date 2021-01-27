@@ -103,6 +103,7 @@ def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
     new_field.docassemble_variable = map_names(pdf_field_tuple[0])  # TODO: wrap in varname
+    new_field.trigger_gather = trigger_gather_string(pdf_field_tuple[0])
 
     variable_name_guess = new_field.variable.replace('_', ' ').capitalize()
     new_field.has_label = True
@@ -392,13 +393,13 @@ class DAQuestion(DAObject):
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             signatures = set()
-            field_names = set()
+            added_field_names = set()
             for field in self.logic_list:
               if field.endswith('.signature'): # save the signatures for the end
                 signatures.add(field)
-              elif not field in field_names:
+              elif not field in added_field_names:
                 content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
-              field_names.add(field)
+              added_field_names.add(field)
             content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
@@ -492,7 +493,7 @@ class DAQuestion(DAObject):
           if hasattr(self, 'id') and self.id:
               content += "id: " + self.id + "\n"
           else:
-              content += "id: " + oneline(question_text) + "\n"
+              content += "id: " + oneline(self.question_text) + "\n"
           if hasattr(self, 'event'):
               content += "event: " + self.event + "\n"
           content += "question: |\n"
@@ -902,66 +903,108 @@ def get_docx_variables( text ):
 # Map names code
 
 #def labels_to_pdf_vars(label):
-def map_names(label, document_type="pdf", reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
   if document_type.lower() == "docx":
-      return label # don't transform DOCX variables
-    
+    return label # don't transform DOCX variables
+
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
 
-  if exactly_matches_reserved_word(reserved_whole_words, label):
+  if label in reserved_whole_words:
     return label
 
-  # For the sake of time, this is the fastest way to get around something being plural (wrap it in `str()`)
-  if is_a_plural(reserved_var_plurals, label):
-    return get_stringifiable_version(label)
+  if label in reserved_var_plurals:
+    return label
 
   # Break up label into its parts
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 
   # If no matches to automateable labels were found,
   # just use the label as it is
-  if (label_groups is None or label_groups[1] == ''):
-    return label  # return without 
-    
+  if label_groups is None or label_groups[1] == '':
+    return label
+
   # With reserved words, we're always using an index
   # of the plural version of the prefix of the label
   prefix = label_groups[1]
   # Turn any singluars into plurals, e.g. 'user' into 'users'
-  var_start = pluralize_base(reserved_pluralizers_map, prefix)
+  plural_prefix = reserved_pluralizers_map[prefix]
   if prefix == label: # it's just a standalone, like "defendant"
-    return var_start # Return the pluralized standalone variable
+    return plural_prefix # Return the pluralized standalone variable
 
   digit = label_groups[2]
   index = indexify(digit)
-
   # If it's a numbered singluar reserved prefix, e.g. user3
   if label == prefix + digit:
     # Return the plural plus the index, e.g. users[2]
-    return var_start + index
+    return plural_prefix + index
 
   suffix = label_groups[3]
   # Avoid transforming arbitrary suffixes into attributes
   if not suffix in reserved_suffixes_map:
     return label  # return it as is
-  else:    
-    suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
-    whole_var = "".join([var_start, index, suffix_as_attribute])
 
-    # Has to happen after docket number has a bracket
-    if (should_be_stringified(whole_var)):
-      result = get_stringifiable_version(whole_var)
-    else: result = whole_var
+  # Get the mapped suffix attribute if present, else just use the same suffix
+  suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
+  return "".join([var_start, index, suffix_as_attribute])
 
-    return result
-  
 
-def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES, 
-                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS, 
-                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP, 
+def trigger_gather_string(docassemble_variable, reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+  """For a given set of specific cases, transform a
+  PDF field name into a standardized object name
+  that will be the value for the attachment field."""
+  GATHER_CALL = '.gather()'
+  label = remove_multiple_appearance_indicator(label)
+  if label in reserved_whole_words:
+    return label
+
+  if label in reserved_var_plurals:
+    return label + GATHER_CALL
+
+  # Everything before the first period and everything from the first period to the end
+  label_parts = re.findall(r'([^.]*)(\..*)*', label)
+
+  # test for existence (empty strings result in a tuple)
+  if not label_parts[0]:
+    return False
+  # The prefix, ensuring no key or index
+  prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
+  has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+
+  if not has_reserved_prefix:
+    return label
+
+  suffix = label_parts[0][1]
+  if not suffix:  # If only the prefix
+    return prefix + GATHER_CALL
+  # If the suffix is also reserved
+  # Regex for finding all exact matches of docx suffixes
+  docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
+  docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
+  if (suffix in reserved_suffixes_map.values()
+      or len(docx_suffixes_matches) > 0):
+    # TODO(brycew): this should extend to use attribute
+    return prefix + GATHER_CALL
+  else:
+    return prefix + GATHER_CALL
+
+  return label
+
+
+def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
+                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
                            reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
        reserved variable names. `label` must be a string.'''
@@ -971,9 +1014,9 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r'([^.]*)(\..*)*', label)
 
-    # test for existence (empty strings result in a tuple) 
-    if not label_parts[0]: 
-      return False  
+    # test for existence (empty strings result in a tuple)
+    if not label_parts[0]:
+      return False
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
     has_reserved_prefix = prefix in reserved_pluralizers_map.values()
@@ -987,9 +1030,9 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
       docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
       docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
       if (suffix in reserved_suffixes_map.values()
-        or len(docx_suffixes_matches) > 0 ):
-          return True
-    
+          or len(docx_suffixes_matches) > 0):
+        return True
+
     # For all other cases
     return False
 
@@ -1017,10 +1060,10 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
   # Doesn't matter if it's a first appearance or more
   label = remove_multiple_appearance_indicator(label)
 
-  if exactly_matches_reserved_word(reserved_whole_words, label):
+  if label in reserved_whole_words:
     return True
   # For the sake of time, this is the fastest way to get around something being plural
-  if is_a_plural(reserved_var_plurals, label):
+  if label in reserved_var_plurals:
     return True
 
   # Break up label into its parts
@@ -1030,18 +1073,10 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
     return False
   # If there are no suffixes, just the reserved prefix
   suffix = label_groups[3]
-  if (suffix == ""): return True
-
-  return uses_reserved_suffix(reserved_suffixes_map, suffix)
-
-def uses_reserved_suffix(suffix_map, suffix):
-  # Search through reserved suffixes to see if
-  # its end matches a reserved suffix
-  try:
-    suffix = suffix_map[suffix]
+  if (suffix == ""):
     return True
-  except KeyError:
-    return False
+
+  return suffix in reserved_suffixes_map
 
 
 ############################
@@ -1049,12 +1084,6 @@ def uses_reserved_suffix(suffix_map, suffix):
 ############################
 def remove_multiple_appearance_indicator(label):
     return re.sub(r'_{2,}\d+', '', label)
-
-def exactly_matches_reserved_word(reserved_words, label):
-    return label in reserved_words
-
-def is_a_plural(plurals, label):
-    return label in plurals
 
 def get_stringifiable_version(label):
     return 'str(' + label + ')'
@@ -1064,36 +1093,20 @@ def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFF
         return label[4:-1]
 
     # map address() etc backwards
-    else:
-        for suffix in unmap_suffixes:
-            if label.endswith(suffix):
-                return label.replace(suffix, unmap_suffixes[suffix])
+    for suffix in unmap_suffixes:
+        if label.endswith(suffix):
+            return label.replace(suffix, unmap_suffixes[suffix])
     return label
 
 def get_reserved_label_parts(prefixes, label):
     return re.search(fr"{prefixes}(\d*)(.*)", label)
 
-def pluralize_base(pluralizers_map, key):
-    return pluralizers_map[key]
-
 # Return label digit as the correct syntax for an index
 def indexify(digit):
-  if (digit == ''): 
+  if digit == '':
     return '[0]'
-  else: 
+  else:
     return '[' + str(int(digit)-1) + ']'
-
-def turn_any_suffix_into_an_attribute(suffix_map, suffix):
-  # If this can be turned into a reserved suffix,
-  # that suffix is used
-  try: suffix = suffix_map[suffix]
-  # NO LONGER TRANSFORMING ARBITRARY ATTRIBUTES
-  # Otherwise, the suffix is not transformed. It's used
-  # as it is, except turned into an attribute
-  except KeyError:
-    pass
-    # suffix = re.sub(r'^_', '.', suffix)
-  return suffix
 
 def should_be_stringified(var_name):
   has_no_attributes = var_name.find(".") == -1
