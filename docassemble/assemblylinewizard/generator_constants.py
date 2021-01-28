@@ -158,6 +158,7 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
 generator_constants.UNMAP_SUFFIXES = {
   ".birthdate.format()": '.birthdate',
   ".age_in_years()": ".birthdate",
+  ".name.middle_initial()": ".name.middle_name",
   ".address.block()": ".address.address",
   ".address.on_one_line()": ".address.address",
   ".address.line_one()": ".address.address",
