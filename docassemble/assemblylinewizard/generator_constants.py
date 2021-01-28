@@ -106,6 +106,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_name_full': "",  # full name
   '_name_first': ".name.first",
   '_name_middle': ".name.middle",
+  '_name_middle_initial': ".name.middle_initial()",
   '_name_last': ".name.last",
   '_name_suffix': ".name.suffix",
   '_gender': ".gender",
