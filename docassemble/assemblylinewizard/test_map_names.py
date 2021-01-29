@@ -188,7 +188,6 @@ class TestMapNames(unittest.TestCase):
         passed = []
         log("------ New Scenario Batch ------\n", "console")
         for scenario_input in scenarios:
-            log("~~~~~~~~~~\n", "console")
             try:
                 desired_output = scenarios[scenario_input]
                 self.assertEqual(desired_output, function(scenario_input))
@@ -196,7 +195,8 @@ class TestMapNames(unittest.TestCase):
                 passed.append(scenario_input)
             except AssertionError as error:
                 # The error should show us what specifically didn't match up
-                log(error, "console")
+                log(error + "\n", "console")
+                log("~~~~~~~~~~\n", "console")
                 errored.append({"test": scenario_input, "result": error})
         return passed, errored
 
