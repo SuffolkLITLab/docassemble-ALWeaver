@@ -60,9 +60,11 @@ code: |
   # debug
   get_all_fields
   interview.title
+  interview_intro_prompt
   interview.typical_role  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
+  add_short_title
   add_form_type
   add_sections
   choose_field_types
@@ -196,6 +198,31 @@ help: |
   
   ${fields}
 ---
+code: |
+  if interview.form_type == 'starts_case':
+    interview_intro_prompt_default = "Ask the court for a " + interview.short_title
+  elif interview.form_type == 'existing_case':
+    interview_intro_prompt_default = "File a " + interview.short_title 
+  elif interview.form_type == 'letter':
+    interview_intro_prompt_default = "Write a " + interview.short_title
+  else:
+    interview_intro_prompt_default = "Get a " + interview.short_title
+---
+question: |
+  Action title
+subquestion: |
+  Your interview will include a branded splash page. This screen
+  has a place to mention the name of the form. Usually, the best way
+  to do this is in the form of an action.
+  
+  Example: "Ask the court for a restraining order" or "Demand your landlord
+  return your security deposit".
+
+  What action title do you want?
+fields:
+  - Action title: interview_intro_prompt
+    default: ${ interview_intro_prompt_default }
+---
 question: |
   Information about people on this form
 subquestion: |  
@@ -288,6 +315,12 @@ code: |
   # massaccess.yml
   include_question.includes = ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
   add_includes = True
+---
+code: |
+  short_title_block = interview.blocks.appendObject()
+  short_title_block.type = 'code'
+  short_title_block.code = "interview_short_title = '" + interview_intro_prompt + "'"
+  add_short_title = True
 ---
 code: |
   form_type_block = interview.blocks.appendObject()
