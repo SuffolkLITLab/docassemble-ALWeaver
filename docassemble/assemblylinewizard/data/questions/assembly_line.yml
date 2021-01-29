@@ -238,10 +238,10 @@ fields:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
-  - Number of users whose information can be filled in on this form: user_count
-    choices:
-      - One user of this form at a time: one
-      - More than one user can sign and file this form at once: multiple
+  #- Number of users whose information can be filled in on this form: user_count
+  #  choices:
+  #    - One user of this form at a time: one
+  #    - More than one user can sign and file this form at once: multiple
       
 help: |
   For example, if you are starting a new case, you are always the plaintiff
