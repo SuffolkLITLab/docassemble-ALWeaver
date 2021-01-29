@@ -147,12 +147,12 @@ generator_constants.RESERVED_SUFFIXES_MAP = {**generator_constants.PEOPLE_SUFFIX
 # these might be used in a docx, but we don't transform PDF fields to use these
 # suffixes
 generator_constants.DOCX_ONLY_SUFFIXES = [
-    r'.birthdate',
-    r'.birthdate.format\(.*\)',
-    r'.familiar\(\)',
-    r'.familiar_or\(\)',
-    r'phone_numbers\(\)',
-    r'formatted_age\(\)'
+    r'\.birthdate',
+    r'\.birthdate.format\(.*\)',
+    r'\.familiar\(\)',
+    r'\.familiar_or\(\)',
+    r'\.phone_numbers\(\)',
+    r'\.formatted_age\(\)'
 ]
 
 generator_constants.UNMAP_SUFFIXES = {
