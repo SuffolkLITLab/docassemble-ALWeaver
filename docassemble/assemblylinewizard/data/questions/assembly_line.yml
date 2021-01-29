@@ -63,6 +63,7 @@ code: |
   interview.typical_role  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
+  add_form_type
   add_sections
   choose_field_types
   questions.gather()
@@ -128,8 +129,9 @@ fields:
   - Kind of form: interview.form_type
     datatype: radio
     choices:
-      - Starts a new court case: new_court
-      - Part of an existing court case: existing_court
+      - Starts a new court case: starts_case
+      - Part of an existing court case: existing_case
+      - Appeal: appeal
       - Form that is not filed in a court: other_form
       - Letter: letter
       - Other: other
@@ -282,8 +284,16 @@ code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
   include_question.type = 'includes'
+  # TODO: add a graphical element to select something other than
+  # massaccess.yml
   include_question.includes = ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
   add_includes = True
+---
+code: |
+  form_type_block = interview.blocks.appendObject()
+  form_type_block.type = 'code'
+  form_type_block.code = "al_form_type = '" + interview.form_type + "'"
+  add_form_type= True
 ---
 code: |
   # Build list of section headings
