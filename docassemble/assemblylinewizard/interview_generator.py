@@ -22,7 +22,7 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -41,7 +41,7 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
   """
   Take the pdf_field_tuple and estimate the number of characters that can fit
   in the field, based on the x/y bounding box.
-  
+
   0: horizontal start
   1: vertical start
   2: horizontal end
@@ -50,29 +50,31 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
   # Make sure it's the right kind of tuple
   if len(pdf_field_tuple) < 3 or (pdf_field_tuple[3] and len(pdf_field_tuple[3]) < 4):
     return None # we can't really guess
-  
+
   # Did a little testing for typical field width/number of chars with both w and e.
   # 176 = 25-34 chars. from w to e
   # 121 = 17-22
   # Average about 6 pixels width per character
   # about 12 pixels high is one row
-  
+
   length = pdf_field_tuple[3][2] - pdf_field_tuple[3][0]
   height = pdf_field_tuple[3][3] - pdf_field_tuple[3][1]
-  num_rows = int(height / row_height) if height > 12 else 1 
+  num_rows = int(height / row_height) if height > 12 else 1
   num_cols = int(length / char_width )
-  
+
   max_chars = num_rows * num_cols
   return max_chars
 
-def fill_in_docx_field_attributes(new_field, new_field_name, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP):
+def fill_in_docx_field_attributes(new_field, new_field_name,
+                                  reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
     In a future version of this, maybe we can use context to identify
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
     new_field.variable = new_field_name
-    new_field.transformed_variable = new_field_name # no transformation changes
+    new_field.docassemble_variable = new_field_name  # no transformation changes
+    new_field.trigger_gather = trigger_gather_string(new_field.docassemble_variable)
     new_field.has_label = True
 
     # this will let us edit the name field if document just refers to
@@ -81,13 +83,13 @@ def fill_in_docx_field_attributes(new_field, new_field_name, reserved_pluralizer
         new_field.edit_attribute = new_field_name + '[0].name.first'
     if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
         new_field.edit_attribute = new_field_name + '.name.first'
-    
+
     # variable_name_guess is the placeholder label for the field
-    variable_name_guess = new_field.variable.replace('_',' ').capitalize()
+    variable_name_guess = new_field.variable.replace('_', ' ').capitalize()
     if new_field.variable.endswith('_date'):
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'date'
-        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_',' ')
+        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_', ' ')
     elif new_field.variable.endswith('.signature'):
         new_field.field_type_guess = "signature"
         new_field.field_data_type_guess = None
@@ -95,23 +97,25 @@ def fill_in_docx_field_attributes(new_field, new_field_name, reserved_pluralizer
     else:
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'text'
-        new_field.variable_name_guess = variable_name_guess    
-        
+        new_field.variable_name_guess = variable_name_guess
+
+
 def fill_in_field_attributes(new_field, pdf_field_tuple):
     # Let's guess the type of each field from the name / info from PDF
     new_field.variable = varname(pdf_field_tuple[0])
-    new_field.transformed_variable = map_names(pdf_field_tuple[0]) # TODO: wrap in varname
+    new_field.docassemble_variable = map_names(pdf_field_tuple[0])  # TODO: wrap in varname
+    new_field.trigger_gather = trigger_gather_string(new_field.docassemble_variable)
 
-    variable_name_guess = new_field.variable.replace('_',' ').capitalize()
+    variable_name_guess = new_field.variable.replace('_', ' ').capitalize()
     new_field.has_label = True
     if new_field.variable.endswith('_date'):
         new_field.field_type_guess = 'text'
         new_field.field_data_type_guess = 'date'
-        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_',' ')
+        new_field.variable_name_guess = 'Date of ' + new_field.variable[:-5].replace('_', ' ')
     elif new_field.variable.endswith('_yes') or new_field.variable.endswith('_no'):
         new_field.field_type_guess = 'yesno'
         new_field.field_data_type_guess = None
-        new_field.variable_name_guess = new_field.variable[:-3].replace('_',' ').capitalize() if new_field.variable.endswith('_no') else new_field.variable[:-4].replace('_',' ').capitalize()
+        new_field.variable_name_guess = new_field.variable[:-3].replace('_', ' ').capitalize() if new_field.variable.endswith('_no') else new_field.variable[:-4].replace('_',' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         new_field.field_type_guess = 'yesno'
         new_field.field_data_type_guess = None
@@ -262,7 +266,7 @@ class DAQuestion(DAObject):
             if hasattr(self, 'id') and self.id:
                 # TODO: ask for ID in the wizard
                 content += "id: " + fix_id(self.id) + "\n"
-            else:                
+            else:
                 content += "id: " + fix_id(self.question_text) + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
@@ -347,7 +351,7 @@ class DAQuestion(DAObject):
                     elif field.field_type == 'area':
                         content += "    input type: area\n"
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
                     elif field.field_type == 'file':
                         content += "    datatype: file\n"
                     elif field.field_data_type == 'integer':
@@ -363,7 +367,7 @@ class DAQuestion(DAObject):
                     elif field.field_data_type == 'email':
                         content += "    datatype: email\n"
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
                     elif field.field_data_type == 'range':
                         content += "    datatype: range\n"
                         content += "    min: " + field.range_min + "\n"
@@ -371,8 +375,8 @@ class DAQuestion(DAObject):
                         content += "    step: " + field.range_step + "\n"
                     else: # a standard text field
                         if hasattr(field, 'maxlength') and field.maxlength:
-                          content += "    maxlength: " + str(field.maxlength) + "\n" 
-                      
+                          content += "    maxlength: " + str(field.maxlength) + "\n"
+
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
             self.under_text
@@ -390,13 +394,13 @@ class DAQuestion(DAObject):
             content += "code: |\n"
             content += "  # This is a placeholder to control logic flow in this interview" + "\n"
             signatures = set()
-            field_names = set()
+            added_field_names = set()
             for field in self.logic_list:
               if field.endswith('.signature'): # save the signatures for the end
                 signatures.add(field)
-              elif not field in field_names:
+              elif not field in added_field_names:
                 content += "  " + field + "\n" # We built this logic list by collecting the first field on each screen
-              field_names.add(field)
+              added_field_names.add(field)
             content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
             content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
@@ -427,9 +431,9 @@ class DAQuestion(DAObject):
         elif self.type == 'metadata':
             if hasattr(self, 'comment'):
                 content += 'comment: |\n'
-                content += indent_by(self.comment, 2) 
+                content += indent_by(self.comment, 2)
             content += "metadata:\n"
-            for setting in self.settings: 
+            for setting in self.settings:
                 content += '  ' + setting + ': |\n'
                 content += indent_by(self.settings[setting], 4)
         elif self.type == 'metadata_code':
@@ -490,7 +494,7 @@ class DAQuestion(DAObject):
           if hasattr(self, 'id') and self.id:
               content += "id: " + self.id + "\n"
           else:
-              content += "id: " + oneline(question_text) + "\n"
+              content += "id: " + oneline(self.question_text) + "\n"
           if hasattr(self, 'event'):
               content += "event: " + self.event + "\n"
           content += "question: |\n"
@@ -503,7 +507,7 @@ class DAQuestion(DAObject):
               field_name_to_use = remove_string_wrapper(map_names(field.variable, document_type=document_type))
               if field_name_to_use not in field_names:
                 if hasattr(field, 'edit_attribute'):
-                    content += '  - Edit: ' + field.edit_attribute + "\n"  
+                    content += '  - Edit: ' + field.edit_attribute + "\n"
                 else:
                     content += '  - Edit: ' + field_name_to_use + "\n"
                 content += '    button: |' + "\n"
@@ -522,7 +526,7 @@ class DAQuestion(DAObject):
                     elif field.field_data_type == 'currency':
                         content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
                     elif field.field_data_type == 'date':
-                        content += indent_by('${ ' + field_name_to_use + '.format() }', 6)                        
+                        content += indent_by('${ ' + field_name_to_use + '.format() }', 6)
                     # elif field.field_data_type == 'email':
                     else:
                         content += indent_by('${ ' + field_name_to_use + ' }', 6)
@@ -841,8 +845,8 @@ def get_fields(the_file):
   docx_data = docx2python( the_file.path() )  # Will error with invalid value
   text = docx_data.text
   return get_docx_variables( text )
-  
-  
+
+
 def get_docx_variables( text ):
   '''Given the string from a docx file with fairly simple
   code), returns a list of the jinja variables used there.
@@ -855,9 +859,9 @@ def get_docx_variables( text ):
   for possible_variable in re.findall(r'\{%[^ \t]* +for [A-Za-z\_][A-Za-z0-9\_]* in ([^\} ]+) +[^ \t]*%}', text):
     minimally_filtered.add( possible_variable )
   # Variables in very simple `if` statements (allow paragraph and whitespace flags)
-  for possible_variable in re.findall(r'{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}', text): 
+  for possible_variable in re.findall(r'{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}', text):
     minimally_filtered.add( possible_variable )
-  
+
   fields = set()
 
   for possible_var in minimally_filtered:
@@ -865,13 +869,13 @@ def get_docx_variables( text ):
     prefix = re.findall(r'([^.]*)(?:\..+)*', possible_var)
     if not prefix[0]: continue  # This should never occur as they're all strings
     prefix_with_key = prefix[0]  # might have brackets
-    
+
     prefix_root = re.sub(r'\[.+\]', '', prefix_with_key)  # no brackets
     # Filter out non-identifiers (invalid variable names), like functions
     if not prefix_root.isidentifier(): continue
     # Filter out keywords like `in`
     if keyword.iskeyword( prefix_root ): continue
-    
+
     # Deal with special cases harshly
     if '.address' in possible_var:  # an address
       if '.address.county' in possible_var:  # a county is special
@@ -880,7 +884,7 @@ def get_docx_variables( text ):
         fields.add( re.sub(r'\.address.*', '.address.address', possible_var ))
       fields.add( prefix_with_key )
       continue
-    
+
     if '.name' in possible_var:  # a name
       if '.name.text' in possible_var:  # Names for non-Individuals
         fields.add( possible_var )
@@ -892,86 +896,123 @@ def get_docx_variables( text ):
     # Remove any methods from the end of the variable
     methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var )
     fields.add( methods_removed )
-  
+
   return fields
 
 
 ########################################################
 # Map names code
 
-#def labels_to_pdf_vars(label):
-def map_names(label, document_type="pdf", reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
   if document_type.lower() == "docx":
-      return label # don't transform DOCX variables
-    
+    return label # don't transform DOCX variables
+
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
 
-  if exactly_matches_reserved_word(reserved_whole_words, label):
+  if label in reserved_whole_words:
     return label
 
-  # For the sake of time, this is the fastest way to get around something being plural (wrap it in `str()`)
-  if is_a_plural(reserved_var_plurals, label):
-    return get_stringifiable_version(label)
+  if label in reserved_var_plurals:
+    return label
 
   # Break up label into its parts
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 
   # If no matches to automateable labels were found,
   # just use the label as it is
-  if (label_groups is None or label_groups[1] == ''):
-    return label  # return without 
-    
+  if label_groups is None or label_groups[1] == '':
+    return label
+
   # With reserved words, we're always using an index
   # of the plural version of the prefix of the label
   prefix = label_groups[1]
   # Turn any singluars into plurals, e.g. 'user' into 'users'
-  var_start = pluralize_base(reserved_pluralizers_map, prefix)
-  if prefix == label: # it's just a standalone, like "defendant"
-    return var_start # Return the pluralized standalone variable
-
+  plural_prefix = reserved_pluralizers_map[prefix]
   digit = label_groups[2]
   index = indexify(digit)
+  # it's just a standalone, like "defendant", or it's a numbered singular
+  # prefix, e.g. user3
+  if label == prefix or label == prefix + digit:
+    return plural_prefix + index # Return the pluralized standalone variable
 
   # If it's a numbered singluar reserved prefix, e.g. user3
   if label == prefix + digit:
     # Return the plural plus the index, e.g. users[2]
-    return var_start + index
+    return plural_prefix + index
 
   suffix = label_groups[3]
   # Avoid transforming arbitrary suffixes into attributes
   if not suffix in reserved_suffixes_map:
     return label  # return it as is
-  else:    
-    suffix_as_attribute = turn_any_suffix_into_an_attribute(reserved_suffixes_map, suffix)
-    whole_var = "".join([var_start, index, suffix_as_attribute])
 
-    # Has to happen after docket number has a bracket
-    if (should_be_stringified(whole_var)):
-      result = get_stringifiable_version(whole_var)
-    else: result = whole_var
+  # Get the mapped suffix attribute if present, else just use the same suffix
+  suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
+  return "".join([plural_prefix, index, suffix_as_attribute])
 
-    return result
-  
 
-def is_reserved_docx_label(label, docx_only_suffixes = generator_constants.DOCX_ONLY_SUFFIXES, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def trigger_gather_string(docassemble_var,
+                          reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                          reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+                          reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+  """Turn the docassemble variable string into an expression
+  that makes DA ask a question for it. This is mostly
+  calling `gather()` for lists"""
+  GATHER_CALL = '.gather()'
+  if docassemble_var in reserved_whole_words:
+    return docassemble_var
+
+  if docassemble_var in reserved_var_plurals:
+    return docassemble_var + GATHER_CALL
+
+  # Everything before the first period and everything from the first period to the end
+  var_with_attribute = remove_string_wrapper(docassemble_var)
+  var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
+
+  # test for existence (empty strings result in a tuple)
+  if not var_parts:
+    return docassemble_var
+  # The prefix, ensuring no key or index
+  prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
+  has_plural_prefix = prefix in reserved_pluralizers_map.values()
+
+  if has_plural_prefix:
+    first_attribute = var_parts[0][1]
+    if first_attribute == '' or first_attribute == '.name':
+      return prefix + GATHER_CALL
+    else:
+      return var_parts[0][0] + first_attribute
+  else:
+    return docassemble_var
+
+
+def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
+                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+                           reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
-      reserved variable names. `label` must be a string.'''
+       reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
         return True
 
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r'([^.]*)(\..*)*', label)
 
-    if not label_parts[0]: return False  # test for existence (empty strings result in a tuple) 
+    # test for existence (empty strings result in a tuple)
+    if not label_parts[0]:
+      return False
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
-    has_reserved_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values()
 
-    if has_reserved_prefix:
+    if has_plural_prefix:
       suffix = label_parts[0][1]
       if not suffix:  # If only the prefix
         return True
@@ -980,9 +1021,9 @@ def is_reserved_docx_label(label, docx_only_suffixes = generator_constants.DOCX_
       docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
       docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
       if (suffix in reserved_suffixes_map.values()
-        or len(docx_suffixes_matches) > 0 ):
-          return True
-    
+          or len(docx_suffixes_matches) > 0):
+        return True
+
     # For all other cases
     return False
 
@@ -1005,17 +1046,17 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
   '''Given a PDF label, returns whether the label fully
     matches a reserved prefix or a reserved prefix with a
     reserved suffix'''
-  
+
   # Get rid of all multi-appearance indicators, e.g. '__4' of 'user_name__4'
   # Doesn't matter if it's a first appearance or more
   label = remove_multiple_appearance_indicator(label)
 
-  if exactly_matches_reserved_word(reserved_whole_words, label):
+  if label in reserved_whole_words:
     return True
   # For the sake of time, this is the fastest way to get around something being plural
-  if is_a_plural(reserved_var_plurals, label):
+  if label in reserved_var_plurals:
     return True
-  
+
   # Break up label into its parts
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
   # If no other matches to reserved prefixes were found
@@ -1023,18 +1064,10 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
     return False
   # If there are no suffixes, just the reserved prefix
   suffix = label_groups[3]
-  if (suffix == ""): return True
-
-  return uses_reserved_suffix(reserved_suffixes_map, suffix)
-
-def uses_reserved_suffix(suffix_map, suffix):
-  # Search through reserved suffixes to see if
-  # its end matches a reserved suffix
-  try:
-    suffix = suffix_map[suffix]
+  if (suffix == ""):
     return True
-  except KeyError:
-    return False
+
+  return suffix in reserved_suffixes_map
 
 
 ############################
@@ -1043,49 +1076,28 @@ def uses_reserved_suffix(suffix_map, suffix):
 def remove_multiple_appearance_indicator(label):
     return re.sub(r'_{2,}\d+', '', label)
 
-def exactly_matches_reserved_word(reserved_words, label):
-    return label in reserved_words
-
-def is_a_plural(plurals, label):
-    return label in plurals
-
 def get_stringifiable_version(label):
     return 'str(' + label + ')'
 
 def remove_string_wrapper(label, unmap_suffixes = generator_constants.UNMAP_SUFFIXES):
     if label.startswith('str('):
         return label[4:-1]
+
     # map address() etc backwards
-    else:
-        for suffix in unmap_suffixes:
-            if label.endswith(suffix):
-                return label.replace(suffix, unmap_suffixes[suffix])
+    for suffix in unmap_suffixes:
+        if label.endswith(suffix):
+            return label.replace(suffix, unmap_suffixes[suffix])
     return label
 
 def get_reserved_label_parts(prefixes, label):
     return re.search(fr"{prefixes}(\d*)(.*)", label)
 
-def pluralize_base(pluralizers_map, key):
-    return pluralizers_map[key]
-
 # Return label digit as the correct syntax for an index
 def indexify(digit):
-  if (digit == ''): 
+  if digit == '':
     return '[0]'
-  else: 
+  else:
     return '[' + str(int(digit)-1) + ']'
-
-def turn_any_suffix_into_an_attribute(suffix_map, suffix):
-  # If this can be turned into a reserved suffix,
-  # that suffix is used
-  try: suffix = suffix_map[suffix]
-  # NO LONGER TRANSFORMING ARBITRARY ATTRIBUTES
-  # Otherwise, the suffix is not transformed. It's used
-  # as it is, except turned into an attribute
-  except KeyError:
-    pass
-    # suffix = re.sub(r'^_', '.', suffix)
-  return suffix
 
 def should_be_stringified(var_name):
   has_no_attributes = var_name.find(".") == -1
@@ -1095,14 +1107,14 @@ def should_be_stringified(var_name):
 def get_person_variables(fieldslist):
   """
   Identify the field names that represent people in the list of
-  DAFields pulled from docx/PDF.    
+  DAFields pulled from docx/PDF.
   """
   people = set()
   for field in fieldslist:
     if is_person(field.variable):
       people.add(get_person_identifier(field.variable))
   return people
-      
+
 def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
   """
   Check if the field name appears to represent a person
@@ -1125,6 +1137,6 @@ def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
         ]
         if matches.groups()[1] in endings:
             return True
-  
+
 def get_person_identifier(field_name):
   pass

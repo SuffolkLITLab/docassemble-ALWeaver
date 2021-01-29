@@ -1,13 +1,11 @@
-# This used to work. Not sure why it's broken now.
-# Something about interview-generator.py not existing at the moment.
 # Get output from tests.
 modules:
   - .test_map_names
 ---
 mandatory: True
 code: |
-  # What do I pass to this
   map_names_tests = TestMapNames()
+  map_names_tests.setUp()
   ran_tests
 ---
 event: ran_tests
@@ -25,7 +23,7 @@ subquestion: |
   #### Selected scenarios
 
   <%
-      results = map_names_tests.test_mapped_scenarios(True)
+      results = map_names_tests.test_mapped_scenarios(run_from_yaml=True)
       failed = results["errored"]
       passed = results["passed"]
   %>

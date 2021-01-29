@@ -57,4 +57,3 @@ setup(name='docassemble.assemblylinewizard',
       zip_safe=False,
       package_data=find_package_data(where='docassemble/assemblylinewizard/', package='docassemble.assemblylinewizard'),
      )
-
