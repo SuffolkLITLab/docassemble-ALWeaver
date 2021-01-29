@@ -171,6 +171,7 @@ class TestMapNames(unittest.TestCase):
         passed = []
         errored = []
         for scenarios, function in test_scenarios:
+          # TODO(brycew): log / print which test scenario is running here
           temp_passed, temp_errored = self.run_scenarios(scenarios, function)
           passed += temp_passed
           errored += temp_errored
@@ -181,12 +182,13 @@ class TestMapNames(unittest.TestCase):
             return results
         self.assertEqual(len(passed), sum([len(sc[1]) for sc in self.scenarios]))
         self.assertEqual(len(errored), 0)
-        
+
     def run_scenarios(self, scenarios, function):
         errored = []
         passed = []
+        log("------ New Scenario Batch ------\n", "console")
         for scenario_input in scenarios:
-            log("~~~~~~~~~~", "console")
+            log("~~~~~~~~~~\n", "console")
             try:
                 desired_output = scenarios[scenario_input]
                 self.assertEqual(desired_output, function(scenario_input))
