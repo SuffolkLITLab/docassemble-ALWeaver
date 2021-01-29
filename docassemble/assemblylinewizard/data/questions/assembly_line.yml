@@ -620,6 +620,7 @@ need:
 code: |
   # This is the question that goes with the regular attachment
   end_question = interview.questions.appendObject() # 'all_done')
+  end_question.id = "download" # Use a consistent ID for Google Analytics
   end_question.type = 'question'
   end_question.progress = "100"
   end_question.question_text = 'Your form is ready to download and file'
@@ -627,7 +628,7 @@ code: |
   # Add a preview of the form to the draft ending screen
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
   end_question.subquestion_text += 'Below is a preview of your form.\n\n'
-  end_question.subquestion_text += '${pdf_concatenate(' + attachment_variable_name +"['final'], filename='" + interview_label + ".pdf') }"
+  end_question.subquestion_text += "${ al_user_bundle.download_list_html() }"
   # TODO: make the logic block mandatory, instead of the download screen
   end_question.is_mandatory = True # Keep this in so you can run the interview right away
   end_question.attachment_variable_name = attachment_variable_name
