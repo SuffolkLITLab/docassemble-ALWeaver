@@ -618,6 +618,7 @@ need:
 code: |
   # This is the question that goes with the regular attachment
   end_question = interview.questions.appendObject() # 'all_done')
+  end_question.id = "download" # Use a consistent ID for Google Analytics
   end_question.type = 'question'
   end_question.progress = "100"
   end_question.question_text = 'Your form is ready to download and file'

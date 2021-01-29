@@ -300,7 +300,7 @@ class DAQuestion(DAObject):
                     content += "objects:\n"
                     # TODO: 
                     content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                    content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + ',al_cover_page], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
+                    content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
                     content += "---\n"
                     content += "attachment:\n"
                     content += "    variable name: " + self.attachment_variable_name + "[i]\n"
