@@ -9,7 +9,8 @@ __all__ = ['TestMapNames']
 attachment_scenarios = {
   # Reserved whole words
   "signature_date": "signature_date",
-  "attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
+  # Not yet implemented
+  #"attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
 
   # Reserved endings
   "user1": "users[0]",
@@ -102,7 +103,8 @@ attachment_scenarios = {
 interview_order_scenarios = {
   # Reserved whole words
   "signature_date": "signature_date",
-  "attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
+  # Not yet implemented
+  #"attorney_of_record_address_on_one_line": "attorney_of_record_address_on_one_line",
 
   # Reserved endings
   "user1": "users.gather()",
