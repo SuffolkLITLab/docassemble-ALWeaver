@@ -679,3 +679,29 @@ code: |
   end_question.field_list.gathered = True  
   
   created_attachment = True
+---
+#######################################
+# Code to support github feedback form
+imports:
+  - importlib
+---
+code: |
+  try:
+    package_version_number = str(importlib.import_module(user_info().package).__version__)
+  except:
+    package_version_number = "playground"
+---
+code: |
+  # Leaving this in but in this package, it will
+  # always be docassemble-assemblylinewizard, unless an org
+  # forks this for their own jurisdiction
+  package_name = str(user_info().package)
+  if package_name and not "playground" in package_name:
+    github_repo_name = package_name.replace('.','-')
+  else:    
+    github_repo_name = "docassemble-assemblylinewizard"
+---
+default screen parts:
+  # May want to change the interview URL if you customize/fork
+  under: |
+    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.assemblylinewizard:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
