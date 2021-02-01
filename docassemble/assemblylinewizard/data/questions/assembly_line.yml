@@ -539,7 +539,7 @@ code: |
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
-        logic_list.append(question.field_list[0].transformed_variable)
+        logic_list.append(question.field_list[0].docassemble_variable)
       else:
         logic_list.append(varname(question.question_text))
 
