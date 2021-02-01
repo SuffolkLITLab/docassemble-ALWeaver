@@ -151,12 +151,6 @@ subquestion: |
   Do not type any private information. Your bug report will be visible
   on a public website.
 fields:
-  #- label: |
-  #    **What form were you using?**
-  #  field: form_title
-  #  show if:
-  #    code: |
-  #      github_repo == default_repository
   - label: |
       **What was the title at the top of the page where
       the bug happened?**
@@ -213,12 +207,6 @@ subquestion: |
   Do not include private information about your case. The information you
   type on this form will be visible on a public website.
 fields:
-  - label: |
-      **What form were you using?**
-    field: form_title
-    show if:
-      code: |
-        github_repo == default_repository
   - label: |
       **What was the title at the top of the page where
       the bug happened?**
@@ -283,12 +271,6 @@ question: |
 decoration: confusion
 fields:
   - label: |
-      **What form were you using?**
-    field: form_title
-    show if:
-      code: |
-        github_repo == default_repository
-  - label: |
       **What was the title at the top of the page where
       the bug happened?**
     field: page_title
@@ -321,12 +303,6 @@ question: |
 decoration: confusion
 fields:
   - label: |
-      **What form were you using?**
-    field: form_title
-    show if:
-      code: |
-        github_repo == default_repository
-  - label: |
       **What was the title at the top of the page where
       the bug happened?**
     field: page_title
@@ -358,12 +334,6 @@ question: |
   Tell us about the enhancement you propose
 decoration: enhancement
 fields:
-  - label: |
-      **What form were you using?**
-    field: form_title
-    show if:
-      code: |
-        github_repo == default_repository
   - When should this fix be implemented?: maturity_level
     code: maturity_levels
     show if:
@@ -421,6 +391,9 @@ buttons:
 ---
 template: bug_report
 subject: |
+  % if question_id:
+  ${ question_id }:
+  % endif
   % if get_config('debug'):
   Tester feedback: bug
   % else:
@@ -451,6 +424,9 @@ content: |
 ---
 template: confusing_report
 subject: |
+  % if question_id:
+  ${ question_id }:
+  % endif
   % if get_config('debug'):
   Tester feedback: part of the form was confusing
   % else:
@@ -479,6 +455,9 @@ content: |
 ---
 template: other_feedback_report
 subject: |
+  % if question_id:
+  ${ question_id }:
+  % endif
   % if get_config('debug'):
   Tester feedback: other
   % else:
@@ -512,6 +491,9 @@ objects:
 ---
 template: generic_report[i]
 subject: |
+  % if question_id:
+  ${ question_id }:
+  % endif
   Tester feedback: ${i}
 content: |
   &nbsp; | &nbsp;
