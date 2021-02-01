@@ -37,6 +37,7 @@ attachment_scenarios = {
   "user_address_line_one": "users[0].address.line_one()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
+  "user_mail_address": "users[0].mail_address",
 
   # Combo all
   "user3_birthdate__4": "users[2].birthdate.format()",
@@ -123,6 +124,7 @@ interview_order_scenarios = {
   "user_email": "users[0].email",
   "user2_phone": "users[1].phone_number",
   "user_signature": "users[0].signature",
+  "user_mail_address": "users[0].mail_address",
 
   # County
   # "county_name_short": not implemented,

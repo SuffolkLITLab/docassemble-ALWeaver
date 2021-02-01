@@ -132,6 +132,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_address_line_one': ".address.line_one()",
   '_address_city_state_zip': ".address.line_two()",
   '_signature': ".signature",
+  '_mail_address': ".mail_address"
 }
 
 generator_constants.PEOPLE_SUFFIXES = list(generator_constants.PEOPLE_SUFFIXES_MAP.values()) + ['.name.full()','.name']
