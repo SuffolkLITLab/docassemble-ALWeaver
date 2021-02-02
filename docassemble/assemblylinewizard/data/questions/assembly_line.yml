@@ -85,6 +85,7 @@ continue button field: debug
 question: |
   ${ template_upload }
 ---
+id: opening screen
 question: |
   Assembly Line Wizard
 subquestion: |
@@ -108,6 +109,7 @@ code: |
   
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
+id: information about this interview
 question: |
   Information about this interview
 subquestion: |
@@ -208,6 +210,7 @@ code: |
   else:
     interview_intro_prompt_default = "Get a " + interview.short_title
 ---
+id: action title
 question: |
   Action title
 subquestion: |
@@ -223,6 +226,7 @@ fields:
   - Action title: interview_intro_prompt
     default: ${ interview_intro_prompt_default }
 ---
+id: information about people
 question: |
   Information about people on this form
 subquestion: |  
@@ -414,6 +418,7 @@ code: |
 
   field_question = temp_field_question
 ---
+id: choose field types
 continue button field: choose_field_types
 question: |
   On-screen prompts
@@ -455,6 +460,7 @@ code: |
   # assigned.
   questions.there_is_another = len(questions.all_fields_used()) < len(fields)
 ---
+id: create a draft of screen i
 question: |
   Create a draft of the ${ordinal(i)} screen
 subquestion: |
@@ -593,10 +599,11 @@ code: |
 code: |
   attachment_variable_name = interview_label + '_attachment'
 ---
+id: download your interview
 comment: | 
 event: show_interview
 question: |
-  All done
+  All done: Download your interview
 subquestion: |
 
   ### Please download the generated interview below
@@ -679,3 +686,29 @@ code: |
   end_question.field_list.gathered = True  
   
   created_attachment = True
+---
+#######################################
+# Code to support github feedback form
+imports:
+  - importlib
+---
+code: |
+  try:
+    package_version_number = str(importlib.import_module(user_info().package).__version__)
+  except:
+    package_version_number = "playground"
+---
+code: |
+  # Leaving this in but in this package, it will
+  # always be docassemble-assemblylinewizard, unless an org
+  # forks this for their own jurisdiction
+  package_name = str(user_info().package)
+  if package_name and not "playground" in package_name:
+    github_repo_name = package_name.replace('.','-')
+  else:    
+    github_repo_name = "docassemble-assemblylinewizard"
+---
+default screen parts:
+  # May want to change the interview URL if you customize/fork
+  under: |
+    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.assemblylinewizard:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
