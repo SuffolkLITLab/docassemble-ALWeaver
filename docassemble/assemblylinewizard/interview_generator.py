@@ -17,6 +17,7 @@ import docassemble.base.pdftk
 import shutil
 import datetime
 import types
+import json
 # Get local constants for interview_generator.py
 from .generator_constants import generator_constants
 
@@ -387,6 +388,29 @@ class DAQuestion(DAObject):
                 content += "under: |\n" + indent_by(self.under_text, 2)
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
+        elif self.type == 'objects':
+            # An object should be a list of DAObjects with the following attributes:
+            # name, type, params [optional]
+            # params is going to be a list/iterable object of two or 3 item tuples or lists 
+            # of strings
+            # param[0] is the parameter name (argument to .using), param[1] is the value
+            # If the param has 3 parts, then param[1] will be treated as a literal rather than
+            # string value. string is default. Actual value of param[2] is reserved for future need
+            content += "objects:\n"
+            for object in self.objects:
+              content += "  - " + object.name + ':' + object.type
+              if hasattr(object, 'params'):
+                content += ".using("
+                for param in object.params:
+                  content += str(param[0]) + "="
+                  if len(param) > 2:
+                    # This might be an int value, other variable name, etc.
+                    content += str(param[1])
+                  else:
+                    # this is a normal string value and should get quoted.
+                    # use json.dumps() to properly quote strings. shouldn't come up
+                    content += json.dumps(str(param[1]))
+                                   
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
