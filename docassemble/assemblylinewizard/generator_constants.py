@@ -177,4 +177,8 @@ generator_constants.UNMAP_SUFFIXES = {
   ".address.on_one_line()": ".address.address",
   ".address.line_one()": ".address.address",
   ".address.line_two()": ".address.address",
+  ".mail_address.block()": ".mail_address.address",
+  ".mail_address.on_one_line()": ".mail_address.address",
+  ".mail_address.line_one()": ".mail_address.address",
+  ".mail_address.line_two()": ".mail_address.address",
 }
