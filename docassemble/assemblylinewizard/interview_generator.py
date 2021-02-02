@@ -22,7 +22,7 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit','get_person_variables']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -1107,44 +1107,33 @@ def indexify(digit):
   else:
     return '[' + str(int(digit)-1) + ']'
 
+# TODO: is this function used or necessary? Looks like no longer referenced
 def should_be_stringified(var_name):
-  has_no_attributes = var_name.find(".") == -1
+  has_no_attributes = not "." in var_name
   is_docket_number = var_name.startswith("docket_numbers[")
   return has_no_attributes and not is_docket_number
 
-def get_person_variables(fieldslist):
+def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, custom_only=False):
   """
   Identify the field names that represent people in the list of
-  DAFields pulled from docx/PDF.
+  string fields pulled from docx/PDF.    
   """
   people = set()
   for field in fieldslist:
-    if is_person(field.variable):
-      people.add(get_person_identifier(field.variable))
-  return people
-
-def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
-  """
-  Check if the field name appears to represent a person
-  """
-  # Is it exactly a person variable: e.g., `users`
-  if remove_string_wrapper(field_name) in people_vars:
-    return True
-  if '[' in field_name or '.' in field_name:
-    match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
-    matches = re.match(match_with_brackets_or_attribute, field_name)
-    if matches:
-      if matches.groups()[0] in people_vars:
-        return True
-      else:
-        endings = [
-          "[0].address_block()",
-          "[0].address.block()",
-          "[0].address.on_one_line()",
-          "[0].",
-        ]
-        if matches.groups()[1] in endings:
-            return True
-
-def get_person_identifier(field_name):
-  pass
+    if remove_string_wrapper(field) in people_vars:
+      people.add(field)
+    if '[' in field or '.' in field:
+      match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
+      matches = re.match(match_with_brackets_or_attribute, field)
+      if matches:
+        # Is the name before attribute/index a predetermined person?  
+        if matches.groups()[0] in people_vars:
+          people.add(matches.groups()[0])
+        else:
+          # Look for prefixes normally associated with people
+          if matches.groups()[1] in people_suffixes or matches.groups()[1] in list(people_suffixes_map.keys()) :
+            people.add(matches.groups()[0])
+  if custom_only:
+    return people - set(people_vars)
+  else:
+    return people
