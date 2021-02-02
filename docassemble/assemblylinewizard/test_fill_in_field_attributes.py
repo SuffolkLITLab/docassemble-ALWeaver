@@ -61,7 +61,7 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
 
     def test_sig_field(self):
         pdf_field_tuple = ('signature', '', 0, [10, 10, 100, 30], '/Sig')
-        new_field = MagicMock(wraps=new_field)
+        new_field = MagicMock(wraps=DAField)
         new_field.fill_in_pdf_attributes(pdf_field_tuple)
         self.assertEqual(new_field.variable, 'signature')
         self.assertEqual(new_field.docassemble_variable, 'signature')

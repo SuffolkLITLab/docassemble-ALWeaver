@@ -11,6 +11,7 @@ from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, con
 from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
 from docassemble.base.error import DAError
 from docassemble.base.util import log
+from docassemble.base.functions import bold
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -213,8 +214,8 @@ class DAField(DAObject):
     elif self.variable.endswith('_yes') or self.variable.endswith('_no'):
         self.field_type_guess = 'yesno'
         self.field_data_type_guess = None
-        self.variable_name_guess = self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
-        self.variable_name_guess = self.variable_name_guess.replace('_', ' ').capitalize()
+        name_no_suffix = self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
+        self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
         self.field_data_type_guess = None
@@ -238,13 +239,13 @@ class DAField(DAObject):
     else:
       return "", False
 
-  def get_maxlength_str(self):
+  def _maxlength_str(self):
     if hasattr(self, 'maxlength') and self.maxlength:
       return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
 
-  def get_field_entry_yaml(self, document_type):
+  def field_entry_yaml(self, document_type):
     field_name_to_use = map_names(self.variable, document_type=document_type)
     content = ""
     if self.has_label:
@@ -258,23 +259,23 @@ class DAField(DAObject):
       content += "    datatype: {}".format(self.field_type)
     elif self.field_type == 'area':
       content += "    input type: area\n"
-      content += self.get_maxlength_str()
+      content += self._maxlength_str()
     elif self.field_data_type in ['integer', 'currency', 'email', 'range']:
       content += "    datatype: {}".format(self.field_data_type)
       if self.field_data_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_data_type == 'email':
-        content += self.get_maxlength_str()
+        content += self._maxlength_str()
       else:  # range
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
-      content += self.get_maxlength_str()
+      content += self._maxlength_str()
 
     return content
 
-  def get_review_screen_yaml(self, document_type, field_names):
+  def review_yaml(self, document_type, field_names):
     field_name_to_use = unmap(map_names(self.variable, document_type=document_type))
     if field_name_to_use in field_names:
       return ""
@@ -285,8 +286,8 @@ class DAField(DAObject):
     else:
       content += '  - Edit: ' + field_name_to_use + "\n"
     content += '    button: |\n'
-    edit_display_name = self.label if hasattr(self,'label') else field_name_to_use
-    content += indent_by(docassemble.base.functions.bold(edit_display_name) + ": ", 6)
+    edit_display_name = self.label if hasattr(self, 'label') else field_name_to_use
+    content += indent_by(bold(edit_display_name) + ": ", 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
@@ -307,8 +308,9 @@ class DAField(DAObject):
     else:
       content += indent_by('${ ' + field_name_to_use + ' }', 6)
     field_names.add(field_name_to_use)
+    return content
 
-  def get_attachment_yaml(self):
+  def attachment_yaml(self):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     field_varname = varname(self.variable)
@@ -317,7 +319,7 @@ class DAField(DAObject):
       if self.field_data_type == 'date':
         content += '${ ' + field_varname.format() + ' }\n'
       elif self.field_data_type == 'currency':
-        content += '${ currency(' + field_varname + ' ) }\n'
+        content += '${ currency(' + field_varname + ') }\n'
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
@@ -325,6 +327,35 @@ class DAField(DAObject):
       content += '${ ' + map_names(field_varname) + ' }\n'
     return content
 
+  def user_ask_yaml(self, index):
+    field_questions = []
+    if self.variable != self.docassemble_variable:
+      field_questions.append({
+        'note': bold('{} (will be renamed to {})'.format(self.variable, self.docassemble_variable))
+      })
+    else:
+      field_questions.append({
+        'note': bold(self.variable)
+      })
+    field_questions.append({
+      'label': "On-screen prompt",
+      'field': 'fields[' + str(index) + '].label',
+      'default': self.variable_name_guess
+    })
+    field_questions.append({
+      'label': "Input style",
+      'field': 'fields[' + str(index) + '].field_type',
+      'choices': ['yesno', 'text', 'area'], 
+      'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
+    })
+    field_questions.append({
+      'label': "Datatype",
+      'field': 'fields[' + str(index) + '].field_data_type',
+      'choices': ['text', 'integer', 'number', 'currency', 'date', 'email'],
+      'default': self.field_data_type_guess if hasattr(self, 'field_data_type_guess') else None,
+      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
+    })
+    return field_questions
 
 class DAFieldList(DAList):
     """A DAFieldList contains multiple DAFields."""
@@ -411,10 +442,8 @@ class DAQuestion(DAObject):
                         content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
                         self.templates_used.add(attachment.pdf_filename)
                         content += "    fields: " + "\n"
-                        # for field, default, pageno, rect, field_type in attachment.fields:
-                        # Switching to using a DAField, rather than a raw PDF field
                         for field in attachment.fields:
-                          content += field.get_attachment_yaml()
+                          content += field.attachment_yaml()
                     elif attachment.type == 'docx':
                         content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
                         self.templates_used.add(attachment.docx_filename)
@@ -422,7 +451,7 @@ class DAQuestion(DAObject):
             if not done_with_content:
                 content += "fields:\n"
                 for field in self.field_list:
-                    content += field.get_field_entry_yaml(document_type)
+                    content += field.field_entry_yaml(document_type)
 
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].variable) + "\n"
@@ -475,7 +504,7 @@ class DAQuestion(DAObject):
                     for key in section: # Should just be one key
                         content += '  - ' + str(key) + ': ' + str(section[key]) + "\n"
                 elif isinstance(section, str):
-                    content += '  - ' + section_item
+                    content += '  - ' + section
         elif self.type == 'metadata':
             if hasattr(self, 'comment'):
                 content += 'comment: |\n'
@@ -553,7 +582,7 @@ class DAQuestion(DAObject):
           content += "review: \n"
           field_names = set()
           for field in self.field_list:
-              content += field.get_review_screen_yaml(document_type, field_names)
+              content += field.review_yaml(document_type, field_names)
         return content
 
 class DAQuestionList(DAList):
@@ -856,7 +885,7 @@ def get_fields(the_file):
   """Get the list of fields needed inside a template file (PDF or Docx Jinja
   tags). This will include attributes referenced. Assumes a file that
   has a valid and exiting filepath."""
-  if isinstance(the_file,DAFileList):
+  if isinstance(the_file, DAFileList):
     if the_file[0].mimetype == 'application/pdf':
       return [field[0] for field in the_file[0].get_pdf_fields()]
   else:

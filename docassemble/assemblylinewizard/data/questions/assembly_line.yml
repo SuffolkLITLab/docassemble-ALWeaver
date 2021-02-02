@@ -391,31 +391,7 @@ code: |
   temp_field_question = []
   #TODO(brycew): DAField output for here
   for index, field in enumerate(fields.elements):
-    if field.variable != field.docassemble_variable:
-      temp_field_question.append({
-        'note': '**' + field.variable + ' (will be renamed to ' + field.docassemble_variable + ')**'})
-    else:
-      temp_field_question.append({
-        'note': '**' + field.variable + '**'
-      })
-    temp_field_question.append({
-      'label': "On-screen prompt",
-      'field': 'fields[' + str(index) + '].label',
-      'default': field.variable_name_guess
-    })
-    temp_field_question.append({
-      'label': "Input style",
-      'field': 'fields[' + str(index) + '].field_type',
-      'choices': field_types,
-      'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
-    })
-    temp_field_question.append({
-      'label': "Datatype",
-      'field': 'fields[' + str(index) + '].field_data_type',
-      'choices': field_data_types,
-      'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
-      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
-    })
+    temp_field_question.extend(field.user_ask_yaml(index))
 
   field_question = temp_field_question
 ---
