@@ -38,6 +38,10 @@ attachment_scenarios = {
   "user_address_line_one": "users[0].address.line_one()",
   "user_address_city_state_zip": "users[0].address.line_two()",
   "user_signature": "users[0].signature",
+  "user_mail_address": "users[0].mail_address",
+  'user_mail_address_block': "users[0].mail_address.block()",
+  'user_mail_address_address': "users[0].mail_address.address",
+  'user_mail_address_zip': "users[0].mail_address.zip",
 
   # Combo all
   "user3_birthdate__4": "users[2].birthdate.format()",
@@ -125,6 +129,10 @@ interview_order_scenarios = {
   "user_email": "users[0].email",
   "user2_phone": "users[1].phone_number",
   "user_signature": "users[0].signature",
+  "user_mail_address": "users[0].mail_address",
+  'user_mail_address_block': "users[0].mail_address",
+  'user_mail_address_address': "users[0].mail_address",
+  'user_mail_address_zip': "users[0].mail_address",
 
   # County
   # "county_name_short": not implemented,
@@ -197,7 +205,7 @@ class TestMapNames(unittest.TestCase):
                 passed.append(scenario_input)
             except AssertionError as error:
                 # The error should show us what specifically didn't match up
-                log(error + "\n", "console")
+                log(str(error) + "\n", "console")
                 log("~~~~~~~~~~\n", "console")
                 errored.append({"test": scenario_input, "result": error})
         return passed, errored

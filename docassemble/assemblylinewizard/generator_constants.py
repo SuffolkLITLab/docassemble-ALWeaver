@@ -132,6 +132,20 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_address_line_one': ".address.line_one()",
   '_address_city_state_zip': ".address.line_two()",
   '_signature': ".signature",
+  '_mail_address_block': ".mail_address.block()",
+  '_mail_address_street': ".mail_address.address",
+  '_mail_address_street2': ".mail_address.unit",
+  '_mail_address_address': ".mail_address.address",
+  '_mail_address_unit': ".mail_address.unit",
+  '_mail_address_city': ".mail_address.city",
+  '_mail_address_state': ".mail_address.state",
+  '_mail_address_zip': ".mail_address.zip",
+  '_mail_address_county': ".mail_address.county",
+  '_mail_address_country': ".mail_address.country",
+  '_mail_address_on_one_line': ".mail_address.on_one_line()",
+  '_mail_address_line_one': ".mail_address.line_one()",
+  '_mail_address_city_state_zip': ".mail_address.line_two()",
+  '_mail_address': ".mail_address",
 }
 
 generator_constants.PEOPLE_SUFFIXES = list(generator_constants.PEOPLE_SUFFIXES_MAP.values()) + ['.name.full()','.name']
@@ -163,4 +177,8 @@ generator_constants.UNMAP_SUFFIXES = {
   ".address.on_one_line()": ".address.address",
   ".address.line_one()": ".address.address",
   ".address.line_two()": ".address.address",
+  ".mail_address.block()": ".mail_address.address",
+  ".mail_address.on_one_line()": ".mail_address.address",
+  ".mail_address.line_one()": ".mail_address.address",
+  ".mail_address.line_two()": ".mail_address.address",
 }

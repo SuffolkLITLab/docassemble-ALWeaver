@@ -884,6 +884,14 @@ def get_docx_variables( text ):
         fields.add( re.sub(r'\.address.*', '.address.address', possible_var ))
       fields.add( prefix_with_key )
       continue
+      
+    if '.mail_address' in possible_var:  # a mailing address
+      if '.mail_address.county' in possible_var:  # a county is special
+        fields.add( possible_var )
+      else:  # all other mailing addresses (replaces .zip and such)
+        fields.add( re.sub(r'\.mail_address.*', '.mail_address.address', possible_var ))
+      fields.add( prefix_with_key )
+      continue
 
     if '.name' in possible_var:  # a name
       if '.name.text' in possible_var:  # Names for non-Individuals
