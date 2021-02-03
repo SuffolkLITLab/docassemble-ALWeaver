@@ -284,6 +284,9 @@ code: |
   else:
     all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
 ---
+code: |
+ built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+---
 comment: |
   Convert the PDF fields into Docassemble fields
 code: |
@@ -521,16 +524,19 @@ code: |
     interview.questions.append(question)
   add_questions_to_interview = True
 ---
+need:
+  - built_in_people_vars_used
 code: |
   objects_block =  interview.questions.appendObject()
   objects_block.type = "objects"
   objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
-  for person in people_variables:
+  for person in people_variables.true_values().union(built_in_people_vars_used):
     # TODO: ask how many of this object can be gathered and use it here
-    new_object = objects_block.appendObject()
+    new_object = objects_block.objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
     # no parameters yet
+  objects_block.objects.gathered=True
   add_objects_block = True
 ---
 code: |

@@ -398,7 +398,7 @@ class DAQuestion(DAObject):
             # string value. string is default. Actual value of param[2] is reserved for future need
             content += "objects:\n"
             for object in self.objects:
-              content += "  - " + object.name + ':' + object.type
+              content += "  - " + object.name + ': ' + object.type
               if hasattr(object, 'params'):
                 content += ".using("
                 for param in object.params:
@@ -410,6 +410,7 @@ class DAQuestion(DAObject):
                     # this is a normal string value and should get quoted.
                     # use json.dumps() to properly quote strings. shouldn't come up
                     content += json.dumps(str(param[1]))
+            content += "\n"
                                    
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
@@ -1137,7 +1138,7 @@ def should_be_stringified(var_name):
   is_docket_number = var_name.startswith("docket_numbers[")
   return has_no_attributes and not is_docket_number
 
-def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, custom_only=False):
+def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP, custom_only=False):
   """
   Identify the field names that represent people in the list of
   string fields pulled from docx/PDF.    
@@ -1146,20 +1147,26 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
   for field in fieldslist:
     # fields are tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      field = field[0]
-    if remove_string_wrapper(field) in people_vars:
-      people.add(field)
-    if '[' in field or '.' in field:
+      field_to_check = field[0]
+    else:
+      field_to_check = field
+    # TODO: is remove_string_wrapper actually needed? might have been made redundant already?
+    if map_names(field_to_check) in people_vars:
+      people.add(map_names(field_to_check))
+    if '[' in field_to_check or '.' in field_to_check:
       match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
-      matches = re.match(match_with_brackets_or_attribute, field)
+      matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
         # Is the name before attribute/index a predetermined person?  
         if matches.groups()[0] in people_vars:
           people.add(matches.groups()[0])
+        elif  matches.groups()[0] in reserved_pluralizers_map.keys():
+          people.add(reserved_pluralizers_map[matches.groups()[0]])          
         else:
           # Look for prefixes normally associated with people
-          if matches.groups()[1] in people_suffixes or matches.groups()[1] in list(people_suffixes_map.keys()) :
-            people.add(matches.groups()[0])
+          # TODO: double-check this is right for PDFs when it's just the suffix that's a clue
+          if map_names(matches.groups()[1]) in people_suffixes or matches.groups()[1] in list(people_suffixes_map.keys()):
+            people.add(map_names(matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
   else:
