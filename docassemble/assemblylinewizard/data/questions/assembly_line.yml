@@ -389,9 +389,8 @@ code: |
   field_data_types = ['text','integer','number','currency','date','email']
 
   temp_field_question = []
-  #TODO(brycew): DAField output for here
   for index, field in enumerate(fields.elements):
-    temp_field_question.extend(field.user_ask_yaml(index))
+    temp_field_question.extend(field.user_ask_about_field(index))
 
   field_question = temp_field_question
 ---
@@ -534,7 +533,6 @@ code: |
   # Something here should happen to eliminate duplicates before adding
   # to the logic list
   for index, field in enumerate(built_in_fields_used, start=len(questions) + 1):
-    # TODO(bryce): make OOP: don't refer to field.variable
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    

@@ -164,7 +164,7 @@ class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user."""
   def init(self, **kwargs):
     return super().init(**kwargs)
-  # TODO(brycew): add a ".attachment_block()", ".review_block()", and ".trigger_block()" to each
+
   def fill_in_docx_attributes(self, new_field_name,
                               reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
@@ -254,19 +254,18 @@ class DAField(DAObject):
       content += "  - no label: {}\n".format(field_name_to_use)
 
     # Use all of these fields plainly. No restrictions/validation yet
-    if self.field_type in ['yesno', 'yesnomaybe', 'file'] or \
-        self.field_data_type in  ['number', 'date']: 
+    if self.field_type in ['yesno', 'yesnomaybe', 'file']:
       content += "    datatype: {}\n".format(self.field_type)
     elif self.field_type == 'area':
       content += "    input type: area\n"
       content += self._maxlength_str() + '\n'
-    elif self.field_data_type in ['integer', 'currency', 'email', 'range']:
+    elif self.field_data_type in ['integer', 'currency', 'email', 'range', 'number', 'date']:
       content += "    datatype: {}\n".format(self.field_data_type)
       if self.field_data_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_data_type == 'email':
         content += self._maxlength_str() + '\n'
-      else:  # range
+      elif self.field_data_type == 'range':
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
@@ -315,10 +314,9 @@ class DAField(DAObject):
     # To avoid duplicate key error
     field_varname = varname(self.variable)
     content = '      - "{}": '.format(self.variable)
-    if hasattr(self, 'field_data_type'):
-      if self.field_data_type == 'date':
+    if hasattr(self, 'field_data_type') and self.field_data_type == 'date':
         content += '${ ' + field_varname.format() + ' }\n'
-      elif self.field_data_type == 'currency':
+    elif hasattr(self, 'field_data_type') and self.field_data_type == 'currency':
         content += '${ currency(' + field_varname + ') }\n'
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
@@ -328,7 +326,7 @@ class DAField(DAObject):
     log('attachment_yaml for {}: {}'.format(self.variable, content), 'console')
     return content
 
-  def user_ask_yaml(self, index):
+  def user_ask_about_field(self, index):
     field_questions = []
     if self.variable != self.docassemble_variable:
       field_questions.append({
