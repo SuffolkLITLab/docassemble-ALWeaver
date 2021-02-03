@@ -1169,7 +1169,7 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
         else:
           # Look for prefixes normally associated with people
           # TODO: double-check this is right for PDFs when it's just the suffix that's a clue
-          if map_names(matches.groups()[1]) in people_suffixes or matches.groups()[1] in list(people_suffixes_map.keys()):
+          if map_names(matches.groups()[1]) in people_suffixes or matches.groups()[1] in people_suffixes_map.keys():
             people.add(map_names(matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
