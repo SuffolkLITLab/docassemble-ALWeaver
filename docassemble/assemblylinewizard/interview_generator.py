@@ -401,15 +401,19 @@ class DAQuestion(DAObject):
               content += "  - " + object.name + ': ' + object.type
               if hasattr(object, 'params'):
                 content += ".using("
+                params_string_builder = []
                 for param in object.params:
-                  content += str(param[0]) + "="
+                  param_string = str(param[0]) + "="
                   if len(param) > 2:
                     # This might be an int value, other variable name, etc.
-                    content += str(param[1])
+                    param_string += str(param[1])
                   else:
                     # this is a normal string value and should get quoted.
                     # use json.dumps() to properly quote strings. shouldn't come up
-                    content += json.dumps(str(param[1]))
+                    param_string += json.dumps(str(param[1]))
+                  params_string_builder.append(param_string)
+                content += ",".join(params_string_builder)
+                content += ")" 
             content += "\n"
                                    
         elif self.type == 'interview order':
