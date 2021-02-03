@@ -1,6 +1,18 @@
 metadata:
   title: Document assembly wizard
   short title: Wizard
+  tags:
+    - HO-00-00-00-00 #Housing
+    - FA-00-00-00-00 #Family
+    - FA-07-00-00-00 #Domestic Violence and Abuse
+    - HE-00-00-00-00 #Health
+    - ES-00-00-00-00 #Estates, Wills, and Guardianships
+    - MO-00-00-00-00 #Money, Debt, and Consumer Issues     
+    - BE-04-00-00-00 #Unemployment Benefits, Compensation, and Insurance
+    - IM-00-00-00-00 #Immigration     
+    - BE-00-00-00-00 #Public Benefits
+    - ED-00-00-00-00 #Education
+    - RI-10-00-00-00 #Prisoners' Rights
 ---
 features:
   question help button: True
@@ -160,18 +172,18 @@ fields:
   - Categories: interview.categories
     datatype: checkboxes
     choices:
-      - Housing
-      - Family Law
-      - Domestic Violence / Safety of self
-      - Health and Mental Health
-      - Guardianship
-      - Consumer and Debt
-      - Employment / Unemployment
-      - Immigration
-      - Income and benefits
-      - Education
-      - Rights of incarcerated/formerly incarcerated
-      - Other
+      - Housing: HO-00-00-00-00
+      - Family: FA-00-00-00-00
+      - Domestic Violence and Abuse: FA-07-00-00-00
+      - Health: HE-00-00-00-00
+      - Estates, Wills, and Guardianships: ES-00-00-00-00
+      - Money, Debt, and Consumer Issues: MO-00-00-00-00
+      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
+      - Immigration: IM-00-00-00-00
+      - Public Benefits: BE-00-00-00-00
+      - Education: ED-00-00-00-00
+      - Prisoners' Rights: RI-10-00-00-00
+      - Other: Other
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
@@ -539,7 +551,7 @@ code: |
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
-        logic_list.append(question.field_list[0].transformed_variable)
+        logic_list.append(question.field_list[0].docassemble_variable)
       else:
         logic_list.append(varname(question.question_text))
 
