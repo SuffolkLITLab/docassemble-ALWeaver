@@ -1144,6 +1144,9 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
   """
   people = set()
   for field in fieldslist:
+    # fields are tuples for PDF and strings for docx
+    if isinstance(field, tuple):
+      field = field[0]
     if remove_string_wrapper(field) in people_vars:
       people.add(field)
     if '[' in field or '.' in field:

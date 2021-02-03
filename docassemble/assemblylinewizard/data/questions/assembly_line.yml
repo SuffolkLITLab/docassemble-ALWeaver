@@ -39,6 +39,7 @@ comment: |
   This is a list of some variables we leave alone (don't transform)
   but still represent something we're handling in basic-question.yml
   No need to prompt the user to group these questions.
+  # TODO: this is really handled in the generator constants now
 variable name: variables_to_skip
 data:
   - signature_date
@@ -70,6 +71,7 @@ code: |
   choose_field_types
   questions.gather()
   
+  add_objects_block
   add_logic_tree
   add_draft_intro_screen
   created_preview_question
@@ -236,6 +238,20 @@ subquestion: |
   The Plaintiff/Petitioner starts a case. The Defendant/Respondent
   is responding to a case someone else started.
 fields:
+  - note: |
+      The list of names below look like names for people, based on
+      how you use them in your document.
+    show if:
+      code: |
+        len(get_person_variables(all_fields, custom_only=True)) > 0
+  - Which variable names represent people?: people_variables
+    datatype: checkboxes
+    code: |
+      get_person_variables(all_fields, custom_only=True)
+    help: |
+      "person" variables will get things like addresses, multi-part
+      names, and proper questions handled automatically. Using them
+      will help you save time writing your interview.
   - User's role: interview.typical_role
     input type: radio
     choices:
@@ -504,6 +520,18 @@ code: |
     question.type = "question"
     interview.questions.append(question)
   add_questions_to_interview = True
+---
+code: |
+  objects_block =  interview.questions.appendObject()
+  objects_block.type = "objects"
+  objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
+  for person in people_variables:
+    # TODO: ask how many of this object can be gathered and use it here
+    new_object = objects_block.appendObject()
+    new_object.name = person
+    new_object.type = "ALPeopleList"
+    # no parameters yet
+  add_objects_block = True
 ---
 code: |
   # Build the mandatory code block that will control question flow
