@@ -256,22 +256,22 @@ class DAField(DAObject):
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file'] or \
         self.field_data_type in  ['number', 'date']: 
-      content += "    datatype: {}".format(self.field_type)
+      content += "    datatype: {}\n".format(self.field_type)
     elif self.field_type == 'area':
       content += "    input type: area\n"
-      content += self._maxlength_str()
+      content += self._maxlength_str() + '\n'
     elif self.field_data_type in ['integer', 'currency', 'email', 'range']:
-      content += "    datatype: {}".format(self.field_data_type)
+      content += "    datatype: {}\n".format(self.field_data_type)
       if self.field_data_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_data_type == 'email':
-        content += self._maxlength_str()
+        content += self._maxlength_str() + '\n'
       else:  # range
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
-      content += self._maxlength_str()
+      content += self._maxlength_str() + '\n'
 
     return content
 
@@ -314,7 +314,7 @@ class DAField(DAObject):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     field_varname = varname(self.variable)
-    content = indent_by('- "{}": '.format(self.variable), 6)
+    content = '      - "{}": '.format(self.variable)
     if hasattr(self, 'field_data_type'):
       if self.field_data_type == 'date':
         content += '${ ' + field_varname.format() + ' }\n'
@@ -325,6 +325,7 @@ class DAField(DAObject):
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
     else:
       content += '${ ' + map_names(field_varname) + ' }\n'
+    log('attachment_yaml for {}: {}'.format(self.variable, content), 'console')
     return content
 
   def user_ask_yaml(self, index):
@@ -356,6 +357,7 @@ class DAField(DAObject):
       'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
     })
     return field_questions
+
 
 class DAFieldList(DAList):
     """A DAFieldList contains multiple DAFields."""
