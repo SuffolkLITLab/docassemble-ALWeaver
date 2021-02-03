@@ -388,7 +388,7 @@ class DAQuestion(DAObject):
                 content += "under: |\n" + indent_by(self.under_text, 2)
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
-        elif self.type == 'objects':
+        elif self.type == 'objects' and len(self.objects):
             # An object should be a list of DAObjects with the following attributes:
             # name, type, params [optional]
             # params is going to be a list/iterable object of two or 3 item tuples or lists 
