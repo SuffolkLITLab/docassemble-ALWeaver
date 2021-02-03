@@ -668,7 +668,7 @@ code: |
   end_question.id = "download" # Use a consistent ID for Google Analytics
   end_question.type = 'question'
   end_question.progress = "100"
-  end_question.question_text = 'Your form is ready to download and file'
+  end_question.question_text = 'Your form is ready to download.'
 
   # Add a preview of the form to the draft ending screen
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
