@@ -336,7 +336,7 @@ class DAField(DAObject):
       'default': self.variable_name_guess
     })
     field_questions.append({
-      'label': "Input Type",
+      'label': "Field Type",
       'field': 'fields[' + str(index) + '].field_type',
       'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email'], 
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
