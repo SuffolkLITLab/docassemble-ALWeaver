@@ -1142,7 +1142,7 @@ def should_be_stringified(var_name):
   is_docket_number = var_name.startswith("docket_numbers[")
   return has_no_attributes and not is_docket_number
 
-def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP, custom_only=False):
+def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, custom_only=False):
   """
   Identify the field names that represent people in the list of
   string fields pulled from docx/PDF.    
@@ -1151,26 +1151,38 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
   for field in fieldslist:
     # fields are tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      field_to_check = field[0]
+      field_to_check = map_names(field[0])
     else:
       field_to_check = field
-    # TODO: is remove_string_wrapper actually needed? might have been made redundant already?
-    if map_names(field_to_check) in people_vars:
-      people.add(map_names(field_to_check))
-    if '[' in field_to_check or '.' in field_to_check:
-      match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
+    if (field_to_check) in people_vars:
+      people.add(field_to_check)
+    elif '[' in field_to_check or '.' in field_to_check:
+      # Check for a valid Python identifier before brackets or .
+      match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
         # Is the name before attribute/index a predetermined person?  
         if matches.groups()[0] in people_vars:
           people.add(matches.groups()[0])
-        elif  matches.groups()[0] in reserved_pluralizers_map.keys():
-          people.add(reserved_pluralizers_map[matches.groups()[0]])          
+        # Maybe this is the singular version of a person's name?
+        elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
+          people.add(reserved_person_pluralizers_map[matches.groups()[0]])          
         else:
-          # Look for prefixes normally associated with people
-          # TODO: double-check this is right for PDFs when it's just the suffix that's a clue
-          if map_names(matches.groups()[1]) in people_suffixes or matches.groups()[1] in people_suffixes_map.keys():
-            people.add(map_names(matches.groups()[0]))
+          # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
+          if map_names(matches.groups()[1]) in people_suffixes:
+            people.add(matches.groups()[0])
+    else:
+      # The regex below is non-greedy; _address will match before _mail_address
+      match_pdf_person_suffixes = r"([A-Za-z_]\w*)(" + "|".join(people_suffixes.keys()) + "$)"
+      matches = re.match(match_pdf_person_suffixes, field_to_check)
+      if matches:
+        # There may be more elegant solution. but since _mail_address_address
+        # will match _address_address this is workaround below.
+        # If we add more possible partial matches to suffixes, we need to add more workarounds
+        if matches.groups()[0].endswith('_mail') and matches.groups()[1].startswith('_address'):
+          people.add(matches.groups()[0][:-5])
+        else:          
+          people.add(matches.groups()[0])
   if custom_only:
     return people - set(people_vars)
   else:

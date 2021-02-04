@@ -71,7 +71,7 @@ generator_constants.RESERVED_PREFIXES = (r"^(user"  # deprecated, but still supp
 
 # reserved_pluralizers_map
 
-generator_constants.RESERVED_PLURALIZERS_MAP = {
+generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'user': 'users',
   'plaintiff': 'plaintiffs',
   'defendant': 'defendants',
@@ -85,8 +85,6 @@ generator_constants.RESERVED_PLURALIZERS_MAP = {
   'translator': 'translators',
   'debt_collector': 'debt_collectors',
   'creditor': 'creditors',
-  'court': 'courts',
-  'docket_number': 'docket_numbers',
   # Non-s plurals
   'other_party': 'other_parties',
   'child': 'children',
@@ -95,6 +93,11 @@ generator_constants.RESERVED_PLURALIZERS_MAP = {
   'decedent': 'decedents',
   'interested_party': 'interested_parties',
 }
+
+generator_constants.RESERVED_PLURALIZERS_MAP = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP.update({
+  'court': 'courts',
+  'docket_number': 'docket_numbers',
+})
 
 # Any reason to not make all suffixes available to everyone?
 # Yes: it can break variables that overlap but have a different meaning
