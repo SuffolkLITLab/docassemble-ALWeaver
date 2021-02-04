@@ -16,13 +16,15 @@ import docassemble.base.parse
 import docassemble.base.pdftk
 import shutil
 import datetime
+import zipfile
 import types
+
 # Get local constants for interview_generator.py
 from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','fill_in_docx_field_attributes','is_reserved_docx_label','get_character_limit', 'create_package_zip']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -176,21 +178,24 @@ class DAInterview(DAObject):
         for field in ['dependencies', 'interview_files', 'template_files', 'module_files', 'static_files']:
             if field not in info:
                 info[field] = list()
+        info['author_name'] = ""                
         info['readme'] = ""
         info['description'] = self.title
         info['version'] = "1.0"
         info['license'] = "The MIT License"
-        info['url'] = "https://docassemble.org"
-        for block in self.all_blocks():
-            if hasattr(block, 'templates_used'):
-                for template in block.templates_used:
-                    if not re.search(r'^docassemble\.', template):
-                        info['template_files'].append(template)
-            if hasattr(block, 'static_files_used'):
-                for static_file in block.static_files_used:
-                    if not re.search(r'^docassemble\.', static_file):
-                        info['static_files'].append(static_file)
-        info['interview_files'].append(self.yaml_file_name())
+        info['url'] = "https://courtformsonline.org"
+        # File structure below isn't helpful for files that aren't installed
+        # on the local playground. We need to replace with DAFiles, not a list of file names
+        # for block in self.all_blocks():
+        #     if hasattr(block, 'templates_used'):
+        #         for template in block.templates_used:
+        #             if not re.search(r'^docassemble\.', template):
+        #                 info['template_files'].append(template)
+        #     if hasattr(block, 'static_files_used'):
+        #         for static_file in block.static_files_used:
+        #             if not re.search(r'^docassemble\.', static_file):
+        #                 info['static_files'].append(static_file)
+        # info['interview_files'].append(self.yaml_file_name())
         return info
     def yaml_file_name(self):
         return to_yaml_file(self.file_name)
@@ -1148,3 +1153,230 @@ def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
 
 def get_person_identifier(field_name):
   pass
+
+def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
+  """
+  Given a dictionary of lists, with the keys representing folders and the values
+  representing a list of DAFiles, create a Python package with Docassemble conventions.
+  info: (created by DAInterview.package_info()) 
+    license
+    author_name
+    readme
+    description
+    url
+    version
+    dependencies
+    // interview_files replaced with folders_and_files
+    // template_files
+    // module_files
+    // static_files
+  author_info:
+    author name and email  
+  folders_and_files:
+    questions->list of DAFiles/DAFile-like objects
+    templates
+    modules
+    static
+    sources
+
+  Strucure of a docassemble package:
+  + docassemble-PKGNAME/
+      LICENSE
+      MANIFEST.in
+      README.md
+      setup.cfg
+      setup.py
+      +-------docassemble
+          __init__.py
+          +------PKGNAME
+              __init__.py
+              SOME_MODULE.py
+              +------data
+                  +------questions
+                      README.md
+                  +------sources
+                      README.md  
+                  +------static
+                      README.md  
+                  +------templates
+                      README.md
+  """
+  if fileobj:
+    zip_download = fileobj
+  else: 
+    zip_download = DAFile()
+  pkg_path_prefix = "docassemble-" + pkgname
+  pkg_path_init_prefix = os.path.join(pkg_path_prefix, "docassemble")
+  pkg_path_deep_prefix = os.path.join(pkg_path_init_prefix, pkgname)
+  pkg_path_data_prefix = os.path.join(pkg_path_deep_prefix, "data")
+  pkg_path_questions_prefix = os.path.join(pkg_path_data_prefix,"questions")
+  pkg_path_sources_prefix = os.path.join(pkg_path_data_prefix,"sources")
+  pkg_path_static_prefix = os.path.join(pkg_path_data_prefix,"static")
+  pkg_path_templates_prefix = os.path.join(pkg_path_data_prefix,"templates")
+
+  zip_download.initialize(filename="docassemble." + pkgname + ".zip")
+  zip_obj = zipfile.ZipFile(zip_download.path(),'w')
+
+  dependencies = ",".join(info['dependencies'])
+
+  initpy = """\
+try:
+    __import__('pkg_resources').declare_namespace(__name__)
+except ImportError:
+    __path__ = __import__('pkgutil').extend_path(__path__, __name__)
+"""
+  licensetext = str(info['license'])
+  if re.search(r'MIT License', licensetext):
+    licensetext += '\n\nCopyright (c) ' + str(datetime.datetime.now().year) + ' ' + str(info.get('author_name', '')) + """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+  if info['readme'] and re.search(r'[A-Za-z]', info['readme']):
+    readme = str(info['readme'])
+  else:
+    readme = '# docassemble.' + str(pkgname) + "\n\n" + info['description'] + "\n\n## Author\n\n" + author_info['author name and email'] + "\n\n"
+  manifestin = """\
+include README.md
+"""
+  setupcfg = """\
+[metadata]
+description-file = README.md
+"""
+  setuppy = """\
+import os
+import sys
+from setuptools import setup, find_packages
+from fnmatch import fnmatchcase
+from distutils.util import convert_path
+standard_exclude = ('*.pyc', '*~', '.*', '*.bak', '*.swp*')
+standard_exclude_directories = ('.*', 'CVS', '_darcs', './build', './dist', 'EGG-INFO', '*.egg-info')
+def find_package_data(where='.', package='', exclude=standard_exclude, exclude_directories=standard_exclude_directories):
+    out = {}
+    stack = [(convert_path(where), '', package)]
+    while stack:
+        where, prefix, package = stack.pop(0)
+        for name in os.listdir(where):
+            fn = os.path.join(where, name)
+            if os.path.isdir(fn):
+                bad_name = False
+                for pattern in exclude_directories:
+                    if (fnmatchcase(name, pattern)
+                        or fn.lower() == pattern.lower()):
+                        bad_name = True
+                        break
+                if bad_name:
+                    continue
+                if os.path.isfile(os.path.join(fn, '__init__.py')):
+                    if not package:
+                        new_package = name
+                    else:
+                        new_package = package + '.' + name
+                        stack.append((fn, '', new_package))
+                else:
+                    stack.append((fn, prefix + name + '/', package))
+            else:
+                bad_name = False
+                for pattern in exclude:
+                    if (fnmatchcase(name, pattern)
+                        or fn.lower() == pattern.lower()):
+                        bad_name = True
+                        break
+                if bad_name:
+                    continue
+                out.setdefault(package, []).append(prefix+name)
+    return out
+"""
+  setuppy += "setup(name='docassemble." + str(pkgname) + "',\n" + """\
+      version=""" + repr(info.get('version', '')) + """,
+      description=(""" + repr(info.get('description', '')) + """),
+      long_description=""" + repr(readme) + """,
+      long_description_content_type='text/markdown',
+      author=""" + repr(info.get('author_name', '')) + """,
+      author_email=""" + repr(info.get('author_email', '')) + """,
+      license=""" + repr(info.get('license', '')) + """,
+      url=""" + repr(info['url'] if info['url'] else 'https://docassemble.org') + """,
+      packages=find_packages(),
+      namespace_packages=['docassemble'],
+      install_requires=[""" + dependencies + """],
+      zip_safe=False,
+      package_data=find_package_data(where='docassemble/""" + str(pkgname) + """/', package='docassemble.""" + str(pkgname) + """'),
+     )
+"""
+  templatereadme = """\
+# Template directory
+If you want to use templates for document assembly, put them in this directory.
+"""
+  staticreadme = """\
+# Static file directory
+If you want to make files available in the web app, put them in
+this directory.
+"""
+  sourcesreadme = """\
+# Sources directory
+This directory is used to store word translation files,
+machine learning training files, and other source files.
+"""
+  templatesreadme = """\
+# Template directory
+This directory is used to store templates.
+"""
+  # Write the standard files
+  zip_obj.writestr(os.path.join(pkg_path_prefix,"LICENSE"), licensetext)
+  zip_obj.writestr(os.path.join(pkg_path_prefix,"MANIFEST.in"), manifestin)
+  zip_obj.writestr(os.path.join(pkg_path_prefix,"README.md"), readme)
+  zip_obj.writestr(os.path.join(pkg_path_prefix,"setup.cfg"), setupcfg)
+  zip_obj.writestr(os.path.join(pkg_path_prefix,"setup.py"), setuppy)
+  zip_obj.writestr(os.path.join(pkg_path_init_prefix,"__init__.py"), initpy)
+  zip_obj.writestr(os.path.join(pkg_path_deep_prefix,"__init__.py"), ("__version__ = " + repr(info.get('version', '')) + "\n") )
+  zip_obj.writestr(os.path.join(pkg_path_questions_prefix,"README.md"), templatereadme )
+  zip_obj.writestr(os.path.join(pkg_path_sources_prefix,"README.md"), sourcesreadme )
+  zip_obj.writestr(os.path.join(pkg_path_static_prefix,"README.md"), staticreadme)
+  zip_obj.writestr(os.path.join(pkg_path_templates_prefix,"README.md"), templatesreadme)
+  
+  # Modules
+  for file in folders_and_files.get('modules',[]):
+    try:
+      zip_obj.write(file.path(),os.path.join(pkg_path_deep_prefix, file.filename))
+    except:
+      log('Unable to add file ' + repr(file))        
+  # Templates
+  for file in folders_and_files.get('templates',[]):
+    try:
+      zip_obj.write(file.path(),os.path.join(pkg_path_templates_prefix, file.filename))
+    except:
+      log('Unable to add file ' + repr(file))
+  # sources
+  for file in folders_and_files.get('sources',[]):
+    try:
+      zip_obj.write(file.path(),os.path.join(pkg_path_sources_prefix, file.filename))
+    except:
+      log('Unable to add file ' + repr(file))
+  # static
+  for file in folders_and_files.get('static',[]):
+    try:
+      zip_obj.write(file.path(),os.path.join(pkg_path_static_prefix, file.filename))
+    except:
+      log('Unable to add file ' + repr(file))
+  # questions
+  for file in folders_and_files.get('questions',[]):
+    try:
+      zip_obj.write(file.path(),os.path.join(pkg_path_questions_prefix, file.filename))
+    except:
+      log('Unable to add file ' + repr(file))
+  
+  zip_obj.close()
+  zip_download.commit()
+  return zip_download
