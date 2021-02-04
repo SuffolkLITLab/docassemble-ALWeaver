@@ -10,7 +10,7 @@ from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_packa
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.core import DAObject, DADict, DAList, DAFile, DAFileList
 from docassemble.base.error import DAError
-from docassemble.base.util import log
+from docassemble.base.util import log, space_to_underscore
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -1201,6 +1201,7 @@ def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_
                   +------templates
                       README.md
   """
+  pkgname = space_to_underscore(pkgname)
   if fileobj:
     zip_download = fileobj
   else: 
@@ -1214,7 +1215,7 @@ def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_
   pkg_path_static_prefix = os.path.join(pkg_path_data_prefix,"static")
   pkg_path_templates_prefix = os.path.join(pkg_path_data_prefix,"templates")
 
-  zip_download.initialize(filename="docassemble." + pkgname + ".zip")
+  zip_download.initialize(filename="docassemble-" + pkgname + ".zip")
   zip_obj = zipfile.ZipFile(zip_download.path(),'w')
 
   dependencies = ",".join(info['dependencies'])
