@@ -310,6 +310,8 @@ class DAField(DAObject):
         content += '${ ' + field_varname.format() + ' }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
         content += '${ currency(' + field_varname + ') }\n'
+    elif hasattr(self, 'field_type') and self.field_type == 'number':
+        content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
