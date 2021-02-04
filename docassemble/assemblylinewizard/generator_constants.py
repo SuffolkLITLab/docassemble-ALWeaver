@@ -94,10 +94,10 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'interested_party': 'interested_parties',
 }
 
-generator_constants.RESERVED_PLURALIZERS_MAP = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP.update({
+generator_constants.RESERVED_PLURALIZERS_MAP = {** generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, **{
   'court': 'courts',
   'docket_number': 'docket_numbers',
-})
+}}
 
 # Any reason to not make all suffixes available to everyone?
 # Yes: it can break variables that overlap but have a different meaning
