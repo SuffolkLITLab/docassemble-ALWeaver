@@ -12,7 +12,6 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.docassemble_variable, 'field_name')
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, 'text')
-        self.assertEqual(new_field.field_data_type_guess, 'text')
         self.assertEqual(new_field.variable_name_guess, 'Field name')
 
     def test_date_field(self):
@@ -22,8 +21,7 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.variable, 'birth_date')
         self.assertEqual(new_field.docassemble_variable, 'birth_date')
         self.assertEqual(new_field.has_label, True)
-        self.assertEqual(new_field.field_type_guess, 'text')
-        self.assertEqual(new_field.field_data_type_guess, 'date')
+        self.assertEqual(new_field.field_type_guess, 'date')
         self.assertEqual(new_field.variable_name_guess, 'Date of birth')
 
     def test_yes_text_field(self):
@@ -34,7 +32,6 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.docassemble_variable, 'has_ssn_yes')
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, 'yesno')
-        self.assertEqual(new_field.field_data_type_guess, None)
         self.assertEqual(new_field.variable_name_guess, 'Has ssn')
 
     def test_no_text_field(self):
@@ -45,7 +42,6 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.docassemble_variable, 'has_ssn_no')
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, 'yesno')
-        self.assertEqual(new_field.field_data_type_guess, None)
         self.assertEqual(new_field.variable_name_guess, 'Has ssn')
 
     def test_yesno_btn_field(self):
@@ -56,7 +52,6 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.docassemble_variable, 'has_ssn')
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, 'yesno')
-        self.assertEqual(new_field.field_data_type_guess, None)
         self.assertEqual(new_field.variable_name_guess, 'Has ssn')
 
     def test_sig_field(self):
@@ -67,9 +62,7 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.docassemble_variable, 'signature')
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, 'signature')
-        self.assertEqual(new_field.field_data_type_guess, None)
         self.assertEqual(new_field.variable_name_guess, 'Signature')
-
 
 
 if __name__ == "__main__":
