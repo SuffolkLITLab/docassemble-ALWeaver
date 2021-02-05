@@ -82,12 +82,7 @@ def consolidate_yesnos(new_field, yesno_map):
     return True
   
   if len(yesno_map[new_field.variable_name_guess]) == 1:
-    existing_field = yesno_map[new_field.variable_name_guess][0]
-    existing_field.paired_yesno = True
-    if existing_field.variable.endswith('_no'):
-      existing_field.variable = existing_field.variable[:-3] 
-    else:
-      existing_field.variable[:-4]
+    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno()
   yesno_map[new_field.variable_name_guess].append(new_field)
   return len(yesno_map[new_field.variable_name_guess]) == 1
 
@@ -250,6 +245,16 @@ class DAField(DAObject):
         self.field_type_guess = 'text'
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
+    
+  def mark_as_paired_yesno(self):
+    """Marks this field as actually representing two template fields:
+    one with `variable_name`_yes and one with `variable_name`_no
+    """
+    self.paired_yesno = True
+    if self.variable.endswith('_no'):
+      self.variable = self.variable[:-3] 
+    elif self.variable.endswith('_yes'):
+      self.variable = self.variable[:-4]
 
   def get_single_field_screen(self, document_type):
     field_name_to_use = map_names(self.variable, document_type=document_type)
@@ -334,13 +339,19 @@ class DAField(DAObject):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     field_varname = varname(self.variable)
+    if hasattr(self, 'paired_yesno') and self.paired_yesno:
+      return ('      - "{}": ${ {} }\n' +
+              '      - "{}": ${ not {} }\n').format(
+                self.variable + '_yes', map_names(field_varname),
+                self.variable + '_no', map_names(field_varname))
+
     content = '      - "{}": '.format(self.variable)
     if hasattr(self, 'field_type') and self.field_type == 'date':
-        content += '${ ' + field_varname.format() + ' }\n'
+      content += '${ ' + field_varname.format() + ' }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-        content += '${ currency(' + field_varname + ') }\n'
+      content += '${ currency(' + field_varname + ') }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-        content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
+      content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
