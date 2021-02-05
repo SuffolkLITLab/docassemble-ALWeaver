@@ -417,7 +417,8 @@ class DAQuestion(DAObject):
                     param_string += json.dumps(str(param[1]))
                   params_string_builder.append(param_string)
                 content += ",".join(params_string_builder)
-                content += ")" 
+                content += ")"
+              content += "\n" 
             content += "\n"
                                    
         elif self.type == 'interview order':
