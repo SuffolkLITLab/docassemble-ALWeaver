@@ -52,6 +52,7 @@ comment: |
   This is a list of some variables we leave alone (don't transform)
   but still represent something we're handling in basic-question.yml
   No need to prompt the user to group these questions.
+  # TODO: this is really handled in the generator constants now
 variable name: variables_to_skip
 data:
   - signature_date
@@ -75,6 +76,7 @@ code: |
   interview.title
   interview_intro_prompt
   interview.typical_role  
+  ask_people_quantity_question  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
   add_short_title
@@ -83,6 +85,7 @@ code: |
   choose_field_types
   questions.gather()
   
+  add_objects_block
   add_logic_tree
   add_draft_intro_screen
   created_preview_question
@@ -249,6 +252,20 @@ subquestion: |
   The Plaintiff/Petitioner starts a case. The Defendant/Respondent
   is responding to a case someone else started.
 fields:
+  - note: |
+      The list of names below look like names for people, based on
+      how you use them in your document.
+    show if:
+      code: |
+        len(get_person_variables(all_fields, custom_only=True)) > 0
+  - Which variable names represent people?: people_variables
+    datatype: checkboxes
+    code: |
+      get_person_variables(all_fields, custom_only=True)
+    help: |
+      "person" variables will get things like addresses, multi-part
+      names, and proper questions handled automatically. Using them
+      will help you save time writing your interview.
   - User's role: interview.typical_role
     input type: radio
     choices:
@@ -273,6 +290,38 @@ help: |
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
 ---
+objects:
+  - people_quantities: DADict.using(auto_gather=False, gathered=True)
+---
+code: |
+  # Build the dynamic question code to ask about people quantities
+  temp_people_quantity_question = []
+  for person in people_variables.true_values().union(built_in_people_vars_used):
+    temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
+      "datatype": "radio",
+      "choices": [{'Exactly 1': 'one'},{'One or more':'more'}]
+      })
+  people_quantity_question = temp_people_quantity_question
+  del temp_people_quantity_question
+---
+question: |
+  Information about people
+subquestion: |
+  This form includes the following variables representing people:
+  ${ comma_and_list(people_variables.true_values().union(built_in_people_vars_used)) }
+fields:
+  - code: people_quantity_question 
+help:
+  label: |
+    What is this about?
+  content: |
+    By default, all "person" variables are plural.
+    
+    If you only want one of each person type to ever use this form,
+    tell us here. You'll still be able to edit your file if you change
+    your mind later.
+continue button field: ask_people_quantity_question  
+---
 comment: |
   Get the list of fields
 code: |
@@ -280,6 +329,9 @@ code: |
     all_fields = template_upload.get_pdf_fields()
   else:
     all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
+---
+code: |
+ built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
 ---
 comment: |
   Convert the PDF fields into Docassemble fields
@@ -491,6 +543,25 @@ code: |
     question.type = "question"
     interview.questions.append(question)
   add_questions_to_interview = True
+---
+need:
+  - built_in_people_vars_used
+code: |
+  objects_block =  interview.questions.appendObject()
+  objects_block.type = "objects"
+  objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
+  for person in people_variables.true_values().union(built_in_people_vars_used):
+    new_object = objects_block.objects.appendObject()
+    new_object.name = person
+    new_object.type = "ALPeopleList"
+    if person in people_quantities:
+      if people_quantities[person] == 'one':
+        new_object.params = [
+          ("ask_number", "True", bool), 
+          ("target_number", 1, int)
+          ]
+  objects_block.objects.gathered=True
+  add_objects_block = True
 ---
 code: |
   # Build the mandatory code block that will control question flow

@@ -17,13 +17,12 @@ import shutil
 import datetime
 import zipfile
 import types
-
-# Get local constants for interview_generator.py
+import json
 from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', 'get_person_variables']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -453,6 +452,35 @@ class DAQuestion(DAObject):
                 content += "under: |\n" + indent_by(self.under_text, 2)
         elif self.type == 'code':
             content += "code: |\n" + indent_by(self.code, 2)
+        elif self.type == 'objects' and len(self.objects):
+            # An object should be a list of DAObjects with the following attributes:
+            # name, type, params [optional]
+            # params is going to be a list/iterable object of two or 3 item tuples or lists 
+            # of strings
+            # param[0] is the parameter name (argument to .using), param[1] is the value
+            # If the param has 3 parts, then param[1] will be treated as a literal rather than
+            # string value. string is default. Actual value of param[2] is reserved for future need
+            content += "objects:\n"
+            for object in self.objects:
+              content += "  - " + object.name + ': ' + object.type
+              if hasattr(object, 'params'):
+                content += ".using("
+                params_string_builder = []
+                for param in object.params:
+                  param_string = str(param[0]) + "="
+                  if len(param) > 2:
+                    # This might be an int value, other variable name, etc.
+                    param_string += str(param[1])
+                  else:
+                    # this is a normal string value and should get quoted.
+                    # use json.dumps() to properly quote strings. shouldn't come up
+                    param_string += json.dumps(str(param[1]))
+                  params_string_builder.append(param_string)
+                content += ",".join(params_string_builder)
+                content += ")"
+              content += "\n" 
+            content += "\n"
+                                   
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
@@ -1145,47 +1173,53 @@ def indexify(digit):
   else:
     return '[' + str(int(digit)-1) + ']'
 
-def should_be_stringified(var_name):
-  has_no_attributes = var_name.find(".") == -1
-  is_docket_number = var_name.startswith("docket_numbers[")
-  return has_no_attributes and not is_docket_number
-
-def get_person_variables(fieldslist):
+def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, custom_only=False):
   """
   Identify the field names that represent people in the list of
-  DAFields pulled from docx/PDF.
+  string fields pulled from docx/PDF.    
   """
   people = set()
   for field in fieldslist:
-    if is_person(field.variable):
-      people.add(get_person_identifier(field.variable))
-  return people
+    # fields are currently tuples for PDF and strings for docx
+    if isinstance(field, tuple):
+      field_to_check = map_names(field[0])
+    else:
+      field_to_check = field
+    if (field_to_check) in people_vars:
+      people.add(field_to_check)
+    elif '[' in field_to_check or '.' in field_to_check:
+      # Check for a valid Python identifier before brackets or .
+      match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
+      matches = re.match(match_with_brackets_or_attribute, field_to_check)
+      if matches:
+        # Is the name before attribute/index a predetermined person?  
+        if matches.groups()[0] in people_vars:
+          people.add(matches.groups()[0])
+        # Maybe this is the singular version of a person's name?
+        elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
+          people.add(reserved_person_pluralizers_map[matches.groups()[0]])          
+        else:
+          # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
+          if map_names(matches.groups()[1]) in people_suffixes:
+            people.add(matches.groups()[0])
+    else:
+      # If it's a PDF name that wasn't transformed by map_names, do one last check
+      # The regex below is non-greedy; _address will match before _mail_address
+      match_pdf_person_suffixes = r"([A-Za-z_]\w*)(" + "|".join(people_suffixes_map.keys()) + "$)"
+      matches = re.match(match_pdf_person_suffixes, field_to_check)
+      if matches:
+        # There may be more elegant solution. but since _mail_address_address
+        # will match _address_address this is workaround below.
+        # If we add more possible partial matches to suffixes, we need to add more workarounds
+        if matches.groups()[0].endswith('_mail') and matches.groups()[1].startswith('_address'):
+          people.add(matches.groups()[0][:-5])
+        else:          
+          people.add(matches.groups()[0])
+  if custom_only:
+    return people - set(people_vars)
+  else:
+    return people
 
-def is_person(field_name, people_vars=generator_constants.PEOPLE_VARS):
-  """
-  Check if the field name appears to represent a person
-  """
-  # Is it exactly a person variable: e.g., `users`
-  if field_name in people_vars:
-    return True
-  if '[' in field_name or '.' in field_name:
-    match_with_brackets_or_attribute = r"(\D\w*)((\[.*)|(\..*))"
-    matches = re.match(match_with_brackets_or_attribute, field_name)
-    if matches:
-      if matches.groups()[0] in people_vars:
-        return True
-      else:
-        endings = [
-          "[0].address_block()",
-          "[0].address.block()",
-          "[0].address.on_one_line()",
-          "[0].",
-        ]
-        if matches.groups()[1] in endings:
-            return True
-
-def get_person_identifier(field_name):
-  pass
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
