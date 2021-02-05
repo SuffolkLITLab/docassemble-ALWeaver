@@ -441,6 +441,10 @@ class DAQuestion(DAObject):
             for setting in self.settings:
                 content += '  ' + setting + ': |\n'
                 content += indent_by(self.settings[setting], 4)
+            if self.categories.any_true():
+              content += "  tags:\n"
+              for category in self.categories.true_values():
+                content += indent_by("- " + category, 4)
         elif self.type == 'metadata_code':
             # TODO: this is begging to be refactored into
             # just dumping out a dictionary in json-like format
