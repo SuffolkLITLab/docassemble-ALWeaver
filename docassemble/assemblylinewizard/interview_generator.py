@@ -190,16 +190,13 @@ class DAField(DAObject):
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     if self.variable.endswith('_date'):
-      self.field_type_guess = 'text'
-      self.field_data_type_guess = 'date'
+      self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
     elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
-      self.field_data_type_guess = None
       self.variable_name_guess = variable_name_guess
     else:
       self.field_type_guess = 'text'
-      self.field_data_type_guess = 'text'
       self.variable_name_guess = variable_name_guess
 
   def fill_in_pdf_attributes(self, pdf_field_tuple):
@@ -211,25 +208,20 @@ class DAField(DAObject):
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
     if self.variable.endswith('_date'):
-        self.field_type_guess = 'text'
-        self.field_data_type_guess = 'date'
+        self.field_type_guess = 'date'
         self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
     elif self.variable.endswith('_yes') or self.variable.endswith('_no'):
         self.field_type_guess = 'yesno'
-        self.field_data_type_guess = None
         name_no_suffix = self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
         self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
-        self.field_data_type_guess = None
         self.variable_name_guess = variable_name_guess
     elif pdf_field_tuple[4] == "/Sig":
         self.field_type_guess = "signature"
-        self.field_data_type_guess = None
         self.variable_name_guess = variable_name_guess
     else:
         self.field_type_guess = 'text'
-        self.field_data_type_guess = 'text'
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
 
@@ -262,13 +254,13 @@ class DAField(DAObject):
     elif self.field_type == 'area':
       content += "    input type: area\n"
       content += self._maxlength_str() + '\n'
-    elif self.field_data_type in ['integer', 'currency', 'email', 'range', 'number', 'date']:
-      content += "    datatype: {}\n".format(self.field_data_type)
-      if self.field_data_type in ['integer', 'currency']:
+    elif self.field_type in ['integer', 'currency', 'email', 'range', 'number', 'date']:
+      content += "    datatype: {}\n".format(self.field_type)
+      if self.field_type in ['integer', 'currency']:
         content += "    min: 0\n"
-      elif self.field_data_type == 'email':
+      elif self.field_type == 'email':
         content += self._maxlength_str() + '\n'
-      elif self.field_data_type == 'range':
+      elif self.field_type == 'range':
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
@@ -293,18 +285,18 @@ class DAField(DAObject):
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
-      elif self.field_data_type in ['integer', 'number','range']:
+      elif self.field_type in ['integer', 'number','range']:
         content += indent_by('${ ' + field_name_to_use + ' }', 6)
       elif self.field_type == 'area':
         content += indent_by('> ${ single_paragraph(' + field_name_to_use + ') }', 6)
       elif self.field_type == 'file':
         content += "      \n"
         content += indent_by('${ ' + field_name_to_use + ' }', 6)
-      elif self.field_data_type == 'currency':
+      elif self.field_type == 'currency':
         content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
-      elif self.field_data_type == 'date':
+      elif self.field_type == 'date':
         content += indent_by('${ ' + field_name_to_use + '.format() }', 6)
-      # elif field.field_data_type == 'email':
+      # elif field.field_type == 'email':
       else:
         content += indent_by('${ ' + field_name_to_use + ' }', 6)
     else:
@@ -317,10 +309,12 @@ class DAField(DAObject):
     # To avoid duplicate key error
     field_varname = varname(self.variable)
     content = '      - "{}": '.format(self.variable)
-    if hasattr(self, 'field_data_type') and self.field_data_type == 'date':
+    if hasattr(self, 'field_type') and self.field_type == 'date':
         content += '${ ' + field_varname.format() + ' }\n'
-    elif hasattr(self, 'field_data_type') and self.field_data_type == 'currency':
+    elif hasattr(self, 'field_type') and self.field_type == 'currency':
         content += '${ currency(' + field_varname + ') }\n'
+    elif hasattr(self, 'field_type') and self.field_type == 'number':
+        content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
@@ -345,17 +339,10 @@ class DAField(DAObject):
       'default': self.variable_name_guess
     })
     field_questions.append({
-      'label': "Input style",
+      'label': "Field Type",
       'field': 'fields[' + str(index) + '].field_type',
-      'choices': ['yesno', 'text', 'area'], 
+      'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email'], 
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
-    })
-    field_questions.append({
-      'label': "Datatype",
-      'field': 'fields[' + str(index) + '].field_data_type',
-      'choices': ['text', 'integer', 'number', 'currency', 'date', 'email'],
-      'default': self.field_data_type_guess if hasattr(self, 'field_data_type_guess') else None,
-      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
     })
     return field_questions
 

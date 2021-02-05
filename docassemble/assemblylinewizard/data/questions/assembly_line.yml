@@ -399,9 +399,6 @@ code: |
   # Create code for the question that we use to label
   # each field.
   
-  field_types = ['yesno','text','area']  
-  field_data_types = ['text','integer','number','currency','date','email']
-
   temp_field_question = []
   for index, field in enumerate(fields.elements):
     temp_field_question.extend(field.user_ask_about_field(index))
