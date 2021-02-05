@@ -157,24 +157,12 @@ fields:
       - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    choices:
-      - Boston Municipal Court
-      - District Court
-      - Superior Court
-      - Housing Court
-      - Probate and Family Court
-      - Juvenile Court
-      - Land Court
-  # - Preferred court: interview.preferred_court
-  #   choices:
-  #     - Boston Municipal Court
-  #     - District Court
-  #     - Superior Court
-  #     - Housing Court
-  #     - Probate and Family Court
-  #     - Juvenile Court
-  #     - Land Court
-  #     - Any court (no preferred court)
+    code: |
+      generator_constants.AllOWED_COURTS
+  - Alternate Allowed courts: interview.allowed_courts_text
+    datatype: area
+    show if: | 
+      len(interview.allowed_courts.true_values()) == 0
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -570,7 +558,6 @@ code: |
   logic_list.append('al_intro_screen') # Splash page for your organization
   logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
-  # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
