@@ -26,6 +26,7 @@ objects:
   - signature_fields: DAFieldList.using(gathered=True)
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
+  - interview_package_download: DAFile
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -679,7 +680,11 @@ subquestion: |
 
   ### Please download the generated interview below
   
-  [:download: Download](${interview_download.url_for(attachment=True)})
+  Download the YAML file only:  
+  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  
+  Download the interview as a Docassemble package:  
+  [:download: Download Package](${interview_package_download.url_for(attachment=True)})
   
   ### Preview of Docassemble interview file
   
@@ -690,6 +695,17 @@ code: |
   interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()
+
+  folders_and_files = {
+    "templates": template_upload,
+    "questions": [interview_download],
+    "modules":[],
+    "static": [],
+    "sources": []
+  }
+  
+  create_package_zip(re.sub("\W","",interview.title), interview.package_info(), {"author name and email":"author@example.com"}, folders_and_files, interview_package_download)
+  
   wrote_interview = True
 ---
 need:
