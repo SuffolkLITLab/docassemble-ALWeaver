@@ -22,7 +22,7 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'fill_in_field_attributes', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', 'get_person_variables']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', 'get_person_variables']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
