@@ -1,6 +1,18 @@
 metadata:
   title: Document assembly wizard
   short title: Wizard
+  tags:
+    - HO-00-00-00-00 #Housing
+    - FA-00-00-00-00 #Family
+    - FA-07-00-00-00 #Domestic Violence and Abuse
+    - HE-00-00-00-00 #Health
+    - ES-00-00-00-00 #Estates, Wills, and Guardianships
+    - MO-00-00-00-00 #Money, Debt, and Consumer Issues     
+    - BE-04-00-00-00 #Unemployment Benefits, Compensation, and Insurance
+    - IM-00-00-00-00 #Immigration     
+    - BE-00-00-00-00 #Public Benefits
+    - ED-00-00-00-00 #Education
+    - RI-10-00-00-00 #Prisoners' Rights
 ---
 features:
   question help button: True
@@ -166,18 +178,18 @@ fields:
   - Categories: interview.categories
     datatype: checkboxes
     choices:
-      - Housing
-      - Family Law
-      - Domestic Violence / Safety of self
-      - Health and Mental Health
-      - Guardianship
-      - Consumer and Debt
-      - Employment / Unemployment
-      - Immigration
-      - Income and benefits
-      - Education
-      - Rights of incarcerated/formerly incarcerated
-      - Other
+      - Housing: HO-00-00-00-00
+      - Family: FA-00-00-00-00
+      - Domestic Violence and Abuse: FA-07-00-00-00
+      - Health: HE-00-00-00-00
+      - Estates, Wills, and Guardianships: ES-00-00-00-00
+      - Money, Debt, and Consumer Issues: MO-00-00-00-00
+      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
+      - Immigration: IM-00-00-00-00
+      - Public Benefits: BE-00-00-00-00
+      - Education: ED-00-00-00-00
+      - Prisoners' Rights: RI-10-00-00-00
+      - Other: Other
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
@@ -347,7 +359,7 @@ code: |
       
       # This function determines what type of variable
       # we're dealing with
-      fill_in_field_attributes(new_field, pdf_field_tuple)    
+      new_field.fill_in_pdf_attributes(pdf_field_tuple)    
   else:
     # if this is a docx, fields are a list of strings, not a list of tuples
     for field in all_fields:
@@ -357,7 +369,7 @@ code: |
         new_field = signature_fields.appendObject()
       else:                
         new_field = fields.appendObject()
-      fill_in_docx_field_attributes(new_field, field)
+      new_field.fill_in_docx_field_attributes(field)
     
   get_all_fields = True
 ---
@@ -413,6 +425,7 @@ code: |
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
+  metadata.categories = interview.categories
   metadata.settings = {
                         'title': interview.title,
                         'short title': interview.short_title}  
@@ -438,36 +451,9 @@ code: |
   # Create code for the question that we use to label
   # each field.
   
-  field_types = ['yesno','text','area']  
-  field_data_types = ['text','integer','number','currency','date','email']
-
   temp_field_question = []
   for index, field in enumerate(fields.elements):
-    if field.variable != field.docassemble_variable:
-      temp_field_question.append({
-        'note': '**' + field.variable + ' (will be renamed to ' + field.docassemble_variable + ')**'})
-    else:
-      temp_field_question.append({
-        'note': '**' + field.variable + '**'
-      })
-    temp_field_question.append({
-      'label': "On-screen prompt",
-      'field': 'fields[' + str(index) + '].label',
-      'default': field.variable_name_guess
-    })
-    temp_field_question.append({
-      'label': "Input style",
-      'field': 'fields[' + str(index) + '].field_type',
-      'choices': field_types,
-      'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
-    })
-    temp_field_question.append({
-      'label': "Datatype",
-      'field': 'fields[' + str(index) + '].field_data_type',
-      'choices': field_data_types,
-      'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
-      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
-    })
+    temp_field_question.extend(field.user_ask_about_field(index))
 
   field_question = temp_field_question
 ---
@@ -614,6 +600,7 @@ code: |
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")
     if question.type == 'question':
+      # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
@@ -631,7 +618,7 @@ code: |
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
-    logic_list.append(trigger_gather_string(map_names(field.variable)))
+    logic_list.append(field.trigger_gather)
   
   # Save a snapshot of interview answers. 
   # We only want a few anonymous variables
@@ -751,7 +738,7 @@ code: |
   end_question.id = "download" # Use a consistent ID for Google Analytics
   end_question.type = 'question'
   end_question.progress = "100"
-  end_question.question_text = 'Your form is ready to download and file'
+  end_question.question_text = 'Your form is ready to download.'
 
   # Add a preview of the form to the draft ending screen
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
