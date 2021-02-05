@@ -317,7 +317,7 @@ code: |
         new_field = signature_fields.appendObject()
       else:                
         new_field = fields.appendObject()
-      new_field.fill_in_docx_field_attributes(field)
+      new_field.fill_in_docx_attributes(field)
     
   get_all_fields = True
 ---
