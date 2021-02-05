@@ -368,6 +368,7 @@ code: |
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
+  metadata.categories = interview.categories
   metadata.settings = {
                         'title': interview.title,
                         'short title': interview.short_title}  
