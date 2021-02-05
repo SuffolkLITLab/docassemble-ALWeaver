@@ -186,8 +186,8 @@ generator_constants.UNMAP_SUFFIXES = {
   ".mail_address.line_two()": ".mail_address.address",
 }
 
-# Court Choices
-generator_constants.ALLOWED_COURTS = [
+# Possible values for 'Allowed Courts', when looking up courts to submit to
+generator_constants.COURT_CHOICES = [
   'Boston Municipal Court',
   'District Court',
   'Superior Court',

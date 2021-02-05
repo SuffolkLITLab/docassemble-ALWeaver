@@ -160,7 +160,7 @@ fields:
     datatype: checkboxes
     none of the above: false
     code: |
-      get_allowed_courts() + ['Other']
+      get_court_choices() + ['Other']
   - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
     input type: area
     required: False
