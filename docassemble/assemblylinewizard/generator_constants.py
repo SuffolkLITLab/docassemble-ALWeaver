@@ -194,6 +194,5 @@ generator_constants.ALLOWED_COURTS = [
   'Housing Court',
   'Probate and Family Court',
   'Juvenile Court',
-  'Land Court',
-  'Other'
+  'Land Court'
 ]

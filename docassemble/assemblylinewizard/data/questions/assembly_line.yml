@@ -21,7 +21,8 @@ features:
 modules:
   - docassemble.base.util
   - docassemble.base.logger
-  - .interview_generator  
+  - .interview_generator
+  - .generator_constants
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -157,12 +158,13 @@ fields:
       - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
+    none of the above: false
     code: |
-      generator_constants.AllOWED_COURTS
-  - Alternate Allowed courts: interview.allowed_courts_text
-    datatype: area
-    show if: | 
-      len(interview.allowed_courts.true_values()) == 0
+      get_allowed_courts() + ['Other']
+  - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
+    input type: area
+    required: False
+    show if: interview.allowed_courts['Other']
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -409,6 +411,12 @@ code: |
   add_draft_intro_screen = True
 ---
 code: |
+  # HACK(brycew): could be a better place to put it, but can't find one :/
+  if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
+    # 'Other' had to marked true, but is itself useless
+    interview.allowed_courts['Other'] = False
+    for allowed_court in interview.allowed_courts_text.split(','):
+      interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
