@@ -21,7 +21,8 @@ features:
 modules:
   - docassemble.base.util
   - docassemble.base.logger
-  - .interview_generator  
+  - .interview_generator
+  - .generator_constants
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -157,24 +158,13 @@ fields:
       - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    choices:
-      - Boston Municipal Court
-      - District Court
-      - Superior Court
-      - Housing Court
-      - Probate and Family Court
-      - Juvenile Court
-      - Land Court
-  # - Preferred court: interview.preferred_court
-  #   choices:
-  #     - Boston Municipal Court
-  #     - District Court
-  #     - Superior Court
-  #     - Housing Court
-  #     - Probate and Family Court
-  #     - Juvenile Court
-  #     - Land Court
-  #     - Any court (no preferred court)
+    none of the above: false
+    code: |
+      get_court_choices() + ['Other']
+  - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
+    input type: area
+    required: False
+    show if: interview.allowed_courts['Other']
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -421,6 +411,12 @@ code: |
   add_draft_intro_screen = True
 ---
 code: |
+  # HACK(brycew): could be a better place to put it, but can't find one :/
+  if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
+    # 'Other' had to marked true, but is itself useless
+    interview.allowed_courts['Other'] = False
+    for allowed_court in interview.allowed_courts_text.split(','):
+      interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
@@ -570,7 +566,6 @@ code: |
   logic_list.append('al_intro_screen') # Splash page for your organization
   logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
-  # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
