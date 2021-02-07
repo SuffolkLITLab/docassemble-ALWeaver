@@ -487,7 +487,6 @@ class DAQuestion(DAObject):
             content += "\n"
             
         elif self.type == 'main order':
-          signatures = set()
           lines = [
             "mandatory: True",
             "id: main_order_" + self.interview_label,
@@ -517,10 +516,9 @@ class DAQuestion(DAObject):
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control order of questions in this interview\n"
-            #signatures = set()
             added_field_names = set()
             for field in self.logic_list:
-              if field == 'signature_date':  # signature_date goes in main block
+              if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
                 continue
               if not field in added_field_names:
                 # We built this logic list by collecting the first field on each screen
@@ -632,16 +630,6 @@ class DAQuestion(DAObject):
           for field in self.field_list:
               content += field.review_yaml(document_type, field_names)
         return content
-
-class DACodeBlock(DAQuestion):
-  """This class represents a "code block" in the generated YAML file."""
-  def init(self, **kwargs):
-    self.templates_used = set()
-    self.static_files_used = set()
-    return super().init(**kwargs)
-  
-  def source(self, follow_additional_fields=True, document_type="pdf"):
-    return
 
 class DAQuestionList(DAList):
   """This represents a list of DAQuestions."""
