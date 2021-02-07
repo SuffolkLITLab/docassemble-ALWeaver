@@ -512,17 +512,18 @@ class DAQuestion(DAObject):
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
             content += "  # This is a placeholder to control order of questions in this interview\n"
-            signatures = set()
+            #signatures = set()
             added_field_names = set()
             for field in self.logic_list:
-              if field.endswith('.signature'):  # save the signatures for the end
-                signatures.add(field)
-              elif not field in added_field_names:
+              #if field.endswith('.signature'):  # save the signatures for the end
+              #  signatures.add(field)
+              #el
+              if not field in added_field_names:
                 # We built this logic list by collecting the first field on each screen
                 content += "  " + field + "\n"
               added_field_names.add(field)
-            for signature_field in signatures:
-              content += "  " + signature_field + "\n"
+            #for signature_field in signatures:
+            #  content += "  " + signature_field + "\n"
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"

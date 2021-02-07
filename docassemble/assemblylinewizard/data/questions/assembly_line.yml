@@ -600,9 +600,6 @@ code: |
         logic_list.append(question.field_list[0].docassemble_variable)
       else:
         logic_list.append(varname(question.question_text))
-      
-      if (varname(question.question_text).endswith('.signature')):
-        signatures.add(varname(question.question_text))
 
   logic_list.append("# Set the answer file name.")
   logic_list.append("set_parts(subtitle=str(users))")
@@ -615,6 +612,9 @@ code: |
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
     logic_list.append(field.trigger_gather)
+    
+    if (field.trigger_gather.endswith('.signature')):
+      signatures.add(field.trigger_gather)
   
   # Save a snapshot of interview answers. 
   # We only want a few anonymous variables
