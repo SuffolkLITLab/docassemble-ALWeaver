@@ -405,7 +405,6 @@ class DAQuestion(DAObject):
             if self.field_list[0].field_type == 'end_attachment':
                 if hasattr(self, 'interview_label'):  # this tells us its the ending screen
                   # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  content += "need: " + self.interview_label + "\n"
                   # TODO: insert the email code
                   #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
