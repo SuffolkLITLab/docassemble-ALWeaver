@@ -485,30 +485,12 @@ class DAQuestion(DAObject):
                 content += ")"
               content += "\n" 
             content += "\n"
-            
         elif self.type == 'main order':
-          lines = [
-            "mandatory: True",
-            "id: main_order_" + self.interview_label,
-            "code: |",
-            "  " + "# Controls the flow of the basic building blocks of the interview. If you want to use this interview in another interview, delete the `mandatory: True` specifier or the whole block.",
-            "  " + self.intro + "  # Organization intro screen/splash screen",
-            "  " + "# Introduction to this specific interview",
-            "  " + self.interview_label,
-            "  " + "signature_date",
-            # Save a snapshot of interview answers. 
-            # We only want a few anonymous variables
-            "  " + "# Save (anonymized) interview statistics.",
-            "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
-            "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
-            "  " + "basic_questions_signature_flow",
-          ];
-          
-          for signature_field in self.signatures:
-            lines.append( "  " + signature_field )
-          lines.append("  " + self.interview_label + "_download")
-          
-          content += '\n'.join(lines) + '\n'
+          main = DAMainOrderBlock()
+          main.interview_label = self.interview_label
+          main.intro = self.intro
+          main.signatures = self.signatures
+          content += str( main )
                                    
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
@@ -518,7 +500,8 @@ class DAQuestion(DAObject):
             content += "  # This is a placeholder to control order of questions in this interview\n"
             added_field_names = set()
             for field in self.logic_list:
-              if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
+              # signature stuff goes in main block
+              if field == 'signature_date' or field.endswith('.signature'):
                 continue
               if not field in added_field_names:
                 # We built this logic list by collecting the first field on each screen
@@ -630,6 +613,59 @@ class DAQuestion(DAObject):
           for field in self.field_list:
               content += field.review_yaml(document_type, field_names)
         return content
+      
+class DACodeBlock(DAQuestion):
+  """This class represents a "code block" in the generated YAML file."""
+  def init(self, **kwargs):
+    return super().init(**kwargs)
+  
+  def as_string(self):
+    content = ''
+    # Maybe add self.top here, e.g. for `comment:`s
+    if hasattr(self, 'mandatory') and self.mandatory:   content += 'mandatory: True\n'
+    if hasattr(self, 'id') and self.id:                 content += 'id: ' + self.id + '\n'
+    if hasattr(self, 'pre_code') and self.pre_code:     content += '\n'.join( self.pre_code ) + '\n'
+    content += 'code: |\n  '
+    if hasattr(self, 'code') and self.code:             content += '\n  '.join( self.code ) + '\n'
+    if hasattr(self, 'post_code') and self.post_code:   content += '\n'.join( self.post_code ) + '\n'
+    return content
+  
+class DAMainOrderBlock(DACodeBlock):
+  """This class represents a "main_order" code block in the generated YAML file
+  which controls the parts of the interview that are not question order. It
+  is the code that would be removed when adding an umbrella interview."""
+  def init(self, **kwargs):
+    self.mandatory = True
+    self.type = 'main order'
+    return super().init(**kwargs)
+  
+  def __str__(self):
+    self.id = "main_order_" + self.interview_label
+    self.code = [
+      "# Controls the flow of the basic building blocks of the",
+      "# interview. To use this interview in another interview,",
+      "# delete the `mandatory: True` specifier or this whole block.",
+      self.intro + "  # Organization intro screen/splash screen",
+      "# Introduction to this specific interview",
+      self.interview_label + "_intro",  # label may be long, so comment above
+      self.interview_label,  
+      "signature_date",
+      # Save a snapshot of interview answers. 
+      # We only want a few anonymous variables
+      "# Save (anonymized) interview statistics.",
+      "store_variables_snapshot(data={'zip': users[0].address.zip})",
+      self.interview_label + "_preview_question  # Pre-canned preview screen",
+      "basic_questions_signature_flow",
+    ]
+
+    for signature_field in self.signatures:
+      self.code.append( signature_field )
+    self.code.append( self.interview_label + "_download" )
+    
+    return self.as_string()
+    
+  def source(self):
+    return str( self )
 
 class DAQuestionList(DAList):
   """This represents a list of DAQuestions."""

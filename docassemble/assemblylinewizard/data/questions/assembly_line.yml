@@ -618,11 +618,11 @@ code: |
   
   # Build the mandatory code block that will control overall flow
   # Need this below collecting signatures
-  main_block =  interview.questions.appendObject() # 'main code block'
-  main_block.type = 'main order'
-  main_block.intro = 'al_intro_screen'  # Splash page for your organization
-  main_block.signatures = signatures
-  main_block.interview_label = interview_label
+  main_code = interview.questions.appendObject() # 'main code block'
+  main_code.type = 'main order'
+  main_code.intro = 'al_intro_screen'  # Splash page for your organization
+  main_code.signatures = signatures
+  main_code.interview_label = interview_label
   
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
