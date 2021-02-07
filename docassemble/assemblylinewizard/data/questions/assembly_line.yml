@@ -613,21 +613,16 @@ code: |
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
     logic_list.append(field.trigger_gather)
     
-    if (field.trigger_gather.endswith('.signature')):
+    if field.trigger_gather.endswith('.signature'):
       signatures.add(field.trigger_gather)
-  
-  # Save a snapshot of interview answers. 
-  # We only want a few anonymous variables
-  logic_list.append("# Save (anonymized) interview statistics.")
-  logic_list.append("store_variables_snapshot(data={'zip': users[0].address.zip})") 
   
   # Build the mandatory code block that will control overall flow
   # Need this below collecting signatures
-  code_block =  interview.questions.appendObject() # 'main code block'
-  code_block.type = 'main order'
-  code_block.intro = 'al_intro_screen'  # Splash page for your organization
-  code_block.signatures = signatures
-  code_block.interview_label = interview_label
+  main_block =  interview.questions.appendObject() # 'main code block'
+  main_block.type = 'main order'
+  main_block.intro = 'al_intro_screen'  # Splash page for your organization
+  main_block.signatures = signatures
+  main_block.interview_label = interview_label
   
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file

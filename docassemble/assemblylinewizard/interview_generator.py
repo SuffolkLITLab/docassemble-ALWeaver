@@ -492,12 +492,17 @@ class DAQuestion(DAObject):
             "mandatory: True",
             "id: main_order_" + self.interview_label,
             "code: |",
-            "  # Controls the flow of the basic building blocks of the interview. If you want to use this interview in another interview, delete the `mandatory: True` specifier or the whole block.",
+            "  " + "# Controls the flow of the basic building blocks of the interview. If you want to use this interview in another interview, delete the `mandatory: True` specifier or the whole block.",
             "  " + self.intro + "  # Organization intro screen/splash screen",
-            "  # Introduction to this specific interview",
+            "  " + "# Introduction to this specific interview",
             "  " + self.interview_label,
-            "  " + self.interview_label + "_preview_question # Pre-canned preview screen",
-            "  basic_questions_signature_flow",
+            "  " + "signature_date",
+            # Save a snapshot of interview answers. 
+            # We only want a few anonymous variables
+            "  " + "# Save (anonymized) interview statistics.",
+            "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
+            "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
+            "  " + "basic_questions_signature_flow",
           ];
           
           for signature_field in self.signatures:
@@ -515,15 +520,12 @@ class DAQuestion(DAObject):
             #signatures = set()
             added_field_names = set()
             for field in self.logic_list:
-              #if field.endswith('.signature'):  # save the signatures for the end
-              #  signatures.add(field)
-              #el
+              if field == 'signature_date':  # signature_date goes in main block
+                continue
               if not field in added_field_names:
                 # We built this logic list by collecting the first field on each screen
                 content += "  " + field + "\n"
               added_field_names.add(field)
-            #for signature_field in signatures:
-            #  content += "  " + signature_field + "\n"
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"
