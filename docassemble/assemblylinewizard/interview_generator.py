@@ -390,6 +390,8 @@ class DAQuestion(DAObject):
                 content += "id: " + fix_id(self.id) + "\n"
             else:
                 content += "id: " + fix_id(self.question_text) + "\n"
+            if hasattr(self, 'event'):
+                content += "event: " + self.event + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -483,13 +485,33 @@ class DAQuestion(DAObject):
                 content += ")"
               content += "\n" 
             content += "\n"
+            
+        elif self.type == 'main order':
+          signatures = set()
+          lines = [
+            "mandatory: True",
+            "id: main_order_" + self.interview_label,
+            "code: |",
+            "  # Controls the flow of the basic building blocks of the interview. If you want to use this interview in another interview, delete the `mandatory: True` specifier or the whole block.",
+            "  " + self.intro + "  # Organization intro screen/splash screen",
+            "  # Introduction to this specific interview",
+            "  " + self.interview_label,
+            "  " + self.interview_label + "_preview_question # Pre-canned preview screen",
+            "  basic_questions_signature_flow",
+          ];
+          
+          for signature_field in self.signatures:
+            lines.append( "  " + signature_field )
+          lines.append("  " + self.interview_label + "_download")
+          
+          content += '\n'.join(lines) + '\n'
                                    
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control logic flow in this interview" + "\n"
+            content += "  # This is a placeholder to control order of questions in this interview\n"
             signatures = set()
             added_field_names = set()
             for field in self.logic_list:
@@ -499,8 +521,6 @@ class DAQuestion(DAObject):
                 # We built this logic list by collecting the first field on each screen
                 content += "  " + field + "\n"
               added_field_names.add(field)
-            content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
-            content += "  basic_questions_signature_flow\n"
             for signature_field in signatures:
               content += "  " + signature_field + "\n"
             content += "  " + self.interview_label + " = True" + "\n"
@@ -609,6 +629,16 @@ class DAQuestion(DAObject):
           for field in self.field_list:
               content += field.review_yaml(document_type, field_names)
         return content
+
+class DACodeBlock(DAQuestion):
+  """This class represents a "code block" in the generated YAML file."""
+  def init(self, **kwargs):
+    self.templates_used = set()
+    self.static_files_used = set()
+    return super().init(**kwargs)
+  
+  def source(self, follow_additional_fields=True, document_type="pdf"):
+    return
 
 class DAQuestionList(DAList):
   """This represents a list of DAQuestions."""
