@@ -1110,6 +1110,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
 def trigger_gather_string(docassemble_var,
                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                          singular_prefixes=generator_constants.PERSON_PREFIXES,
                           reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
   """Turn the docassemble variable string into an expression
@@ -1132,10 +1133,11 @@ def trigger_gather_string(docassemble_var,
   # The prefix, ensuring no key or index
   prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
   has_plural_prefix = prefix in reserved_pluralizers_map.values()
+  has_singular_prefix = prefix in singular_prefixes
 
-  if has_plural_prefix:
+  if has_plural_prefix or has_singular_prefix:
     first_attribute = var_parts[0][1]
-    if first_attribute == '' or first_attribute == '.name':
+    if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
       return prefix + GATHER_CALL
     elif first_attribute == '.address' or first_attribute == '.mail_address':
       return var_parts[0][0] + first_attribute + '.address'
