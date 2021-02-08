@@ -12,6 +12,7 @@ generator_constants = Object()
 generator_constants.RESERVED_WHOLE_WORDS = [
   'signature_date',  # this is the plural version of this?
   'attorney_of_record_address_on_one_line',
+  'trial_court',
 ]
 
 # Vars representing people
