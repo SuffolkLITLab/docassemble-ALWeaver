@@ -1147,6 +1147,7 @@ def trigger_gather_string(docassemble_var,
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
                            reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                           singular_prefixes=generator_constants.PERSON_PREFIXES,
                            reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
                            reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
@@ -1161,10 +1162,11 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     if not label_parts[0]:
       return False
     # The prefix, ensuring no key or index
+    # Not sure this handles keys/attributes
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    is_reserved = prefix in reserved_pluralizers_map.values() or prefix in singular_prefixes
 
-    if has_plural_prefix:
+    if is_reserved:
       suffix = label_parts[0][1]
       if not suffix:  # If only the prefix
         return True
