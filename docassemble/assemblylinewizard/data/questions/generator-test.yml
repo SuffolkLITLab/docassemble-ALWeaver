@@ -20,28 +20,38 @@ css: |
     }
   </style>
 subquestion: |
-  #### Selected scenarios
+  # Selected scenarios
 
   <%
       results = map_names_tests.test_mapped_scenarios(run_from_yaml=True)
-      failed = results["errored"]
+      # both are a dictionary of scenarios (interview order, attachment block)
+      # to the list of tests for that scenario
+      failed = results["errored"]  
       passed = results["passed"]
   %>
 
-  Failed: ${ len(failed) }[BR]
-  Passed: ${ len(passed) }
+  Failed: ${ sum([len(failed[sc]) for sc in failed.keys()]) }[BR]
+  Passed: ${ sum([len(passed[sc]) for sc in passed.keys()]) }
 
-  ##### Failed:
+  ## Failed:
 
-  % for one_test in failed:
+  % for scenario in failed:
+    % if len(failed[scenario]):
+    <h3 class="failed">${scenario}</h3>
+    % endif
+    % for one_test in failed[scenario]:
     <strong class="failed">${one_test["test"]}:</strong>[BR]${one_test["result"]}
+    % endfor
   % endfor
 
-  ##### Passed:
+  ## Passed:
 
   <span class="passed">
-  % for one_test in passed:
+  % for scenario in passed:
+  <h3>${scenario}</h3>
+  % for one_test in passed[scenario]:
   `${one_test}`[BR]
+  % endfor
   % endfor
   </span>
 ---

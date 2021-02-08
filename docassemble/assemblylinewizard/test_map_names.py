@@ -123,22 +123,22 @@ interview_order_scenarios = {
   "user_gender": "users[0].gender",
   "user_birthdate": "users[0].birthdate",
   "user_age": "users[0].birthdate",
-  "user_address_unit": "users[0].address",
-  "user_address_address": "users[0].address",
-  "user_address_city": "users[0].address",
+  "user_address_unit": "users[0].address.address",
+  "user_address_address": "users[0].address.address",
+  "user_address_city": "users[0].address.address",
   "user_email": "users[0].email",
   "user2_phone": "users[1].phone_number",
   "user_signature": "users[0].signature",
-  "user_mail_address": "users[0].mail_address",
-  'user_mail_address_block': "users[0].mail_address",
-  'user_mail_address_address': "users[0].mail_address",
-  'user_mail_address_zip': "users[0].mail_address",
+  "user_mail_address": "users[0].mail_address.address",
+  'user_mail_address_block': "users[0].mail_address.address",
+  'user_mail_address_address': "users[0].mail_address.address",
+  'user_mail_address_zip': "users[0].mail_address.address",
 
   # County
   # "county_name_short": not implemented,
   # "county_division": not implemented,
-  "court_address_county": "courts[0].address",
-  "court_county": "courts[0].address",
+  "court_address_county": "courts[0].address.address",
+  "court_county": "courts[0].address.address",
 
   # # Reserved starts (with names)
   "user": "users.gather()",
@@ -173,25 +173,28 @@ class TestMapNames(unittest.TestCase):
         pass
 
     def test_mapped_scenarios(self, run_from_yaml=False):
+        # A list of scenarios with the 1) input/output mappings, 
+        #    2) the user readable name, 3) function to test
         test_scenarios = [
-          (attachment_scenarios, map_names),
-          (interview_order_scenarios, lambda x: trigger_gather_string(map_names(x)))
+          (attachment_scenarios, 'attach block', map_names),
+          (interview_order_scenarios, 'interview order',
+           lambda x: trigger_gather_string(map_names(x)))
         ]
         # Look in the console for a prettier version of the messages
-        passed = []
-        errored = []
-        for scenarios, function in test_scenarios:
-          # TODO(brycew): log / print which test scenario is running here
+        passed = {}
+        errored = {}
+        for scenarios, scenario_name, function in test_scenarios:
           temp_passed, temp_errored = self.run_scenarios(scenarios, function)
-          passed += temp_passed
-          errored += temp_errored
+          passed[scenario_name] = temp_passed
+          errored[scenario_name] = temp_errored
         results = {"errored": errored, "passed": passed}
         log(results, "console")
         # This is True if this test is run from generator-test.yml
         if run_from_yaml:
             return results
-        self.assertEqual(len(passed), sum([len(sc[1]) for sc in self.scenarios]))
-        self.assertEqual(len(errored), 0)
+        self.assertEqual(sum([len(passed[sc[1]]) for sc in self.scenarios]),
+                         sum([len(sc[0]) for sc in self.scenarios]))
+        self.assertEqual(sum([len(errored[sc[1]]) for sc in self.scenarios]), 0)
 
     def run_scenarios(self, scenarios, function):
         errored = []
