@@ -403,10 +403,10 @@ class DAQuestion(DAObject):
                 new_content, done_with_content = self.field_list[0].get_single_field_screen(document_type)
                 content += new_content
             if self.field_list[0].field_type == 'end_attachment':
-                if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  # TODO: insert the email code
-                  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
+                #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
+                #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
+                #  # TODO: insert the email code
+                #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
                 # TODO / FUTURE we could let this handle multiple forms at once
