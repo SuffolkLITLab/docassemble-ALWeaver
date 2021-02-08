@@ -1051,6 +1051,7 @@ def get_docx_variables( text ):
 
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              singular_prefixes=generator_constants.PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
@@ -1063,13 +1064,12 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
 
-  if label in reserved_whole_words:
-    return label
+  if (label in reserved_whole_words
+   or label in reserved_var_plurals
+   or label in singular_prefixes):
+     return label
 
-  if label in reserved_var_plurals:
-    return label
-
-  # Break up label into its parts
+  # Break up label into its parts: prefix, digit, the rest
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 
   # If no matches to automateable labels were found,
@@ -1077,22 +1077,26 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   if label_groups is None or label_groups[1] == '':
     return label
 
-  # With reserved words, we're always using an index
-  # of the plural version of the prefix of the label
   prefix = label_groups[1]
-  # Turn any singluars into plurals, e.g. 'user' into 'users'
-  plural_prefix = reserved_pluralizers_map[prefix]
-  digit = label_groups[2]
-  index = indexify(digit)
+  # Map prefix to an adjusted version
+  # At the moment, turn any singluars into plurals if needed, e.g. 'user' into 'users'
+  try:
+    adjusted_prefix = reserved_pluralizers_map[prefix]
+  except:
+    adjusted_prefix = prefix
+  # With reserved plurals, we're always using an index
+  # of the plural version of the prefix of the label
+  if adjusted_prefix in reserved_var_plurals:
+    digit = label_groups[2]
+    index = indexify(digit)
+  else:
+    digit = ''
+    index = ''
+  
   # it's just a standalone, like "defendant", or it's a numbered singular
   # prefix, e.g. user3
   if label == prefix or label == prefix + digit:
-    return plural_prefix + index # Return the pluralized standalone variable
-
-  # If it's a numbered singluar reserved prefix, e.g. user3
-  if label == prefix + digit:
-    # Return the plural plus the index, e.g. users[2]
-    return plural_prefix + index
+    return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
   # Avoid transforming arbitrary suffixes into attributes
@@ -1101,7 +1105,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
   # Get the mapped suffix attribute if present, else just use the same suffix
   suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
-  return "".join([plural_prefix, index, suffix_as_attribute])
+  return "".join([adjusted_prefix, index, suffix_as_attribute])
 
 
 def trigger_gather_string(docassemble_var,

@@ -14,7 +14,12 @@ generator_constants.RESERVED_WHOLE_WORDS = [
   #'attorney_of_record_address_on_one_line',
 ]
 
-# Vars representing people
+# Singular person object prefixes
+generator_constants.PERSON_PREFIXES = [
+  "trial_court",
+]
+
+# Plural vars representing people
 generator_constants.PEOPLE_VARS = [
   'users',
   'other_parties',
@@ -43,6 +48,7 @@ generator_constants.RESERVED_VAR_PLURALS = generator_constants.PEOPLE_VARS + [
   'docket_numbers',
 ]
 
+# Prefixes as they would appear in a PDF (singular)
 generator_constants.RESERVED_PREFIXES = (r"^(user"  # deprecated, but still supported
   + r"|other_party"  # deprecated, but still supported
   + r"|child"
@@ -67,6 +73,7 @@ generator_constants.RESERVED_PREFIXES = (r"^(user"  # deprecated, but still supp
   + r"|guardian"
   + r"|decedent"
   + r"|interested_party"
+  + r"|trial_court"
   + r")")
 
 # reserved_pluralizers_map
