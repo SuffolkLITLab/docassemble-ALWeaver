@@ -119,6 +119,9 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_age': ".age_in_years()",
   '_email': ".email",
   '_phone': ".phone_number",
+  '_phone_number': ".phone_number",
+  '_mobile': ".mobile_number",
+  '_mobile_number': ".mobile_number",
   '_phones': ".phone_numbers()",
   '_address_block': ".address.block()",
   # TODO: deprecate street and street2 from existing forms and documentation
