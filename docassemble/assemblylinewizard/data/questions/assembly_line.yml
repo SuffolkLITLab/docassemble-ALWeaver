@@ -426,7 +426,7 @@ code: |
                         'title': interview.title,
                         'short title': interview.short_title}  
 
-  metadata_code.comment = "This section is used by MAVirtualCourts to control how some of the questions work."
+  metadata_code.comment = "This section is used by AssemblyLine to control how some of the questions work."
   metadata_code.type = 'metadata_code'
   metadata_code.interview_label = interview_label
   metadata_code.interview = interview
