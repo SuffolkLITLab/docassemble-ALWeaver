@@ -10,9 +10,9 @@ A tool to help generate draft interviews for the docassemble platform. Tightly l
 
 ## Authors
 
-Quinten Steenhuis, qsteenhuis@suffolk.edu
-Michelle
-Bryce Willey
-Lily Yuang
-David Colarusso
-Nharika Singh
+Quinten Steenhuis, qsteenhuis@suffolk.edu  
+Michelle  
+Bryce Willey  
+Lily Yuang  
+David Colarusso  
+Nharika Singh  
