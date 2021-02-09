@@ -11,8 +11,7 @@ generator_constants = Object()
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
   'signature_date',  # this is the plural version of this?
-  'attorney_of_record_address_on_one_line',
-  'trial_court',
+  #'attorney_of_record_address_on_one_line',
 ]
 
 # Vars representing people
@@ -72,7 +71,7 @@ generator_constants.RESERVED_PREFIXES = (r"^(user"  # deprecated, but still supp
 
 # reserved_pluralizers_map
 
-generator_constants.RESERVED_PLURALIZERS_MAP = {
+generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'user': 'users',
   'plaintiff': 'plaintiffs',
   'defendant': 'defendants',
@@ -86,8 +85,6 @@ generator_constants.RESERVED_PLURALIZERS_MAP = {
   'translator': 'translators',
   'debt_collector': 'debt_collectors',
   'creditor': 'creditors',
-  'court': 'courts',
-  'docket_number': 'docket_numbers',
   # Non-s plurals
   'other_party': 'other_parties',
   'child': 'children',
@@ -96,6 +93,11 @@ generator_constants.RESERVED_PLURALIZERS_MAP = {
   'decedent': 'decedents',
   'interested_party': 'interested_parties',
 }
+
+generator_constants.RESERVED_PLURALIZERS_MAP = {** generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, **{
+  'court': 'courts',
+  'docket_number': 'docket_numbers',
+}}
 
 # Any reason to not make all suffixes available to everyone?
 # Yes: it can break variables that overlap but have a different meaning
@@ -117,6 +119,9 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_age': ".age_in_years()",
   '_email': ".email",
   '_phone': ".phone_number",
+  '_phone_number': ".phone_number",
+  '_mobile': ".mobile_number",
+  '_mobile_number': ".mobile_number",
   '_phones': ".phone_numbers()",
   '_address_block': ".address.block()",
   # TODO: deprecate street and street2 from existing forms and documentation
@@ -133,6 +138,20 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_address_line_one': ".address.line_one()",
   '_address_city_state_zip': ".address.line_two()",
   '_signature': ".signature",
+  '_mail_address_block': ".mail_address.block()",
+  '_mail_address_street': ".mail_address.address",
+  '_mail_address_street2': ".mail_address.unit",
+  '_mail_address_address': ".mail_address.address",
+  '_mail_address_unit': ".mail_address.unit",
+  '_mail_address_city': ".mail_address.city",
+  '_mail_address_state': ".mail_address.state",
+  '_mail_address_zip': ".mail_address.zip",
+  '_mail_address_county': ".mail_address.county",
+  '_mail_address_country': ".mail_address.country",
+  '_mail_address_on_one_line': ".mail_address.on_one_line()",
+  '_mail_address_line_one': ".mail_address.line_one()",
+  '_mail_address_city_state_zip': ".mail_address.line_two()",
+  '_mail_address': ".mail_address",
 }
 
 generator_constants.PEOPLE_SUFFIXES = list(generator_constants.PEOPLE_SUFFIXES_MAP.values()) + ['.name.full()','.name']
@@ -164,4 +183,19 @@ generator_constants.UNMAP_SUFFIXES = {
   ".address.on_one_line()": ".address.address",
   ".address.line_one()": ".address.address",
   ".address.line_two()": ".address.address",
+  ".mail_address.block()": ".mail_address.address",
+  ".mail_address.on_one_line()": ".mail_address.address",
+  ".mail_address.line_one()": ".mail_address.address",
+  ".mail_address.line_two()": ".mail_address.address",
 }
+
+# Possible values for 'Allowed Courts', when looking up courts to submit to
+generator_constants.COURT_CHOICES = [
+  'Boston Municipal Court',
+  'District Court',
+  'Superior Court',
+  'Housing Court',
+  'Probate and Family Court',
+  'Juvenile Court',
+  'Land Court'
+]

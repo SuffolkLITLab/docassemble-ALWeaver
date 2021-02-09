@@ -21,7 +21,8 @@ features:
 modules:
   - docassemble.base.util
   - docassemble.base.logger
-  - .interview_generator  
+  - .interview_generator
+  - .generator_constants
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -38,6 +39,7 @@ objects:
   - signature_fields: DAFieldList.using(gathered=True)
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
+  - interview_package_download: DAFile
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -51,6 +53,7 @@ comment: |
   This is a list of some variables we leave alone (don't transform)
   but still represent something we're handling in basic-question.yml
   No need to prompt the user to group these questions.
+  # TODO: this is really handled in the generator constants now
 variable name: variables_to_skip
 data:
   - signature_date
@@ -74,6 +77,7 @@ code: |
   interview.title
   interview_intro_prompt
   interview.typical_role  
+  ask_people_quantity_question  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
   add_short_title
@@ -82,6 +86,7 @@ code: |
   choose_field_types
   questions.gather()
   
+  add_objects_block
   add_logic_tree
   add_draft_intro_screen
   created_preview_question
@@ -97,6 +102,7 @@ continue button field: debug
 question: |
   ${ template_upload }
 ---
+id: opening screen
 question: |
   Assembly Line Wizard
 subquestion: |
@@ -120,6 +126,7 @@ code: |
   
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
+id: information about this interview
 question: |
   Information about this interview
 subquestion: |
@@ -151,24 +158,13 @@ fields:
       - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    choices:
-      - Boston Municipal Court
-      - District Court
-      - Superior Court
-      - Housing Court
-      - Probate and Family Court
-      - Juvenile Court
-      - Land Court
-  # - Preferred court: interview.preferred_court
-  #   choices:
-  #     - Boston Municipal Court
-  #     - District Court
-  #     - Superior Court
-  #     - Housing Court
-  #     - Probate and Family Court
-  #     - Juvenile Court
-  #     - Land Court
-  #     - Any court (no preferred court)
+    none of the above: false
+    code: |
+      get_court_choices() + ['Other']
+  - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
+    input type: area
+    required: False
+    show if: interview.allowed_courts['Other']
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -220,6 +216,7 @@ code: |
   else:
     interview_intro_prompt_default = "Get a " + interview.short_title
 ---
+id: action title
 question: |
   Action title
 subquestion: |
@@ -235,6 +232,7 @@ fields:
   - Action title: interview_intro_prompt
     default: ${ interview_intro_prompt_default }
 ---
+id: information about people
 question: |
   Information about people on this form
 subquestion: |  
@@ -244,6 +242,20 @@ subquestion: |
   The Plaintiff/Petitioner starts a case. The Defendant/Respondent
   is responding to a case someone else started.
 fields:
+  - note: |
+      The list of names below look like names for people, based on
+      how you use them in your document.
+    show if:
+      code: |
+        len(get_person_variables(all_fields, custom_only=True)) > 0
+  - Which variable names represent people?: people_variables
+    datatype: checkboxes
+    code: |
+      get_person_variables(all_fields, custom_only=True)
+    help: |
+      "person" variables will get things like addresses, multi-part
+      names, and proper questions handled automatically. Using them
+      will help you save time writing your interview.
   - User's role: interview.typical_role
     input type: radio
     choices:
@@ -268,6 +280,38 @@ help: |
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
 ---
+objects:
+  - people_quantities: DADict.using(auto_gather=False, gathered=True)
+---
+code: |
+  # Build the dynamic question code to ask about people quantities
+  temp_people_quantity_question = []
+  for person in people_variables.true_values().union(built_in_people_vars_used):
+    temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
+      "datatype": "radio",
+      "choices": [{'Exactly 1': 'one'},{'One or more':'more'}]
+      })
+  people_quantity_question = temp_people_quantity_question
+  del temp_people_quantity_question
+---
+question: |
+  Information about people
+subquestion: |
+  This form includes the following variables representing people:
+  ${ comma_and_list(people_variables.true_values().union(built_in_people_vars_used)) }
+fields:
+  - code: people_quantity_question 
+help:
+  label: |
+    What is this about?
+  content: |
+    By default, all "person" variables are plural.
+    
+    If you only want one of each person type to ever use this form,
+    tell us here. You'll still be able to edit your file if you change
+    your mind later.
+continue button field: ask_people_quantity_question  
+---
 comment: |
   Get the list of fields
 code: |
@@ -275,6 +319,9 @@ code: |
     all_fields = template_upload.get_pdf_fields()
   else:
     all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
+---
+code: |
+ built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
 ---
 comment: |
   Convert the PDF fields into Docassemble fields
@@ -302,7 +349,7 @@ code: |
       
       # This function determines what type of variable
       # we're dealing with
-      fill_in_field_attributes(new_field, pdf_field_tuple)    
+      new_field.fill_in_pdf_attributes(pdf_field_tuple)    
   else:
     # if this is a docx, fields are a list of strings, not a list of tuples
     for field in all_fields:
@@ -312,7 +359,7 @@ code: |
         new_field = signature_fields.appendObject()
       else:                
         new_field = fields.appendObject()
-      fill_in_docx_field_attributes(new_field, field)
+      new_field.fill_in_docx_attributes(field)
     
   get_all_fields = True
 ---
@@ -364,10 +411,17 @@ code: |
   add_draft_intro_screen = True
 ---
 code: |
+  # HACK(brycew): could be a better place to put it, but can't find one :/
+  if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
+    # 'Other' had to marked true, but is itself useless
+    interview.allowed_courts['Other'] = False
+    for allowed_court in interview.allowed_courts_text.split(','):
+      interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
+  metadata.categories = interview.categories
   metadata.settings = {
                         'title': interview.title,
                         'short title': interview.short_title}  
@@ -393,39 +447,13 @@ code: |
   # Create code for the question that we use to label
   # each field.
   
-  field_types = ['yesno','text','area']  
-  field_data_types = ['text','integer','number','currency','date','email']
-
   temp_field_question = []
   for index, field in enumerate(fields.elements):
-    if field.variable != field.docassemble_variable:
-      temp_field_question.append({
-        'note': '**' + field.variable + ' (will be renamed to ' + field.docassemble_variable + ')**'})
-    else:
-      temp_field_question.append({
-        'note': '**' + field.variable + '**'
-      })
-    temp_field_question.append({
-      'label': "On-screen prompt",
-      'field': 'fields[' + str(index) + '].label',
-      'default': field.variable_name_guess
-    })
-    temp_field_question.append({
-      'label': "Input style",
-      'field': 'fields[' + str(index) + '].field_type',
-      'choices': field_types,
-      'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
-    })
-    temp_field_question.append({
-      'label': "Datatype",
-      'field': 'fields[' + str(index) + '].field_data_type',
-      'choices': field_data_types,
-      'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
-      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
-    })
+    temp_field_question.extend(field.user_ask_about_field(index))
 
   field_question = temp_field_question
 ---
+id: choose field types
 continue button field: choose_field_types
 question: |
   On-screen prompts
@@ -467,6 +495,7 @@ code: |
   # assigned.
   questions.there_is_another = len(questions.all_fields_used()) < len(fields)
 ---
+id: create a draft of screen i
 question: |
   Create a draft of the ${ordinal(i)} screen
 subquestion: |
@@ -511,6 +540,25 @@ code: |
     interview.questions.append(question)
   add_questions_to_interview = True
 ---
+need:
+  - built_in_people_vars_used
+code: |
+  objects_block =  interview.questions.appendObject()
+  objects_block.type = "objects"
+  objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
+  for person in people_variables.true_values().union(built_in_people_vars_used):
+    new_object = objects_block.objects.appendObject()
+    new_object.name = person
+    new_object.type = "ALPeopleList"
+    if person in people_quantities:
+      if people_quantities[person] == 'one':
+        new_object.params = [
+          ("ask_number", "True", bool), 
+          ("target_number", 1, int)
+          ]
+  objects_block.objects.gathered=True
+  add_objects_block = True
+---
 code: |
   # Build the mandatory code block that will control question flow
   logic_list = []
@@ -518,7 +566,6 @@ code: |
   logic_list.append('al_intro_screen') # Splash page for your organization
   logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
-  # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
@@ -548,6 +595,7 @@ code: |
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")
     if question.type == 'question':
+      # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
@@ -565,7 +613,7 @@ code: |
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
-    logic_list.append(trigger_gather_string(map_names(field.variable)))
+    logic_list.append(field.trigger_gather)
   
   # Save a snapshot of interview answers. 
   # We only want a few anonymous variables
@@ -605,15 +653,20 @@ code: |
 code: |
   attachment_variable_name = interview_label + '_attachment'
 ---
+id: download your interview
 comment: | 
 event: show_interview
 question: |
-  All done
+  All done: Download your interview
 subquestion: |
 
   ### Please download the generated interview below
   
-  [:download: Download](${interview_download.url_for(attachment=True)})
+  Download the YAML file only:  
+  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  
+  Download the interview as a Docassemble package:  
+  [:download: Download Package](${interview_package_download.url_for(attachment=True)})
   
   ### Preview of Docassemble interview file
   
@@ -624,6 +677,17 @@ code: |
   interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()
+
+  folders_and_files = {
+    "templates": template_upload,
+    "questions": [interview_download],
+    "modules":[],
+    "static": [],
+    "sources": []
+  }
+  
+  create_package_zip(re.sub("\W","",interview.title), interview.package_info(), {"author name and email":"author@example.com"}, folders_and_files, interview_package_download)
+  
   wrote_interview = True
 ---
 need:
@@ -651,9 +715,10 @@ code: |
   preview_question = interview.questions.appendObject()
   preview_question.type = 'interstitial'
   preview_question.continue_button_field = interview_label + '_preview_question' 
-  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${ pdf_concatenate(" + attachment_variable_name + "['preview'], filename='" + interview_label + ".pdf')}"
+  preview_question.question_text = 'Review your form before you sign it'  
+  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${ al_user_bundle.as_pdf() }\n\n"
+  preview_question.subquestion_text += "Remember to come back to this window to continue and sign your form."
   preview_question.is_mandatory = False  
-  preview_question.question_text = 'Review your form before you sign it'
 
   created_preview_question = True
 ---
@@ -690,3 +755,29 @@ code: |
   end_question.field_list.gathered = True  
   
   created_attachment = True
+---
+#######################################
+# Code to support github feedback form
+imports:
+  - importlib
+---
+code: |
+  try:
+    package_version_number = str(importlib.import_module(user_info().package).__version__)
+  except:
+    package_version_number = "playground"
+---
+code: |
+  # Leaving this in but in this package, it will
+  # always be docassemble-assemblylinewizard, unless an org
+  # forks this for their own jurisdiction
+  package_name = str(user_info().package)
+  if package_name and not "playground" in package_name:
+    github_repo_name = package_name.replace('.','-')
+  else:    
+    github_repo_name = "docassemble-assemblylinewizard"
+---
+default screen parts:
+  # May want to change the interview URL if you customize/fork
+  under: |
+    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.assemblylinewizard:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
