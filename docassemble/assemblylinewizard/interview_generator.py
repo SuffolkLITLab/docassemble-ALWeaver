@@ -426,7 +426,7 @@ class DAQuestion(DAObject):
                     content += "attachment:\n"
                     content += "    variable name: " + self.attachment_variable_name + "[i]\n"
                     content += "    name: " + oneline(attachment.name) + "\n"
-                    content += "    filename: " + varname(attachment.name) + "\n"
+                    content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
                     if attachment.type == 'md':
                         content += "    content: " + oneline(attachment.content) + "\n"
                     elif attachment.type == 'pdf':
