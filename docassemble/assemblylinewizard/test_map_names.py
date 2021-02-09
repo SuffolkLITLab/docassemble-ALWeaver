@@ -151,8 +151,8 @@ interview_order_scenarios = {
 
   # Singluar prefixes that still have suffixes
   "trial_court": "trial_court",
-  "trial_court_address_county": "trial_court.address",
-  "trial_court_county": "trial_court.address",
+  "trial_court_address_county": "trial_court.address.address",
+  "trial_court_county": "trial_court.address.address",
   "trial_court_division": "trial_court.division",
 
   # # Reserved starts (with names)
