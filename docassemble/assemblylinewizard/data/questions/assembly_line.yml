@@ -1,6 +1,18 @@
 metadata:
   title: Document assembly wizard
   short title: Wizard
+  tags:
+    - HO-00-00-00-00 #Housing
+    - FA-00-00-00-00 #Family
+    - FA-07-00-00-00 #Domestic Violence and Abuse
+    - HE-00-00-00-00 #Health
+    - ES-00-00-00-00 #Estates, Wills, and Guardianships
+    - MO-00-00-00-00 #Money, Debt, and Consumer Issues     
+    - BE-04-00-00-00 #Unemployment Benefits, Compensation, and Insurance
+    - IM-00-00-00-00 #Immigration     
+    - BE-00-00-00-00 #Public Benefits
+    - ED-00-00-00-00 #Education
+    - RI-10-00-00-00 #Prisoners' Rights
 ---
 features:
   question help button: True
@@ -9,7 +21,8 @@ features:
 modules:
   - docassemble.base.util
   - docassemble.base.logger
-  - .interview_generator  
+  - .interview_generator
+  - collections
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -121,11 +134,6 @@ subquestion: |
   
   Use plain language that will be understandable to someone who
   uses this form without a lawyer. Remember, we can change it later.
-  
-  % if len(all_fields) != len(fields) + len(signature_fields) + len(built_in_fields_used):
-  ** There may be a problem with this file. Check for the wrong number
-  of fields**
-  % endif
 fields:
   - Title: interview.title
     default: ${short_filename_with_spaces}
@@ -145,39 +153,28 @@ fields:
       - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    choices:
-      - Boston Municipal Court
-      - District Court
-      - Superior Court
-      - Housing Court
-      - Probate and Family Court
-      - Juvenile Court
-      - Land Court
-  # - Preferred court: interview.preferred_court
-  #   choices:
-  #     - Boston Municipal Court
-  #     - District Court
-  #     - Superior Court
-  #     - Housing Court
-  #     - Probate and Family Court
-  #     - Juvenile Court
-  #     - Land Court
-  #     - Any court (no preferred court)
+    none of the above: false
+    code: |
+      get_court_choices() + ['Other']
+  - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
+    input type: area
+    required: False
+    show if: interview.allowed_courts['Other']
   - Categories: interview.categories
     datatype: checkboxes
     choices:
-      - Housing
-      - Family Law
-      - Domestic Violence / Safety of self
-      - Health and Mental Health
-      - Guardianship
-      - Consumer and Debt
-      - Employment / Unemployment
-      - Immigration
-      - Income and benefits
-      - Education
-      - Rights of incarcerated/formerly incarcerated
-      - Other
+      - Housing: HO-00-00-00-00
+      - Family: FA-00-00-00-00
+      - Domestic Violence and Abuse: FA-07-00-00-00
+      - Health: HE-00-00-00-00
+      - Estates, Wills, and Guardianships: ES-00-00-00-00
+      - Money, Debt, and Consumer Issues: MO-00-00-00-00
+      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
+      - Immigration: IM-00-00-00-00
+      - Public Benefits: BE-00-00-00-00
+      - Education: ED-00-00-00-00
+      - Prisoners' Rights: RI-10-00-00-00
+      - Other: Other
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
@@ -193,16 +190,19 @@ fields:
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
     required: False
-help: |
-  There are ${len(all_fields)} fields total.
-  
-  `${all_fields}`
-  
-  * ${len(fields)} Fields we'll ask about
-  * ${len(built_in_fields_used)} built-in fields
-  * ${len(signature_fields)} signature fields
-  
-  ${fields}
+help:
+  label: |
+    View variable debug information
+  content: |
+    There are ${len(all_fields)} fields total.
+
+    `${all_fields}`
+
+    * ${len(fields)} Fields we'll ask about
+    * ${len(built_in_fields_used)} built-in fields
+    * ${len(signature_fields)} signature fields
+
+    ${fields}
 ---
 code: |
   if interview.form_type == 'starts_case':
@@ -287,7 +287,7 @@ code: |
   for person in people_variables.true_values().union(built_in_people_vars_used):
     temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
       "datatype": "radio",
-      "choices": [{'Exactly 1': 'one'},{'One or more':'more'}]
+      "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
       })
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
@@ -331,6 +331,8 @@ code: |
   signature_fields
   built_in_fields_used  
   
+  yesno_map = defaultdict(list)
+
   if template_upload[0].extension == 'pdf':
     # Probably all of this should move into a class
     for pdf_field_tuple in all_fields:
@@ -347,7 +349,10 @@ code: |
       
       # This function determines what type of variable
       # we're dealing with
-      fill_in_field_attributes(new_field, pdf_field_tuple)    
+      new_field.fill_in_pdf_attributes(pdf_field_tuple)
+      if not consolidate_yesnos(new_field, yesno_map):
+        del new_field
+        fields.pop()
   else:
     # if this is a docx, fields are a list of strings, not a list of tuples
     for field in all_fields:
@@ -357,8 +362,12 @@ code: |
         new_field = signature_fields.appendObject()
       else:                
         new_field = fields.appendObject()
-      fill_in_docx_field_attributes(new_field, field)
+      new_field.fill_in_docx_attributes(field)
     
+      if not consolidate_yesnos(new_field, yesno_map):
+        del new_field
+        fields.pop()
+
   get_all_fields = True
 ---
 code: |
@@ -409,15 +418,22 @@ code: |
   add_draft_intro_screen = True
 ---
 code: |
+  # HACK(brycew): could be a better place to put it, but can't find one :/
+  if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
+    # 'Other' had to marked true, but is itself useless
+    interview.allowed_courts['Other'] = False
+    for allowed_court in interview.allowed_courts_text.split(','):
+      interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
   metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
+  metadata.categories = interview.categories
   metadata.settings = {
                         'title': interview.title,
                         'short title': interview.short_title}  
 
-  metadata_code.comment = "This section is used by MAVirtualCourts to control how some of the questions work."
+  metadata_code.comment = "This section is used by AssemblyLine to control how some of the questions work."
   metadata_code.type = 'metadata_code'
   metadata_code.interview_label = interview_label
   metadata_code.interview = interview
@@ -438,36 +454,9 @@ code: |
   # Create code for the question that we use to label
   # each field.
   
-  field_types = ['yesno','text','area']  
-  field_data_types = ['text','integer','number','currency','date','email']
-
   temp_field_question = []
   for index, field in enumerate(fields.elements):
-    if field.variable != field.docassemble_variable:
-      temp_field_question.append({
-        'note': '**' + field.variable + ' (will be renamed to ' + field.docassemble_variable + ')**'})
-    else:
-      temp_field_question.append({
-        'note': '**' + field.variable + '**'
-      })
-    temp_field_question.append({
-      'label': "On-screen prompt",
-      'field': 'fields[' + str(index) + '].label',
-      'default': field.variable_name_guess
-    })
-    temp_field_question.append({
-      'label': "Input style",
-      'field': 'fields[' + str(index) + '].field_type',
-      'choices': field_types,
-      'default': field.field_type_guess if hasattr(field, 'field_type_guess') else None
-    })
-    temp_field_question.append({
-      'label': "Datatype",
-      'field': 'fields[' + str(index) + '].field_data_type',
-      'choices': field_data_types,
-      'default': field.field_data_type_guess if hasattr(field, 'field_data_type_guess') else None,
-      'hide if': {'variable': 'fields[' + str(index) + '].field_type', 'is': 'yesno'}
-    })
+    temp_field_question.extend(field.user_ask_about_field(index))
 
   field_question = temp_field_question
 ---
@@ -534,7 +523,7 @@ fields:
     none of the above: False
     choices: fields
     object labeler: |
-      lambda y: "**" + y.variable + "**" + "[BR]" + y.label      
+      lambda y: bold(y.variable) + "[BR]" + y.label
   - Add a "continue button field" on this screen: questions[i].has_mandatory_field
     datatype: noyes
     help: |
@@ -561,6 +550,9 @@ code: |
 need:
   - built_in_people_vars_used
 code: |
+  # Decide how to create People objects.
+  # Wizard allows the developer to specify how many of a particular
+  # person might appear in the interview.
   objects_block =  interview.questions.appendObject()
   objects_block.type = "objects"
   objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
@@ -574,6 +566,11 @@ code: |
           ("ask_number", "True", bool), 
           ("target_number", 1, int)
           ]
+      elif people_quantities[person] == 'more':
+        new_object.params = [
+          ("there_are_any","True",bool)
+          ]
+      # Don't do anything if the user said zero or more          
   objects_block.objects.gathered=True
   add_objects_block = True
 ---
@@ -584,7 +581,6 @@ code: |
   logic_list.append('al_intro_screen') # Splash page for your organization
   logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
-  # logic_list.append('preferred_court = interview_metadata["' + interview_label + '"]["preferred court"]')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
@@ -614,6 +610,7 @@ code: |
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")
     if question.type == 'question':
+      # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
@@ -631,7 +628,7 @@ code: |
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
-    logic_list.append(trigger_gather_string(map_names(field.variable)))
+    logic_list.append(field.trigger_gather)
   
   # Save a snapshot of interview answers. 
   # We only want a few anonymous variables
@@ -751,7 +748,7 @@ code: |
   end_question.id = "download" # Use a consistent ID for Google Analytics
   end_question.type = 'question'
   end_question.progress = "100"
-  end_question.question_text = 'Your form is ready to download and file'
+  end_question.question_text = 'Your form is ready to download.'
 
   # Add a preview of the form to the draft ending screen
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
