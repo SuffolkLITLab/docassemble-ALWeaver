@@ -287,7 +287,7 @@ code: |
   for person in people_variables.true_values().union(built_in_people_vars_used):
     temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
       "datatype": "radio",
-      "choices": [{'Exactly 1': 'one'},{'One or more':'more'}]
+      "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
       })
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
@@ -550,6 +550,9 @@ code: |
 need:
   - built_in_people_vars_used
 code: |
+  # Create objects block that specifies the number of people for
+  # the developer. Switches between target_number and there_are_any list gathering
+  # approaches
   objects_block =  interview.questions.appendObject()
   objects_block.type = "objects"
   objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
@@ -563,6 +566,11 @@ code: |
           ("ask_number", "True", bool), 
           ("target_number", 1, int)
           ]
+      elif people_quantities[person] == 'more':
+        new_object.params = [
+          ("there_are_any","True",bool)
+          ]
+      # Don't do anything if the user said zero or more            
   objects_block.objects.gathered=True
   add_objects_block = True
 ---
