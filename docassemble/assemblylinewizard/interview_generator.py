@@ -5,6 +5,7 @@ import copy
 import sys
 import yaml
 import tempfile
+import collections
 from docx2python import docx2python
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
@@ -22,7 +23,12 @@ from .generator_constants import generator_constants
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', 'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', 'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', 'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', 'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', 'get_person_variables', 'get_court_choices']
+__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
+           'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
+           'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', \
+           'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', \
+           'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
+           'get_person_variables', 'get_court_choices', 'consolidate_yesnos']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -67,6 +73,19 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 
   max_chars = num_rows * num_cols
   return max_chars
+
+
+def consolidate_yesnos(new_field, yesno_map):
+  """Retruns True if this field should be used: is not a yesno, or is the first yesno.
+     All yesnos get add to the map"""
+  if not new_field.variable.endswith('_yes') and not new_field.variable.endswith('_no'):
+    return True
+  
+  if len(yesno_map[new_field.variable_name_guess]) == 1:
+    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno()
+  yesno_map[new_field.variable_name_guess].append(new_field)
+  return len(yesno_map[new_field.variable_name_guess]) == 1
+
 
 class DAAttachment(DAObject):
     """This class represents the attachment block we will create in the final output YAML"""
@@ -226,6 +245,16 @@ class DAField(DAObject):
         self.field_type_guess = 'text'
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
+    
+  def mark_as_paired_yesno(self):
+    """Marks this field as actually representing two template fields:
+    one with `variable_name`_yes and one with `variable_name`_no
+    """
+    self.paired_yesno = True
+    if self.variable.endswith('_no'):
+      self.variable = self.variable[:-3] 
+    elif self.variable.endswith('_yes'):
+      self.variable = self.variable[:-4]
 
   def get_single_field_screen(self, document_type):
     field_name_to_use = map_names(self.variable, document_type=document_type)
@@ -310,13 +339,19 @@ class DAField(DAObject):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     field_varname = varname(self.variable)
+    if hasattr(self, 'paired_yesno') and self.paired_yesno:
+      return ('      - "{}": ${{ {} }}\n' +
+              '      - "{}": ${{ not {} }}\n').format(
+                self.variable + '_yes', map_names(field_varname),
+                self.variable + '_no', map_names(field_varname))
+
     content = '      - "{}": '.format(self.variable)
     if hasattr(self, 'field_type') and self.field_type == 'date':
-        content += '${ ' + field_varname.format() + ' }\n'
+      content += '${ ' + field_varname.format() + ' }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-        content += '${ currency(' + field_varname + ') }\n'
+      content += '${ currency(' + field_varname + ') }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-        content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
+      content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
       content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
@@ -327,7 +362,11 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
-    if self.variable != self.docassemble_variable:
+    if hasattr(self, 'paired_yesno') and self.paired_yesno:
+      field_questions.append({
+        'note': bold('{} (will be expanded to include _yes and _no)'.format(self.variable))
+      })
+    elif self.variable != self.docassemble_variable:
       field_questions.append({
         'note': bold('{} (will be renamed to {})'.format(self.variable, self.docassemble_variable))
       })
