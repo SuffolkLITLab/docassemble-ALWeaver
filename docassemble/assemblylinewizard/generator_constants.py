@@ -14,7 +14,7 @@ generator_constants.RESERVED_WHOLE_WORDS = [
   #'attorney_of_record_address_on_one_line',
 ]
 
-# Singular person object prefixes
+# Singular person object prefixes that we deliberately leave undefined
 generator_constants.PERSON_PREFIXES = [
   "trial_court",
 ]
