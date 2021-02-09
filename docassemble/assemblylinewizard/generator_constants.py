@@ -14,8 +14,9 @@ generator_constants.RESERVED_WHOLE_WORDS = [
   #'attorney_of_record_address_on_one_line',
 ]
 
-# Singular person object prefixes that we deliberately leave undefined
-generator_constants.PERSON_PREFIXES = [
+# Prefixes for singular person-like objects, like trial courts that
+# should be left undefined to trigger their question
+generator_constants.UNDEFINED_PERSON_PREFIXES = [
   "trial_court",
 ]
 
@@ -169,6 +170,7 @@ generator_constants.RESERVED_SUFFIXES_MAP = {**generator_constants.PEOPLE_SUFFIX
   # '_name_short': not implemented,
   '_division': ".division",
   '_county': ".address.county",
+  '_department': ".department",
 }}
 
 # these might be used in a docx, but we don't transform PDF fields to use these

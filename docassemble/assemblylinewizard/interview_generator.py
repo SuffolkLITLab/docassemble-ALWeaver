@@ -1051,7 +1051,7 @@ def get_docx_variables( text ):
 
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
-              single_person_prefixes=generator_constants.PERSON_PREFIXES,
+              undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
@@ -1066,7 +1066,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
   if (label in reserved_whole_words
    or label in reserved_var_plurals
-   or label in single_person_prefixes):
+   or label in undefined_person_prefixes):
      return label
 
   # Break up label into its parts: prefix, digit, the rest
@@ -1110,7 +1110,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
 def trigger_gather_string(docassemble_var,
                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-                          single_person_prefixes=generator_constants.PERSON_PREFIXES,
+                          undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                           reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
   """Turn the docassemble variable string into an expression
@@ -1133,7 +1133,7 @@ def trigger_gather_string(docassemble_var,
   # The prefix, ensuring no key or index
   prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
   has_plural_prefix = prefix in reserved_pluralizers_map.values()
-  has_singular_prefix = prefix in single_person_prefixes
+  has_singular_prefix = prefix in undefined_person_prefixes
 
   if has_plural_prefix or has_singular_prefix:
     first_attribute = var_parts[0][1]
@@ -1149,7 +1149,7 @@ def trigger_gather_string(docassemble_var,
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
                            reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-                           single_person_prefixes=generator_constants.PERSON_PREFIXES,
+                           undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                            reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
                            reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
@@ -1166,7 +1166,7 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     # The prefix, ensuring no key or index
     # Not sure this handles keys/attributes
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
-    is_reserved = prefix in reserved_pluralizers_map.values() or prefix in single_person_prefixes
+    is_reserved = prefix in reserved_pluralizers_map.values() or prefix in undefined_person_prefixes
 
     if is_reserved:
       suffix = label_parts[0][1]
@@ -1250,7 +1250,7 @@ def indexify(digit):
     return '[' + str(int(digit)-1) + ']'
 
 def get_person_variables(fieldslist,
-                         single_person_prefixes = generator_constants.PERSON_PREFIXES,
+                         undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
                          people_vars = generator_constants.PEOPLE_VARS,
                          people_suffixes = generator_constants.PEOPLE_SUFFIXES,
                          people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP,
@@ -1270,7 +1270,7 @@ def get_person_variables(fieldslist,
       field_to_check = field
     if (field_to_check) in people_vars:
       people.add(field_to_check)
-    elif (field_to_check) in single_person_prefixes:
+    elif (field_to_check) in undefined_person_prefixes:
       pass  # Do not ask how many there will be about a singluar person
     elif '[' in field_to_check or '.' in field_to_check:
       # Check for a valid Python identifier before brackets or .
@@ -1278,7 +1278,7 @@ def get_person_variables(fieldslist,
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
         # Do not ask how many there will be about a singluar person
-        if matches.groups()[0] in single_person_prefixes:
+        if matches.groups()[0] in undefined_person_prefixes:
           pass
         # Is the name before attribute/index a predetermined person?  
         elif matches.groups()[0] in people_vars:
@@ -1298,7 +1298,7 @@ def get_person_variables(fieldslist,
       match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
-        if matches.groups()[0] in single_person_prefixes:
+        if matches.groups()[0] in undefined_person_prefixes:
           # Do not ask how many there will be about a singluar person
           pass
         else:
