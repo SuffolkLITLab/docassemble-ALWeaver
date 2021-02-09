@@ -751,8 +751,7 @@ code: |
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
   end_question.subquestion_text += 'Below is a preview of your form.\n\n'
   end_question.subquestion_text += "${ al_user_bundle.download_list_html() }"
-  # TODO: make the logic block mandatory, instead of the download screen
-  end_question.is_mandatory = False # Keep this in so you can run the interview right away
+  end_question.is_mandatory = False
   end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview
   end_question.interview_label = interview_label
