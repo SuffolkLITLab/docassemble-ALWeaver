@@ -1080,10 +1080,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   prefix = label_groups[1]
   # Map prefix to an adjusted version
   # At the moment, turn any singluars into plurals if needed, e.g. 'user' into 'users'
-  try:
-    adjusted_prefix = reserved_pluralizers_map[prefix]
-  except:
-    adjusted_prefix = prefix
+  adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
   if adjusted_prefix in reserved_var_plurals:
