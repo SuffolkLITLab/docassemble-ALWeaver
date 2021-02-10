@@ -1265,6 +1265,7 @@ def get_person_variables(fieldslist,
       field_to_check = map_names(field[0])
     else:
       field_to_check = field
+    # Exact match
     if (field_to_check) in people_vars:
       people.add(field_to_check)
     elif (field_to_check) in undefined_person_prefixes:
@@ -1286,20 +1287,19 @@ def get_person_variables(fieldslist,
         else:
           # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
           if map_names(matches.groups()[1]) in people_suffixes:
-            people.add(matches.groups()[0])
+            # In this branch, we need to strip off trailing numbers
+            people.add(re.sub("\d+$","",matches.groups()[0]))
     else:
       # If it's a PDF name that wasn't transformed by map_names, do one last check
-      # See regex GitHub issue:
-      # https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/205
-      # TAKE CARE to double check new possible partial matches to suffixes
+      # In this branch and all subbranches strip trailing numbers
+      # regex to check for matching suffixes, and catch things like mail_address_address 
+      # instead of just _address_address, if the longer one matches
       match_pdf_person_suffixes = r"(.+?)(?:($)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
-        if matches.groups()[0] in undefined_person_prefixes:
+        if not matches.groups()[0] in undefined_person_prefixes:
           # Do not ask how many there will be about a singluar person
-          pass
-        else:
-          people.add(matches.groups()[0])
+          people.add(re.sub("\d+$","",matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
   else:

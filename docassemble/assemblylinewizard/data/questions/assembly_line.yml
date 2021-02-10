@@ -284,7 +284,7 @@ objects:
 code: |
   # Build the dynamic question code to ask about people quantities
   temp_people_quantity_question = []
-  for person in people_variables.true_values().union(built_in_people_vars_used):
+  for person in set(people_variables.true_values()).union(set(built_in_people_vars_used)):
     temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
       "datatype": "radio",
       "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
@@ -296,7 +296,7 @@ question: |
   Information about people
 subquestion: |
   This form includes the following variables representing people:
-  ${ comma_and_list(people_variables.true_values().union(built_in_people_vars_used)) }
+  ${ comma_and_list(set(people_variables.true_values()).union(set(built_in_people_vars_used))) }
 fields:
   - code: people_quantity_question 
 help:
@@ -339,8 +339,8 @@ code: |
       pdf_field_name = pdf_field_tuple[0]
       # Check to see if we think this field is built-in (handled in
       # basic-questions.yml), a signature, or an arbitrary field.
-      is_reserved_name = is_reserved_label(pdf_field_name)
-      if is_reserved_name or pdf_field_name in variables_to_skip:
+      #is_reserved_name = 
+      if is_reserved_label(pdf_field_name) or pdf_field_name in variables_to_skip or pdf_field_name in people_variables.true_values():
         new_field = built_in_fields_used.appendObject()
       elif pdf_field_tuple[4] == '/Sig':
         new_field = signature_fields.appendObject()
@@ -356,7 +356,7 @@ code: |
   else:
     # if this is a docx, fields are a list of strings, not a list of tuples
     for field in all_fields:
-      if is_reserved_docx_label(field):
+      if is_reserved_docx_label(field) or field in people_variables.true_values():
         new_field = built_in_fields_used.appendObject()
       elif field.endswith('.signature'):
         new_field = signature_fields.appendObject()
@@ -556,7 +556,7 @@ code: |
   objects_block =  interview.questions.appendObject()
   objects_block.type = "objects"
   objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
-  for person in people_variables.true_values().union(built_in_people_vars_used):
+  for person in set(people_variables.true_values()).union(set(built_in_people_vars_used)):
     new_object = objects_block.objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
