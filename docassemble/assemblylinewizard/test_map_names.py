@@ -55,6 +55,13 @@ attachment_scenarios = {
   # "county_division": not implemented,
   "court_address_county": "courts[0].address.county",
   "court_county": "courts[0].address.county",
+  
+  # Singluar prefixes that still have suffixes
+  "trial_court": "trial_court",
+  "trial_court_address_county": "trial_court.address.county",
+  "trial_court_county": "trial_court.address.county",
+  "trial_court_division": "trial_court.division",
+  "trial_court_department": "trial_court.department",
 
   # # Reserved starts (with names)
   "user": "users[0]",
@@ -142,6 +149,13 @@ interview_order_scenarios = {
   # "county_division": not implemented,
   "court_address_county": "courts[0].address.address",
   "court_county": "courts[0].address.address",
+
+  # Singluar prefixes that still have suffixes
+  "trial_court": "trial_court",
+  "trial_court_address_county": "trial_court.address.address",
+  "trial_court_county": "trial_court.address.address",
+  "trial_court_division": "trial_court.division",
+  "trial_court_department": "trial_court.department",
 
   # # Reserved starts (with names)
   "user": "users.gather()",

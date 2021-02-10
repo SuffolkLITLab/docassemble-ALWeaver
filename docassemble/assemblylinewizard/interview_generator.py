@@ -1051,6 +1051,7 @@ def get_docx_variables( text ):
 
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
@@ -1063,13 +1064,12 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
 
-  if label in reserved_whole_words:
-    return label
+  if (label in reserved_whole_words
+   or label in reserved_var_plurals
+   or label in undefined_person_prefixes):
+     return label
 
-  if label in reserved_var_plurals:
-    return label
-
-  # Break up label into its parts
+  # Break up label into its parts: prefix, digit, the rest
   label_groups = get_reserved_label_parts(reserved_prefixes, label)
 
   # If no matches to automateable labels were found,
@@ -1077,22 +1077,23 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
   if label_groups is None or label_groups[1] == '':
     return label
 
-  # With reserved words, we're always using an index
-  # of the plural version of the prefix of the label
   prefix = label_groups[1]
-  # Turn any singluars into plurals, e.g. 'user' into 'users'
-  plural_prefix = reserved_pluralizers_map[prefix]
-  digit = label_groups[2]
-  index = indexify(digit)
+  # Map prefix to an adjusted version
+  # At the moment, turn any singluars into plurals if needed, e.g. 'user' into 'users'
+  adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
+  # With reserved plurals, we're always using an index
+  # of the plural version of the prefix of the label
+  if adjusted_prefix in reserved_var_plurals:
+    digit = label_groups[2]
+    index = indexify(digit)
+  else:
+    digit = ''
+    index = ''
+  
   # it's just a standalone, like "defendant", or it's a numbered singular
   # prefix, e.g. user3
   if label == prefix or label == prefix + digit:
-    return plural_prefix + index # Return the pluralized standalone variable
-
-  # If it's a numbered singluar reserved prefix, e.g. user3
-  if label == prefix + digit:
-    # Return the plural plus the index, e.g. users[2]
-    return plural_prefix + index
+    return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
   # Avoid transforming arbitrary suffixes into attributes
@@ -1101,11 +1102,12 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
 
   # Get the mapped suffix attribute if present, else just use the same suffix
   suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
-  return "".join([plural_prefix, index, suffix_as_attribute])
+  return "".join([adjusted_prefix, index, suffix_as_attribute])
 
 
 def trigger_gather_string(docassemble_var,
                           reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                          undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                           reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
   """Turn the docassemble variable string into an expression
@@ -1128,10 +1130,11 @@ def trigger_gather_string(docassemble_var,
   # The prefix, ensuring no key or index
   prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
   has_plural_prefix = prefix in reserved_pluralizers_map.values()
+  has_singular_prefix = prefix in undefined_person_prefixes
 
-  if has_plural_prefix:
+  if has_plural_prefix or has_singular_prefix:
     first_attribute = var_parts[0][1]
-    if first_attribute == '' or first_attribute == '.name':
+    if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
       return prefix + GATHER_CALL
     elif first_attribute == '.address' or first_attribute == '.mail_address':
       return var_parts[0][0] + first_attribute + '.address'
@@ -1143,6 +1146,7 @@ def trigger_gather_string(docassemble_var,
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
                            reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                           undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                            reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
                            reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
     '''Given a string, will return whether the string matches
@@ -1157,10 +1161,11 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     if not label_parts[0]:
       return False
     # The prefix, ensuring no key or index
+    # Not sure this handles keys/attributes
     prefix = re.sub(r'\[.+\]', '', label_parts[0][0])
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    is_reserved = prefix in reserved_pluralizers_map.values() or prefix in undefined_person_prefixes
 
-    if has_plural_prefix:
+    if is_reserved:
       suffix = label_parts[0][1]
       if not suffix:  # If only the prefix
         return True
@@ -1241,10 +1246,17 @@ def indexify(digit):
   else:
     return '[' + str(int(digit)-1) + ']'
 
-def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, custom_only=False):
+def get_person_variables(fieldslist,
+                         undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
+                         people_vars = generator_constants.PEOPLE_VARS,
+                         people_suffixes = generator_constants.PEOPLE_SUFFIXES,
+                         people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP,
+                         reserved_person_pluralizers_map = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
+                         custom_only=False):
   """
   Identify the field names that represent people in the list of
-  string fields pulled from docx/PDF.    
+  string fields pulled from docx/PDF. Exclude people we know
+  are singular Persons (such as trial_court).
   """
   people = set()
   for field in fieldslist:
@@ -1255,13 +1267,18 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
       field_to_check = field
     if (field_to_check) in people_vars:
       people.add(field_to_check)
+    elif (field_to_check) in undefined_person_prefixes:
+      pass  # Do not ask how many there will be about a singluar person
     elif '[' in field_to_check or '.' in field_to_check:
       # Check for a valid Python identifier before brackets or .
       match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
+        # Do not ask how many there will be about a singluar person
+        if matches.groups()[0] in undefined_person_prefixes:
+          pass
         # Is the name before attribute/index a predetermined person?  
-        if matches.groups()[0] in people_vars:
+        elif matches.groups()[0] in people_vars:
           people.add(matches.groups()[0])
         # Maybe this is the singular version of a person's name?
         elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
@@ -1272,16 +1289,16 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
             people.add(matches.groups()[0])
     else:
       # If it's a PDF name that wasn't transformed by map_names, do one last check
-      # The regex below is non-greedy; _address will match before _mail_address
-      match_pdf_person_suffixes = r"([A-Za-z_]\w*)(" + "|".join(people_suffixes_map.keys()) + "$)"
+      # See regex GitHub issue:
+      # https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/205
+      # TAKE CARE to double check new possible partial matches to suffixes
+      match_pdf_person_suffixes = r"(.+?)(?:($)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
-        # There may be more elegant solution. but since _mail_address_address
-        # will match _address_address this is workaround below.
-        # If we add more possible partial matches to suffixes, we need to add more workarounds
-        if matches.groups()[0].endswith('_mail') and matches.groups()[1].startswith('_address'):
-          people.add(matches.groups()[0][:-5])
-        else:          
+        if matches.groups()[0] in undefined_person_prefixes:
+          # Do not ask how many there will be about a singluar person
+          pass
+        else:
           people.add(matches.groups()[0])
   if custom_only:
     return people - set(people_vars)
