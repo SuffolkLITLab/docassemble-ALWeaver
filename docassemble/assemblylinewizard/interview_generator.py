@@ -1292,7 +1292,7 @@ def get_person_variables(fieldslist,
       # See regex GitHub issue:
       # https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/205
       # TAKE CARE to double check new possible partial matches to suffixes
-      match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
+      match_pdf_person_suffixes = r"(.+?)(?:($)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
         if matches.groups()[0] in undefined_person_prefixes:
