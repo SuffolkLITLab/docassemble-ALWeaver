@@ -1243,8 +1243,8 @@ def indexify(digit):
 
 def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS, people_suffixes = generator_constants.PEOPLE_SUFFIXES, people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP, reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, custom_only=False):
   """
-  Identify the field names that represent people in the list of
-  string fields pulled from docx/PDF.    
+  Identify the field names that appear to represent people in the list of
+  string fields pulled from docx/PDF.
   """
   people = set()
   for field in fieldslist:
@@ -1253,6 +1253,7 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
       field_to_check = map_names(field[0])
     else:
       field_to_check = field
+    # Exact match
     if (field_to_check) in people_vars:
       people.add(field_to_check)
     elif '[' in field_to_check or '.' in field_to_check:
@@ -1269,9 +1270,11 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
         else:
           # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
           if map_names(matches.groups()[1]) in people_suffixes:
-            people.add(matches.groups()[0])
+            # In this branch, we need to strip off trailing numbers
+            people.add(re.sub("\d+$","",matches.groups()[0]))
     else:
       # If it's a PDF name that wasn't transformed by map_names, do one last check
+      # In this branch and all subbranches strip trailing numbers
       # The regex below is non-greedy; _address will match before _mail_address
       match_pdf_person_suffixes = r"([A-Za-z_]\w*)(" + "|".join(people_suffixes_map.keys()) + "$)"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
@@ -1280,9 +1283,9 @@ def get_person_variables(fieldslist, people_vars=generator_constants.PEOPLE_VARS
         # will match _address_address this is workaround below.
         # If we add more possible partial matches to suffixes, we need to add more workarounds
         if matches.groups()[0].endswith('_mail') and matches.groups()[1].startswith('_address'):
-          people.add(matches.groups()[0][:-5])
+          people.add(re.sub("\d+$","",matches.groups()[0][:-5]))
         else:          
-          people.add(matches.groups()[0])
+          people.add(re.sub("\d+$","",matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
   else:
