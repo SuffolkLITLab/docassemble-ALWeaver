@@ -575,11 +575,8 @@ code: |
   add_objects_block = True
 ---
 code: |
-  # Build the mandatory code block that will control question flow
+  # Build the code block that will control question flow
   logic_list = []
-  logic_list.append('# Intro screen/splash screen')
-  logic_list.append('al_intro_screen') # Splash page for your organization
-  logic_list.append(interview_label + '_intro')
   logic_list.append('# Set the allowed courts for this interview')
   logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
   # The placeholder section label just reviews all of the questions
@@ -605,6 +602,7 @@ code: |
   increment = 100/total_steps
   progress = 0
   
+  signatures = set()
   for index, question in enumerate(questions):
     if index and index % screen_divisor == 0:
       progress += increment
@@ -629,15 +627,21 @@ code: |
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
     logic_list.append(field.trigger_gather)
+    
+    if field.trigger_gather.endswith('.signature'):
+      signatures.add(field.trigger_gather)
   
-  # Save a snapshot of interview answers. 
-  # We only want a few anonymous variables
-  logic_list.append("# Save (anonymized) interview statistics.")
-  logic_list.append("store_variables_snapshot(data={'zip': users[0].address.zip})")
+  # Build the mandatory code block that will control overall flow
+  # Need this below collecting signatures
+  main_code = interview.questions.appendObject() # 'main code block'
+  main_code.type = 'main order'
+  main_code.intro = 'al_intro_screen'  # Splash page for your organization
+  main_code.signatures = signatures
+  main_code.interview_label = interview_label
   
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
-  code_block =  interview.questions.appendObject() # 'main code block')
+  code_block =  interview.questions.appendObject() # 'interview order code block'
   code_block.type = 'interview order'
   code_block.logic_list = logic_list
   code_block.interview_label = interview_label
@@ -746,6 +750,7 @@ code: |
   # This is the question that goes with the regular attachment
   end_question = interview.questions.appendObject() # 'all_done')
   end_question.id = "download" # Use a consistent ID for Google Analytics
+  end_question.event = interview_label + "_download"
   end_question.type = 'question'
   end_question.progress = "100"
   end_question.question_text = 'Your form is ready to download.'
@@ -754,8 +759,7 @@ code: |
   end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
   end_question.subquestion_text += 'Below is a preview of your form.\n\n'
   end_question.subquestion_text += "${ al_user_bundle.download_list_html() }"
-  # TODO: make the logic block mandatory, instead of the download screen
-  end_question.is_mandatory = True # Keep this in so you can run the interview right away
+  end_question.is_mandatory = False
   end_question.attachment_variable_name = attachment_variable_name
   end_question.interview = interview
   end_question.interview_label = interview_label

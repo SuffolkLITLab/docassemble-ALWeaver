@@ -429,6 +429,8 @@ class DAQuestion(DAObject):
                 content += "id: " + fix_id(self.id) + "\n"
             else:
                 content += "id: " + fix_id(self.question_text) + "\n"
+            if hasattr(self, 'event'):
+                content += "event: " + self.event + "\n"
             if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
@@ -440,11 +442,10 @@ class DAQuestion(DAObject):
                 new_content, done_with_content = self.field_list[0].get_single_field_screen(document_type)
                 content += new_content
             if self.field_list[0].field_type == 'end_attachment':
-                if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  content += "need: " + self.interview_label + "\n"
-                  # TODO: insert the email code
-                  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
+                #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
+                #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
+                #  # TODO: insert the email code
+                #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                 #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                 # attachments is no longer always a DAList
                 # TODO / FUTURE we could let this handle multiple forms at once
@@ -522,26 +523,49 @@ class DAQuestion(DAObject):
                 content += ")"
               content += "\n" 
             content += "\n"
+            
+        elif self.type == 'main order':
+          lines = [
+            "mandatory: True",
+            "id: main_order_" + self.interview_label,
+            "code: |",
+            "  " + "# Controls the flow of the basic building blocks of the",
+            "  " + "# interview. To use this interview in another interview",
+            "  " + "# delete the `mandatory: True` specifier or this whole block.",
+            "  " + self.intro + "  # Organization intro screen/splash screen",
+            "  " + "# Introduction to this specific interview",
+            "  " + self.interview_label + "_intro",
+            "  " + "# Trigger the whole interview order block to control question order",
+            "  " + self.interview_label,
+            "  " + "signature_date",
+            # Save a snapshot of interview answers. 
+            # We only want a few anonymous variables
+            "  " + "# Save (anonymized) interview statistics.",
+            "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
+            "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
+            "  " + "basic_questions_signature_flow",
+          ];
+          
+          for signature_field in self.signatures:
+            lines.append( "  " + signature_field )
+          lines.append("  " + self.interview_label + "_download")
+          
+          content += '\n'.join(lines) + '\n'
                                    
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control logic flow in this interview" + "\n"
-            signatures = set()
+            content += "  # This is a placeholder to control order of questions in this interview\n"
             added_field_names = set()
             for field in self.logic_list:
-              if field.endswith('.signature'):  # save the signatures for the end
-                signatures.add(field)
-              elif not field in added_field_names:
+              if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
+                continue
+              if not field in added_field_names:
                 # We built this logic list by collecting the first field on each screen
                 content += "  " + field + "\n"
               added_field_names.add(field)
-            content += "  " + self.interview_label + '_preview_question # Pre-canned preview screen\n'
-            content += "  basic_questions_signature_flow\n"
-            for signature_field in signatures:
-              content += "  " + signature_field + "\n"
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].variable) + "\n"

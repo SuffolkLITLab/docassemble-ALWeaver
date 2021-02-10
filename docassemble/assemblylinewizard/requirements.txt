@@ -30,7 +30,7 @@ cheroot==8.2.1
 CherryPy==18.3.0
 Click==7.0
 convertapi==1.1.0
-cryptography==3.2
+cryptography==3.3.2
 dnspython==1.16.0
 docassemble==1.1.13
 docassemble.base==1.1.13
