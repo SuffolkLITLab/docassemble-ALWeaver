@@ -309,11 +309,12 @@ class DAField(DAObject):
 
     return content
 
-  def review_yaml(self, document_type, field_names):
+  def review_yaml(self, document_type, reviewed_fields):
     field_name_to_use = unmap(self.docassemble_variable)
-    if field_name_to_use in field_names:
+    if field_name_to_use in reviewed_fields:
       return ""
 
+    reviewed_fields.add(field_name_to_use)
     content = ""
     if hasattr(self, 'edit_attribute'):
       content += '  - Edit: ' + self.edit_attribute + "\n"
@@ -341,7 +342,6 @@ class DAField(DAObject):
         content += indent_by('${ ' + field_name_to_use + ' }', 6)
     else:
       content += indent_by('${ ' + field_name_to_use + ' }', 6)
-    field_names.add(field_name_to_use)
     return content
 
   def attachment_yaml(self):
@@ -673,9 +673,9 @@ class DAQuestion(DAObject):
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
           content += "review: \n"
-          field_names = set()
+          reviewed_fields = set()
           for field in self.field_list:
-              content += field.review_yaml(document_type, field_names)
+              content += field.review_yaml(document_type, reviewed_fields)
         return content
 
 class DAQuestionList(DAList):
