@@ -985,11 +985,18 @@ def get_fields(the_file):
   return get_docx_variables( text )
 
 
-def get_docx_variables( text ):
-  '''Given the string from a docx file with fairly simple
-  code), returns a list of the jinja variables used there.
-  Can be easily tested in a repl using the libs keyword and re.'''
+def get_docx_variables( text:str )->set:
+  """
+  Given the string from a docx file with fairly simple
+  code), returns a list of everything that looks like a jinja variable in the string.
 
+  Limits: some attributes and methods might not be designed to be directly
+  assigned in docassemble. Methods are stripped, but you may be left with
+  something you didn't intend. This is only going to help reach a draft interview.
+
+  Special handling for methods that look like they belong to Individual/Address classes.
+  """
+  #   Can be easily tested in a repl using the libs keyword and re
   minimally_filtered = set()
   for possible_variable in re.findall(r'{{ *([^\} ]+) *}}', text): # Simple single variable use
     minimally_filtered.add( possible_variable )
@@ -1014,13 +1021,16 @@ def get_docx_variables( text ):
     # Filter out keywords like `in`
     if keyword.iskeyword( prefix_root ): continue
 
-    # Deal with special cases harshly
+    # Help gathering actual address as an attribute when document says something
+    # like address.block()
     if '.address' in possible_var:  # an address
       if '.address.county' in possible_var:  # a county is special
         fields.add( possible_var )
-      else:  # all other addresses (replaces .zip and such)
+      else:  # all other addresses and methods on addresses (replaces .address_block() and .address.block())
         fields.add( re.sub(r'\.address.*', '.address.address', possible_var ))
-      fields.add( prefix_with_key )
+      # fields.add( prefix_with_key ) # Can't recall who added or what was this supposed to do?
+      # It will add an extra, erroneous entry of the object root, which usually doesn't
+      # make sense for a docassemble question
       continue
       
     if '.mail_address' in possible_var:  # a mailing address
@@ -1028,7 +1038,6 @@ def get_docx_variables( text ):
         fields.add( possible_var )
       else:  # all other mailing addresses (replaces .zip and such)
         fields.add( re.sub(r'\.mail_address.*', '.mail_address.address', possible_var ))
-      fields.add( prefix_with_key )
       continue
 
     if '.name' in possible_var:  # a name
@@ -1036,7 +1045,6 @@ def get_docx_variables( text ):
         fields.add( possible_var )
       else:  # Names for Individuals
         fields.add( re.sub(r'\.name.*', '.name.first', possible_var ))
-      fields.add( prefix_with_key )
       continue
 
     # Remove any methods from the end of the variable
@@ -1283,7 +1291,7 @@ def get_person_variables(fieldslist,
           people.add(matches.groups()[0])
         # Maybe this is the singular version of a person's name?
         elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
-          people.add(reserved_person_pluralizers_map[matches.groups()[0]])          
+          people.add(reserved_person_pluralizers_map[matches.groups()[0]])
         else:
           # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
           if map_names(matches.groups()[1]) in people_suffixes:
