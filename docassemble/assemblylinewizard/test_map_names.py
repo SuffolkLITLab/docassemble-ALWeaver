@@ -1,6 +1,6 @@
 import unittest
 
-from .interview_generator import map_names, trigger_gather_string
+from .interview_generator import map_field_to_attachment_var, trigger_gather_string
 from docassemble.base.util import log
 
 __all__ = ['TestMapNames']
@@ -193,9 +193,9 @@ class TestMapNames(unittest.TestCase):
         # A list of scenarios with the 1) input/output mappings, 
         #    2) the user readable name, 3) function to test
         test_scenarios = [
-          (attachment_scenarios, 'attach block', map_names),
+          (attachment_scenarios, 'attach block', map_field_to_attachment_var),
           (interview_order_scenarios, 'interview order',
-           lambda x: trigger_gather_string(map_names(x)))
+           lambda x: trigger_gather_string(map_field_to_attachment_var(x)))
         ]
         # Look in the console for a prettier version of the messages
         passed = {}

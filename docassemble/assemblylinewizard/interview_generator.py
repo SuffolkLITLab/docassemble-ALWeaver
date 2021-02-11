@@ -1268,7 +1268,7 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      field_to_check = map_names(field[0])
+      field_to_check = map_field_to_attachment_var(field[0])
     else:
       field_to_check = field
     # Exact match
@@ -1292,11 +1292,11 @@ def get_person_variables(fieldslist,
           people.add(reserved_person_pluralizers_map[matches.groups()[0]])
         else:
           # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
-          if map_names(matches.groups()[1]) in people_suffixes:
+          if map_field_to_attachment_var(matches.groups()[1]) in people_suffixes:
             # In this branch, we need to strip off trailing numbers
             people.add(re.sub("\d+$","",matches.groups()[0]))
     else:
-      # If it's a PDF name that wasn't transformed by map_names, do one last check
+      # If it's a PDF name that wasn't transformed by map_field_to_attachment_var, do one last check
       # In this branch and all subbranches strip trailing numbers
       # regex to check for matching suffixes, and catch things like mail_address_address 
       # instead of just _address_address, if the longer one matches
