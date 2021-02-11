@@ -1095,6 +1095,8 @@ def get_docx_variables( text:str )->set:
         fields.add( re.sub(r'\.name.*', '.name.first', possible_var ))
       continue
 
+    # TODO: Put in a test here for some_list.familiar() and for some_list[0].familiar()
+
     # Remove any methods from the end of the variable
     methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var )
     fields.add( methods_removed )
@@ -1144,7 +1146,10 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   # of the plural version of the prefix of the label
   if adjusted_prefix in reserved_var_plurals:
     digit = label_groups[2]
-    index = indexify(digit)
+    if digit == '':
+      index = '[0]'
+    else:
+      index = '[' + str(int(digit)-1) + ']'
   else:
     digit = ''
     index = ''
@@ -1257,15 +1262,27 @@ def unmap(label, unmap_suffixes=generator_constants.UNMAP_SUFFIXES):
             return label.replace(suffix, unmap_suffixes[suffix])
     return label
 
-def get_reserved_label_parts(prefixes, label):
-    return re.search(fr"{prefixes}(\d*)(.*)", label)
+def get_reserved_label_parts(prefixes:list, label:str):
+  """
+  Return an re.matches object for all matching variable names,
+  like user1_something, etc.
+  """
+  return re.search(r"^(" + "|".join(prefixes) + ')(\d*)(.*)', label)
 
-# Return label digit as the correct syntax for an index
-def indexify(digit):
-  if digit == '':
-    return '[0]'
-  else:
-    return '[' + str(int(digit)-1) + ']'
+def process_custom_people(custom_people, fields:list, built_in_fields:list)->list:
+  """
+  Move fields from `fields` to `built_in_fields` list if the user
+  indicated they are going to be treated as ALPeopleLists
+  """
+  # Iterate over DAFieldList 
+  # If any fields match a custom person with a pre-handled suffix, remove them
+  # from the list and add them to the list of built_in_fields_used
+  # combined_prefixes = custom_people
+  # for field in fields:
+  #   # Simpler case: PDF variables matching our naming rules
+  #   if map_names(field.variable, )
+  pass
+
 
 def get_person_variables(fieldslist,
                          undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
@@ -1283,6 +1300,7 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
+      # map_names will only transform names that are built-in to the constants
       field_to_check = map_raw_to_final_display(field[0])
     else:
       field_to_check = field
@@ -1296,8 +1314,8 @@ def get_person_variables(fieldslist,
       match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
-        # Do not ask how many there will be about a singluar person
         if matches.groups()[0] in undefined_person_prefixes:
+          # Ignore singular objects like trial_court
           pass
         # Is the name before attribute/index a predetermined person?  
         elif matches.groups()[0] in people_vars:
@@ -1306,23 +1324,25 @@ def get_person_variables(fieldslist,
         elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
           people.add(reserved_person_pluralizers_map[matches.groups()[0]])
         else:
-          # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
-          if map_names(matches.groups()[1]) in people_suffixes:
-            # In this branch, we need to strip off trailing numbers
-            people.add(re.sub(r"\d+$","",matches.groups()[0]))
+          # This will be reached only for a DOCX and we decided to make
+          # custom people all be plural. So we ALWAYS strip off the leading
+          # index, like [0].name.first
+          possible_suffix = re.sub('^\[\d+\]','',matches.groups()[1])
+          # Look for suffixes normally associated with people like .name.first for a DOCX
+          if possible_suffix in people_suffixes:
+            people.add(matches.groups()[0]) 
     else:
       # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
-      # The regex below is non-greedy; _address will match before _mail_address
-      match_pdf_person_suffixes = r"([A-Za-z_]\w*)(" + "|".join(people_suffixes_map.keys()) + "$)"
+      # regex to check for matching suffixes, and catch things like mail_address_address
+      # instead of just _address_address, if the longer one matches
+      match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
-        # There may be more elegant solution. but since _mail_address_address
-        # will match _address_address this is workaround below.
-        # If we add more possible partial matches to suffixes, we need to add more workarounds
-        if matches.groups()[0].endswith('_mail') and matches.groups()[1].startswith('_address'):
-          people.add(re.sub(r"\d+$","",matches.groups()[0][:-5]))
-        else:
+        if not matches.groups()[0] in undefined_person_prefixes:
+          # Skip pre-defined but singular objects since they are not "people" that
+          # need to turn into lists.
+          # currently this is only trial_court
           people.add(re.sub(r"\d+$","",matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
