@@ -1294,7 +1294,8 @@ def get_person_variables(fieldslist,
       # In this branch and all subbranches strip trailing numbers
       # regex to check for matching suffixes, and catch things like mail_address_address 
       # instead of just _address_address, if the longer one matches
-      match_pdf_person_suffixes = r"(.+?)(?:($)|(".join(people_suffixes_map.keys()) + "$))"
+      match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
+      log(match_pdf_person_suffixes, "console")
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
         if not matches.groups()[0] in undefined_person_prefixes:
