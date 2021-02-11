@@ -25,14 +25,13 @@ TypeType = type(type(None))
 
 __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
-           'base_name', 'to_package_name', 'oneline', 'DAQuestionList', 'map_names', \
+           'base_name', 'oneline', 'DAQuestionList', 'map_field_to_attachment_var', \
            'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', \
            'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
            'get_person_variables', 'get_court_choices', 'consolidate_yesnos']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
-start_spaces = re.compile(r'^ +')
 end_spaces = re.compile(r' +$')
 spaces = re.compile(r'[ \n]+')
 invalid_var_characters = re.compile(r'[^A-Za-z0-9_]+')
@@ -82,7 +81,7 @@ def consolidate_yesnos(new_field, yesno_map):
     return True
   
   if len(yesno_map[new_field.variable_name_guess]) == 1:
-    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno()
+    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno(new_field.field_name)
   yesno_map[new_field.variable_name_guess].append(new_field)
   return len(yesno_map[new_field.variable_name_guess]) == 1
 
@@ -196,7 +195,9 @@ class DAField(DAObject):
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
-    self.variable = new_field_name
+    self.field_name = new_field_name
+    # For docx, we can't change the field name from the document itself, has to be the same
+    self.variable = self.field_name
     self.docassemble_variable = new_field_name  # no transformation changes
     self.trigger_gather = trigger_gather_string(self.docassemble_variable)
     self.has_label = True
@@ -204,16 +205,16 @@ class DAField(DAObject):
     # this will let us edit the name field if document just refers to
     # the whole object
     if new_field_name in reserved_pluralizers_map.values():
-      self.edit_attribute = new_field_name + '[0].name.first'
+      self.edit_attribute = new_field_name + '[0].name'
     if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      self.edit_attribute = new_field_name + '.name.first'
+      self.edit_attribute = new_field_name + '.name'
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
-    elif self.variable.endswith('.signature'):
+    elif self.field_name.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
     else:
@@ -222,8 +223,12 @@ class DAField(DAObject):
 
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
-    self.variable = varname(pdf_field_tuple[0])
-    self.docassemble_variable = map_names(pdf_field_tuple[0])  # TODO: wrap in varname
+    # The raw name of the field from the PDF: must go in attachment block
+    self.field_name = pdf_field_tuple[0]
+    # turns field_name into a valid python identifier
+    self.variable = varname(self.field_name)
+    # the variable, in python: i.e., users[1].name.first
+    self.docassemble_variable = map_field_to_attachment_var(self.variable)
     self.trigger_gather = trigger_gather_string(self.docassemble_variable)
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
@@ -246,38 +251,42 @@ class DAField(DAObject):
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
     
-  def mark_as_paired_yesno(self):
+  def mark_as_paired_yesno(self, paired_field_name: str):
     """Marks this field as actually representing two template fields:
     one with `variable_name`_yes and one with `variable_name`_no
     """
     self.paired_yesno = True
     if self.variable.endswith('_no'):
+      self.field_name = [paired_field_name, self.field_name]
       self.variable = self.variable[:-3] 
+      self.docassemble_variable = self.docassemble_variable[:-3]
+      self.trigger_gather = self.trigger_gather[:-3]
     elif self.variable.endswith('_yes'):
+      self.field_name = [self.field_name, paired_field_name]
       self.variable = self.variable[:-4]
+      self.docassemble_variable = self.docassemble_variable[:-4]
+      self.trigger_gather = self.trigger_gather[:-4]
 
   def get_single_field_screen(self, document_type):
-    field_name_to_use = map_names(self.variable, document_type=document_type)
     if self.field_type == 'yesno':
-      return "yesno: {}\n".format(field_name_to_use), True
+      return "yesno: {}\n".format(self.docassemble_variable), True
     elif self.field_type == 'yesnomaybe':
-      return "yesnomaybe: {}\n".format(field_name_to_use), True
+      return "yesnomaybe: {}\n".format(self.docassemble_variable), True
     else:
       return "", False
 
-  def _maxlength_str(self):
+  def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:
       return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
 
   def field_entry_yaml(self, document_type):
-    field_name_to_use = map_names(self.variable, document_type=document_type)
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), field_name_to_use)
+      content += "  - {}: {}\n".format(repr_str(self.label), self.docassemble_variable) 
     else:
-      content += "  - no label: {}\n".format(field_name_to_use)
+      content += "  - no label: {}\n".format(self.docassemble_variable) 
 
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
@@ -301,7 +310,7 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, document_type, field_names):
-    field_name_to_use = unmap(map_names(self.variable, document_type=document_type))
+    field_name_to_use = unmap(self.docassemble_variable)
     if field_name_to_use in field_names:
       return ""
 
@@ -338,42 +347,38 @@ class DAField(DAObject):
   def attachment_yaml(self):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
-    field_varname = varname(self.variable)
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       return ('      - "{}": ${{ {} }}\n' +
               '      - "{}": ${{ not {} }}\n').format(
-                self.variable + '_yes', map_names(field_varname),
-                self.variable + '_no', map_names(field_varname))
+                self.field_name[0], self.docassemble_variable,
+                self.field_name[1], self.docassemble_variable)
 
     content = '      - "{}": '.format(self.variable)
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      content += '${ ' + field_varname.format() + ' }\n'
+      content += '${ ' + self.variable.format() + ' }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      content += '${ currency(' + field_varname + ') }\n'
+      content += '${ currency(' + self.variable + ') }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      content += r'${ "{:,.2f}".format(' + field_varname + ') }\n' 
+      content += r'${ "{:,.2f}".format(' + self.variable + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      content = comment + content + '${ ' + map_names(field_varname) + " if i == 'final' else '' }\n"
+      content = comment + content + '${ ' + self.docassemble_variable + " if i == 'final' else '' }\n"
     else:
-      content += '${ ' + map_names(field_varname) + ' }\n'
-    log('attachment_yaml for {}: {}'.format(self.variable, content), 'console')
+      content += '${ ' + self.docassemble_variable + ' }\n'
     return content
 
   def user_ask_about_field(self, index):
     field_questions = []
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
-      field_questions.append({
-        'note': bold('{} (will be expanded to include _yes and _no)'.format(self.variable))
-      })
+      field_title = '{} (will be expanded to include _yes and _no)'.format(self.docassemble)
     elif self.variable != self.docassemble_variable:
-      field_questions.append({
-        'note': bold('{} (will be renamed to {})'.format(self.variable, self.docassemble_variable))
-      })
+      field_title = '{} (will be renamed to {})'.format(self.docassemble_variable, self.field_name)
     else:
-      field_questions.append({
-        'note': bold(self.variable)
-      })
+      field_title = self.docassemble_variable
+
+    field_questions.append({
+      'note': bold(field_title)
+    })
     field_questions.append({
       'label': "On-screen prompt",
       'field': 'fields[' + str(index) + '].label',
@@ -921,8 +926,7 @@ def indent_by(text, num):
     return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip() + "\n"
 
 def varname(var_name):
-    var_name = start_spaces.sub(r'', var_name)
-    var_name = end_spaces.sub(r'', var_name)
+    var_name = var_name.strip() 
     var_name = spaces.sub(r'_', var_name)
     var_name = invalid_var_characters.sub(r'', var_name)
     var_name = digit_start.sub(r'', var_name)
@@ -944,12 +948,6 @@ def to_yaml_file(text):
 
 def base_name(filename):
     return os.path.splitext(filename)[0]
-
-def to_package_name(text):
-    text = varname(text)
-    text = re.sub(r'\..*', r'', text)
-    text = re.sub(r'[^A-Za-z0-9]', r'', text)
-    return text
 
 def repr_str(text):
     return remove_u.sub(r'', repr(text))
@@ -1057,7 +1055,7 @@ def get_docx_variables( text:str )->set:
 ########################################################
 # Map names code
 
-def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+def map_field_to_attachment_var(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
