@@ -217,9 +217,9 @@ class DAField(DAObject):
     # this will let us edit the name field if document just refers to
     # the whole object
     if new_field_name in reserved_pluralizers_map.values():
-      self.edit_attribute = new_field_name + '[0].name.first'
+      self.edit_attribute = new_field_name + '[0].name'
     if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      self.edit_attribute = new_field_name + '.name.first'
+      self.edit_attribute = new_field_name + '.name'
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
