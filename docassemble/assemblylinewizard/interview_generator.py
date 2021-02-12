@@ -280,6 +280,8 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
+    log("{}: {}".format(self.raw_field_name, self.variable), "console")
+    log("{}".format(self.final_display_var), "console")
     settable_version = unmap(self.final_display_var)
     content = ""
     if self.has_label:
@@ -309,6 +311,8 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, document_type, reviewed_fields):
+    log("{}: {}".format(self.raw_field_name, self.variable), "console")
+    log("{}".format(self.final_display_var), "console")
     settable_var = unmap(self.final_display_var)
     if settable_var in reviewed_fields:
       return ""
@@ -371,8 +375,9 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
+    settable_var = unmap(self.final_display_var)
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
-      field_title = '{} (will be expanded to include _yes and _no)'.format(self.docassemble)
+      field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
     elif self.raw_field_name != self.final_display_var:
       field_title = '{} (will be renamed to {})'.format(self.final_display_var, self.raw_field_name)
     else:
@@ -466,6 +471,7 @@ class DAQuestion(DAObject):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
+        log('in question, of type {}, content: {}'.format(self.type, content), 'console')
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
@@ -525,6 +531,7 @@ class DAQuestion(DAObject):
                         content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
                         self.templates_used.add(attachment.docx_filename)
                 done_with_content = True
+                
             if not done_with_content:
                 content += "fields:\n"
                 for field in self.field_list:
@@ -715,6 +722,7 @@ class DAQuestion(DAObject):
           content += "review: \n"
           reviewed_fields = set()
           for field in self.field_list:
+              log('at review for {}'.format(field.raw_field_name), 'console')
               content += field.review_yaml(document_type, reviewed_fields)
         return content
 
