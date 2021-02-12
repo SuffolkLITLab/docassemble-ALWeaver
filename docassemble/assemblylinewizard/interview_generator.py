@@ -25,8 +25,8 @@ TypeType = type(type(None))
 
 __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
-           'base_name', 'oneline', 'DAQuestionList', 'map_field_to_attachment_var', \
-           'trigger_gather_string', 'is_reserved_label', 'attachment_download_html', \
+           'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
+           'is_reserved_label', 'attachment_download_html', \
            'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
            'get_person_variables', 'get_court_choices', 'consolidate_yesnos']
 
@@ -81,7 +81,7 @@ def consolidate_yesnos(new_field, yesno_map):
     return True
   
   if len(yesno_map[new_field.variable_name_guess]) == 1:
-    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno(new_field.field_name)
+    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno(new_field.raw_field_name)
   yesno_map[new_field.variable_name_guess].append(new_field)
   return len(yesno_map[new_field.variable_name_guess]) == 1
 
@@ -199,8 +199,7 @@ class DAField(DAObject):
     self.raw_field_name = new_field_name
     # For docx, we can't change the field name from the document itself, has to be the same
     self.variable = self.raw_field_name
-    self.docassemble_variable = new_field_name  # no transformation changes
-    self.trigger_gather = trigger_gather_string(self.docassemble_variable)
+    self.final_display_var = new_field_name  # no transformation changes
     self.has_label = True
 
     # this will let us edit the name field if document just refers to
@@ -229,8 +228,7 @@ class DAField(DAObject):
     # turns field_name into a valid python identifier
     self.variable = varname(self.raw_field_name)
     # the variable, in python: i.e., users[1].name.first
-    self.docassemble_variable = map_field_to_attachment_var(self.variable)
-    self.trigger_gather = trigger_gather_string(self.docassemble_variable)
+    self.final_display_var = map_raw_to_final_display(self.variable)
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
@@ -260,16 +258,14 @@ class DAField(DAObject):
     if self.variable.endswith('_no'):
       self.raw_field_name = [paired_field_name, self.raw_field_name]
       self.variable = self.variable[:-3] 
-      self.docassemble_variable = self.docassemble_variable[:-3]
-      self.trigger_gather = self.trigger_gather[:-3]
+      self.final_display_var = self.final_display_var[:-3]
     elif self.variable.endswith('_yes'):
       self.raw_field_name = [self.raw_field_name, paired_field_name]
       self.variable = self.variable[:-4]
-      self.docassemble_variable = self.docassemble_variable[:-4]
-      self.trigger_gather = self.trigger_gather[:-4]
+      self.final_display_var = self.final_display_var[:-4]
 
   def get_single_field_screen(self, document_type):
-    settable_version = unmap(self.docassemble_variable)
+    settable_version = unmap(self.final_display_var)
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
@@ -284,7 +280,7 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
-    settable_version = unmap(self.docassemble_variable)
+    settable_version = unmap(self.final_display_var)
     content = ""
     if self.has_label:
       content += "  - {}: {}\n".format(repr_str(self.label), settable_version) 
@@ -313,7 +309,7 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, document_type, reviewed_fields):
-    settable_var = unmap(self.docassemble_variable)
+    settable_var = unmap(self.final_display_var)
     if settable_var in reviewed_fields:
       return ""
     reviewed_fields.add(settable_var)
@@ -328,36 +324,36 @@ class DAField(DAObject):
     content += indent_by(bold(edit_display_name) + ": ", 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
-        content += indent_by('${ word(yesno(' + self.docassemble_variable + ')) }', 6)
+        content += indent_by('${ word(yesno(' + self.final_display_var + ')) }', 6)
       elif self.field_type in ['integer', 'number','range']:
-        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
+        content += indent_by('${ ' + self.final_display_var + ' }', 6)
       elif self.field_type == 'area':
-        content += indent_by('> ${ single_paragraph(' + self.docassemble_variable + ') }', 6)
+        content += indent_by('> ${ single_paragraph(' + self.final_display_var + ') }', 6)
       elif self.field_type == 'file':
         content += "      \n"
-        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
+        content += indent_by('${ ' + self.final_display_var + ' }', 6)
       elif self.field_type == 'currency':
-        content += indent_by('${ currency(' + self.docassemble_variable + ') }', 6)
+        content += indent_by('${ currency(' + self.final_display_var + ') }', 6)
       elif self.field_type == 'date':
-        content += indent_by('${ ' + field_name_to_use + '.format() }', 6)
+        content += indent_by('${ ' + self.final_display_var + ' }', 6)
       # TODO(brycew): handle address, names, 
       # elif field.field_type == 'email':
       else:
-        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
+        content += indent_by('${ ' + self.final_display_var + ' }', 6)
     else:
-      content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
+      content += indent_by('${ ' + self.final_display_var + ' }', 6)
     return content
 
   def attachment_yaml(self):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.docassemble_variable, "console"))
+    log("{}".format(self.final_display_var), "console")
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       return ('      - "{}": ${{ {} }}\n' +
               '      - "{}": ${{ not {} }}\n').format(
-                self.raw_field_name[0], self.docassemble_variable,
-                self.raw_field_name[1], self.docassemble_variable)
+                self.raw_field_name[0], self.final_display_var,
+                self.raw_field_name[1], self.final_display_var)
 
     content = '      - "{}": '.format(self.raw_field_name)
     if hasattr(self, 'field_type') and self.field_type == 'date':
@@ -368,19 +364,19 @@ class DAField(DAObject):
       content += r'${ "{:,.2f}".format(' + self.variable + ') }\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      content = comment + content + '${ ' + self.docassemble_variable + " if i == 'final' else '' }\n"
+      content = comment + content + '${ ' + self.final_display_var + " if i == 'final' else '' }\n"
     else:
-      content += '${ ' + self.docassemble_variable + ' }\n'
+      content += '${ ' + self.final_display_var + ' }\n'
     return content
 
   def user_ask_about_field(self, index):
     field_questions = []
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.docassemble)
-    elif self.raw_field_name != self.docassemble_variable:
-      field_title = '{} (will be renamed to {})'.format(self.docassemble_variable, self.raw_field_name)
+    elif self.raw_field_name != self.final_display_var:
+      field_title = '{} (will be renamed to {})'.format(self.final_display_var, self.raw_field_name)
     else:
-      field_title = self.docassemble_variable
+      field_title = self.final_display_var
 
     field_questions.append({
       'note': bold(field_title)
@@ -397,6 +393,44 @@ class DAField(DAObject):
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
     })
     return field_questions
+
+  def trigger_gather(self,
+                     reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+                     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+                     reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+                     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+    """Turn the docassemble variable string into an expression
+    that makes DA ask a question for it. This is mostly
+    calling `gather()` for lists"""
+    GATHER_CALL = '.gather()'
+    if self.final_display_var in reserved_whole_words:
+      return self.final_display_var
+
+    if self.final_display_var in reserved_var_plurals:
+      return self.final_display_var + GATHER_CALL
+
+    # Everything before the first period and everything from the first period to the end
+    var_with_attribute = unmap(self.final_display_var)
+    var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
+
+    # test for existence (empty strings result in a tuple)
+    if not var_parts:
+      return self.final_display_var
+    # The prefix, ensuring no key or index
+    prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
+    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_singular_prefix = prefix in undefined_person_prefixes
+
+    if has_plural_prefix or has_singular_prefix:
+      first_attribute = var_parts[0][1]
+      if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
+        return prefix + GATHER_CALL
+      elif first_attribute == '.address' or first_attribute == '.mail_address':
+        return var_parts[0][0] + first_attribute + '.address'
+      else:
+        return var_parts[0][0] + first_attribute
+    else:
+      return self.final_display_var
 
 
 class DAFieldList(DAList):
@@ -497,7 +531,7 @@ class DAQuestion(DAObject):
                     content += field.field_entry_yaml(document_type)
 
         elif self.type == 'signature':
-            content += "signature: " + varname(self.field_list[0].variable) + "\n"
+            content += "signature: " + varname(self.field_list[0].raw_field_name) + "\n"
             self.under_text
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
@@ -555,7 +589,7 @@ class DAQuestion(DAObject):
             "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
             "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
             "  " + "basic_questions_signature_flow",
-          ];
+          ]
           
           for signature_field in self.signatures:
             lines.append( "  " + signature_field )
@@ -579,7 +613,7 @@ class DAQuestion(DAObject):
               added_field_names.add(field)
             content += "  " + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
-            content += "template: " + varname(self.field_list[0].variable) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
                 content += "subject: " + oneline(self.template_subject) + "\n"
             if self.template_type == 'file':
@@ -587,7 +621,7 @@ class DAQuestion(DAObject):
             else:
                 content += "content: |\n" + indent_by(self.template_body, 2)
         elif self.type == 'template':
-            content += "template: " + varname(self.field_list[0].variable) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
@@ -721,7 +755,7 @@ class PlaygroundSection(object):
     def image_file_list(self):
         out_list = list()
         for the_file in self.file_list:
-            extension, mimetype = get_ext_and_mimetype(the_file)
+            _extension, mimetype = get_ext_and_mimetype(the_file)
             if re.search(r'^image', mimetype):
                 out_list.append(the_file)
         return out_list
@@ -771,7 +805,7 @@ class PlaygroundSection(object):
         self.get_area().finalize()
         return filename
     def is_fillable_docx(self, filename):
-        extension, mimetype = get_ext_and_mimetype(filename)
+        extension, _mimetype = get_ext_and_mimetype(filename)
         if extension != "docx":
             return False
         if not self.file_exists(filename):
@@ -791,7 +825,7 @@ class PlaygroundSection(object):
             return True
         return False
     def is_markdown(self, filename):
-        extension, mimetype = get_ext_and_mimetype(filename)
+        extension, _mimetype = get_ext_and_mimetype(filename)
         if extension == "md":
             return True
         return False
@@ -870,9 +904,7 @@ class Playground(PlaygroundSection):
         user_dict['_internal']['modtime'] = datetime.datetime.utcnow()
         try:
             interview.assemble(user_dict, interview_status)
-            has_error = False
         except Exception as errmess:
-            has_error = True
             error_message = str(errmess)
             error_type = type(errmess)
             #logmessage("Failed assembly with error type " + str(error_type) + " and message: " + error_message)
@@ -1061,7 +1093,7 @@ def get_docx_variables( text:str )->set:
 ########################################################
 # Map names code
 
-def map_field_to_attachment_var(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -1072,6 +1104,9 @@ def map_field_to_attachment_var(label, document_type="pdf", reserved_whole_words
   that will be the value for the attachment field."""
   if document_type.lower() == "docx":
     return label # don't transform DOCX variables
+
+  # Turn spaces into `_`, strip non identifier characters
+  label = varname(label)
 
   # Remove multiple appearance indicator, e.g. '__4' of 'users__4'
   label = remove_multiple_appearance_indicator(label)
@@ -1116,44 +1151,6 @@ def map_field_to_attachment_var(label, document_type="pdf", reserved_whole_words
   suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
   return "".join([adjusted_prefix, index, suffix_as_attribute])
 
-
-def trigger_gather_string(docassemble_var,
-                          reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-                          undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-                          reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
-                          reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-  """Turn the docassemble variable string into an expression
-  that makes DA ask a question for it. This is mostly
-  calling `gather()` for lists"""
-  GATHER_CALL = '.gather()'
-  if docassemble_var in reserved_whole_words:
-    return docassemble_var
-
-  if docassemble_var in reserved_var_plurals:
-    return docassemble_var + GATHER_CALL
-
-  # Everything before the first period and everything from the first period to the end
-  var_with_attribute = unmap(docassemble_var)
-  var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
-
-  # test for existence (empty strings result in a tuple)
-  if not var_parts:
-    return docassemble_var
-  # The prefix, ensuring no key or index
-  prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
-  has_plural_prefix = prefix in reserved_pluralizers_map.values()
-  has_singular_prefix = prefix in undefined_person_prefixes
-
-  if has_plural_prefix or has_singular_prefix:
-    first_attribute = var_parts[0][1]
-    if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
-      return prefix + GATHER_CALL
-    elif first_attribute == '.address' or first_attribute == '.mail_address':
-      return var_parts[0][0] + first_attribute + '.address'
-    else:
-      return var_parts[0][0] + first_attribute
-  else:
-    return docassemble_var
 
 
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
@@ -1274,7 +1271,7 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      field_to_check = map_field_to_attachment_var(field[0])
+      field_to_check = map_raw_to_final_display(field[0])
     else:
       field_to_check = field
     # Exact match
@@ -1298,11 +1295,11 @@ def get_person_variables(fieldslist,
           people.add(reserved_person_pluralizers_map[matches.groups()[0]])
         else:
           # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
-          if map_field_to_attachment_var(matches.groups()[1]) in people_suffixes:
+          if map_raw_to_final_display(matches.groups()[1]) in people_suffixes:
             # In this branch, we need to strip off trailing numbers
-            people.add(re.sub("\d+$","",matches.groups()[0]))
+            people.add(re.sub(r"\d+$","",matches.groups()[0]))
     else:
-      # If it's a PDF name that wasn't transformed by map_field_to_attachment_var, do one last check
+      # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
       # regex to check for matching suffixes, and catch things like mail_address_address 
       # instead of just _address_address, if the longer one matches
@@ -1311,7 +1308,7 @@ def get_person_variables(fieldslist,
       if matches:
         if not matches.groups()[0] in undefined_person_prefixes:
           # Do not ask how many there will be about a singluar person
-          people.add(re.sub("\d+$","",matches.groups()[0]))
+          people.add(re.sub(r"\d+$","",matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)
   else:

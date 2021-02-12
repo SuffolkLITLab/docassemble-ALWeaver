@@ -612,7 +612,7 @@ code: |
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
       if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
-        logic_list.append(question.field_list[0].docassemble_variable)
+        logic_list.append(question.field_list[0].trigger_gather())
       else:
         logic_list.append(varname(question.question_text))
 
@@ -626,10 +626,12 @@ code: |
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")    
-    logic_list.append(field.trigger_gather)
     
-    if field.trigger_gather.endswith('.signature'):
-      signatures.add(field.trigger_gather)
+    trigger_gather_str = field.trigger_gather()
+    logic_list.append(trigger_gather_str)
+    
+    if trigger_gather_str.endswith('.signature'):
+      signatures.add(trigger_gather_str)
   
   # Build the mandatory code block that will control overall flow
   # Need this below collecting signatures

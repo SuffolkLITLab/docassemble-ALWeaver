@@ -1,6 +1,6 @@
 import unittest
 
-from .interview_generator import map_field_to_attachment_var, trigger_gather_string
+from .interview_generator import map_raw_to_final_display, DAField
 from docassemble.base.util import log
 
 __all__ = ['TestMapNames']
@@ -192,10 +192,14 @@ class TestMapNames(unittest.TestCase):
     def test_mapped_scenarios(self, run_from_yaml=False):
         # A list of scenarios with the 1) input/output mappings, 
         #    2) the user readable name, 3) function to test
+        def temp_transform(x: str):
+          field = DAField()
+          field.final_display_var = map_raw_to_final_display(x)
+          return field
         test_scenarios = [
-          (attachment_scenarios, 'attach block', map_field_to_attachment_var),
+          (attachment_scenarios, 'attach block', map_raw_to_final_display),
           (interview_order_scenarios, 'interview order',
-           lambda x: trigger_gather_string(map_field_to_attachment_var(x)))
+           lambda x: temp_transform(x).trigger_gather())
         ]
         # Look in the console for a prettier version of the messages
         passed = {}
