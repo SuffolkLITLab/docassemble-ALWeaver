@@ -466,6 +466,13 @@ class DAField(DAObject):
   def _get_base_variable(var_with_attribute,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+    """Gets the base object or list that holds the data that is in var_with_attribute
+    For example, users[0].name and users[1].name.last will both return users. 
+    NOTE: we only combine name attributes of lists right now. So users[0].address returns 
+    users[0].address and users[0].phone_number returns users[0].phone_number right now.
+    TODO(brycew): to handle all attributes correctly like that, we need the list of all attributes
+    used in the form, to show / edit them all in the same review/ revisit screen
+    """
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
     if not var_parts:
       return var_with_attribute 
@@ -1295,10 +1302,12 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 ############################
 #  Label processing helper functions
 ############################
-def remove_multiple_appearance_indicator(label):
+def remove_multiple_appearance_indicator(label: str):
     return re.sub(r'_{2,}\d+', '', label)
 
-def substitute_suffix(label, suffixes): 
+def substitute_suffix(label: str, suffixes: map[str, str]) -> str: 
+  """If `label` ends with any of the keys in `suffixes`, replaces it with the corresponding value
+  """
   for suffix in suffixes:
     if label.endswith(suffix):
       return label.replace(suffix, suffixes[suffix])
