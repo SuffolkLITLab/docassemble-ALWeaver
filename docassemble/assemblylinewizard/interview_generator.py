@@ -292,14 +292,12 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
-    log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.final_display_var), "console")
-    settable_version = unmap(self.final_display_var)
+    settable_var = unmap(self.final_display_var)
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), settable_version) 
+      content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
     else:
-      content += "  - no label: {}\n".format(settable_version) 
+      content += "  - no label: {}\n".format(settable_var) 
 
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
@@ -322,40 +320,45 @@ class DAField(DAObject):
 
     return content
 
-  def review_yaml(self, document_type, reviewed_fields):
-    log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.final_display_var), "console")
-    settable_var = unmap(self.final_display_var)
-    if settable_var in reviewed_fields:
-      return ""
-    reviewed_fields.add(settable_var)
+  def review_yaml(self, document_type, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    base_var = DAField._get_base_variable(settable_var)
 
-    content = ""
-    if hasattr(self, 'edit_attribute'):
-      content += '  - Edit: ' + self.edit_attribute + "\n"
+    if base_var in reviewed_fields:
+      return ""
+    reviewed_fields.add(base_var) 
+
+    full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
+
+    # this lets us edit the name if document just refers to the whole object
+    if settable_var in reserved_pluralizers_map.values():
+      edit_attribute = settable_var + '[0].name.first'
+    elif settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]:
+      edit_attribute = settable_var + '.name.first'
     else:
-      content += '  - Edit: ' + settable_var + "\n"
+      edit_attribute = settable_var
+
+    content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content += indent_by(bold(edit_display_name) + ": ", 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
-        content += indent_by('${ word(yesno(' + self.final_display_var + ')) }', 6)
+        content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
       elif self.field_type in ['integer', 'number','range']:
-        content += indent_by('${ ' + self.final_display_var + ' }', 6)
+        content += indent_by('${ ' + full_display + ' }', 6)
       elif self.field_type == 'area':
-        content += indent_by('> ${ single_paragraph(' + self.final_display_var + ') }', 6)
+        content += indent_by('> ${ single_paragraph(' + full_display + ') }', 6)
       elif self.field_type == 'file':
         content += "      \n"
-        content += indent_by('${ ' + self.final_display_var + ' }', 6)
+        content += indent_by('${ ' + full_display + ' }', 6)
       elif self.field_type == 'currency':
-        content += indent_by('${ currency(' + self.final_display_var + ') }', 6)
+        content += indent_by('${ currency(' + full_display + ') }', 6)
       elif self.field_type == 'date':
-        content += indent_by('${ ' + self.final_display_var + ' }', 6)
-      # TODO(brycew): handle address, names, 
+        content += indent_by('${ ' + full_display + ' }', 6)
       # elif field.field_type == 'email':
-      else:
-        content += indent_by('${ ' + self.final_display_var + ' }', 6)
+      else:  # Text
+        content += indent_by('${ ' + full_display + ' }', 6)
     else:
       content += indent_by('${ ' + self.final_display_var + ' }', 6)
     return content
@@ -385,11 +388,11 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
-    settable_var = unmap(self.final_display_var)
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
-    elif self.raw_field_name != self.final_display_var:
-      field_title = '{} (will be renamed to {})'.format(self.final_display_var, self.raw_field_name)
+    elif self.raw_field_name != settable_var:
+      field_title = '{} (will be renamed to {})'.format(settable_var, self.raw_field_name)
     else:
       field_title = self.final_display_var
 
@@ -425,7 +428,9 @@ class DAField(DAObject):
       return self.final_display_var + GATHER_CALL
 
     # Everything before the first period and everything from the first period to the end
-    var_with_attribute = unmap(self.final_display_var)
+    var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+  # generator_constants.UNMAP_SUFFIXES):
+  # map address() etc backwards
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
     # test for existence (empty strings result in a tuple)
@@ -446,6 +451,30 @@ class DAField(DAObject):
         return var_parts[0][0] + first_attribute
     else:
       return self.final_display_var
+  
+  @staticmethod
+  def _get_base_variable(var_with_attribute,
+                     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+                     reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+                     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+    var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
+    if not var_parts:
+      return var_with_attribute 
+    
+    # Either indexed, or no need to be indexed
+    indexed_var = var_parts[0][0]
+
+    # The prefix, ensuring no key or index
+    prefix = re.sub(r'\[.+\]', '', indexed_var)
+    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_singular_prefix = prefix in undefined_person_prefixes
+    if has_plural_prefix or has_singular_prefix:
+      first_attribute = var_parts[0][1]
+      if first_attribute == '':
+        return indexed_var + '.name'
+      return indexed_var + first_attribute
+    else:
+      return var_with_attribute 
 
 
 class DAFieldList(DAList):
@@ -1175,7 +1204,6 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   return "".join([adjusted_prefix, index, suffix_as_attribute])
 
 
-
 def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
                            reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                            undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
@@ -1261,12 +1289,11 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 def remove_multiple_appearance_indicator(label):
     return re.sub(r'_{2,}\d+', '', label)
 
-def unmap(label, unmap_suffixes=generator_constants.UNMAP_SUFFIXES):
-    # map address() etc backwards
-    for suffix in unmap_suffixes:
-        if label.endswith(suffix):
-            return label.replace(suffix, unmap_suffixes[suffix])
-    return label
+def substitute_suffix(label, suffixes): 
+  for suffix in suffixes:
+    if label.endswith(suffix):
+      return label.replace(suffix, suffixes[suffix])
+  return label
 
 def get_reserved_label_parts(prefixes:list, label:str):
   """
