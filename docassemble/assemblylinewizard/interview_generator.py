@@ -276,7 +276,7 @@ class DAField(DAObject):
       self.variable = self.variable[:-4]
       self.final_display_var = self.final_display_var[:-4]
 
-  def get_single_field_screen(self, document_type):
+  def get_single_field_screen(self):
     settable_version = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
@@ -291,7 +291,7 @@ class DAField(DAObject):
     else:
       return ""
 
-  def field_entry_yaml(self, document_type):
+  def field_entry_yaml(self) -> str:
     settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     content = ""
     if self.has_label:
@@ -320,7 +320,7 @@ class DAField(DAObject):
 
     return content
 
-  def review_yaml(self, document_type, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+  def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     base_var = DAField._get_base_variable(settable_var)
 
@@ -465,7 +465,6 @@ class DAField(DAObject):
   @staticmethod
   def _get_base_variable(var_with_attribute,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-                     reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
     if not var_parts:
@@ -540,7 +539,7 @@ class DAQuestion(DAObject):
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
             if len(self.field_list) == 1:
-                new_content, done_with_content = self.field_list[0].get_single_field_screen(document_type)
+                new_content, done_with_content = self.field_list[0].get_single_field_screen()
                 content += new_content
             if self.field_list[0].field_type == 'end_attachment':
                 #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
@@ -585,7 +584,7 @@ class DAQuestion(DAObject):
             if not done_with_content:
                 content += "fields:\n"
                 for field in self.field_list:
-                    content += field.field_entry_yaml(document_type)
+                    content += field.field_entry_yaml()
 
         elif self.type == 'signature':
             content += "signature: " + varname(self.field_list[0].raw_field_name) + "\n"
@@ -772,8 +771,7 @@ class DAQuestion(DAObject):
           content += "review: \n"
           reviewed_fields = set()
           for field in self.field_list:
-              log('at review for {}'.format(field.raw_field_name), 'console')
-              content += field.review_yaml(document_type, reviewed_fields)
+              content += field.review_yaml(reviewed_fields)
         return content
 
 class DAQuestionList(DAList):
