@@ -184,7 +184,8 @@ class DAInterview(DAObject):
         return "---\n".join(output)
 
 class DAField(DAObject):
-  """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user."""
+  """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
+  """
   def init(self, **kwargs):
     return super().init(**kwargs)
 
@@ -195,9 +196,9 @@ class DAField(DAObject):
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
-    self.field_name = new_field_name
+    self.raw_field_name = new_field_name
     # For docx, we can't change the field name from the document itself, has to be the same
-    self.variable = self.field_name
+    self.variable = self.raw_field_name
     self.docassemble_variable = new_field_name  # no transformation changes
     self.trigger_gather = trigger_gather_string(self.docassemble_variable)
     self.has_label = True
@@ -211,10 +212,10 @@ class DAField(DAObject):
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
-    if self.variable.endswith('_date'):
+    if self.raw_field_name.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
-    elif self.field_name.endswith('.signature'):
+    elif self.raw_field_name.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
     else:
@@ -224,9 +225,9 @@ class DAField(DAObject):
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
     # The raw name of the field from the PDF: must go in attachment block
-    self.field_name = pdf_field_tuple[0]
+    self.raw_field_name = pdf_field_tuple[0]
     # turns field_name into a valid python identifier
-    self.variable = varname(self.field_name)
+    self.variable = varname(self.raw_field_name)
     # the variable, in python: i.e., users[1].name.first
     self.docassemble_variable = map_field_to_attachment_var(self.variable)
     self.trigger_gather = trigger_gather_string(self.docassemble_variable)
@@ -257,21 +258,22 @@ class DAField(DAObject):
     """
     self.paired_yesno = True
     if self.variable.endswith('_no'):
-      self.field_name = [paired_field_name, self.field_name]
+      self.raw_field_name = [paired_field_name, self.raw_field_name]
       self.variable = self.variable[:-3] 
       self.docassemble_variable = self.docassemble_variable[:-3]
       self.trigger_gather = self.trigger_gather[:-3]
     elif self.variable.endswith('_yes'):
-      self.field_name = [self.field_name, paired_field_name]
+      self.raw_field_name = [self.raw_field_name, paired_field_name]
       self.variable = self.variable[:-4]
       self.docassemble_variable = self.docassemble_variable[:-4]
       self.trigger_gather = self.trigger_gather[:-4]
 
   def get_single_field_screen(self, document_type):
+    settable_version = unmap(self.docassemble_variable)
     if self.field_type == 'yesno':
-      return "yesno: {}\n".format(self.docassemble_variable), True
+      return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
-      return "yesnomaybe: {}\n".format(self.docassemble_variable), True
+      return "yesnomaybe: {}\n".format(settable_version), True
     else:
       return "", False
 
@@ -282,11 +284,12 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
+    settable_version = unmap(self.docassemble_variable)
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), self.docassemble_variable) 
+      content += "  - {}: {}\n".format(repr_str(self.label), settable_version) 
     else:
-      content += "  - no label: {}\n".format(self.docassemble_variable) 
+      content += "  - no label: {}\n".format(settable_version) 
 
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
@@ -310,50 +313,53 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, document_type, reviewed_fields):
-    field_name_to_use = unmap(self.docassemble_variable)
-    if field_name_to_use in reviewed_fields:
+    settable_var = unmap(self.docassemble_variable)
+    if settable_var in reviewed_fields:
       return ""
+    reviewed_fields.add(settable_var)
 
-    reviewed_fields.add(field_name_to_use)
     content = ""
     if hasattr(self, 'edit_attribute'):
       content += '  - Edit: ' + self.edit_attribute + "\n"
     else:
-      content += '  - Edit: ' + field_name_to_use + "\n"
+      content += '  - Edit: ' + settable_var + "\n"
     content += '    button: |\n'
-    edit_display_name = self.label if hasattr(self, 'label') else field_name_to_use
+    edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content += indent_by(bold(edit_display_name) + ": ", 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
-        content += indent_by('${ word(yesno(' + field_name_to_use + ')) }', 6)
+        content += indent_by('${ word(yesno(' + self.docassemble_variable + ')) }', 6)
       elif self.field_type in ['integer', 'number','range']:
-        content += indent_by('${ ' + field_name_to_use + ' }', 6)
+        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
       elif self.field_type == 'area':
-        content += indent_by('> ${ single_paragraph(' + field_name_to_use + ') }', 6)
+        content += indent_by('> ${ single_paragraph(' + self.docassemble_variable + ') }', 6)
       elif self.field_type == 'file':
         content += "      \n"
-        content += indent_by('${ ' + field_name_to_use + ' }', 6)
+        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
       elif self.field_type == 'currency':
-        content += indent_by('${ currency(' + field_name_to_use + ') }', 6)
+        content += indent_by('${ currency(' + self.docassemble_variable + ') }', 6)
       elif self.field_type == 'date':
         content += indent_by('${ ' + field_name_to_use + '.format() }', 6)
+      # TODO(brycew): handle address, names, 
       # elif field.field_type == 'email':
       else:
-        content += indent_by('${ ' + field_name_to_use + ' }', 6)
+        content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
     else:
-      content += indent_by('${ ' + field_name_to_use + ' }', 6)
+      content += indent_by('${ ' + self.docassemble_variable + ' }', 6)
     return content
 
   def attachment_yaml(self):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
+    log("{}: {}".format(self.raw_field_name, self.variable), "console")
+    log("{}".format(self.docassemble_variable, "console"))
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       return ('      - "{}": ${{ {} }}\n' +
               '      - "{}": ${{ not {} }}\n').format(
-                self.field_name[0], self.docassemble_variable,
-                self.field_name[1], self.docassemble_variable)
+                self.raw_field_name[0], self.docassemble_variable,
+                self.raw_field_name[1], self.docassemble_variable)
 
-    content = '      - "{}": '.format(self.variable)
+    content = '      - "{}": '.format(self.raw_field_name)
     if hasattr(self, 'field_type') and self.field_type == 'date':
       content += '${ ' + self.variable.format() + ' }\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
@@ -371,8 +377,8 @@ class DAField(DAObject):
     field_questions = []
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.docassemble)
-    elif self.variable != self.docassemble_variable:
-      field_title = '{} (will be renamed to {})'.format(self.docassemble_variable, self.field_name)
+    elif self.raw_field_name != self.docassemble_variable:
+      field_title = '{} (will be renamed to {})'.format(self.docassemble_variable, self.raw_field_name)
     else:
       field_title = self.docassemble_variable
 
@@ -1301,7 +1307,6 @@ def get_person_variables(fieldslist,
       # regex to check for matching suffixes, and catch things like mail_address_address 
       # instead of just _address_address, if the longer one matches
       match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
-      log(match_pdf_person_suffixes, "console")
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
         if not matches.groups()[0] in undefined_person_prefixes:
