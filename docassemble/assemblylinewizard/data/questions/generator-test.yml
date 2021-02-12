@@ -23,7 +23,7 @@ subquestion: |
   # Selected scenarios
 
   <%
-      results = map_names_test.test_mapped_scenarios(run_from_yaml=True)
+      results = map_name_tests.test_mapped_scenarios(run_from_yaml=True)
       # both are a dictionary of scenarios (interview order, attachment block)
       # to the list of tests for that scenario
       failed = results["errored"]  
