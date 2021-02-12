@@ -1,6 +1,7 @@
 metadata:
-  title: Document assembly wizard
-  short title: Wizard
+  title: |
+    Interview Weaver: Document Assembly Line 
+  short title: Weaver
   tags:
     - HO-00-00-00-00 #Housing
     - FA-00-00-00-00 #Family
@@ -104,7 +105,7 @@ question: |
 ---
 id: opening screen
 question: |
-  Assembly Line Wizard
+ Interview Weaver: Document Assembly Line
 subquestion: |
   Use this tool to turn a PDF or Word document into a draft
   interactive online form.
