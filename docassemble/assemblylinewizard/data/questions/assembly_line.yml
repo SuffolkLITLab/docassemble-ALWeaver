@@ -41,6 +41,7 @@ objects:
   - questions: DAQuestionList.using(complete_attribute='question_text')
   - interview_download: DAFile
   - interview_package_download: DAFile
+  - screen_order: DAList.using(auto_gather=False)
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -86,6 +87,7 @@ code: |
   add_sections
   choose_field_types
   questions.gather()
+  show_screen_order
   
   add_objects_block
   add_logic_tree
@@ -574,6 +576,46 @@ code: |
       # Don't do anything if the user said zero or more            
   objects_block.objects.gathered=True
   add_objects_block = True
+---
+code: |
+  # This will add the questions and built-in fields to the screen_order 
+  # list. This will allow the developer to reorder questions without needing
+  # to restart the interview
+  # TODO: do we want to use this to nudge a recommended question order?
+  for question in questions:
+    screen_order.append(question)
+  
+  # Note that some built-in fields are not unique screens. This could
+  # mess up the count
+  unique_fields = set()
+  for field in built_in_fields_used:
+    if not field.final_display_var in unique_fields:
+      unique_fields.add(field.final_display_var)
+      screen_order.append(field)
+  screen_order.gathered = True
+  set_initial_screen_order = True
+---
+table: screen_order.table
+rows: screen_order
+columns:
+  - Screen: |
+      row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
+  - Number of fields: |
+      len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
+edit:
+  - question_text
+allow reordering: True
+---
+continue button field: question[i].edit_question
+question: |
+  Edit question text
+  
+---
+continue button field: show_screen_order
+question: |
+  Review your interview
+subquestion: |
+  ${ screen_order.table }
 ---
 code: |
   # Build the code block that will control question flow
