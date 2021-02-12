@@ -277,7 +277,7 @@ class DAField(DAObject):
       self.final_display_var = self.final_display_var[:-4]
 
   def get_single_field_screen(self, document_type):
-    settable_version = unmap(self.final_display_var)
+    settable_version = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
@@ -292,7 +292,7 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
-    settable_var = unmap(self.final_display_var)
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
     content = ""
     if self.has_label:
       content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
@@ -329,7 +329,7 @@ class DAField(DAObject):
     reviewed_fields.add(base_var) 
 
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
-
+    
     # this lets us edit the name if document just refers to the whole object
     if settable_var in reserved_pluralizers_map.values():
       edit_attribute = settable_var + '[0].name.first'
@@ -337,9 +337,19 @@ class DAField(DAObject):
       edit_attribute = settable_var + '.name.first'
     else:
       edit_attribute = settable_var
-
+      
     content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
+        
+    if base_var in reserved_pluralizers_map.values():
+      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
+      content += indend_by("# lets the user edit all of the items at once", 6)
+      content += indent_by(bold(base_var), 6) + '\n'
+      content += indent_by("% for my_var in {}:".format(base_var), 6)
+      content += indent_by("* ${ my_var }", 8)
+      content += indend_by("% endfor", 6)
+      return content
+    
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content += indent_by(bold(edit_display_name) + ": ", 6)
     if hasattr(self, 'field_type'):
@@ -466,12 +476,13 @@ class DAField(DAObject):
 
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', indexed_var)
+    
     has_plural_prefix = prefix in reserved_pluralizers_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
     if has_plural_prefix or has_singular_prefix:
       first_attribute = var_parts[0][1]
-      if first_attribute == '':
-        return indexed_var + '.name'
+      if first_attribute == '' or first_attribute == '.name':
+        return prefix
       return indexed_var + first_attribute
     else:
       return var_with_attribute 
