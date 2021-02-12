@@ -1278,6 +1278,7 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
   # If any fields match a custom person with a pre-handled suffix, remove them
   # from the list and add them to the list of built_in_fields_used
   delete_list = []
+  fields_to_add = set()
   for field in fields:
     # Simpler case: PDF variables matching our naming rules
     new_potential_name = map_names(field.variable, reserved_prefixes=custom_people)
@@ -1286,7 +1287,7 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
       for person in custom_people:
         if field.docassemble_variable.startswith(person + "["):
           field.trigger_gather = person + ".gather()"
-      built_in_fields.append(field)
+      fields_to_add.add(field)
       delete_list.append(field) # Cannot mutate in place
     else:
       # check for possible DOCX match of prefix + suffix, w/ [index] removed
@@ -1296,10 +1297,13 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
           if field.docassemble_variable.startswith(person + "["):
             field.trigger_gather = person + ".gather()"
         delete_list.append(field)
-        built_in_fields.append(field)
+        fields_to_add.add(field)
 
   for field in delete_list:
     fields.remove(field)
+
+  for field in fields_to_add:
+    built_in_fields.append(field)    
 
 
 

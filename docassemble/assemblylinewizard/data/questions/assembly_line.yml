@@ -70,8 +70,8 @@ code: |
   show_interview
 ---
 code: |
-  if len(people_variables):
-    process_custom_people(people_variables, fields, built_in_fields_used)
+  if len(people_variables.true_values()):
+    process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
   process_people_variables = True    
 ---
 continue button field: debug
@@ -301,6 +301,7 @@ comment: |
   Convert the PDF fields into Docassemble fields
 code: |
   # These all must be defined in advance to avoid duplicates
+  people_variables.true_values()
   all_fields
   fields
   signature_fields
