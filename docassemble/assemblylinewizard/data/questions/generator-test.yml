@@ -1,15 +1,15 @@
 # Get output from tests.
 modules:
-  - .test_map_raw_to_final_display
+  - .test_map_names
 ---
 mandatory: True
 code: |
-  map_raw_to_final_display_tests = TestMapNames()
-  map_raw_to_final_display_tests.setUp()
+  map_name_tests = TestMapNames()
+  map_name_tests.setUp()
   ran_tests
 ---
 event: ran_tests
-question: map_fields_to_attachment_var() tests
+question: map_names() tests
 css: |
   <style>
     .passed code {
@@ -23,7 +23,7 @@ subquestion: |
   # Selected scenarios
 
   <%
-      results = map_raw_to_final_display_tests.test_mapped_scenarios(run_from_yaml=True)
+      results = map_names_test.test_mapped_scenarios(run_from_yaml=True)
       # both are a dictionary of scenarios (interview order, attachment block)
       # to the list of tests for that scenario
       failed = results["errored"]  
@@ -57,12 +57,6 @@ subquestion: |
 ---
 comment: |
   ${one_test.replace("_", "\\_")}[BR]
-  #  ${ map_raw_to_final_display_tests.broken_test() }
-  #  Single individuals errors: ${ map_raw_to_final_display_tests.test_single_individuals() }
-  #  Multiple appearences errors: ${ map_raw_to_final_display_tests.test_multiple_appearances() }
-  #  Send individual errors: ${ map_raw_to_final_display_tests.test_multiple_individuals() }
-  #  ${ map_raw_to_final_display_tests.mapped_tests() }
-  # { test: scenario_input, result: error }
   Failed: ${ len(failed) }
   Passed: ${ len(passed) }
 

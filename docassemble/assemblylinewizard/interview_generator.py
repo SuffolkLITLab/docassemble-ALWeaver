@@ -185,6 +185,18 @@ class DAInterview(DAObject):
 
 class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
+  Has several important attributes that need to be set:
+  * `raw_field_name`: the field name directly from the PDF or the template text directly from the DOCX
+  * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
+    non identifier characters
+  * `final_display_var`: the docassamble python code that computes exactly what the author wants in their PDF
+  
+  In many of the methods, you'll also find two other common versions of the field, computed on the fly:
+  * `trigger_gather`: returns the statement that causes docassemble to correctly ask the question for this variable, 
+     e.g. `users.gather()` to get the `user.name.first`
+  * `settable_var`: the settable / assignable data backing `final_display_var`, e.g. `address.address` for `address.block()`
+  * `full_visual`: shows the full version of the backing data in a readable way, i.e. `address.block()` for `address.zip`
+    TODO(brycew): not fully implemented yet
   """
   def init(self, **kwargs):
     return super().init(**kwargs)
@@ -205,9 +217,9 @@ class DAField(DAObject):
     # this will let us edit the name field if document just refers to
     # the whole object
     if new_field_name in reserved_pluralizers_map.values():
-      self.edit_attribute = new_field_name + '[0].name'
+      self.edit_attribute = new_field_name + '[0].name.first'
     if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      self.edit_attribute = new_field_name + '.name'
+      self.edit_attribute = new_field_name + '.name.first'
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
@@ -280,8 +292,6 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self, document_type):
-    log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.final_display_var), "console")
     settable_version = unmap(self.final_display_var)
     content = ""
     if self.has_label:
@@ -311,8 +321,6 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, document_type, reviewed_fields):
-    log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.final_display_var), "console")
     settable_var = unmap(self.final_display_var)
     if settable_var in reviewed_fields:
       return ""
@@ -351,8 +359,6 @@ class DAField(DAObject):
   def attachment_yaml(self):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
-    log("{}: {}".format(self.raw_field_name, self.variable), "console")
-    log("{}".format(self.final_display_var), "console")
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       return ('      - "{}": ${{ {} }}\n' +
               '      - "{}": ${{ not {} }}\n').format(
@@ -471,7 +477,6 @@ class DAQuestion(DAObject):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
-        log('in question, of type {}, content: {}'.format(self.type, content), 'console')
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
@@ -722,7 +727,6 @@ class DAQuestion(DAObject):
           content += "review: \n"
           reviewed_fields = set()
           for field in self.field_list:
-              log('at review for {}'.format(field.raw_field_name), 'console')
               content += field.review_yaml(document_type, reviewed_fields)
         return content
 
