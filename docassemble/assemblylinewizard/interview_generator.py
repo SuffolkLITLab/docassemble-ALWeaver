@@ -28,7 +28,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos']
+           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -1140,7 +1140,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
 
   prefix = label_groups[1]
   # Map prefix to an adjusted version
-  # At the moment, turn any singluars into plurals if needed, e.g. 'user' into 'users'
+  # At the moment, turn any singulars into plurals if needed, e.g. 'user' into 'users'
   adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
@@ -1269,7 +1269,7 @@ def get_reserved_label_parts(prefixes:list, label:str):
   """
   return re.search(r"^(" + "|".join(prefixes) + ')(\d*)(.*)', label)
 
-def process_custom_people(custom_people, fields:list, built_in_fields:list)->list:
+def process_custom_people(custom_people:list, fields:list, built_in_fields:list, people_suffixes:list = (generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES) )->None:
   """
   Move fields from `fields` to `built_in_fields` list if the user
   indicated they are going to be treated as ALPeopleLists
@@ -1277,11 +1277,33 @@ def process_custom_people(custom_people, fields:list, built_in_fields:list)->lis
   # Iterate over DAFieldList 
   # If any fields match a custom person with a pre-handled suffix, remove them
   # from the list and add them to the list of built_in_fields_used
-  # combined_prefixes = custom_people
-  # for field in fields:
-  #   # Simpler case: PDF variables matching our naming rules
-  #   if map_names(field.variable, )
-  pass
+  delete_list = []
+  for field in fields:
+    # Simpler case: PDF variables matching our naming rules
+    new_potential_name = map_names(field.variable, reserved_prefixes=custom_people)
+    if new_potential_name != field.variable:
+      field.docassemble_variable = new_potential_name
+      for person in custom_people:
+        if field.docassemble_variable.startswith(person + "["):
+          field.trigger_gather = person + ".gather()"
+      built_in_fields.append(field)
+      delete_list.append(field) # Cannot mutate in place
+    else:
+      # check for possible DOCX match of prefix + suffix, w/ [index] removed
+      matching_docx_test = r"^(" + "|".join(custom_people) + ")\[\d+\](" + ("|".join([suffix.replace(".","\.") for suffix in people_suffixes])) + ")$"
+      if re.match(matching_docx_test, field.variable):
+        for person in custom_people:
+          if field.docassemble_variable.startswith(person + "["):
+            field.trigger_gather = person + ".gather()"
+        delete_list.append(field)
+        built_in_fields.append(field)
+
+  for field in delete_list:
+    fields.remove(field)
+
+
+
+  
 
 
 def get_person_variables(fieldslist,
