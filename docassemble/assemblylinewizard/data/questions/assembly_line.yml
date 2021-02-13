@@ -646,7 +646,7 @@ question: |
   Edit question text
 fields:
   - Title: questions[i].question_text
-  - Subtitle: questions[i].subquestion_text
+  - Body: questions[i].subquestion_text
     datatype: area
     required: False
   - note: |
