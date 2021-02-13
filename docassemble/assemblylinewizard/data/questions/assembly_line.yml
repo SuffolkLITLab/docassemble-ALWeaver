@@ -578,6 +578,7 @@ code: |
   # list. This will allow the developer to reorder questions without needing
   # to restart the interview
   # TODO: do we want to use this to nudge a recommended question order?
+  screen_order.clear()
   for question in questions:
     screen_order.append(question)
   
@@ -585,6 +586,9 @@ code: |
   # mess up the count
   unique_fields = set()
   for field in built_in_fields_used:
+    # Don't add the users[0].signature field to this list
+    if field.final_display_var == "users[0].signature":
+      continue
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
@@ -616,7 +620,7 @@ allow reordering: True
 ---
 code: |
   # not quite sure why we need this--problem w/ how docassemble handles
-  # lists created with object_checkboxes
+  # editing lists created with object_checkboxes
   questions[i].field_list.there_is_another=False
 ---
 continue button field: fields[i].edit_field
@@ -636,6 +640,7 @@ fields:
       - email
 ---
 continue button field: questions[i].edit_question
+scan for variables: False
 question: |
   Edit question text
 fields:
@@ -673,7 +678,7 @@ code: |
     logic_list.append("user_role = '" + interview.typical_role +"'")
   
   # Figure out how many steps the interview has
-  total_num_screens = len(questions.elements) + len(built_in_fields_used)
+  total_num_screens = len(screen_order)
   
   # We'll have a progress step every 5 screens, 
   # unless it's very short
@@ -682,16 +687,16 @@ code: |
   else:
     screen_divisor = 3
   
-  total_steps = round(total_num_screens / screen_divisor) + 5 # fudge factor: signature screen etc.
+  total_steps = round(total_num_screens / screen_divisor) + 2 # signature screen adds two steps
   increment = 100/total_steps
   progress = 0
   
-  signatures = set()
-  for index, question in enumerate(questions):
+  saved_answer_name_flag = False
+  for index, question in enumerate(screen_order):
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append("set_progress(" + str(round(progress,2)) +")")
-    if question.type == 'question':
+    if isinstance(question, DAQuestion) and question.type == 'question':
       # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
@@ -699,23 +704,19 @@ code: |
         logic_list.append(question.field_list[0].trigger_gather())
       else:
         logic_list.append(varname(question.question_text))
-
-  logic_list.append("# Set the answer file name.")
-  logic_list.append("set_parts(subtitle=str(users))")
-  
-  # Add in the built-in fields to the logic list     
-  # Something here should happen to eliminate duplicates before adding
-  # to the logic list
-  for index, field in enumerate(built_in_fields_used, start=len(questions) + 1):
-    if index and index % screen_divisor == 0:
-      progress += increment
-      logic_list.append("set_progress(" + str(round(progress,2)) +")")    
-    
-    trigger_gather_str = field.trigger_gather()
-    logic_list.append(trigger_gather_str)
-    
-    if trigger_gather_str.endswith('.signature'):
-      signatures.add(trigger_gather_str)
+    else:
+      # it's a built-in field, not a question block
+      logic_list.append(question.trigger_gather())      
+      # set the saved answer name so it includes the user's name in saved
+      # answer list
+      if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
+        logic_list.append("set_parts(subtitle=str(users))")
+        saved_answer_name_flag = True
+      
+  signatures = set()
+  for field in built_in_fields_used:
+    if field.trigger_gather().endswith('.signature'):
+      signatures.add(field.trigger_gather())
   
   # Build the mandatory code block that will control overall flow
   # Need this below collecting signatures
