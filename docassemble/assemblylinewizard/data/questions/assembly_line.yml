@@ -101,10 +101,6 @@ code: |
 
   show_interview
 ---
-continue button field: debug
-question: |
-  ${ template_upload }
----
 id: opening screen
 question: |
  Interview Weaver: Document Assembly Line
@@ -602,19 +598,64 @@ columns:
       row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
-edit:
-  - question_text
+  - Edit: |
+      action_button_html(url_action(row_item.attr_name('edit_question'))) if isinstance(row_item, DAQuestion) else ''
 allow reordering: True
 ---
-continue button field: question[i].edit_question
+table: questions[i].edit_table
+rows: screen_order[i].field_list
+columns:
+  - Field: |
+      row_item.final_display_var
+  - Prompt: |
+      row_item.label
+edit:
+  - edit_field
+delete buttons: False  
+allow reordering: True  
+---
+code: |
+  # not quite sure why we need this--problem w/ how docassemble handles
+  # lists created with object_checkboxes
+  questions[i].field_list.there_is_another=False
+---
+continue button field: fields[i].edit_field
+question: |
+  Edit field ${ bold(fields[i].final_display_var) }
+fields:
+  - Prompt: fields[i].label
+  - Type: fields[i].field_type
+    choices:
+      - text
+      - area
+      - yesno
+      - integer
+      - number
+      - currency
+      - date
+      - email
+---
+continue button field: questions[i].edit_question
 question: |
   Edit question text
-  
+fields:
+  - Title: questions[i].question_text
+  - Subtitle: questions[i].subquestion_text
+    datatype: area
+    required: False
+  - note: |
+      #### Fields on this screen
+      ${ questions[i].edit_table }      
 ---
 continue button field: show_screen_order
 question: |
   Review your interview
 subquestion: |
+  Click the button to edit or rearrange the order of screens below.
+  
+  You will see all of the built-in fields, regardless of whether they appear
+  together on one screen.
+  
   ${ screen_order.table }
 ---
 code: |
