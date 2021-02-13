@@ -641,6 +641,7 @@ fields:
 ---
 continue button field: questions[i].edit_question
 scan for variables: False
+sets: questions[i].edit_question
 question: |
   Edit question text
 fields:
