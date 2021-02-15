@@ -2,18 +2,6 @@ metadata:
   title: |
     Interview Weaver: Document Assembly Line 
   short title: Weaver
-  tags:
-    - HO-00-00-00-00 #Housing
-    - FA-00-00-00-00 #Family
-    - FA-07-00-00-00 #Domestic Violence and Abuse
-    - HE-00-00-00-00 #Health
-    - ES-00-00-00-00 #Estates, Wills, and Guardianships
-    - MO-00-00-00-00 #Money, Debt, and Consumer Issues     
-    - BE-04-00-00-00 #Unemployment Benefits, Compensation, and Insurance
-    - IM-00-00-00-00 #Immigration     
-    - BE-00-00-00-00 #Public Benefits
-    - ED-00-00-00-00 #Education
-    - RI-10-00-00-00 #Prisoners' Rights
 ---
 features:
   question help button: True
@@ -50,25 +38,6 @@ code: |
   generator_data.set('sequence',sequence+1)
   increment_sequence = True
 ---
-comment: |
-  This is a list of some variables we leave alone (don't transform)
-  but still represent something we're handling in basic-question.yml
-  No need to prompt the user to group these questions.
-  # TODO: this is really handled in the generator constants now
-variable name: variables_to_skip
-data:
-  - signature_date
-  - plaintiff
-  - plaintiffs
-  - defendant
-  - defendants
-  - petitioner
-  - petitioners
-  - witnesses
-  - users
-  - other_parties
-  - children
----
 mandatory: True
 id: Interview Order
 code: |
@@ -78,6 +47,7 @@ code: |
   interview.title
   interview_intro_prompt
   interview.typical_role  
+  process_people_variables
   ask_people_quantity_question  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
@@ -98,6 +68,11 @@ code: |
   increment_sequence
 
   show_interview
+---
+code: |
+  if len(people_variables.true_values()):
+    process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
+  process_people_variables = True    
 ---
 continue button field: debug
 question: |
@@ -326,8 +301,8 @@ comment: |
   Convert the PDF fields into Docassemble fields
 code: |
   # These all must be defined in advance to avoid duplicates
+  people_variables.true_values()
   all_fields
-  variables_to_skip
   fields
   signature_fields
   built_in_fields_used  
@@ -341,7 +316,7 @@ code: |
       # Check to see if we think this field is built-in (handled in
       # basic-questions.yml), a signature, or an arbitrary field.
       #is_reserved_name = 
-      if is_reserved_label(pdf_field_name) or pdf_field_name in variables_to_skip or pdf_field_name in people_variables.true_values():
+      if is_reserved_label(pdf_field_name) or pdf_field_name in people_variables.true_values():
         new_field = built_in_fields_used.appendObject()
       elif pdf_field_tuple[4] == '/Sig':
         new_field = signature_fields.appendObject()
@@ -486,9 +461,9 @@ fields:
   - note: |
       **Built-in questions this form triggers**[BR]
       % if len(built_in_fields_used) > 1:
-      These fields are not listed above because a basic-question already handles them: ${ built_in_fields_used }.
+      These fields are not listed above because a built-in question already handles them: ${ built_in_fields_used }.
       % else:
-      This field is not listed above because a basic-question already handles
+      This field is not listed above because a built-in question already handles
       it: ${ built_in_fields_used }.
       % endif
     show if:

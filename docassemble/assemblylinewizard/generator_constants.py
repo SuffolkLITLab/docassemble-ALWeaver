@@ -50,32 +50,32 @@ generator_constants.RESERVED_VAR_PLURALS = generator_constants.PEOPLE_VARS + [
 ]
 
 # Prefixes as they would appear in a PDF (singular)
-generator_constants.RESERVED_PREFIXES = (r"^(user"  # deprecated, but still supported
-  + r"|other_party"  # deprecated, but still supported
-  + r"|child"
-  + r"|plaintiff"
-  + r"|defendant"
-  + r"|petitioner"
-  + r"|respondent"
-  + r"|spouse"
-  + r"|parent"
-  + r"|caregiver"
-  + r"|attorney"
-  + r"|translator"
-  + r"|debt_collector"
-  + r"|creditor"
-  + r"|witness"
-  + r"|court"
-  + r"|docket_number"
-  + r"|signature_date"
+generator_constants.RESERVED_PREFIXES = ["user",
+  "other_party",
+  "child",
+  "plaintiff",
+  "defendant",
+  "petitioner",
+  "respondent",
+  "spouse",
+  "parent",
+  "caregiver",
+  "attorney",
+  "translator",
+  "debt_collector",
+  "creditor",
+  "witness",
+  "court",
+  "docket_number",
+  "signature_date",
   # Can't find a way to make order not matter here
   # without making everything in general more messy
-  + r"|guardian_ad_litem"
-  + r"|guardian"
-  + r"|decedent"
-  + r"|interested_party"
-  + r"|trial_court"
-  + r")")
+  "guardian_ad_litem",
+  "guardian",
+  "decedent",
+  "interested_party",
+  "trial_court",
+  ]
 
 # reserved_pluralizers_map
 
