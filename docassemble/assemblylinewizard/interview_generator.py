@@ -642,7 +642,7 @@ class DAQuestion(DAObject):
             "  " + "# Introduction to this specific interview",
             "  " + self.interview_label + "_intro",
             "  " + "# Trigger the whole interview order block to control question order",
-            "  " + self.interview_label,
+            "  interview_order_" + self.interview_label,
             "  " + "signature_date",
             # Save a snapshot of interview answers. 
             # We only want a few anonymous variables
@@ -672,7 +672,7 @@ class DAQuestion(DAObject):
                 # We built this logic list by collecting the first field on each screen
                 content += "  " + field + "\n"
               added_field_names.add(field)
-            content += "  " + self.interview_label + " = True" + "\n"
+            content += "  interview_order_" + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
