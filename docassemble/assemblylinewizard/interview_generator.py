@@ -1255,11 +1255,14 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 def remove_multiple_appearance_indicator(label):
     return re.sub(r'_{2,}\d+', '', label)
 
-def unmap(label, unmap_suffixes=generator_constants.UNMAP_SUFFIXES):
-    # map address() etc backwards
-    for suffix in unmap_suffixes:
-        if label.endswith(suffix):
-            return label.replace(suffix, unmap_suffixes[suffix])
+def unmap(label, display_to_settable=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX):
+    """Map attachment attributes or methods into interview order
+    attributes. For example, `.address()` will become `.address.address`"""
+    for suffix in display_to_settable:
+        match_regex = re.compile('.*' + suffix)
+        if re.match( match_regex, label ):
+            sub_regex = re.compile(suffix)
+            return re.sub( sub_regex, display_to_settable[suffix], label )
     return label
 
 def get_reserved_label_parts(prefixes:list, label:str):
