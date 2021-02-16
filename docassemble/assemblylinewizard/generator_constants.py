@@ -184,18 +184,22 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
     r'\.formatted_age\(\)'
 ]
 
-generator_constants.UNMAP_SUFFIXES = {
-  ".birthdate.format()": '.birthdate',
-  ".age_in_years()": ".birthdate",
-  ".name.middle_initial()": ".name.middle_name",
-  ".address.block()": ".address.address",
-  ".address.on_one_line()": ".address.address",
-  ".address.line_one()": ".address.address",
-  ".address.line_two()": ".address.address",
-  ".mail_address.block()": ".mail_address.address",
-  ".mail_address.on_one_line()": ".mail_address.address",
-  ".mail_address.line_one()": ".mail_address.address",
-  ".mail_address.line_two()": ".mail_address.address",
+generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
+  '\.address.block\(\)$': '.address.address',
+  '\.address.line_one\(\)$': '.address.address',
+  '\.address.line_two\(\)$': '.address.address',
+  '\.address.on_one_line\(\)$': '.address.address',
+  '\.age_in_years\(\)$': '.birthdate',
+  '\.birthdate.format\(.*\)$': '.birthdate',
+  '\.familiar_or\(\)$': '.name.first',
+  '\.familiar\(\)$': '.name.first',
+  '\.formatted_age\(.*\)$': '.birthdate',
+  '\.mail_address.block\(\)$': '.mail_address.address',
+  '\.mail_address.line_one\(\)$': '.mail_address.address',
+  '\.mail_address.line_two\(\)$': '.mail_address.address',
+  '\.mail_address.on_one_line\(\)$': '.mail_address.address',
+  '\.name.middle_initial\(\)$': '.name.first',
+  '\.phone_numbers\(\)$': '.phone_number',
 }
 
 generator_constants.FULL_DISPLAY = {

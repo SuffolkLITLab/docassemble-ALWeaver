@@ -272,7 +272,7 @@ class DAField(DAObject):
       self.final_display_var = self.final_display_var[:-4]
 
   def get_single_field_screen(self):
-    settable_version = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    settable_version = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
@@ -287,7 +287,7 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self) -> str:
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     content = ""
     if self.has_label:
       content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
@@ -316,7 +316,7 @@ class DAField(DAObject):
     return content
 
   def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     base_var = DAField._get_base_variable(settable_var)
 
     if base_var in reviewed_fields:
@@ -393,7 +393,7 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
     elif self.raw_field_name != settable_var:
@@ -438,7 +438,7 @@ class DAField(DAObject):
       return self.final_display_var + GATHER_CALL
 
     # Everything before the first period and everything from the first period to the end
-    var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
+    var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
     # test for existence (empty strings result in a tuple)
@@ -1318,13 +1318,22 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 def remove_multiple_appearance_indicator(label: str):
     return re.sub(r'_{2,}\d+', '', label)
 
-def substitute_suffix(label: str, suffixes: Dict[str, str]) -> str: 
-  """If `label` ends with any of the keys in `suffixes`, replaces it with the corresponding value
-  """
-  for suffix in suffixes:
-    if label.endswith(suffix):
-      return label.replace(suffix, suffixes[suffix])
-  return label
+def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
+  """Map attachment/displayable attributes or methods into interview order
+  attributes. For example, `.address()` will become `.address.address`"""
+  for suffix in display_suffixes:
+    match_regex = re.compile( '.*' + suffix )
+    log( 'match_regex', 'console' )
+    log( match_regex, 'console' )
+    if re.match( match_regex, label ):
+      sub_regex = re.compile( suffix )
+      new_label = re.sub( sub_regex, display_suffixes[suffix], label )
+      log( 'new_label', 'console' )
+      log( new_label, 'console' )
+      return new_label
+    log( 'just label', 'console' )
+    log( label, 'console' )
+    return label
 
 def get_reserved_label_parts(prefixes:list, label:str):
   """
