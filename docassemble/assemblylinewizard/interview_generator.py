@@ -29,7 +29,8 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people']
+           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people',
+           'map_names']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -1155,6 +1156,21 @@ def get_docx_variables( text:str )->set:
 ########################################################
 # Map names code
 
+# TODO: map_names is deprecated but old code depends on it. This is temporary shim
+def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+  map_raw_to_final_display(label, document_type=document_type,
+              reserved_whole_words=reserved_whole_words,
+              reserved_prefixes=reserved_prefixes,
+              undefined_person_prefixes=undefined_person_prefixes,
+              reserved_var_plurals=reserved_var_plurals,
+              reserved_pluralizers_map = reserved_pluralizers_map,
+              reserved_suffixes_map=reserved_suffixes_map)
+  
 def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
