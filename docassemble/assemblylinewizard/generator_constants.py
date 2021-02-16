@@ -205,11 +205,11 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
 # not `.name.full()` in the review screen displayed value
 generator_constants.FULL_DISPLAY = {
-  '.name': '.name.full()',
-  '.address': '.address.block()',
-  '.mail_address': '.mail_address.block()',
-  '.division': '',  # part of the court object, need to reselect the whole thing,
-  '.department': ''
+  '\.name$': '.name.full()',
+  '\.address$': '.address.block()',
+  '\.mail_address$': '.mail_address.block()',
+  '\.division$': '',  # part of the court object, need to reselect the whole thing,
+  '\.department$': ''
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to
