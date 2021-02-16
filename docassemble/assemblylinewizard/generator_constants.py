@@ -198,6 +198,14 @@ generator_constants.UNMAP_SUFFIXES = {
   ".mail_address.line_two()": ".mail_address.address",
 }
 
+generator_constants.FULL_DISPLAY = {
+  '.name': '.name.full()',
+  '.address': '.address.block()',
+  '.mail_address': '.mail_address.block()',
+  '.division': '',  # part of the court object, need to reselect the whole thing,
+  '.department': ''
+}
+
 # Possible values for 'Allowed Courts', when looking up courts to submit to
 generator_constants.COURT_CHOICES = [
   'Boston Municipal Court',
