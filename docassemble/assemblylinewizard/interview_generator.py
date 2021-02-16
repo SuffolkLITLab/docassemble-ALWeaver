@@ -413,6 +413,11 @@ class DAField(DAObject):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
     calling `gather()` for lists"""
+    # TODO: we might want to think about how to handle the custom names differently
+    # in the future. This lets us avoid having to specify the full/combined list of people
+    # prefixes    
+    if hasattr(self, 'custom_trigger_gather'):
+      return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
@@ -1281,21 +1286,23 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
   fields_to_add = set()
   for field in fields:
     # Simpler case: PDF variables matching our naming rules
-    new_potential_name = map_names(field.variable, reserved_prefixes=custom_people)
-    if new_potential_name != field.variable:
-      field.docassemble_variable = new_potential_name
+    new_potential_name = map_raw_to_final_display(field.variable, reserved_prefixes=custom_people)
+    # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
+    if not ('[' in field.variable) and new_potential_name != field.variable:
+      field.final_display_var = new_potential_name
       for person in custom_people:
-        if field.docassemble_variable.startswith(person + "["):
-          field.trigger_gather = person + ".gather()"
+        if field.final_display_var.startswith(person + "["):
+          field.custom_trigger_gather = person + ".gather()"
       fields_to_add.add(field)
       delete_list.append(field) # Cannot mutate in place
     else:
       # check for possible DOCX match of prefix + suffix, w/ [index] removed
       matching_docx_test = r"^(" + "|".join(custom_people) + ")\[\d+\](" + ("|".join([suffix.replace(".","\.") for suffix in people_suffixes])) + ")$"
+      log(matching_docx_test)
       if re.match(matching_docx_test, field.variable):
         for person in custom_people:
-          if field.docassemble_variable.startswith(person + "["):
-            field.trigger_gather = person + ".gather()"
+          if field.final_display_var.startswith(person + "["):
+            field.custom_trigger_gather = person + ".gather()"
         delete_list.append(field)
         fields_to_add.add(field)
 
@@ -1326,7 +1333,7 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      # map_names will only transform names that are built-in to the constants
+      # map_raw_to_final_display will only transform names that are built-in to the constants
       field_to_check = map_raw_to_final_display(field[0])
     else:
       field_to_check = field
