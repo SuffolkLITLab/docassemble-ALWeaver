@@ -28,7 +28,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos']
+           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -413,6 +413,11 @@ class DAField(DAObject):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
     calling `gather()` for lists"""
+    # TODO: we might want to think about how to handle the custom names differently
+    # in the future. This lets us avoid having to specify the full/combined list of people
+    # prefixes    
+    if hasattr(self, 'custom_trigger_gather'):
+      return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
@@ -1095,6 +1100,8 @@ def get_docx_variables( text:str )->set:
         fields.add( re.sub(r'\.name.*', '.name.first', possible_var ))
       continue
 
+    # TODO: Put in a test here for some_list.familiar() and for some_list[0].familiar()
+
     # Remove any methods from the end of the variable
     methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var )
     fields.add( methods_removed )
@@ -1138,13 +1145,16 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
 
   prefix = label_groups[1]
   # Map prefix to an adjusted version
-  # At the moment, turn any singluars into plurals if needed, e.g. 'user' into 'users'
+  # At the moment, turn any singulars into plurals if needed, e.g. 'user' into 'users'
   adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
   if adjusted_prefix in reserved_var_plurals:
     digit = label_groups[2]
-    index = indexify(digit)
+    if digit == '':
+      index = '[0]'
+    else:
+      index = '[' + str(int(digit)-1) + ']'
   else:
     digit = ''
     index = ''
@@ -1257,15 +1267,55 @@ def unmap(label, unmap_suffixes=generator_constants.UNMAP_SUFFIXES):
             return label.replace(suffix, unmap_suffixes[suffix])
     return label
 
-def get_reserved_label_parts(prefixes, label):
-    return re.search(fr"{prefixes}(\d*)(.*)", label)
+def get_reserved_label_parts(prefixes:list, label:str):
+  """
+  Return an re.matches object for all matching variable names,
+  like user1_something, etc.
+  """
+  return re.search(r"^(" + "|".join(prefixes) + ')(\d*)(.*)', label)
 
-# Return label digit as the correct syntax for an index
-def indexify(digit):
-  if digit == '':
-    return '[0]'
-  else:
-    return '[' + str(int(digit)-1) + ']'
+def process_custom_people(custom_people:list, fields:list, built_in_fields:list, people_suffixes:list = (generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES) )->None:
+  """
+  Move fields from `fields` to `built_in_fields` list if the user
+  indicated they are going to be treated as ALPeopleLists
+  """
+  # Iterate over DAFieldList 
+  # If any fields match a custom person with a pre-handled suffix, remove them
+  # from the list and add them to the list of built_in_fields_used
+  delete_list = []
+  fields_to_add = set()
+  for field in fields:
+    # Simpler case: PDF variables matching our naming rules
+    new_potential_name = map_raw_to_final_display(field.variable, reserved_prefixes=custom_people)
+    # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
+    if not ('[' in field.variable) and new_potential_name != field.variable:
+      field.final_display_var = new_potential_name
+      for person in custom_people:
+        if field.final_display_var.startswith(person + "["):
+          field.custom_trigger_gather = person + ".gather()"
+      fields_to_add.add(field)
+      delete_list.append(field) # Cannot mutate in place
+    else:
+      # check for possible DOCX match of prefix + suffix, w/ [index] removed
+      matching_docx_test = r"^(" + "|".join(custom_people) + ")\[\d+\](" + ("|".join([suffix.replace(".","\.") for suffix in people_suffixes])) + ")$"
+      log(matching_docx_test)
+      if re.match(matching_docx_test, field.variable):
+        for person in custom_people:
+          if field.final_display_var.startswith(person + "["):
+            field.custom_trigger_gather = person + ".gather()"
+        delete_list.append(field)
+        fields_to_add.add(field)
+
+  for field in delete_list:
+    fields.remove(field)
+
+  for field in fields_to_add:
+    built_in_fields.append(field)    
+
+
+
+  
+
 
 def get_person_variables(fieldslist,
                          undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
@@ -1275,7 +1325,7 @@ def get_person_variables(fieldslist,
                          reserved_person_pluralizers_map = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
                          custom_only=False):
   """
-  Identify the field names that represent people in the list of
+  Identify the field names that appear to represent people in the list of
   string fields pulled from docx/PDF. Exclude people we know
   are singular Persons (such as trial_court).
   """
@@ -1283,6 +1333,7 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
+      # map_raw_to_final_display will only transform names that are built-in to the constants
       field_to_check = map_raw_to_final_display(field[0])
     else:
       field_to_check = field
@@ -1296,8 +1347,8 @@ def get_person_variables(fieldslist,
       match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
       if matches:
-        # Do not ask how many there will be about a singluar person
         if matches.groups()[0] in undefined_person_prefixes:
+          # Ignore singular objects like trial_court
           pass
         # Is the name before attribute/index a predetermined person?  
         elif matches.groups()[0] in people_vars:
@@ -1306,20 +1357,25 @@ def get_person_variables(fieldslist,
         elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
           people.add(reserved_person_pluralizers_map[matches.groups()[0]])
         else:
-          # Look for suffixes normally associated with people, like _name_first for PDF or .name.first for a DOCX, etc.
-          if map_raw_to_final_display(matches.groups()[1]) in people_suffixes:
-            # In this branch, we need to strip off trailing numbers
-            people.add(re.sub(r"\d+$","",matches.groups()[0]))
+          # This will be reached only for a DOCX and we decided to make
+          # custom people all be plural. So we ALWAYS strip off the leading
+          # index, like [0].name.first
+          possible_suffix = re.sub('^\[\d+\]','',matches.groups()[1])
+          # Look for suffixes normally associated with people like .name.first for a DOCX
+          if possible_suffix in people_suffixes:
+            people.add(matches.groups()[0]) 
     else:
       # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
-      # regex to check for matching suffixes, and catch things like mail_address_address 
+      # regex to check for matching suffixes, and catch things like mail_address_address
       # instead of just _address_address, if the longer one matches
       match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
       if matches:
         if not matches.groups()[0] in undefined_person_prefixes:
-          # Do not ask how many there will be about a singluar person
+          # Skip pre-defined but singular objects since they are not "people" that
+          # need to turn into lists.
+          # currently this is only trial_court
           people.add(re.sub(r"\d+$","",matches.groups()[0]))
   if custom_only:
     return people - set(people_vars)

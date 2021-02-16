@@ -43,7 +43,7 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
     return out
 
 setup(name='docassemble.assemblylinewizard',
-      version='0.57',
+      version='0.58.1',
       description=(''),
       long_description='# docassemble.assemblylinewizard\r\n\r\nA tool to help generate draft interviews for the docassemble platform. Tightly linked to https://github.com/SuffolkLITLab/docassemble-AssemblyLine. Currently linked to https://github.com/SuffolkLITLab/docassemble-MassAccess but moving to be more jurisdiction independent.\r\n\r\n## History\r\n\r\n* 2021-02-09 Combine yes/no variables; more flexible handling of people variables and assistance with gathering varying numbers w/ less code\r\n* 2021-01-29 Bug fixes; migration to AssemblyLine complete\r\n* 2021-01-25 Bug fixes, start migration to [AssemblyLine](https://github.com/SuffolkLITLab/docassemble-AssemblyLine) dependency and away from MAVirtualCourt\r\n\r\n## Authors\r\n\r\nQuinten Steenhuis, qsteenhuis@suffolk.edu  \r\nMichelle  \r\nBryce Willey  \r\nLily Yang  \r\nDavid Colarusso  \r\nNharika Singh  \r\n',
       long_description_content_type='text/markdown',
