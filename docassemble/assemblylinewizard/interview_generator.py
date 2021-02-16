@@ -19,6 +19,7 @@ import datetime
 import zipfile
 import types
 import json
+from typing import Dict
 from .generator_constants import generator_constants
 
 TypeType = type(type(None))
@@ -336,11 +337,11 @@ class DAField(DAObject):
         
     if base_var in reserved_pluralizers_map.values():
       content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
-      content += indend_by("# lets the user edit all of the items at once", 6)
+      content += indent_by("# lets the user edit all of the items at once", 6)
       content += indent_by(bold(base_var), 6) + '\n'
       content += indent_by("% for my_var in {}:".format(base_var), 6)
       content += indent_by("* ${ my_var }", 8)
-      content += indend_by("% endfor", 6)
+      content += indent_by("% endfor", 6)
       return content
     
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
@@ -1296,7 +1297,7 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 def remove_multiple_appearance_indicator(label: str):
     return re.sub(r'_{2,}\d+', '', label)
 
-def substitute_suffix(label: str, suffixes: map[str, str]) -> str: 
+def substitute_suffix(label: str, suffixes: Dict[str, str]) -> str: 
   """If `label` ends with any of the keys in `suffixes`, replaces it with the corresponding value
   """
   for suffix in suffixes:
