@@ -214,13 +214,6 @@ class DAField(DAObject):
     self.final_display_var = new_field_name  # no transformation changes
     self.has_label = True
 
-    # this will let us edit the name field if document just refers to
-    # the whole object
-    if new_field_name in reserved_pluralizers_map.values():
-      self.edit_attribute = new_field_name + '[0].name'
-    if new_field_name in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      self.edit_attribute = new_field_name + '.name'
-
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     if self.raw_field_name.endswith('_date'):
@@ -439,8 +432,6 @@ class DAField(DAObject):
 
     # Everything before the first period and everything from the first period to the end
     var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.UNMAP_SUFFIXES)
-  # generator_constants.UNMAP_SUFFIXES):
-  # map address() etc backwards
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
     # test for existence (empty strings result in a tuple)
