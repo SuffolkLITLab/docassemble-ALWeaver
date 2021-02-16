@@ -202,6 +202,8 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
   '\.phone_numbers\(\)$': '.phone_number',
 }
 
+# Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
+# not `.name.full()` in the review screen displayed value
 generator_constants.FULL_DISPLAY = {
   '.name': '.name.full()',
   '.address': '.address.block()',

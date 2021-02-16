@@ -321,8 +321,11 @@ class DAField(DAObject):
 
     if base_var in reviewed_fields:
       return ""
-    reviewed_fields.add(base_var) 
-
+    reviewed_fields.add(base_var)
+    
+    # Base var should only have one attribute, not further attributes
+    # e.g. `parents[0].name` instead of `parents[0].name.first`
+    # Check `DAField._get_base_variable` for implementation
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
     
     # this lets us edit the name if document just refers to the whole object
@@ -1323,17 +1326,17 @@ def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
   attributes. For example, `.address()` will become `.address.address`"""
   for suffix in display_suffixes:
     match_regex = re.compile( '.*' + suffix )
-    log( 'match_regex', 'console' )
-    log( match_regex, 'console' )
     if re.match( match_regex, label ):
+      log( 'match_regex', 'console' )
+      log( match_regex, 'console' )
       sub_regex = re.compile( suffix )
       new_label = re.sub( sub_regex, display_suffixes[suffix], label )
       log( 'new_label', 'console' )
       log( new_label, 'console' )
       return new_label
-    log( 'just label', 'console' )
-    log( label, 'console' )
-    return label
+  log( 'just label', 'console' )
+  log( label, 'console' )
+  return label
 
 def get_reserved_label_parts(prefixes:list, label:str):
   """
