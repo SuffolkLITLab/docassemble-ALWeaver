@@ -1327,15 +1327,9 @@ def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
   for suffix in display_suffixes:
     match_regex = re.compile( '.*' + suffix )
     if re.match( match_regex, label ):
-      log( 'match_regex', 'console' )
-      log( match_regex, 'console' )
       sub_regex = re.compile( suffix )
       new_label = re.sub( sub_regex, display_suffixes[suffix], label )
-      log( 'new_label', 'console' )
-      log( new_label, 'console' )
       return new_label
-  log( 'just label', 'console' )
-  log( label, 'console' )
   return label
 
 def get_reserved_label_parts(prefixes:list, label:str):
