@@ -315,30 +315,27 @@ class DAField(DAObject):
 
     return content
 
-  def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
-    base_var = DAField._get_base_variable(settable_var)
-
-    if base_var in reviewed_fields:
-      return ""
-    reviewed_fields.add(base_var)
+  def review_yaml(self, reviewed_fields, 
+                  reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     
+    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    edit_attribute = self.trigger_gather(get_settable=True)
+      
+    # If this var is already being set through the review screen skip it
+    if edit_attribute in reviewed_fields:
+      return ""
+    reviewed_fields.add(edit_attribute)
+    
+    base_var = DAField._get_base_variable(settable_var)
     # Base var should only have one attribute, not further attributes
     # e.g. `parents[0].name` instead of `parents[0].name.first`
     # Check `DAField._get_base_variable` for implementation
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
-    
-    # this lets us edit the name if document just refers to the whole object
-    if settable_var in reserved_pluralizers_map.values():
-      edit_attribute = settable_var + '[0].name.first'
-    elif settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      edit_attribute = settable_var + '.name.first'
-    else:
-      edit_attribute = settable_var
       
     content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
-        
+    
+    # reimplement when `revisit` is ready
     if base_var in reserved_pluralizers_map.values():
       content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
       content += indent_by("# lets the user edit all of the items at once", 6)
@@ -420,7 +417,7 @@ class DAField(DAObject):
     })
     return field_questions
 
-  def trigger_gather(self,
+  def trigger_gather(self, get_settable=False,
                      reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -437,8 +434,12 @@ class DAField(DAObject):
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
 
+    # If it's just a straight up plural object
     if self.final_display_var in reserved_var_plurals:
-      return self.final_display_var + GATHER_CALL
+      if get_settable:
+        return self.final_display_var + '[0].name.first'
+      else:
+        return self.final_display_var + GATHER_CALL
 
     # Everything before the first period and everything from the first period to the end
     var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
@@ -455,7 +456,10 @@ class DAField(DAObject):
     if has_plural_prefix or has_singular_prefix:
       first_attribute = var_parts[0][1]
       if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
-        return prefix + GATHER_CALL
+        if get_settable:
+          return var_parts[0][0] + '.name.first'
+        else:
+          return prefix + GATHER_CALL
       elif first_attribute == '.address' or first_attribute == '.mail_address':
         return var_parts[0][0] + first_attribute + '.address'
       else:
@@ -468,7 +472,7 @@ class DAField(DAObject):
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """Gets the base object or list that holds the data that is in var_with_attribute
-    For example, users[0].name and users[1].name.last will both return users. 
+    For example, users[0].name and users[0].name.last will both return users[0].name. 
     NOTE: we only combine name attributes of lists right now. So users[0].address returns 
     users[0].address and users[0].phone_number returns users[0].phone_number right now.
     TODO(brycew): to handle all attributes correctly like that, we need the list of all attributes
@@ -486,10 +490,20 @@ class DAField(DAObject):
     
     has_plural_prefix = prefix in reserved_pluralizers_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
+    # This is the kind of var that would definitely have a `.name` somewhere
     if has_plural_prefix or has_singular_prefix:
+      # TODO: Reimplement removing `.name` when `FULL_DISPLAY` for review screens
+      # is handled with a `revisit` to allow editing of groups of individuals
       first_attribute = var_parts[0][1]
-      if first_attribute == '' or first_attribute == '.name':
-        return prefix
+      if first_attribute == '':  # or first_attribute == '.name':
+        # return prefix
+        if prefix == indexed_var:  # Will work for singulars too
+          # If it's the whole list, return its 0th item, not the whole list.
+          # Whole lists of people can't be set.
+          return prefix + '[0].name'
+        # If it has an index, preserve that index
+        return indexed_var + '.name'
+      # If it has any attributes, preserve the first level of attributes
       return indexed_var + first_attribute
     else:
       return var_with_attribute 
