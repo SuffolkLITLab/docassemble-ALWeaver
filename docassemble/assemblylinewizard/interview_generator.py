@@ -28,7 +28,8 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
            'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
-           'get_fields','is_reserved_docx_label','get_character_limit', 'create_package_zip', \
+           'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
+           'create_package_zip', \
            'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people',
            'map_names']
 
@@ -1065,6 +1066,21 @@ def directory_for(area, current_project):
 def project_name(name):
     return '' if name == 'default' else name
 
+
+def get_pdf_fields(the_file):
+  """Patch over https://github.com/jhpyle/docassemble/blob/10507a53d293c30ff05efcca6fa25f6d0ded0c93/docassemble_base/docassemble/base/core.py#L4098"""
+  results = list()
+  import docassemble.base.pdftk
+  all_fields = docassemble.base.pdftk.read_fields(the_file.path())
+  if all_fields is None:
+    return None
+  for item in docassemble.base.pdftk.read_fields(the_file.path()):
+    the_type = re.sub(r'[^/A-Za-z]', '', str(item[4]))
+    if the_type == 'None':
+      the_type = None
+    result = (item[0], '' if item[1] == 'something' else item[1], item[2], item[3], the_type, item[5])
+    results.append(result)
+  return results
 
 def get_fields(the_file):
   """Get the list of fields needed inside a template file (PDF or Docx Jinja
