@@ -91,6 +91,8 @@ subquestion: |
 fields:
   - Select a PDF or Word template: template_upload
     datatype: file
+    accept: |
+      ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 help: |
   This interview has been run ${sequence} times.
 ---
