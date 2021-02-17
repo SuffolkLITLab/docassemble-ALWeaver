@@ -1163,7 +1163,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
-  map_raw_to_final_display(label, document_type=document_type,
+  return map_raw_to_final_display(label, document_type=document_type,
               reserved_whole_words=reserved_whole_words,
               reserved_prefixes=reserved_prefixes,
               undefined_person_prefixes=undefined_person_prefixes,
