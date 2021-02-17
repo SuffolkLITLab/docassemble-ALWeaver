@@ -317,7 +317,6 @@ class DAField(DAObject):
 
   def review_yaml(self, reviewed_fields, 
                   reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     edit_attribute = self.trigger_gather(get_settable=True)
       
@@ -331,23 +330,28 @@ class DAField(DAObject):
     # e.g. `parents[0].name` instead of `parents[0].name.first`
     # Check `DAField._get_base_variable` for implementation
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
+    log( 'full_display', 'console' )
+    log( full_display, 'console' )
       
     content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
     
-    # reimplement when `revisit` is ready
-    if base_var in reserved_pluralizers_map.values():
-      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
-      content += indent_by("# lets the user edit all of the items at once", 6)
-      content += indent_by(bold(base_var), 6) + '\n'
-      content += indent_by("% for my_var in {}:".format(base_var), 6)
-      content += indent_by("* ${ my_var }", 8)
-      content += indent_by("% endfor", 6)
-      return content
-    
+    ## reimplement when `revisit` is ready
+    #if base_var in reserved_pluralizers_map.values():
+    #  content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
+    #  content += indent_by("# lets the user edit all of the items at once", 6)
+    #  content += indent_by(bold(base_var), 6) + '\n'
+    #  content += indent_by("% for my_var in {}:".format(base_var), 6)
+    #  content += indent_by("* ${ my_var }", 8)
+    #  content += indent_by("% endfor", 6)
+    #  return content
+      
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content += indent_by(bold(edit_display_name) + ": ", 6)
-    if hasattr(self, 'field_type'):
+    # Remove this first `if` when above is reimplemented with `revisit`
+    if not base_var == full_display:
+      content += indent_by('${ ' + full_display + ' }', 6)
+    elif hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
       elif self.field_type in ['integer', 'number','range']:
@@ -1338,11 +1342,17 @@ def remove_multiple_appearance_indicator(label: str):
 def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
   """Map attachment/displayable attributes or methods into interview order
   attributes. For example, `.address()` will become `.address.address`"""
+  # Split into object + index and everything else
+  var_parts = re.findall(r'([^.]+)(\.[^.]*)?', label)
+  try:
+    attrs = var_parts[0][1]
+  except:
+    attrs = ''
+  
   for suffix in display_suffixes:
-    match_regex = re.compile( '.*' + suffix )
-    if re.match( match_regex, label ):
-      sub_regex = re.compile( suffix )
-      new_label = re.sub( sub_regex, display_suffixes[suffix], label )
+    regex = re.compile( suffix )
+    if re.match( regex, attrs ):
+      new_label = var_parts[0][0] + display_suffixes[suffix]
       return new_label
   return label
 
