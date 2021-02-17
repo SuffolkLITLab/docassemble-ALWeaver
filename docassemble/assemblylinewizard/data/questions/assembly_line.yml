@@ -290,9 +290,24 @@ comment: |
   Get the list of fields
 code: |
   if template_upload[0].extension == 'pdf':
-    all_fields = template_upload.get_pdf_fields()
+    all_fields = get_pdf_fields(template_upload)
   else:
     all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
+
+  if all_fields is None:
+    force_ask('empty_pdf')
+---
+event: empty_pdf
+question: You uploaded an empty PDF
+subquestion: |
+  The PDF you uploaded (${ template_upload[0].filename }) does not have any fillable fields.
+  To make a new interview, we need to have a document that has fillable fields.
+  
+  If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
+  For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+
+buttons:
+  - Restart: restart
 ---
 code: |
  built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
