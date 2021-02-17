@@ -730,7 +730,7 @@ code: |
   preview_question.type = 'interstitial'
   preview_question.continue_button_field = interview_label + '_preview_question' 
   preview_question.question_text = 'Review your form before you sign it'  
-  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${ al_user_bundle.as_pdf() }\n\n"
+  preview_question.subquestion_text = "Here is a preview of the form you'll sign on the next page. \n\n ${ al_user_bundle.as_pdf(key='preview') }\n\n"
   preview_question.subquestion_text += "Remember to come back to this window to continue and sign your form."
   preview_question.is_mandatory = False  
 
