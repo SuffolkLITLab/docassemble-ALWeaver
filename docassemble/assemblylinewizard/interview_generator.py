@@ -340,12 +340,13 @@ class DAField(DAObject):
     content += '    button: |\n'
         
     if base_var in reserved_pluralizers_map.values():
-      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 6)
-      content += indent_by("# lets the user edit all of the items at once", 6)
       content += indent_by(bold(base_var), 6) + '\n'
       content += indent_by("% for my_var in {}:".format(base_var), 6)
       content += indent_by("* ${ my_var }", 8)
       content += indent_by("% endfor", 6)
+      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 4)
+      content += indent_by("# lets the user edit all of the items at once", 4)
+      
       return content
     
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
