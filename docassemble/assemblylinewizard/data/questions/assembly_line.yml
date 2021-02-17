@@ -301,7 +301,9 @@ event: empty_pdf
 question: You uploaded an empty PDF
 subquestion: |
   The PDF you uploaded (${ template_upload[0].filename }) does not have any fillable fields.
-  To help you make a new interview, we need to have a document that has fillable fields.
+  To make a new interview, we need to have a document that has fillable fields.
+  
+  If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
 
 buttons:
