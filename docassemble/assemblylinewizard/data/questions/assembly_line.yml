@@ -925,7 +925,7 @@ code: |
   item.field_type = 'end_attachment'
   item.variable = 'all_done'
   item.final_display_var = 'all_done'
-  item.raw_field_name = 'all_done'
+  item.raw_field_names = ['all_done']
   # item.question = end_question
   end_question.field_list.gathered = True  
   
