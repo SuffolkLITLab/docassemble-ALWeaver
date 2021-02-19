@@ -1,3 +1,7 @@
+metadata:
+  title: |
+    Assembly Line PDF Pre-flight Checker
+  short title: Pre-flight Checker
 ---
 modules:
   - .interview_generator
@@ -9,6 +13,8 @@ subquestion: |
 fields:
   - Please upload a PDF template: template_upload
     datatype: file
+    accept: |
+      ".pdf, application/pdf"
 ---
 objects:
   - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
