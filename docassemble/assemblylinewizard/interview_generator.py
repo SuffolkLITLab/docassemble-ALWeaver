@@ -637,24 +637,22 @@ class DAQuestion(DAObject):
             
         elif self.type == 'main order':
           lines = [
+            "###################### Main order ######################\n"
             "mandatory: True",
+            "comment: |",
+            "  This block includes the logic for standalone interviews.",
+            "  Delete mandatory: True to include in another interview",
             "id: main_order_" + self.interview_label,
             "code: |",
-            "  " + "# Controls the flow of the basic building blocks of the",
-            "  " + "# interview. To use this interview in another interview",
-            "  " + "# delete the `mandatory: True` specifier or this whole block.",
-            "  " + self.intro + "  # Organization intro screen/splash screen",
-            "  " + "# Introduction to this specific interview",
+            "  " + self.intro,
             "  " + self.interview_label + "_intro",
-            "  " + "# Trigger the whole interview order block to control question order",
+            "  # Interview order block has form-specific logic controlling order/branching",
             "  interview_order_" + self.interview_label,
-            "  " + "signature_date",
-            # Save a snapshot of interview answers. 
-            # We only want a few anonymous variables
-            "  " + "# Save (anonymized) interview statistics.",
-            "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
+            "  signature_date", # TODO: do we want this here?
+            "  # Save (anonymized) interview statistics.",
+            "  store_variables_snapshot(data={'zip': users[0].address.zip})",
             "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
-            "  " + "basic_questions_signature_flow",
+            "  basic_questions_signature_flow",
           ]
           
           for signature_field in self.signatures:
@@ -666,9 +664,11 @@ class DAQuestion(DAObject):
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
+            content += "#################### Interview order #####################\n"
+            content += "comment: |\n"
+            content += "  Controls order and branching logic of questions in the interview\n"
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control order of questions in this interview\n"
             added_field_names = set()
             for field in self.logic_list:
               if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
@@ -716,6 +716,8 @@ class DAQuestion(DAObject):
             # TODO: this is begging to be refactored into
             # just dumping out a dictionary in json-like format
             # rather than us hand-writing the data structure
+            # Note 2/23/21: machine-written JSON is not pretty. 
+            # So one argument for keeping it handwritten
             if hasattr(self, 'comment'):
                 content += 'comment: |\n'
                 content += indent_by(self.comment, 2)
