@@ -52,20 +52,20 @@ code: |
   ask_people_quantity_question  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
-  add_short_title
-  add_form_type
-  add_sections
   choose_field_types
   questions.gather()
   show_screen_order
-  
   add_objects_block
+  add_sections  
   add_logic_tree
   add_draft_intro_screen
-  created_preview_question
   add_questions_to_interview
+  created_preview_question  
+  add_review_screen  
+  # Insert comment block
+  add_short_title
+  add_form_type
   created_attachment
-  add_review_screen
   wrote_interview
   increment_sequence
 
@@ -417,7 +417,6 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
-  metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
   metadata.categories = interview.categories
   metadata.settings = {
