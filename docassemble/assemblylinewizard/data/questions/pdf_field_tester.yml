@@ -20,9 +20,24 @@ objects:
   - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
 ---
 code: |
-  fields = template_upload.get_pdf_fields()
+  fields = get_pdf_fields(template_upload)
+  if fields is None:
+    force_ask('empty_pdf')
+
   signature_fields = [field[0] for field in fields if len(field) >4 and field[4] == '/Sig']
   checkbox_fields = [field[0] for field in fields if len(field) > 4 and field[4] == '/Btn']
+---
+event: empty_pdf
+question: You uploaded an empty PDF
+subquestion: |
+  The PDF you uploaded (${ template_upload[0].filename }) does not have any fillable fields.
+  To make a new interview with the Weaver, we need to have a document that has fillable fields.
+  
+  If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
+  For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+
+buttons:
+  - Restart: restart
 ---
 comment: |
   This block was copied from assembly_line.yml
