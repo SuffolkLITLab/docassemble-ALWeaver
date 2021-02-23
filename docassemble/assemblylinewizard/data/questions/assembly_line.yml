@@ -709,7 +709,7 @@ code: |
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
       signatures.add(field.trigger_gather())
-    
+   
   # TODO: some of the logic in interview_generator.py should
   # probably be moved here, or another module file
   code_block =  interview.questions.appendObject() # 'interview order code block'
