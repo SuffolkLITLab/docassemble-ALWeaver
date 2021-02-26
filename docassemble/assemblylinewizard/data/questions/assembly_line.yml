@@ -52,20 +52,20 @@ code: |
   ask_people_quantity_question  
   add_includes
   set_metadata # Adds metadata block to the interview as first block
-  add_short_title
-  add_form_type
-  add_sections
   choose_field_types
   questions.gather()
   show_screen_order
-  
   add_objects_block
+  add_sections  
   add_logic_tree
   add_draft_intro_screen
-  created_preview_question
   add_questions_to_interview
+  created_preview_question  
+  add_review_screen  
+  # Insert comment block
+  add_short_title
+  add_form_type
   created_attachment
-  add_review_screen
   wrote_interview
   increment_sequence
 
@@ -417,7 +417,6 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
-  metadata.comment = 'The metadata section controls the tab title and saved interview title. You can delete this section if you include this YAML file in another YAML file.'
   metadata.type = 'metadata'
   metadata.categories = interview.categories
   metadata.settings = {
@@ -710,6 +709,13 @@ code: |
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
       signatures.add(field.trigger_gather())
+   
+  # TODO: some of the logic in interview_generator.py should
+  # probably be moved here, or another module file
+  code_block =  interview.questions.appendObject() # 'interview order code block'
+  code_block.type = 'interview order'
+  code_block.logic_list = logic_list
+  code_block.interview_label = interview_label
   
   # Build the mandatory code block that will control overall flow
   # Need this below collecting signatures
@@ -718,13 +724,7 @@ code: |
   main_code.intro = 'al_intro_screen'  # Splash page for your organization
   main_code.signatures = signatures
   main_code.interview_label = interview_label
-  
-  # TODO: some of the logic in interview_generator.py should
-  # probably be moved here, or another module file
-  code_block =  interview.questions.appendObject() # 'interview order code block'
-  code_block.type = 'interview order'
-  code_block.logic_list = logic_list
-  code_block.interview_label = interview_label
+
   add_logic_tree = True  
 ---
 need:
