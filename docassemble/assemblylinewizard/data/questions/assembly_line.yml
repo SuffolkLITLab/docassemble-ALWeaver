@@ -274,10 +274,12 @@ subquestion: |
   This form includes the following variables representing people:
   ${ comma_and_list(person_candidates) }
   
-  **Note**: 
-  If your form includes `defendants/respondents` or `plaintiffs/petitioners`,
-  those variables will be replaced with `users` and `other_parties` depending
-  on the role the user of the form has in the case.
+  % if added_other_party:
+  **Note**: Your form includes `defendants/respondents` or
+  `plaintiffs/petitioners`. In the interview file, those variables will be
+  replaced with `users` and `other_parties` depending on the role the user of
+  the form has in the case.
+  % endif
 fields:
   - code: people_quantity_question 
 help:
@@ -552,8 +554,12 @@ code: |
   # They get defined as an alias to users or other_parties
   # other_parties should appear if we have both defendants and plaintiffs
   person_candidates_temp.add('users')
+  has_other_party = 'other_parties' in person_candidates_temp
+  added_other_party = False
   if ('defendants' in person_candidates_temp and 'plaintiffs' in person_candidates_temp) or ('respondents' in person_candidates_temp and 'petitioners' in person_candidates_temp):
     person_candidates_temp.add('other_parties')
+    if not has_other_party:
+      added_other_party = True
   
   person_candidates_temp.discard('petitioners')
   person_candidates_temp.discard('respondents')
