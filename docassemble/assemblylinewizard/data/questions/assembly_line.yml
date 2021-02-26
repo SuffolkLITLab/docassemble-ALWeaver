@@ -486,13 +486,13 @@ fields:
         len(built_in_fields_used)
 ---
 code: |
-  log( '~~~~~~~~~~~~~', 'console' )
+  log( '~~~~~~~~~~~~~~', 'console' )
   questions[i].question_text
   
   if questions[i].is_informational_screen:
     questions[i].field_list.clear()
-    # Get rid of this line when everything else has been aligned to `needs_continue_button_field`
-    questions[i].has_mandatory_field = False
+    # The info screen gives it a mandatory field
+    questions[i].has_mandatory_field = True
   
   # Simplify the abstraction
   if not questions[i].has_mandatory_field or questions[i].is_informational_screen:
