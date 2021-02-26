@@ -486,7 +486,6 @@ fields:
         len(built_in_fields_used)
 ---
 code: |
-  log( '~~~~~~~~~~~~~~', 'console' )
   questions[i].question_text
   
   if questions[i].is_informational_screen:
