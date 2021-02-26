@@ -2,6 +2,7 @@ import os
 import re
 import keyword
 import copy
+import uuid
 import sys
 import yaml
 import tempfile
@@ -291,7 +292,7 @@ class DAField(DAObject):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
+      content += '  - "{}": {}\n'.format(json.dumps(self.label), settable_var) 
     else:
       content += "  - no label: {}\n".format(settable_var) 
 
@@ -351,7 +352,7 @@ class DAField(DAObject):
       return content
     
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
-    content += indent_by(bold(edit_display_name) + ": ", 6)
+    content += indent_by("'" + bold(json.dumps(edit_display_name)) + "': ", 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
@@ -730,13 +731,13 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
-            content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
-            content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
-            content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
+            content += "    'title': '" + escape_quote(oneline(json.dumps(self.title))) + "',\n"
+            content += "    'short title': '" + escape_quote(oneline(json.dumps(self.short_title))) + "',\n"
+            content += "    'description': '" + escape_quote(oneline(json.dumps(self.description))) + "',\n"
+            content += "    'original_form': '" + escape_quote(oneline(json.dumps(self.original_form))) + "',\n"
             content += "    'allowed courts': " + "[\n"
             for court in self.allowed_courts.true_values():
-              content += "      '" + oneline(court) + "',\n"
+              content += "      " + json.dumps(oneline(court)) + ",\n"
             content += "    ],\n"
             content += "    'categories': [" + "\n"
             for category in self.categories.true_values():
@@ -765,7 +766,11 @@ class DAQuestion(DAObject):
           if hasattr(self, 'id') and self.id:
             content += "id: " + self.id + "\n"
           else:
-            content += "id: " + oneline(self.question_text) + "\n"
+            without_bad_chars = varname(oneline(self.question_text))
+            if len(without_bad_chars) == 0:
+              # TODO(brycew): we can do better than meaningless text
+              without_bad_chars = str(uuid.uuid4())
+            content += "id: " + without_bad_chars + "\n"
           content += 'continue button field: ' + self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
