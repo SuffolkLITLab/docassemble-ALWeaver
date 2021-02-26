@@ -550,7 +550,7 @@ fields:
       screen will be optional.
 validation code: |
   if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
-    validation_error("If this is not a purely informational screen, you must select at least one field to appear on this page.")
+    validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
