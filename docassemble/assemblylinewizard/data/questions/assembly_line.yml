@@ -26,7 +26,7 @@ objects:
   - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
   - signature_fields: DAFieldList.using(gathered=True)
-  - questions: DAQuestionList.using(complete_attribute='question_text')
+  - questions: DAQuestionList.using(complete_attribute='complete')
   - interview_download: DAFile
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
@@ -485,6 +485,27 @@ fields:
         len(built_in_fields_used)
 ---
 code: |
+  questions[i].question_text
+  
+  if questions[i].is_informational_screen:
+    questions[i].field_list.clear()
+    # The info screen gives it a mandatory field
+    questions[i].has_mandatory_field = True
+  
+  # Simplify the abstraction
+  if not questions[i].has_mandatory_field or questions[i].is_informational_screen:
+    # assigning continue button field name here is messy
+    questions[i].needs_continue_button_field = True
+  else:
+    questions[i].needs_continue_button_field = False
+    
+  questions[i].complete = True
+---
+generic object: DAObject
+code: |
+  x.needs_continue_button_field = False
+---
+code: |
   questions.there_are_any = len(fields) > 0
 ---
 code: |
@@ -500,12 +521,17 @@ subquestion: |
   a title, some context for the screen, and decide which fields are
   shown on this screen.
 fields:
+  - Make this a purely informational screen: questions[i].is_informational_screen
+    datatype: yesno
+    help: A screen with no fields, just text.
   - What should the title of this screen be? : questions[i].question_text
     default: Screen ${nice_number(i+1)}
   - What is the text that appears under the title? : questions[i].subquestion_text
     input type: area
     required: False
   - Select the fields that will appear on this screen: questions[i].field_list
+    hide if: questions[i].is_informational_screen
+    # Can we turn this into an object?
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
@@ -516,12 +542,14 @@ fields:
       lambda y: bold(y.variable) + "[BR]" + y.label
   - Add a "continue button field" on this screen: questions[i].has_mandatory_field
     datatype: noyes
+    hide if: questions[i].is_informational_screen
     help: |
       If you are not sure, leave this unchecked.
       You may want to do this if all of the questions on this
       screen will be optional.
-    validate: |
-      lambda y: True if questions[i].field_list.number()>0 else validation_error("To add this button, you must select at least one field.")
+validation code: |
+  if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
+    validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
@@ -610,9 +638,12 @@ delete buttons: False
 allow reordering: True  
 ---
 code: |
+  questions[i].field_list.there_are_any = questions[i].field_list.number() > 0
+---
+code: |
   # not quite sure why we need this--problem w/ how docassemble handles
   # editing lists created with object_checkboxes
-  questions[i].field_list.there_is_another=False
+  questions[i].field_list.there_is_another = False
 ---
 continue button field: fields[i].edit_field
 question: |
@@ -692,10 +723,10 @@ code: |
       # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
       # This can be customized to control the order of questions later      
-      if hasattr(question, 'has_mandatory_field') and question.has_mandatory_field:
-        logic_list.append(question.field_list[0].trigger_gather())
-      else:
+      if question.needs_continue_button_field:
         logic_list.append(varname(question.question_text))
+      else:
+        logic_list.append(question.field_list[0].trigger_gather())
     else:
       # it's a built-in field, not a question block
       logic_list.append(question.trigger_gather())      

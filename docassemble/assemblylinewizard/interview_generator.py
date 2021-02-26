@@ -293,8 +293,7 @@ class DAField(DAObject):
     if self.has_label:
       content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
     else:
-      content += "  - no label: {}\n".format(settable_var) 
-
+      content += "  - no label: {}\n".format(settable_var)
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
       content += "    datatype: {}\n".format(self.field_type)
@@ -313,7 +312,7 @@ class DAField(DAObject):
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
       content += self._maxlength_str() + '\n'
-
+    
     return content
 
   def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
@@ -541,59 +540,61 @@ class DAQuestion(DAObject):
                 content += "id: " + fix_id(self.question_text) + "\n"
             if hasattr(self, 'event'):
                 content += "event: " + self.event + "\n"
-            if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
+            if self.needs_continue_button_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
               content += "continue button field: " + varname(self.continue_button_field) + "\n"
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if len(self.field_list) == 1:
-                new_content, done_with_content = self.field_list[0].get_single_field_screen()
-                content += new_content
-            if self.field_list[0].field_type == 'end_attachment':
-                #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                #  # TODO: insert the email code
-                #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
-                #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
-                # attachments is no longer always a DAList
-                # TODO / FUTURE we could let this handle multiple forms at once
-                for attachment in self.attachments:  # We will only have ONE attachment
-                    # TODO: if we really use multiple attachments, we need to change this
-                    # So there is a unique variable name
-                    content += "---\n"
-                    # Use a DADict to store the attachment here
-                    content += "objects:\n"
-                    # TODO: has_addendum should be a flag set in the generator, not hardcoded
-                    content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
-                    content += "---\n"
-                    content += "objects:\n"
-                    # TODO: 
-                    content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                    content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                    content += "---\n"
-                    content += "#################### attachment block ######################\n"
-                    content += "attachment:\n"
-                    content += "    variable name: " + self.attachment_variable_name + "[i]\n"
-                    content += "    name: " + oneline(attachment.name) + "\n"
-                    content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
-                    if attachment.type == 'md':
-                        content += "    content: " + oneline(attachment.content) + "\n"
-                    elif attachment.type == 'pdf':
-                        content += "    skip undefined: True" + "\n"
-                        content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
-                        self.templates_used.add(attachment.pdf_filename)
-                        content += "    fields: " + "\n"
-                        for field in attachment.fields:
-                          content += field.attachment_yaml()
-                    elif attachment.type == 'docx':
-                        content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
-                        self.templates_used.add(attachment.docx_filename)
-                done_with_content = True
-                
+            if self.field_list.number() == 0:
+              done_with_content = True
+            else:
+              if self.field_list.number() == 1:
+                  new_content, done_with_content = self.field_list[0].get_single_field_screen()
+                  content += new_content
+              if self.field_list[0].field_type == 'end_attachment':
+                  #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
+                  #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
+                  #  # TODO: insert the email code
+                  #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
+                  #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
+                  # attachments is no longer always a DAList
+                  # TODO / FUTURE we could let this handle multiple forms at once
+                  for attachment in self.attachments:  # We will only have ONE attachment
+                      # TODO: if we really use multiple attachments, we need to change this
+                      # So there is a unique variable name
+                      content += "---\n"
+                      # Use a DADict to store the attachment here
+                      content += "objects:\n"
+                      # TODO: has_addendum should be a flag set in the generator, not hardcoded
+                      content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
+                      content += "---\n"
+                      content += "objects:\n"
+                      # TODO: 
+                      content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
+                      content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
+                      content += "---\n"
+                      content += "#################### attachment block ######################\n"
+                      content += "attachment:\n"
+                      content += "    variable name: " + self.attachment_variable_name + "[i]\n"
+                      content += "    name: " + oneline(attachment.name) + "\n"
+                      content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
+                      if attachment.type == 'md':
+                          content += "    content: " + oneline(attachment.content) + "\n"
+                      elif attachment.type == 'pdf':
+                          content += "    skip undefined: True" + "\n"
+                          content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
+                          self.templates_used.add(attachment.pdf_filename)
+                          content += "    fields:" + "\n"
+                          for field in attachment.fields:
+                            content += field.attachment_yaml()
+                      elif attachment.type == 'docx':
+                          content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
+                          self.templates_used.add(attachment.docx_filename)
+                  done_with_content = True
             if not done_with_content:
-                content += "fields:\n"
+                content += "fields:\n"  # TODO: test removing \n here
                 for field in self.field_list:
                     content += field.field_entry_yaml()
 
