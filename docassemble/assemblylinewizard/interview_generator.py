@@ -575,6 +575,7 @@ class DAQuestion(DAObject):
                       content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
                       content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
                       content += "---\n"
+                      content += "#################### attachment block ######################\n"
                       content += "attachment:\n"
                       content += "    variable name: " + self.attachment_variable_name + "[i]\n"
                       content += "    name: " + oneline(attachment.name) + "\n"
@@ -634,7 +635,8 @@ class DAQuestion(DAObject):
                 content += ",".join(params_string_builder)
                 content += ")"
               content += "\n" 
-            content += "\n"
+            if not content.endswith("\n"):              
+              content += "\n"
             
         elif self.type == 'main order':
           lines = [
@@ -692,8 +694,8 @@ class DAQuestion(DAObject):
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
-            content += "features:\n  navigation: True\n"
-            content += '---\n'
+            # content += "features:\n  navigation: True\n"
+            # content += '---\n'
             content += "sections:\n"
             for section in self.sections:
                 if isinstance(section, dict):
