@@ -260,7 +260,7 @@ objects:
 code: |
   # Build the dynamic question code to ask about people quantities
   temp_people_quantity_question = []
-  for person in set(people_variables.true_values()).union(set(built_in_people_vars_used)):
+  for person in person_candidates:
     temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
       "datatype": "radio",
       "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
@@ -272,7 +272,14 @@ question: |
   Information about people
 subquestion: |
   This form includes the following variables representing people:
-  ${ comma_and_list(set(people_variables.true_values()).union(set(built_in_people_vars_used))) }
+  ${ comma_and_list(person_candidates) }
+  
+  % if added_other_party:
+  **Note**: Your form includes `defendants/respondents` or
+  `plaintiffs/petitioners`. In the interview file, those variables will be
+  replaced with `users` and `other_parties` depending on the role the user of
+  the form has in the case.
+  % endif
 fields:
   - code: people_quantity_question 
 help:
@@ -565,6 +572,30 @@ code: |
     interview.questions.append(question)
   add_questions_to_interview = True
 ---
+code: |
+  person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
+  # We need to do special processing of the list of people used to build
+  # the objects block in the generated interview.
+  # users should always appear
+  # defendants / plaintiffs / petitioners / respondents should never appear
+  # They get defined as an alias to users or other_parties
+  # other_parties should appear if we have both defendants and plaintiffs
+  person_candidates_temp.add('users')
+  has_other_party = 'other_parties' in person_candidates_temp
+  added_other_party = False
+  if ('defendants' in person_candidates_temp and 'plaintiffs' in person_candidates_temp) or ('respondents' in person_candidates_temp and 'petitioners' in person_candidates_temp):
+    person_candidates_temp.add('other_parties')
+    if not has_other_party:
+      added_other_party = True
+  
+  person_candidates_temp.discard('petitioners')
+  person_candidates_temp.discard('respondents')
+  person_candidates_temp.discard('plaintiffs')
+  person_candidates_temp.discard('defendants')
+  
+  person_candidates = person_candidates_temp
+  del person_candidates_temp   
+---
 need:
   - built_in_people_vars_used
 code: |
@@ -574,7 +605,8 @@ code: |
   objects_block =  interview.questions.appendObject()
   objects_block.type = "objects"
   objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
-  for person in set(people_variables.true_values()).union(set(built_in_people_vars_used)):
+ 
+  for person in person_candidates:
     new_object = objects_block.objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
