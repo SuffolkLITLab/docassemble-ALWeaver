@@ -110,7 +110,6 @@ id: information about this interview
 question: |
   Information about this interview
 fields:
-  - note: Select what kind of form this is.
   - Kind of form: interview.form_type
     datatype: radio
     choices:
@@ -397,7 +396,6 @@ code: |
   short_title_block.type = 'code'
   short_title_block.code = "interview_short_title = '" + interview_intro_prompt + "'"
   add_short_title = True
----
 ---
 code: |
   form_type_block = interview.blocks.appendObject()
