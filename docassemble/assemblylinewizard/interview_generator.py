@@ -27,7 +27,7 @@ TypeType = type(type(None))
 
 __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
-           'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
+           'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
@@ -292,7 +292,7 @@ class DAField(DAObject):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     content = ""
     if self.has_label:
-      content += '  - "{}": {}\n'.format(json.dumps(self.label), settable_var) 
+      content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
     else:
       content += "  - no label: {}\n".format(settable_var) 
 
@@ -352,7 +352,7 @@ class DAField(DAObject):
       return content
     
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
-    content += indent_by("'" + bold(json.dumps(edit_display_name)) + "': ", 6)
+    content += indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
@@ -731,20 +731,20 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + escape_quote(oneline(json.dumps(self.title))) + "',\n"
-            content += "    'short title': '" + escape_quote(oneline(json.dumps(self.short_title))) + "',\n"
-            content += "    'description': '" + escape_quote(oneline(json.dumps(self.description))) + "',\n"
-            content += "    'original_form': '" + escape_quote(oneline(json.dumps(self.original_form))) + "',\n"
-            content += "    'allowed courts': " + "[\n"
+            content += '    "title": "' + escape_quotes(oneline(self.title)) + '",\n'
+            content += '    "short title": "' + escape_quotes(oneline(self.short_title)) + '",\n'
+            content += '    "description": "' + escape_quotes(oneline(self.description)) + '",\n'
+            content += '    "original_form": "' + escape_quotes(oneline(self.original_form)) + '",\n'
+            content += '    "allowed courts": ' + '[\n'
             for court in self.allowed_courts.true_values():
-              content += "      " + json.dumps(oneline(court)) + ",\n"
-            content += "    ],\n"
-            content += "    'categories': [" + "\n"
+              content += '      "' + escape_quotes(oneline(court)) + '",\n'
+            content += '    ],\n'
+            content += '    "categories": [' + '\n'
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
             if self.categories['Other']:
               for category in self.other_categories.split(','):
-                content += "      '" + escape_quote(oneline(category.strip())) + "',\n"
+                content += "      '" + escape_quotes(oneline(category.strip())) + "',\n"
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
@@ -1050,8 +1050,9 @@ def oneline(text):
     text = newlines.sub(r' ', text)
     return text
 
-def escape_quote(text):
-    return text.replace("'", "\\'")
+def escape_quotes(text):
+    """Escape both single and double quotes in strings"""
+    return text.replace('"', '\\"').replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
