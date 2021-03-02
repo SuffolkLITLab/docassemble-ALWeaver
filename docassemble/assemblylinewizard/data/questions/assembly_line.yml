@@ -559,8 +559,10 @@ fields:
     hide if: questions[i].is_informational_screen
     help: |
       If you are not sure, leave this unchecked.
-      You may want to do this if all of the questions on this
-      screen will be optional.
+      You might do this if all of the fields on this
+      screen will be optional. You also might do this
+      if you want to add show/hide logic on this screen
+      which could otherwise break the interview flow.
 validation code: |
   if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
