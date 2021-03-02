@@ -44,10 +44,13 @@ id: Interview Order
 code: |
   template_upload
   # debug
-  get_all_fields
+  
+  interview.form_type
   interview.title
   interview_intro_prompt
-  interview.typical_role  
+  
+  interview.typical_role
+  get_all_fields
   process_people_variables
   ask_people_quantity_question  
   add_includes
@@ -105,19 +108,7 @@ code: |
 id: information about this interview
 question: |
   Information about this interview
-subquestion: |
-  Put in draft information about this form below.
-  
-  Use plain language that will be understandable to someone who
-  uses this form without a lawyer. Remember, we can change it later.
 fields:
-  - Title: interview.title
-    default: ${short_filename_with_spaces}
-  - Short name: interview.short_title
-    default: ${short_filename_with_spaces}
-  - Description: interview.description
-    datatype: area
-    default: ${short_filename_with_spaces}
   - Kind of form: interview.form_type
     datatype: radio
     choices:
@@ -205,6 +196,22 @@ subquestion: |
 fields:
   - Action title: interview_intro_prompt
     default: ${ interview_intro_prompt_default }
+---
+id: form-specific intro page
+question: |
+  Your specific form's intro screen
+subquestion: |
+  Give the people using your form a little context. Use plain language that will be understandable to someone who uses this form without a lawyer. Tell them what they need to know about this specific form before they move forward.
+  
+  Remember, you can change it later.
+fields:
+  - Title: interview.title
+    default: ${ short_filename_with_spaces }
+  - Short title that will show up on small screens: interview.short_title
+    default: ${ short_filename_with_spaces }
+  - What your users should know: interview.description
+    default: ${ short_filename_with_spaces }
+    datatype: area
 ---
 id: information about people
 question: |
