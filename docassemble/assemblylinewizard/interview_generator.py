@@ -31,7 +31,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people',
+           'get_person_variables', 'get_court_choices','process_custom_people',
            'map_names']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -311,7 +311,6 @@ class DAField(DAObject):
   def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     base_var = DAField._get_base_variable(settable_var)
-
     if base_var in reviewed_fields:
       return ""
     reviewed_fields.add(base_var)
@@ -381,16 +380,16 @@ class DAField(DAObject):
     # Handle multiple indicators
     format_str = '      - "{}": '
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      format_str += '${ ' + self.variable.format() + ' }\n'
+      format_str += '${{ ' + self.variable.format() + ' }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      format_str += '${ currency(' + self.variable + ') }\n'
+      format_str += '${{ currency(' + self.variable + ') }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      format_str += r'${ "{:,.2f}".format(' + self.variable + ') }\n' 
+      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      format_str = comment + format_str + '${ ' + self.final_display_var + " if i == 'final' else '' }\n"
+      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
     else:
-      format_str += '${ ' + self.final_display_var + ' }\n'
+      format_str += '${{ ' + self.final_display_var + ' }}\n'
 
     content = ''
     for raw_name in self.raw_field_names:
@@ -514,10 +513,10 @@ class DAFieldList(DAList):
 
   def consolidate_yesnos(self):
     """Returns True if this field should be used: is not a yesno, or is the first yesno.
-    All yesnos get add to the map"""
+    All yesnos get added to the map"""
     yesno_map = collections.defaultdict(list)
-    mark_to_remove: List[bool] = []
-    for field in self.elements:
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
       if not field.variable.endswith('_yes') and not field.variable.endswith('_no'):
         continue
 
@@ -525,9 +524,11 @@ class DAFieldList(DAList):
         yesno_map[field.variable_name_guess][0].mark_as_paired_yesno(field.raw_field_names)
       yesno_map[field.variable_name_guess].append(field)
 
-      mark_to_remove.append(len(yesno_map[field.variable_name_guess]) == 1)
+      if len(yesno_map[field.variable_name_guess]) > 1:
+        mark_to_remove.append(idx)
 
-    self.elements[:] = (f for f in zip(self.elements, mark_to_remove) if not f[1])
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
 
 
   def consolidate_duplicate_fields(self, document_type: str = 'pdf'):
@@ -535,17 +536,23 @@ class DAFieldList(DAList):
       return
   
     field_map: Dict[str, DAField] = {}
-    mark_to_remove: List[bool] = []
-    for field in self.elements:
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
       if field.final_display_var in field_map.keys():
         field_map[field.final_display_var].mark_with_duplicate(field.raw_field_names)
-        mark_to_remove.append(True)
+        mark_to_remove.append(idx)
       else:
         field_map[field.final_display_var] = field
-        mark_to_remove.append(False)
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
     
-    self.elements[:] = (f for f in zip(self.elements, mark_to_remove) if not f[1])
-
+  def delitem(self, *pargs):
+    """TODO(brycew): remove when all of our servers are on 1.2.35, it's duplicating
+    https://github.com/jhpyle/docassemble/blob/8e7e4f5ee90803022779bac57308b73b41f92da8/docassemble_base/docassemble/base/core.py#L1127-L1131"""
+    for item in reversed([item for item in pargs if item < len(self.elements)]):
+      self.elements.__delitem__(item)
+    self._reset_instance_names()
+    
 
 class DAQuestion(DAObject):
     """This class represents a "question" in the generated YAML file. TODO: move
