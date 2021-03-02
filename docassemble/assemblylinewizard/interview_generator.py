@@ -2,6 +2,7 @@ import os
 import re
 import keyword
 import copy
+import uuid
 import sys
 import yaml
 import tempfile
@@ -26,7 +27,7 @@ TypeType = type(type(None))
 
 __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
-           'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
+           'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
@@ -291,7 +292,7 @@ class DAField(DAObject):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
+      content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
     else:
       content += "  - no label: {}\n".format(settable_var)
     # Use all of these fields plainly. No restrictions/validation yet
@@ -350,7 +351,7 @@ class DAField(DAObject):
       return content
     
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
-    content += indent_by(bold(edit_display_name) + ": ", 6)
+    content += indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
@@ -731,20 +732,20 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
-            content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
-            content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
-            content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
-            content += "    'allowed courts': " + "[\n"
+            content += '    "title": "' + escape_quotes(oneline(self.title)) + '",\n'
+            content += '    "short title": "' + escape_quotes(oneline(self.short_title)) + '",\n'
+            content += '    "description": "' + escape_quotes(oneline(self.description)) + '",\n'
+            content += '    "original_form": "' + escape_quotes(oneline(self.original_form)) + '",\n'
+            content += '    "allowed courts": ' + '[\n'
             for court in self.allowed_courts.true_values():
-              content += "      '" + oneline(court) + "',\n"
-            content += "    ],\n"
-            content += "    'categories': [" + "\n"
+              content += '      "' + escape_quotes(oneline(court)) + '",\n'
+            content += '    ],\n'
+            content += '    "categories": [' + '\n'
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
             if self.categories['Other']:
               for category in self.other_categories.split(','):
-                content += "      '" + escape_quote(oneline(category.strip())) + "',\n"
+                content += "      '" + escape_quotes(oneline(category.strip())) + "',\n"
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
@@ -766,7 +767,11 @@ class DAQuestion(DAObject):
           if hasattr(self, 'id') and self.id:
             content += "id: " + self.id + "\n"
           else:
-            content += "id: " + oneline(self.question_text) + "\n"
+            without_bad_chars = varname(oneline(self.question_text))
+            if len(without_bad_chars) == 0:
+              # TODO(brycew): we can do better than meaningless text
+              without_bad_chars = str(uuid.uuid4())
+            content += "id: " + without_bad_chars + "\n"
           content += 'continue button field: ' + self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
@@ -1046,8 +1051,9 @@ def oneline(text):
     text = newlines.sub(r' ', text)
     return text
 
-def escape_quote(text):
-    return text.replace("'", "\\'")
+def escape_quotes(text):
+    """Escape both single and double quotes in strings"""
+    return text.replace('"', '\\"').replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
