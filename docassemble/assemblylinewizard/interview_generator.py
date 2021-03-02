@@ -178,7 +178,7 @@ class DAInterview(DAObject):
 class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
   Has several important attributes that need to be set:
-  * `raw_field_names`: the field names directly from the PDF or the template text directly from the DOCX.
+  * `raw_field_names`: list of field names directly from the PDF or the template text directly from the DOCX.
     In the case of PDFs, there could be multiple, i.e. `child__0` and `child__1`
   * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
     non identifier characters
@@ -194,18 +194,18 @@ class DAField(DAObject):
   def init(self, **kwargs):
     return super().init(**kwargs)
 
-  def fill_in_docx_attributes(self, new_field_name,
+  def fill_in_docx_attributes(self, new_field_name: str,
                               reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
     In a future version of this, maybe we can use context to identify
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
-    self.raw_field_names = [new_field_name]
+    self.raw_field_names : List[str] = [new_field_name]
     # For docx, we can't change the field name from the document itself, has to be the same
-    self.variable = new_field_name 
-    self.final_display_var = new_field_name  
-    self.has_label = True
+    self.variable : str = new_field_name 
+    self.final_display_var : str = new_field_name  
+    self.has_label : bool = True
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
@@ -222,11 +222,11 @@ class DAField(DAObject):
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
     # The raw name of the field from the PDF: must go in attachment block
-    self.raw_field_names = [pdf_field_tuple[0]]
+    self.raw_field_names : List[str] = [pdf_field_tuple[0]]
     # turns field_name into a valid python identifier: must be one per field
-    self.variable = remove_multiple_appearance_indicator(varname(self.raw_field_names[0]))
+    self.variable : str = remove_multiple_appearance_indicator(varname(self.raw_field_names[0]))
     # the variable, in python: i.e., users[1].name.first
-    self.final_display_var = map_raw_to_final_display(self.variable)
+    self.final_display_var : str = map_raw_to_final_display(self.variable)
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
@@ -249,8 +249,8 @@ class DAField(DAObject):
     self.maxlength = get_character_limit(pdf_field_tuple)
     
   def mark_as_paired_yesno(self, paired_field_names: List[str]):
-    """Marks this field as actually representing two template fields:
-    one with `variable_name`_yes and one with `variable_name`_no
+    """Marks this field as actually representing multiple template fields:
+    some with `variable_name`_yes and some with `variable_name`_no
     """
     self.paired_yesno = True
     if self.variable.endswith('_no'):
@@ -263,6 +263,9 @@ class DAField(DAObject):
       self.final_display_var = self.final_display_var[:-4]
 
   def mark_with_duplicate(self, duplicate_field_names: List[str]):
+    """Marks this field as actually representing multiple template fields, and 
+    hanging on to the original names of all of the duplicates
+    """
     self.raw_field_names += duplicate_field_names
 
   def get_single_field_screen(self):
@@ -508,12 +511,11 @@ class DAFieldList(DAList):
     # self.gathered = True
     return super().init(**kwargs)
   def __str__(self):
-    """I don't think this method has a real function in our code base. Perhaps debugging."""
     return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
   def consolidate_yesnos(self):
-    """Returns True if this field should be used: is not a yesno, or is the first yesno.
-    All yesnos get added to the map"""
+    """Combines separate yes/no questions into a single variable, and writes back out to the yes
+    and no variables"""
     yesno_map = collections.defaultdict(list)
     mark_to_remove: List[int] = []
     for idx, field in enumerate(self.elements):
@@ -532,6 +534,9 @@ class DAFieldList(DAList):
 
 
   def consolidate_duplicate_fields(self, document_type: str = 'pdf'):
+    """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just 
+    represent a single variable, leaving one remaining field that writes all of the original vars
+    """
     if document_type.lower() == 'docx':
       return
   
