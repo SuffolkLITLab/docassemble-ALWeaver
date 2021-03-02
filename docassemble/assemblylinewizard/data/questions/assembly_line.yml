@@ -46,12 +46,11 @@ code: |
   # debug
   
   interview.form_type
-  interview_intro_prompt
   interview.title
+  interview_intro_prompt
+  
   interview.typical_role
-  
   get_all_fields
-  
   process_people_variables
   ask_people_quantity_question  
   add_includes
@@ -158,11 +157,6 @@ fields:
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
     required: False
-  - note: |
-      Write a short title that will show up on small screens. Example:[BR]
-      [FILE al_weaver_small_screen_header.png, 100%, Tab text]
-  - Short title: interview.short_title
-    default: ${ short_filename_with_spaces }
 help:
   label: |
     View variable debug information
@@ -212,6 +206,8 @@ subquestion: |
   Remember, you can change it later.
 fields:
   - Title: interview.title
+    default: ${ short_filename_with_spaces }
+  - Short title that will show up on small screens: interview.short_title
     default: ${ short_filename_with_spaces }
   - What your users should know: interview.description
     default: ${ short_filename_with_spaces }
