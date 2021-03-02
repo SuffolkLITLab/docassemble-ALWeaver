@@ -383,7 +383,7 @@ code: |
 code: |
   short_title_block = interview.blocks.appendObject()
   short_title_block.type = 'code'
-  short_title_block.code = 'interview_short_title = ' + escape_quotes(interview_intro_prompt)
+  short_title_block.code = 'interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"'
   add_short_title = True
 ---
 code: |
