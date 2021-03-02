@@ -554,7 +554,7 @@ fields:
     choices: fields
     object labeler: |
       lambda y: bold(y.variable) + "[BR]" + y.label
-  - Add a "continue button field" on this screen: questions[i].has_mandatory_field
+  - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
     hide if: questions[i].is_informational_screen
     help: |
