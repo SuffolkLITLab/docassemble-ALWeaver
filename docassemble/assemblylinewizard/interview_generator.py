@@ -20,7 +20,7 @@ import datetime
 import zipfile
 import types
 import json
-from typing import Dict
+from typing import Dict, List
 from .generator_constants import generator_constants
 
 TypeType = type(type(None))
@@ -31,7 +31,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people',
+           'get_person_variables', 'get_court_choices','process_custom_people',
            'map_names']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -76,18 +76,6 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 
   max_chars = num_rows * num_cols
   return max_chars
-
-
-def consolidate_yesnos(new_field, yesno_map):
-  """Retruns True if this field should be used: is not a yesno, or is the first yesno.
-     All yesnos get add to the map"""
-  if not new_field.variable.endswith('_yes') and not new_field.variable.endswith('_no'):
-    return True
-  
-  if len(yesno_map[new_field.variable_name_guess]) == 1:
-    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno(new_field.raw_field_name)
-  yesno_map[new_field.variable_name_guess].append(new_field)
-  return len(yesno_map[new_field.variable_name_guess]) == 1
 
 
 class DAAttachment(DAObject):
@@ -190,7 +178,8 @@ class DAInterview(DAObject):
 class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
   Has several important attributes that need to be set:
-  * `raw_field_name`: the field name directly from the PDF or the template text directly from the DOCX
+  * `raw_field_names`: list of field names directly from the PDF or the template text directly from the DOCX.
+    In the case of PDFs, there could be multiple, i.e. `child__0` and `child__1`
   * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
     non identifier characters
   * `final_display_var`: the docassamble python code that computes exactly what the author wants in their PDF
@@ -205,25 +194,25 @@ class DAField(DAObject):
   def init(self, **kwargs):
     return super().init(**kwargs)
 
-  def fill_in_docx_attributes(self, new_field_name,
+  def fill_in_docx_attributes(self, new_field_name: str,
                               reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
     In a future version of this, maybe we can use context to identify
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
-    self.raw_field_name = new_field_name
+    self.raw_field_names : List[str] = [new_field_name]
     # For docx, we can't change the field name from the document itself, has to be the same
-    self.variable = self.raw_field_name
-    self.final_display_var = new_field_name  # no transformation changes
-    self.has_label = True
+    self.variable : str = new_field_name 
+    self.final_display_var : str = new_field_name  
+    self.has_label : bool = True
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
-    if self.raw_field_name.endswith('_date'):
+    if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
-    elif self.raw_field_name.endswith('.signature'):
+    elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
     else:
@@ -233,11 +222,11 @@ class DAField(DAObject):
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
     # The raw name of the field from the PDF: must go in attachment block
-    self.raw_field_name = pdf_field_tuple[0]
-    # turns field_name into a valid python identifier
-    self.variable = varname(self.raw_field_name)
+    self.raw_field_names : List[str] = [pdf_field_tuple[0]]
+    # turns field_name into a valid python identifier: must be one per field
+    self.variable : str = remove_multiple_appearance_indicator(varname(self.raw_field_names[0]))
     # the variable, in python: i.e., users[1].name.first
-    self.final_display_var = map_raw_to_final_display(self.variable)
+    self.final_display_var : str = map_raw_to_final_display(self.variable)
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
@@ -259,19 +248,25 @@ class DAField(DAObject):
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
     
-  def mark_as_paired_yesno(self, paired_field_name: str):
-    """Marks this field as actually representing two template fields:
-    one with `variable_name`_yes and one with `variable_name`_no
+  def mark_as_paired_yesno(self, paired_field_names: List[str]):
+    """Marks this field as actually representing multiple template fields:
+    some with `variable_name`_yes and some with `variable_name`_no
     """
     self.paired_yesno = True
     if self.variable.endswith('_no'):
-      self.raw_field_name = [paired_field_name, self.raw_field_name]
+      self.raw_field_names = paired_field_names + self.raw_field_names
       self.variable = self.variable[:-3] 
       self.final_display_var = self.final_display_var[:-3]
     elif self.variable.endswith('_yes'):
-      self.raw_field_name = [self.raw_field_name, paired_field_name]
+      self.raw_field_names = self.raw_field_names + paired_field_names
       self.variable = self.variable[:-4]
       self.final_display_var = self.final_display_var[:-4]
+
+  def mark_with_duplicate(self, duplicate_field_names: List[str]):
+    """Marks this field as actually representing multiple template fields, and 
+    hanging on to the original names of all of the duplicates
+    """
+    self.raw_field_names += duplicate_field_names
 
   def get_single_field_screen(self):
     settable_version = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
@@ -319,7 +314,6 @@ class DAField(DAObject):
   def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     base_var = DAField._get_base_variable(settable_var)
-
     if base_var in reviewed_fields:
       return ""
     reviewed_fields.add(base_var)
@@ -377,23 +371,33 @@ class DAField(DAObject):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
-      return ('      - "{}": ${{ {} }}\n' +
-              '      - "{}": ${{ not {} }}\n').format(
-                self.raw_field_name[0], self.final_display_var,
-                self.raw_field_name[1], self.final_display_var)
+      content = ''
+      for raw_name in self.raw_field_names:
+        var_name = remove_multiple_appearance_indicator(varname(raw_name))
+        if var_name.endswith('_yes'):
+          content += '      - "{}": ${{ {} }}\n'.format(raw_name, self.final_display_var)
+        elif var_name.endswith('_no'):
+          content += '      - "{}": ${{ not {} }}\n'.format(raw_name, self.final_display_var)
+      return content
 
-    content = '      - "{}": '.format(self.raw_field_name)
+    # Handle multiple indicators
+    format_str = '      - "{}": '
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      content += '${ ' + self.variable.format() + ' }\n'
+      format_str += '${{ ' + self.variable.format() + ' }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      content += '${ currency(' + self.variable + ') }\n'
+      format_str += '${{ currency(' + self.variable + ') }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      content += r'${ "{:,.2f}".format(' + self.variable + ') }\n' 
+      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      content = comment + content + '${ ' + self.final_display_var + " if i == 'final' else '' }\n"
+      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
     else:
-      content += '${ ' + self.final_display_var + ' }\n'
+      format_str += '${{ ' + self.final_display_var + ' }}\n'
+
+    content = ''
+    for raw_name in self.raw_field_names:
+      content += format_str.format(raw_name)
+    
     return content
 
   def user_ask_about_field(self, index):
@@ -401,8 +405,10 @@ class DAField(DAObject):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
-    elif self.raw_field_name != settable_var:
-      field_title = '{} (will be renamed to {})'.format(settable_var, self.raw_field_name)
+    elif len(self.raw_field_names) > 1:
+      field_title = '{} (will be expanded to all instances)'.format(settable_var)
+    elif self.raw_field_names[0] != settable_var:
+      field_title = '{} (will be renamed to {})'.format(settable_var, self.raw_field_names[0])
     else:
       field_title = self.final_display_var
 
@@ -498,16 +504,60 @@ class DAField(DAObject):
 
 
 class DAFieldList(DAList):
-    """A DAFieldList contains multiple DAFields."""
-    def init(self, **kwargs):
-        self.object_type = DAField
-        self.auto_gather = False
-        # self.gathered = True
-        return super().init(**kwargs)
-    def __str__(self):
-        """I don't think this method has a real function in our code base. Perhaps debugging."""
-        return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
+  """A DAFieldList contains multiple DAFields."""
+  def init(self, **kwargs):
+    self.object_type = DAField
+    self.auto_gather = False
+    # self.gathered = True
+    return super().init(**kwargs)
+  def __str__(self):
+    return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
+  def consolidate_yesnos(self):
+    """Combines separate yes/no questions into a single variable, and writes back out to the yes
+    and no variables"""
+    yesno_map = collections.defaultdict(list)
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
+      if not field.variable.endswith('_yes') and not field.variable.endswith('_no'):
+        continue
+
+      if len(yesno_map[field.variable_name_guess]) == 1:
+        yesno_map[field.variable_name_guess][0].mark_as_paired_yesno(field.raw_field_names)
+      yesno_map[field.variable_name_guess].append(field)
+
+      if len(yesno_map[field.variable_name_guess]) > 1:
+        mark_to_remove.append(idx)
+
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
+
+
+  def consolidate_duplicate_fields(self, document_type: str = 'pdf'):
+    """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just 
+    represent a single variable, leaving one remaining field that writes all of the original vars
+    """
+    if document_type.lower() == 'docx':
+      return
+  
+    field_map: Dict[str, DAField] = {}
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
+      if field.final_display_var in field_map.keys():
+        field_map[field.final_display_var].mark_with_duplicate(field.raw_field_names)
+        mark_to_remove.append(idx)
+      else:
+        field_map[field.final_display_var] = field
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
+    
+  def delitem(self, *pargs):
+    """TODO(brycew): remove when all of our servers are on 1.2.35, it's duplicating
+    https://github.com/jhpyle/docassemble/blob/8e7e4f5ee90803022779bac57308b73b41f92da8/docassemble_base/docassemble/base/core.py#L1127-L1131"""
+    for item in reversed([item for item in pargs if item < len(self.elements)]):
+      self.elements.__delitem__(item)
+    self._reset_instance_names()
+    
 
 class DAQuestion(DAObject):
     """This class represents a "question" in the generated YAML file. TODO: move
@@ -600,7 +650,7 @@ class DAQuestion(DAObject):
                     content += field.field_entry_yaml()
 
         elif self.type == 'signature':
-            content += "signature: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "signature: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             self.under_text
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
@@ -683,7 +733,7 @@ class DAQuestion(DAObject):
               added_field_names.add(field)
             content += "  interview_order_" + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
-            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
                 content += "subject: " + oneline(self.template_subject) + "\n"
             if self.template_type == 'file':
@@ -691,7 +741,7 @@ class DAQuestion(DAObject):
             else:
                 content += "content: |\n" + indent_by(self.template_body, 2)
         elif self.type == 'template':
-            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
@@ -1346,7 +1396,7 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 ############################
 #  Label processing helper functions
 ############################
-def remove_multiple_appearance_indicator(label: str):
+def remove_multiple_appearance_indicator(label: str) -> str:
     return re.sub(r'_{2,}\d+', '', label)
 
 def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
