@@ -286,7 +286,7 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self) -> str:
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_var = self.get_settable_var()
     content = ""
     if self.has_label:
       content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
@@ -313,44 +313,16 @@ class DAField(DAObject):
     
     return content
 
-  def review_yaml(self, reviewed_fields,
-      custom_people_plurals_map=custom_values.people_plurals_map,
-      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+  def review_viewing(self):
+    settable_var = self.get_settable_var()
     base_var = DAField._get_base_variable(settable_var)
-    if base_var in reviewed_fields:
-      return ""
-    reviewed_fields.add(base_var)
-    
+
     # Base var should only have one attribute, not further attributes
     # e.g. `parents[0].name` instead of `parents[0].name.first`
     # Check `DAField._get_base_variable` for implementation
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
-    
-    # this lets us edit the name if document just refers to the whole object
-    if (settable_var in reserved_pluralizers_map.values()
-       or settable_var in custom_people_plurals_map.values()):
-      edit_attribute = settable_var + '[0].name.first'
-    elif (settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]
-         or settable_var in [label + '[0]' for label in custom_people_plurals_map.values()]):
-      edit_attribute = settable_var + '.name.first'
-    else:
-      edit_attribute = settable_var
-      
-    content = '  - Edit: ' + edit_attribute + "\n"
-    content += '    button: |\n'
-        
-    if (base_var in reserved_pluralizers_map.values()
-       or base_var in custom_people_plurals_map.values()):
-      content += indent_by(bold(base_var), 6) + '\n'
-      content += indent_by("% for my_var in {}:".format(base_var), 6)
-      content += indent_by("* ${ my_var }", 8)
-      content += indent_by("% endfor", 6)
-      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 4)
-      content += indent_by("# lets the user edit all of the items at once", 4)
-      
-      return content
-    
+
+    content = ''
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content += indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
     if hasattr(self, 'field_type'):
@@ -409,7 +381,7 @@ class DAField(DAObject):
 
   def user_ask_about_field(self, index):
     field_questions = []
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_var = self.get_settable_var() 
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
     elif len(self.raw_field_names) > 1:
@@ -480,15 +452,36 @@ class DAField(DAObject):
         return var_parts[0][0] + first_attribute
     else:
       return self.final_display_var
+
+  def get_settable_var(self):
+    return substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
   
+  def _get_attributes(self):
+    """Example: user[0].address.zip for final returns ('address', 'address.zip', 'address.address')
+    """
+    label_parts = re.findall(r'([^.]*)(\..*)*', self.final_display_var)
+
+    prefix_with_index = label_parts[0][0] 
+
+    def remove_prefix(text):
+      if text.startswith(prefix_with_index):
+        return text[len(prefix_with_index):].lstrip('.')
+      return text
+    
+    settable_attritube = remove_prefix(self.get_settable_var())
+    plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
+    final_display_att = remove_prefix(self.final_display_var)
+    return (plain_att, final_display_att, settable_attribute)
+
+
   @staticmethod
   def _get_base_variable(var_with_attribute,
-        custom_people_plurals_map=custom_values.people_plurals_map,
+                     custom_people_plurals_map=custom_values.people_plurals_map,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """Gets the base object or list that holds the data that is in var_with_attribute
-    For example, users[0].name and users[1].name.last will both return users. 
-    NOTE: we only combine name attributes of lists right now. So users[0].address returns 
+    For example, users[0].name and users[1].name.last will both return users.
+    NOTE: we only combine name attributes of lists right now. So users[0].address returns
     users[0].address and users[0].phone_number returns users[0].phone_number right now.
     TODO(brycew): to handle all attributes correctly like that, we need the list of all attributes
     used in the form, to show / edit them all in the same review/ revisit screen
@@ -512,6 +505,75 @@ class DAField(DAObject):
       return indexed_var + first_attribute
     else:
       return var_with_attribute 
+
+
+class BaseVar(object):
+  def __init__(self, base_var_name, fields: List[DAField]):
+    self.base_var_name = base_var_name
+    self.fields = fields
+    self.attribute_map = {}
+    self.base_var_type = 'list' if len(self.fields) > 1 else 'normal'  # We don't recognize individual objects yet I think
+    if self.base_var_type == 'list':
+      for f in self.fields:
+        plain_att, disp_att, settable_att = f._get_attributes()
+        self.attribute_map[plain_att] = (disp_att, settable_att)
+
+  def revisit_page(self) -> str:
+    if self.base_var_type != 'list':
+      return ''
+
+    content = """field: {}.revisit
+question: |
+  Edit {}
+subquestion: |
+  ${{ {}.table }}
+
+  ${{ {}.add_action() }}
+"""
+    return content.format(self.base_var_name)
+
+
+  def table_page(self) -> str:
+    if self.base_var_type != 'list':
+      return ''
+    content = """table: {base_var}.table
+rows: {base_var}
+columns:
+{all_columns}
+edit:
+{settable_list}
+"""
+    all_columns = ''
+    settable_list = ''
+    for att, disp_and_set in self.attribute_map.values():
+      all_columns += '  - {0}: |\n      row_item.{1}'.format(att, disp_and_set[0])
+      settable_list += '  - {}'.format(disp_and_set[1])
+    return content.format(base_var=self.base_var_name, all_columns=all_columns, settable_list=settable_list)
+
+
+  def review_yaml(self, reviewed_fields: Set[str]):
+    if self.base_var_name in reviewed_fields:
+      return ""
+    reviewed_fields.add(self.base_var_name)
+    
+    # this lets us edit the name if document just refers to the whole object
+    if self.base_var_type == 'list':
+      edit_attribute = self.base_var_name + '.revisit'
+    else:
+      edit_attribute = self.base_var_name
+      
+    content = '  - Edit: ' + edit_attribute + "\n"
+    content += '    button: |\n'
+        
+    if self.base_var_type == 'list': 
+      content += indent_by(bold(self.base_var_name), 6) + '\n'
+      content += indent_by("% for my_var in {}:".format(self.base_var_name), 6)
+      content += indent_by("* ${ my_var }", 8)
+      content += indent_by("% endfor", 6)
+      
+      return content
+    
+    return content + self.fields[0].review_viewing()
 
 
 class DAFieldList(DAList):
@@ -561,6 +623,16 @@ class DAFieldList(DAList):
         field_map[field.final_display_var] = field
     self.delitem(*mark_to_remove)
     self.there_are_any = len(self.elements) > 0
+
+
+  def collect_base_vars(self):
+    base_var_map = collections.defaultdict(list)
+    for field in self.elements:
+      base_var = DAField._get_base_variable(self.final_display_var)
+      base_var_map[base_var].append(field)
+
+    return [BaseVar(k, v) for k, v in base_var_map.values()]
+
     
   def delitem(self, *pargs):
     """TODO(brycew): remove when all of our servers are on 1.2.35, it's duplicating
@@ -851,8 +923,8 @@ class DAQuestion(DAObject):
           content += indent_by(self.subquestion_text, 2)
           content += "review: \n"
           reviewed_fields = set()
-          for field in self.field_list:
-              content += field.review_yaml(reviewed_fields)
+          for base_var in self.base_var_list:
+              content += base_var.review_yaml(reviewed_fields)
         return content
 
 class DAQuestionList(DAList):
@@ -1433,7 +1505,7 @@ def get_reserved_label_parts(prefixes:list, label:str):
   Return an re.matches object for all matching variable names,
   like user1_something, etc.
   """
-  return re.search(r"^(" + "|".join(prefixes) + ')(\d*)(.*)', label)
+  return re.search(r"^(" + "|".join(prefixes) + r')(\d*)(.*)', label)
 
 def process_custom_people(custom_people:list, fields:list, built_in_fields:list, people_suffixes:list = (generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES) )->None:
   """
@@ -1472,10 +1544,6 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
 
   for field in fields_to_add:
     built_in_fields.append(field)
-
-
-
-  
 
 
 def get_person_variables(fieldslist,
