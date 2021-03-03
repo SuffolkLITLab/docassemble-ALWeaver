@@ -15,12 +15,13 @@ from docassemble.base.util import log, space_to_underscore, bold, DAObject, DADi
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
+from docassemble.base.core import DAEmpty
 import shutil
 import datetime
 import zipfile
 import types
 import json
-from typing import Dict, List
+from typing import Dict, List, Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 
@@ -173,7 +174,7 @@ class DAInterview(DAObject):
                 continue
             try:
                 output.append(block.source(follow_additional_fields=False))
-            except:
+            except: 
                 pass
         return "---\n".join(output)
 
@@ -237,7 +238,7 @@ class DAField(DAObject):
         self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
     elif self.variable.endswith('_yes') or self.variable.endswith('_no'):
         self.field_type_guess = 'yesno'
-        name_no_suffix = self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
+        name_no_suffix =  self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
         self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
@@ -289,7 +290,7 @@ class DAField(DAObject):
     settable_var = self.get_settable_var()
     content = ""
     if self.has_label:
-      content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
+      content +=  '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
     else:
       content += "  - no label: {}\n".format(settable_var)
     # Use all of these fields plainly. No restrictions/validation yet
@@ -459,19 +460,23 @@ class DAField(DAObject):
   def _get_attributes(self):
     """Example: user[0].address.zip for final returns ('address', 'address.zip', 'address.address')
     """
-    label_parts = re.findall(r'([^.]*)(\..*)*', self.final_display_var)
+    label_parts = re.findall(r'([^.]*)(\..*)*', self.get_settable_var())
 
     prefix_with_index = label_parts[0][0] 
 
     def remove_prefix(text):
       if text.startswith(prefix_with_index):
         return text[len(prefix_with_index):].lstrip('.')
-      return text
+      return text.lstrip('.')
     
-    settable_attritube = remove_prefix(self.get_settable_var())
+    settable_attribute = label_parts[0][1].lstrip('.')
+    if settable_attribute == '' or settable_attribute == 'name':
+      settable_attribute = 'name.first'
+    if settable_attribute == 'address' or settable_attribute == 'mail_address':
+      settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
-    final_display_att = remove_prefix(self.final_display_var)
-    return (plain_att, final_display_att, settable_attribute)
+    full_display_att = remove_prefix(substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY))
+    return (plain_att, full_display_att, settable_attribute)
 
 
   @staticmethod
@@ -498,13 +503,7 @@ class DAField(DAObject):
     
     has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
-    if has_plural_prefix or has_singular_prefix:
-      first_attribute = var_parts[0][1]
-      if first_attribute == '' or first_attribute == '.name':
-        return prefix
-      return indexed_var + first_attribute
-    else:
-      return var_with_attribute 
+    return prefix if has_plural_prefix or has_singular_prefix else var_with_attribute
 
 
 class BaseVar(object):
@@ -516,19 +515,21 @@ class BaseVar(object):
     if self.base_var_type == 'list':
       for f in self.fields:
         plain_att, disp_att, settable_att = f._get_attributes()
+        log('IN BaseVar {}:field: {}, plain att: {}, disp_att: {}, settable_att: {}'.format(self.base_var_name, f.final_display_var, plain_att, disp_att, settable_att), 'console')
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
   def revisit_page(self) -> str:
     if self.base_var_type != 'list':
       return ''
 
-    content = """field: {}.revisit
+    content = """---
+field: {0}.revisit
 question: |
-  Edit {}
+  Edit {0}
 subquestion: |
-  ${{ {}.table }}
+  ${{ {0}.table }}
 
-  ${{ {}.add_action() }}
+  ${{ {0}.add_action() }}
 """
     return content.format(self.base_var_name)
 
@@ -536,7 +537,8 @@ subquestion: |
   def table_page(self) -> str:
     if self.base_var_type != 'list':
       return ''
-    content = """table: {base_var}.table
+    content = """---
+table: {base_var}.table
 rows: {base_var}
 columns:
 {all_columns}
@@ -545,9 +547,9 @@ edit:
 """
     all_columns = ''
     settable_list = ''
-    for att, disp_and_set in self.attribute_map.values():
-      all_columns += '  - {0}: |\n      row_item.{1}'.format(att, disp_and_set[0])
-      settable_list += '  - {}'.format(disp_and_set[1])
+    for att, disp_and_set in self.attribute_map.items():
+      all_columns += '  - {0}: |\n      row_item.{1}\n'.format(att, disp_and_set[0])
+      settable_list += '  - {}\n'.format(disp_and_set[1])
     return content.format(base_var=self.base_var_name, all_columns=all_columns, settable_list=settable_list)
 
 
@@ -586,6 +588,20 @@ class DAFieldList(DAList):
   def __str__(self):
     return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
+  def __add__(self, other):
+    """Needed to make sure that DAFieldLists stay DAFieldLists when adding them"""
+    self._trigger_gather()
+    if isinstance(other, DAEmpty):
+      return self
+    if isinstance(other, DAFieldList):
+      other._trigger_gather()
+      the_list = DAFieldList(elements=self.elements + other.elements, gathered=True, auto_gather=False)
+      the_list.set_random_instance_name()
+      log('DAFieldList still DAFieldList?: {}'.format(isinstance(the_list, DAFieldList)), 'console')
+      return the_list
+    log('DAFieldList now just a normal list :(', 'console')
+    return self.elements + other
+    
   def consolidate_yesnos(self):
     """Combines separate yes/no questions into a single variable, and writes back out to the yes
     and no variables"""
@@ -628,10 +644,12 @@ class DAFieldList(DAList):
   def collect_base_vars(self):
     base_var_map = collections.defaultdict(list)
     for field in self.elements:
-      base_var = DAField._get_base_variable(self.final_display_var)
+      log('In collect_base_vars: field: {}'.format(field.final_display_var), 'console')
+      base_var = DAField._get_base_variable(field.final_display_var)
+      log('base_var: {}'.format(base_var), 'console')
       base_var_map[base_var].append(field)
 
-    return [BaseVar(k, v) for k, v in base_var_map.values()]
+    return [BaseVar(k, v) for k, v in base_var_map.items()]
 
     
   def delitem(self, *pargs):
@@ -925,6 +943,9 @@ class DAQuestion(DAObject):
           reviewed_fields = set()
           for base_var in self.base_var_list:
               content += base_var.review_yaml(reviewed_fields)
+          for base_var in self.base_var_list:
+              content += base_var.revisit_page()
+              content += base_var.table_page()
         return content
 
 class DAQuestionList(DAList):
