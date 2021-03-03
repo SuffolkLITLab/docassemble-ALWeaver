@@ -544,11 +544,13 @@ columns:
 {all_columns}
 edit:
 {settable_list}
+confirm: True
 """
     all_columns = ''
     settable_list = ''
     for att, disp_and_set in self.attribute_map.items():
-      all_columns += '  - {0}: |\n      row_item.{1}\n'.format(att, disp_and_set[0])
+      all_columns += '  - {0}: |\n'.format(att)
+      all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
     return content.format(base_var=self.base_var_name, all_columns=all_columns, settable_list=settable_list)
 
@@ -943,6 +945,7 @@ class DAQuestion(DAObject):
           reviewed_fields = set()
           for base_var in self.base_var_list:
               content += base_var.review_yaml(reviewed_fields)
+              content += '  - note: |\n      ------\n'
           for base_var in self.base_var_list:
               content += base_var.revisit_page()
               content += base_var.table_page()
