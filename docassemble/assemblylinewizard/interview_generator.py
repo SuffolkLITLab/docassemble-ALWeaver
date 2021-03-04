@@ -457,7 +457,7 @@ class DAField(DAObject):
          or self.final_display_var in custom_people_plurals_map.values()):
       return self.final_display_var + GATHER_CALL
 
-    # Deal with vars that match prefixes in a more complicated way
+    # Deal with more complex matches to prefixes
     # Everything before the first period and everything from the first period to the end
     var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
