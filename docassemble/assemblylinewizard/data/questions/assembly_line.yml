@@ -75,10 +75,9 @@ code: |
   show_interview
 ---
 code: |
+  set_custom_people_map( people_variables.true_values() )
   if len(people_variables.true_values()):
     process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
-  
-  set_custom_people_map( people_variables.true_values() )
   process_people_variables = True    
 ---
 id: opening screen

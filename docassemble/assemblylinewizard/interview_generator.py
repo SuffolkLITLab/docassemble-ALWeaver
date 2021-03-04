@@ -1306,7 +1306,8 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   adjusted_prefix = custom_people_plurals_map.get(prefix, adjusted_prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
-  if adjusted_prefix in reserved_var_plurals:
+  if (adjusted_prefix in reserved_var_plurals
+      or adjusted_prefix in custom_people_plurals_map.values()):
     digit = label_groups[2]
     if digit == '':
       index = '[0]'
@@ -1470,7 +1471,7 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     fields.remove(field)
 
   for field in fields_to_add:
-    built_in_fields.append(field)    
+    built_in_fields.append(field)
 
 
 
