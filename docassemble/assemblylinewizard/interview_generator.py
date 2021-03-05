@@ -6,7 +6,7 @@ import uuid
 import sys
 import yaml
 import tempfile
-import collections
+from collections import defaultdict
 from docx2python import docx2python
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
@@ -21,7 +21,7 @@ import datetime
 import zipfile
 import types
 import json
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 
@@ -318,10 +318,7 @@ class DAField(DAObject):
     settable_var = self.get_settable_var()
     base_var, _ = DAField._get_base_variable(settable_var)
 
-    # Base var should only have one attribute, not further attributes
-    # e.g. `parents[0].name` instead of `parents[0].name.first`
-    # Check `DAField._get_base_variable` for implementation
-    full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
+    full_display = substitute_suffix(parent_var, generator_constants.FULL_DISPLAY)
 
     content = ''
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
@@ -480,16 +477,13 @@ class DAField(DAObject):
 
 
   @staticmethod
-  def _get_base_variable(var_with_attribute,
-                     custom_people_plurals_map=custom_values.people_plurals_map,
-                     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-                     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    """Gets the base object or list that holds the data that is in var_with_attribute
-    For example, users[0].name and users[1].name.last will both return users.
-    NOTE: we only combine name attributes of lists right now. So users[0].address returns
-    users[0].address and users[0].phone_number returns users[0].phone_number right now.
-    TODO(brycew): to handle all attributes correctly like that, we need the list of all attributes
-    used in the form, to show / edit them all in the same review/ revisit screen
+  def _get_parent_variable(var_with_attribute: str,
+                           custom_people_plurals_map=custom_values.people_plurals_map,
+                           undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP) -> Tuple[str, str]:
+    """Gets the parent object or list that holds the data that is in var_with_attribute, as well
+    as what type the object is
+    For example, `users[0].name` and `users[1].name.last` will both return `users`. 
     """
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
     if not var_parts:
@@ -507,23 +501,36 @@ class DAField(DAObject):
       return prefix, 'list'
     if has_singular_prefix:
       return prefix, 'object'
-    return var_with_attribute, 'var'
+    return var_with_attribute, 'primitive'
 
 
-class BaseVar(object):
-  def __init__(self, base_var_name: str, base_var_type: str, fields: List[DAField]):
-    self.base_var_name = base_var_name
+class ParentCollection(object):
+  """A ParentCollection is "highest" level of data structure containing some DAField.
+  For example, the parent collection for `users[0].name.first` is `users`, since that is the list 
+  that contains the user object of the `name` attribute that we are referencing.
+
+  Some other examples: `trial_court` is the parent of `trial_court.division`, and for primitive
+  variables like `my_string`, the parent collection is just `my_string`.
+
+  The parent collection is useful for review screens, where we want to group related fields 
+  """
+  def __init__(self, var_name: str, var_type: str, fields: List[DAField]):
+    """Constructor:
+    @param var_name: the name of this parent collection variable
+    @param var_type: the type of this parent collection variable. Can be 'list', 'object', or 'primitive'
+    @param fields: the DAFields that all share this parent collection variable
+    """
+    self.var_name = var_name
     self.fields = fields
     self.attribute_map = {}
-    self.base_var_type = base_var_type
-    if self.base_var_type != 'var':  # this base var is more complex than a simple primitive type
+    self.var_type = var_type
+    if self.var_type != 'primitive':  # this base var is more complex than a simple primitive type
       for f in self.fields:
         plain_att, disp_att, settable_att = f._get_attributes()
-        log('In BaseVar {}:field: {}, plain att: {}, disp_att: {}, settable_att: {}'.format(self.base_var_name, f.final_display_var, plain_att, disp_att, settable_att), 'console')
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
   def revisit_page(self) -> str:
-    if self.base_var_type != 'list':
+    if self.var_type != 'list':
       return ''
 
     content = """---
@@ -535,15 +542,15 @@ subquestion: |
 
   ${{ {0}.add_action() }}
 """
-    return content.format(self.base_var_name)
+    return content.format(self.var_name)
 
 
   def table_page(self) -> str:
-    if self.base_var_type != 'list':
+    if self.var_type != 'list':
       return ''
     content = """---
-table: {base_var}.table
-rows: {base_var}
+table: {var_name}.table
+rows: {var_name}
 columns:
 {all_columns}
 edit:
@@ -556,7 +563,7 @@ confirm: True
       all_columns += '  - {0}: |\n'.format(att)
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
-    return content.format(base_var=self.base_var_name, all_columns=all_columns, settable_list=settable_list)
+    return content.format(var_name=self.var_name, all_columns=all_columns, settable_list=settable_list)
 
 
   def review_yaml(self, reviewed_fields: Set[str]):
@@ -565,26 +572,26 @@ confirm: True
     reviewed_fields.add(self.base_var_name)
 
     # this lets us edit the name if document just refers to the whole object
-    if self.base_var_type == 'list':
-      edit_attribute = self.base_var_name + '.revisit'
+    if self.var_type == 'list':
+      edit_attribute = self.var_name + '.revisit'
     else:
-      edit_attribute = self.base_var_name
+      edit_attribute = self.var_name
       
     content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
         
-    if self.base_var_type == 'list': 
-      content += indent_by(bold(self.base_var_name), 6) + '\n'
-      content += indent_by("% for my_var in {}:".format(self.base_var_name), 6)
+    if self.var_type == 'list': 
+      content += indent_by(bold(self.var_name), 6) + '\n'
+      content += indent_by("% for my_var in {}:".format(self.var_name), 6)
       content += indent_by("* ${ my_var }", 8)
       content += indent_by("% endfor", 6)
       return content
     
-    if self.base_var_type == 'object':
-      content += indent_by(bold(self.base_var_name), 6) + '\n'
+    if self.var_type == 'object':
+      content += indent_by(bold(self.var_name), 6) + '\n'
       for att, disp_set in self.attribute_map.items():
-        content += indent_by('% if defined("{}.{}"):'.format(self.base_var_name, disp_set[1]), 6)
-        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.base_var_name, disp_set[0]), 6)
+        content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
         content += indent_by('% endif', 6)
       return content
     
@@ -610,15 +617,13 @@ class DAFieldList(DAList):
       other._trigger_gather()
       the_list = DAFieldList(elements=self.elements + other.elements, gathered=True, auto_gather=False)
       the_list.set_random_instance_name()
-      log('DAFieldList still DAFieldList?: {}'.format(isinstance(the_list, DAFieldList)), 'console')
       return the_list
-    log('DAFieldList now just a normal list :(', 'console')
     return self.elements + other
     
   def consolidate_yesnos(self):
     """Combines separate yes/no questions into a single variable, and writes back out to the yes
     and no variables"""
-    yesno_map = collections.defaultdict(list)
+    yesno_map = defaultdict(list)
     mark_to_remove: List[int] = []
     for idx, field in enumerate(self.elements):
       if not field.variable.endswith('_yes') and not field.variable.endswith('_no'):
@@ -654,13 +659,15 @@ class DAFieldList(DAList):
     self.there_are_any = len(self.elements) > 0
 
 
-  def collect_base_vars(self):
-    base_var_map = collections.defaultdict(list)
+  def find_parent_collections(self) -> List[ParentCollection]:
+    """Gets all of the individual ParentCollections from the DAFields in this list."""
+    parent_coll_map = defaultdict(list)
     for field in self.elements:
-      base_var_and_type = DAField._get_base_variable(field.final_display_var)
-      base_var_map[base_var_and_type].append(field)
+      parent_var_and_type = DAField._get_parent_variable(field.final_display_var)
+      parent_coll_map[parent_var_and_type].append(field)
 
-    return [BaseVar(base[0], base[1], fields) for base, fields in base_var_map.items()]
+    return [ParentCollection(var_and_type[0], var_and_type[1], fields) 
+            for var_and_type, fields in parent_coll_map.items()]
 
     
   def delitem(self, *pargs):
@@ -692,7 +699,6 @@ class DAQuestion(DAObject):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
-        log('in question, of type {}, content: {}'.format(self.type, content), 'console')
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
@@ -950,15 +956,15 @@ class DAQuestion(DAObject):
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
-          if len(self.base_var_list) > 0:
+          if len(self.parent_collections) > 0:
             content += "review: \n"
             reviewed_fields = set()
-            for base_var in self.base_var_list:
-                content += base_var.review_yaml(reviewed_fields)
+            for parent_coll in self.parent_collections:
+                content += parent_coll.review_yaml(reviewed_fields)
                 content += '  - note: |\n      ------\n'
-            for base_var in self.base_var_list:
-                content += base_var.revisit_page()
-                content += base_var.table_page()
+            for parent_coll in self.parent_collections:
+                content += parent_coll.revisit_page()
+                content += parrent_coll.table_page()
         return content
 
 class DAQuestionList(DAList):
@@ -1429,7 +1435,6 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
     return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
-  log('suffix for {} is: {}'.format(label, suffix), 'console')
   # Avoid transforming arbitrary suffixes into attributes
   if not suffix in reserved_suffixes_map:
     return label  # return it as is
