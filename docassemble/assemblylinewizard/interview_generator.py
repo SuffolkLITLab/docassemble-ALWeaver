@@ -316,7 +316,7 @@ class DAField(DAObject):
 
   def review_viewing(self):
     settable_var = self.get_settable_var()
-    base_var = DAField._get_base_variable(settable_var)
+    base_var, _ = DAField._get_base_variable(settable_var)
 
     # Base var should only have one attribute, not further attributes
     # e.g. `parents[0].name` instead of `parents[0].name.first`
@@ -503,19 +503,23 @@ class DAField(DAObject):
     
     has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
-    return prefix if has_plural_prefix or has_singular_prefix else var_with_attribute
+    if has_plural_prefix:
+      return prefix, 'list'
+    if has_singular_prefix:
+      return prefix, 'object'
+    return var_with_attribute, 'var'
 
 
 class BaseVar(object):
-  def __init__(self, base_var_name, fields: List[DAField]):
+  def __init__(self, base_var_name: str, base_var_type: str, fields: List[DAField]):
     self.base_var_name = base_var_name
     self.fields = fields
     self.attribute_map = {}
-    self.base_var_type = 'list' if len(self.fields) > 1 else 'normal'  # We don't recognize individual objects yet I think
-    if self.base_var_type == 'list':
+    self.base_var_type = base_var_type
+    if self.base_var_type != 'var':  # this base var is more complex than a simple primitive type
       for f in self.fields:
         plain_att, disp_att, settable_att = f._get_attributes()
-        log('IN BaseVar {}:field: {}, plain att: {}, disp_att: {}, settable_att: {}'.format(self.base_var_name, f.final_display_var, plain_att, disp_att, settable_att), 'console')
+        log('In BaseVar {}:field: {}, plain att: {}, disp_att: {}, settable_att: {}'.format(self.base_var_name, f.final_display_var, plain_att, disp_att, settable_att), 'console')
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
   def revisit_page(self) -> str:
@@ -559,7 +563,7 @@ confirm: True
     if self.base_var_name in reviewed_fields:
       return ""
     reviewed_fields.add(self.base_var_name)
-    
+
     # this lets us edit the name if document just refers to the whole object
     if self.base_var_type == 'list':
       edit_attribute = self.base_var_name + '.revisit'
@@ -574,7 +578,14 @@ confirm: True
       content += indent_by("% for my_var in {}:".format(self.base_var_name), 6)
       content += indent_by("* ${ my_var }", 8)
       content += indent_by("% endfor", 6)
-      
+      return content
+    
+    if self.base_var_type == 'object':
+      content += indent_by(bold(self.base_var_name), 6) + '\n'
+      for att, disp_set in self.attribute_map.items():
+        content += indent_by('% if defined("{}.{}"):'.format(self.base_var_name, disp_set[1]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.base_var_name, disp_set[0]), 6)
+        content += indent_by('% endif', 6)
       return content
     
     return content + self.fields[0].review_viewing()
@@ -646,12 +657,10 @@ class DAFieldList(DAList):
   def collect_base_vars(self):
     base_var_map = collections.defaultdict(list)
     for field in self.elements:
-      log('In collect_base_vars: field: {}'.format(field.final_display_var), 'console')
-      base_var = DAField._get_base_variable(field.final_display_var)
-      log('base_var: {}'.format(base_var), 'console')
-      base_var_map[base_var].append(field)
+      base_var_and_type = DAField._get_base_variable(field.final_display_var)
+      base_var_map[base_var_and_type].append(field)
 
-    return [BaseVar(k, v) for k, v in base_var_map.items()]
+    return [BaseVar(base[0], base[1], fields) for base, fields in base_var_map.items()]
 
     
   def delitem(self, *pargs):
