@@ -22,6 +22,7 @@ import types
 import json
 from typing import Dict, List
 from .generator_constants import generator_constants
+from .custom_values import custom_values
 
 TypeType = type(type(None))
 
@@ -31,7 +32,8 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
-           'get_person_variables', 'get_court_choices','process_custom_people',
+           'get_person_variables', 'get_court_choices',\
+           'process_custom_people', 'set_custom_people_map',\
            'map_names']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -311,7 +313,9 @@ class DAField(DAObject):
     
     return content
 
-  def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
+  def review_yaml(self, reviewed_fields,
+      custom_people_plurals_map=custom_values.people_plurals_map,
+      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     base_var = DAField._get_base_variable(settable_var)
     if base_var in reviewed_fields:
@@ -324,9 +328,11 @@ class DAField(DAObject):
     full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
     
     # this lets us edit the name if document just refers to the whole object
-    if settable_var in reserved_pluralizers_map.values():
+    if (settable_var in reserved_pluralizers_map.values()
+       or settable_var in custom_people_plurals_map.values()):
       edit_attribute = settable_var + '[0].name.first'
-    elif settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]:
+    elif (settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]
+         or settable_var in [label + '[0]' for label in custom_people_plurals_map.values()]):
       edit_attribute = settable_var + '.name.first'
     else:
       edit_attribute = settable_var
@@ -334,7 +340,8 @@ class DAField(DAObject):
     content = '  - Edit: ' + edit_attribute + "\n"
     content += '    button: |\n'
         
-    if base_var in reserved_pluralizers_map.values():
+    if (base_var in reserved_pluralizers_map.values()
+       or base_var in custom_people_plurals_map.values()):
       content += indent_by(bold(base_var), 6) + '\n'
       content += indent_by("% for my_var in {}:".format(base_var), 6)
       content += indent_by("* ${ my_var }", 8)
@@ -429,6 +436,7 @@ class DAField(DAObject):
     return field_questions
 
   def trigger_gather(self,
+                     custom_people_plurals_map=custom_values.people_plurals_map,
                      reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -438,16 +446,18 @@ class DAField(DAObject):
     calling `gather()` for lists"""
     # TODO: we might want to think about how to handle the custom names differently
     # in the future. This lets us avoid having to specify the full/combined list of people
-    # prefixes    
+    # exact prefix matches are dealt with easily
     if hasattr(self, 'custom_trigger_gather'):
       return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
 
-    if self.final_display_var in reserved_var_plurals:
+    if (self.final_display_var in reserved_var_plurals
+         or self.final_display_var in custom_people_plurals_map.values()):
       return self.final_display_var + GATHER_CALL
 
+    # Deal with more complex matches to prefixes
     # Everything before the first period and everything from the first period to the end
     var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
@@ -457,7 +467,7 @@ class DAField(DAObject):
       return self.final_display_var
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
 
     if has_plural_prefix or has_singular_prefix:
@@ -473,6 +483,7 @@ class DAField(DAObject):
   
   @staticmethod
   def _get_base_variable(var_with_attribute,
+        custom_people_plurals_map=custom_values.people_plurals_map,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """Gets the base object or list that holds the data that is in var_with_attribute
@@ -492,7 +503,7 @@ class DAField(DAObject):
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', indexed_var)
     
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
     if has_plural_prefix or has_singular_prefix:
       first_attribute = var_parts[0][1]
@@ -1239,6 +1250,7 @@ def get_docx_variables( text:str )->set:
 
 # TODO: map_names is deprecated but old code depends on it. This is temporary shim
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -1246,6 +1258,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   return map_raw_to_final_display(label, document_type=document_type,
               reserved_whole_words=reserved_whole_words,
+              custom_people_plurals_map=custom_people_plurals_map,
               reserved_prefixes=reserved_prefixes,
               undefined_person_prefixes=undefined_person_prefixes,
               reserved_var_plurals=reserved_var_plurals,
@@ -1253,6 +1266,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_suffixes_map=reserved_suffixes_map)
   
 def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -1272,11 +1286,13 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
 
   if (label in reserved_whole_words
    or label in reserved_var_plurals
-   or label in undefined_person_prefixes):
+   or label in undefined_person_prefixes
+   or label in custom_people_plurals_map.values()):
      return label
 
   # Break up label into its parts: prefix, digit, the rest
-  label_groups = get_reserved_label_parts(reserved_prefixes, label)
+  all_prefixes = reserved_prefixes + list(custom_people_plurals_map.values())
+  label_groups = get_reserved_label_parts(all_prefixes, label)
 
   # If no matches to automateable labels were found,
   # just use the label as it is
@@ -1287,9 +1303,11 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   # Map prefix to an adjusted version
   # At the moment, turn any singulars into plurals if needed, e.g. 'user' into 'users'
   adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
+  adjusted_prefix = custom_people_plurals_map.get(prefix, adjusted_prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
-  if adjusted_prefix in reserved_var_plurals:
+  if (adjusted_prefix in reserved_var_plurals
+      or adjusted_prefix in custom_people_plurals_map.values()):
     digit = label_groups[2]
     if digit == '':
       index = '[0]'
@@ -1453,7 +1471,7 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     fields.remove(field)
 
   for field in fields_to_add:
-    built_in_fields.append(field)    
+    built_in_fields.append(field)
 
 
 
@@ -1525,6 +1543,11 @@ def get_person_variables(fieldslist,
   else:
     return people
 
+def set_custom_people_map( people_var_names ):
+  """Sets the map of custom people created by the developer."""
+  for var_name in people_var_names:
+    custom_values.people_plurals_map[ var_name ] = var_name
+  return custom_values.people_plurals_map
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
