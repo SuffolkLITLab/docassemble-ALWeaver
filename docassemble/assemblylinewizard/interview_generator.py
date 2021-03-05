@@ -174,7 +174,7 @@ class DAInterview(DAObject):
                 continue
             try:
                 output.append(block.source(follow_additional_fields=False))
-            except: 
+            except:
                 pass
         return "---\n".join(output)
 
@@ -238,7 +238,7 @@ class DAField(DAObject):
         self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
     elif self.variable.endswith('_yes') or self.variable.endswith('_no'):
         self.field_type_guess = 'yesno'
-        name_no_suffix =  self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
+        name_no_suffix = self.variable[:-3] if self.variable.endswith('_no') else self.variable[:-4]
         self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
@@ -290,7 +290,7 @@ class DAField(DAObject):
     settable_var = self.get_settable_var()
     content = ""
     if self.has_label:
-      content +=  '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
+      content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
     else:
       content += "  - no label: {}\n".format(settable_var)
     # Use all of these fields plainly. No restrictions/validation yet
@@ -320,9 +320,8 @@ class DAField(DAObject):
 
     full_display = substitute_suffix(parent_var, generator_constants.FULL_DISPLAY)
 
-    content = ''
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
-    content += indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
+    content = indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
@@ -455,24 +454,24 @@ class DAField(DAObject):
     return substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
   
   def _get_attributes(self):
-    """Example: user[0].address.zip for final returns ('address', 'address.zip', 'address.address')
+    """Returns attributes of this DAField, notably without the leading "prefix", or object name
+    * the plain attribute, not ParentCollection, but the direct attribute of the ParentCollection
+    * the "full display", an expression that shows the whole attribute in human readable form
+    * an expression that causes DA to set to this field
+    
+    For example: the DAField `user[0].address.zip` would return ('address', 'address.block()', 'address.address')
     """
     label_parts = re.findall(r'([^.]*)(\..*)*', self.get_settable_var())
 
     prefix_with_index = label_parts[0][0] 
 
-    def remove_prefix(text):
-      if text.startswith(prefix_with_index):
-        return text[len(prefix_with_index):].lstrip('.')
-      return text.lstrip('.')
-    
     settable_attribute = label_parts[0][1].lstrip('.')
     if settable_attribute == '' or settable_attribute == 'name':
       settable_attribute = 'name.first'
     if settable_attribute == 'address' or settable_attribute == 'mail_address':
       settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
-    full_display_att = remove_prefix(substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY))
+    full_display_att = substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY)).lstrip('.')
     return (plain_att, full_display_att, settable_attribute)
 
 
@@ -945,7 +944,7 @@ class DAQuestion(DAObject):
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
-        elif self.type == "review":
+        elif self.type == "review" and len(self.parent_collections) > 0:
           if hasattr(self, 'id') and self.id:
               content += "id: " + self.id + "\n"
           else:
@@ -956,15 +955,14 @@ class DAQuestion(DAObject):
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
-          if len(self.parent_collections) > 0:
-            content += "review: \n"
-            reviewed_fields = set()
-            for parent_coll in self.parent_collections:
-                content += parent_coll.review_yaml(reviewed_fields)
-                content += '  - note: |\n      ------\n'
-            for parent_coll in self.parent_collections:
-                content += parent_coll.revisit_page()
-                content += parrent_coll.table_page()
+          content += "review: \n"
+          reviewed_fields = set()
+          for parent_coll in self.parent_collections:
+            content += parent_coll.review_yaml(reviewed_fields)
+            content += '  - note: |\n      ------\n'
+          for parent_coll in self.parent_collections:
+            content += parent_coll.revisit_page()
+            content += parent_coll.table_page()
         return content
 
 class DAQuestionList(DAList):
@@ -1545,7 +1543,7 @@ def get_reserved_label_parts(prefixes:list, label:str):
   Return an re.matches object for all matching variable names,
   like user1_something, etc.
   """
-  return re.search(r"^(" + "|".join(prefixes) + r')(\d*)(.*)', label)
+  return re.search(r"^(" + "|".join(prefixes) + ')(\d*)(.*)', label)
 
 def process_custom_people(custom_people:list, fields:list, built_in_fields:list, people_suffixes:list = (generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES) )->None:
   """
@@ -1584,6 +1582,10 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
 
   for field in fields_to_add:
     built_in_fields.append(field)
+
+
+
+
 
 
 def get_person_variables(fieldslist,
