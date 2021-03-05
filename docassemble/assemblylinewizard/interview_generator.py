@@ -941,14 +941,15 @@ class DAQuestion(DAObject):
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
-          content += "review: \n"
-          reviewed_fields = set()
-          for base_var in self.base_var_list:
-              content += base_var.review_yaml(reviewed_fields)
-              content += '  - note: |\n      ------\n'
-          for base_var in self.base_var_list:
-              content += base_var.revisit_page()
-              content += base_var.table_page()
+          if len(self.base_var_list) > 0:
+            content += "review: \n"
+            reviewed_fields = set()
+            for base_var in self.base_var_list:
+                content += base_var.review_yaml(reviewed_fields)
+                content += '  - note: |\n      ------\n'
+            for base_var in self.base_var_list:
+                content += base_var.revisit_page()
+                content += base_var.table_page()
         return content
 
 class DAQuestionList(DAList):
