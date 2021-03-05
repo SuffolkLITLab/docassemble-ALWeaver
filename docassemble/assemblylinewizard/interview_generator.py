@@ -471,7 +471,7 @@ class DAField(DAObject):
     if settable_attribute == 'address' or settable_attribute == 'mail_address':
       settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
-    full_display_att = substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY)).lstrip('.')
+    full_display_att = substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY).lstrip('.')
     return (plain_att, full_display_att, settable_attribute)
 
 
