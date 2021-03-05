@@ -1420,6 +1420,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
     return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
+  log('suffix for {} is: {}'.format(label, suffix), 'console')
   # Avoid transforming arbitrary suffixes into attributes
   if not suffix in reserved_suffixes_map:
     return label  # return it as is
