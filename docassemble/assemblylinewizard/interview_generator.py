@@ -272,7 +272,7 @@ class DAField(DAObject):
     self.raw_field_names += duplicate_field_names
 
   def get_single_field_screen(self):
-    settable_version = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_version = self.get_settable_var() 
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
@@ -314,11 +314,11 @@ class DAField(DAObject):
     
     return content
 
-  def review_viewing(self):
+  def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
     settable_var = self.get_settable_var()
-    base_var, _ = DAField._get_base_variable(settable_var)
+    parent_var, _ = DAField._get_parent_variable(settable_var)
 
-    full_display = substitute_suffix(parent_var, generator_constants.FULL_DISPLAY)
+    full_display = substitute_suffix(parent_var, full_display_map)
 
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
     content = indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
@@ -428,7 +428,7 @@ class DAField(DAObject):
 
     # Deal with more complex matches to prefixes
     # Everything before the first period and everything from the first period to the end
-    var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    var_with_attribute = self.get_settable_var()
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
     # test for existence (empty strings result in a tuple)
@@ -450,10 +450,10 @@ class DAField(DAObject):
     else:
       return self.final_display_var
 
-  def get_settable_var(self):
-    return substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+  def get_settable_var(self, display_to_settable_suffix=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX):
+    return substitute_suffix(self.final_display_var, display_to_settable_suffix)
   
-  def _get_attributes(self):
+  def _get_attributes(self, full_display_map=generator_constants.FULL_DISPLAY):
     """Returns attributes of this DAField, notably without the leading "prefix", or object name
     * the plain attribute, not ParentCollection, but the direct attribute of the ParentCollection
     * the "full display", an expression that shows the whole attribute in human readable form
@@ -471,7 +471,7 @@ class DAField(DAObject):
     if settable_attribute == 'address' or settable_attribute == 'mail_address':
       settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
-    full_display_att = substitute_suffix('.' + plain_att, generator_constants.FULL_DISPLAY).lstrip('.')
+    full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
     return (plain_att, full_display_att, settable_attribute)
 
 
@@ -565,12 +565,8 @@ confirm: True
     return content.format(var_name=self.var_name, all_columns=all_columns, settable_list=settable_list)
 
 
-  def review_yaml(self, reviewed_fields: Set[str]):
-    if self.base_var_name in reviewed_fields:
-      return ""
-    reviewed_fields.add(self.base_var_name)
-
-    # this lets us edit the name if document just refers to the whole object
+  def review_yaml(self): 
+    """Generate the yaml entry for this object in the review screen list"""
     if self.var_type == 'list':
       edit_attribute = self.var_name + '.revisit'
     else:
@@ -956,9 +952,8 @@ class DAQuestion(DAObject):
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
           content += "review: \n"
-          reviewed_fields = set()
           for parent_coll in self.parent_collections:
-            content += parent_coll.review_yaml(reviewed_fields)
+            content += parent_coll.review_yaml() 
             content += '  - note: |\n      ------\n'
           for parent_coll in self.parent_collections:
             content += parent_coll.revisit_page()
