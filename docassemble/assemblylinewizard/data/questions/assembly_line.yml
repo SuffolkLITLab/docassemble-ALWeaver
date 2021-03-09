@@ -808,6 +808,7 @@ code: |
   review_block.type = "review"
   # Add the fields, removing any duplicates by assigning to a dict first
   review_block.field_list = fields + built_in_fields_used + signature_fields
+  review_block.parent_collections = review_block.field_list.find_parent_collections()
   review_block.question_text = "Review Screen"
   review_block.subquestion_text = "Edit your answers below"
   review_block.id = interview_label + ' review screen'

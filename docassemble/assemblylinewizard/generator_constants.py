@@ -207,9 +207,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
 generator_constants.FULL_DISPLAY = {
   '\.name$': '.name.full()',
   '\.address$': '.address.block()',
-  '\.mail_address$': '.mail_address.block()',
-  '\.division$': '',  # part of the court object, need to reselect the whole thing,
-  '\.department$': ''
+  '\.mail_address$': '.mail_address.block()'
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to
