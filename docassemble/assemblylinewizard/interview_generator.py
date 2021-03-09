@@ -577,8 +577,8 @@ confirm: True
         
     if self.var_type == 'list': 
       content += indent_by(bold(self.var_name), 6) + '\n'
-      content += indent_by("% for my_var in {}:".format(self.var_name), 6)
-      content += indent_by("* ${ my_var }", 8)
+      content += indent_by("% for item in {}:".format(self.var_name), 6)
+      content += indent_by("* ${ item }", 8)
       content += indent_by("% endfor", 6)
       return content
     
