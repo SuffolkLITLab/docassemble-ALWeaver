@@ -2,10 +2,11 @@ import os
 import re
 import keyword
 import copy
+import uuid
 import sys
 import yaml
 import tempfile
-import collections
+from collections import defaultdict
 from docx2python import docx2python
 from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
 from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
@@ -14,23 +15,26 @@ from docassemble.base.util import log, space_to_underscore, bold, DAObject, DADi
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
+from docassemble.base.core import DAEmpty
 import shutil
 import datetime
 import zipfile
 import types
 import json
-from typing import Dict
+from typing import Dict, List, Set, Tuple
 from .generator_constants import generator_constants
+from .custom_values import custom_values
 
 TypeType = type(type(None))
 
 __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
-           'base_name', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
+           'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
            'create_package_zip', \
-           'get_person_variables', 'get_court_choices', 'consolidate_yesnos','process_custom_people',
+           'get_person_variables', 'get_court_choices',\
+           'process_custom_people', 'set_custom_people_map',\
            'map_names']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
@@ -75,18 +79,6 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 
   max_chars = num_rows * num_cols
   return max_chars
-
-
-def consolidate_yesnos(new_field, yesno_map):
-  """Retruns True if this field should be used: is not a yesno, or is the first yesno.
-     All yesnos get add to the map"""
-  if not new_field.variable.endswith('_yes') and not new_field.variable.endswith('_no'):
-    return True
-  
-  if len(yesno_map[new_field.variable_name_guess]) == 1:
-    yesno_map[new_field.variable_name_guess][0].mark_as_paired_yesno(new_field.raw_field_name)
-  yesno_map[new_field.variable_name_guess].append(new_field)
-  return len(yesno_map[new_field.variable_name_guess]) == 1
 
 
 class DAAttachment(DAObject):
@@ -189,7 +181,8 @@ class DAInterview(DAObject):
 class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
   Has several important attributes that need to be set:
-  * `raw_field_name`: the field name directly from the PDF or the template text directly from the DOCX
+  * `raw_field_names`: list of field names directly from the PDF or the template text directly from the DOCX.
+    In the case of PDFs, there could be multiple, i.e. `child__0` and `child__1`
   * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
     non identifier characters
   * `final_display_var`: the docassamble python code that computes exactly what the author wants in their PDF
@@ -204,25 +197,25 @@ class DAField(DAObject):
   def init(self, **kwargs):
     return super().init(**kwargs)
 
-  def fill_in_docx_attributes(self, new_field_name,
+  def fill_in_docx_attributes(self, new_field_name: str,
                               reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """The DAField class expects a few attributes to be filled in.
     In a future version of this, maybe we can use context to identify
     true/false variables. For now, we can only use the name.
     We have a lot less info than for PDF fields.
     """
-    self.raw_field_name = new_field_name
+    self.raw_field_names : List[str] = [new_field_name]
     # For docx, we can't change the field name from the document itself, has to be the same
-    self.variable = self.raw_field_name
-    self.final_display_var = new_field_name  # no transformation changes
-    self.has_label = True
+    self.variable : str = new_field_name 
+    self.final_display_var : str = new_field_name  
+    self.has_label : bool = True
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
-    if self.raw_field_name.endswith('_date'):
+    if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
-    elif self.raw_field_name.endswith('.signature'):
+    elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
     else:
@@ -232,11 +225,11 @@ class DAField(DAObject):
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
     # The raw name of the field from the PDF: must go in attachment block
-    self.raw_field_name = pdf_field_tuple[0]
-    # turns field_name into a valid python identifier
-    self.variable = varname(self.raw_field_name)
+    self.raw_field_names : List[str] = [pdf_field_tuple[0]]
+    # turns field_name into a valid python identifier: must be one per field
+    self.variable : str = remove_multiple_appearance_indicator(varname(self.raw_field_names[0]))
     # the variable, in python: i.e., users[1].name.first
-    self.final_display_var = map_raw_to_final_display(self.variable)
+    self.final_display_var : str = map_raw_to_final_display(self.variable)
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
@@ -258,22 +251,28 @@ class DAField(DAObject):
         self.variable_name_guess = variable_name_guess
     self.maxlength = get_character_limit(pdf_field_tuple)
     
-  def mark_as_paired_yesno(self, paired_field_name: str):
-    """Marks this field as actually representing two template fields:
-    one with `variable_name`_yes and one with `variable_name`_no
+  def mark_as_paired_yesno(self, paired_field_names: List[str]):
+    """Marks this field as actually representing multiple template fields:
+    some with `variable_name`_yes and some with `variable_name`_no
     """
     self.paired_yesno = True
     if self.variable.endswith('_no'):
-      self.raw_field_name = [paired_field_name, self.raw_field_name]
+      self.raw_field_names = paired_field_names + self.raw_field_names
       self.variable = self.variable[:-3] 
       self.final_display_var = self.final_display_var[:-3]
     elif self.variable.endswith('_yes'):
-      self.raw_field_name = [self.raw_field_name, paired_field_name]
+      self.raw_field_names = self.raw_field_names + paired_field_names
       self.variable = self.variable[:-4]
       self.final_display_var = self.final_display_var[:-4]
 
+  def mark_with_duplicate(self, duplicate_field_names: List[str]):
+    """Marks this field as actually representing multiple template fields, and 
+    hanging on to the original names of all of the duplicates
+    """
+    self.raw_field_names += duplicate_field_names
+
   def get_single_field_screen(self):
-    settable_version = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_version = self.get_settable_var() 
     if self.field_type == 'yesno':
       return "yesno: {}\n".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
@@ -288,13 +287,12 @@ class DAField(DAObject):
       return ""
 
   def field_entry_yaml(self) -> str:
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_var = self.get_settable_var()
     content = ""
     if self.has_label:
-      content += "  - {}: {}\n".format(repr_str(self.label), settable_var) 
+      content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
     else:
-      content += "  - no label: {}\n".format(settable_var) 
-
+      content += "  - no label: {}\n".format(settable_var)
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
       content += "    datatype: {}\n".format(self.field_type)
@@ -313,45 +311,17 @@ class DAField(DAObject):
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
       content += self._maxlength_str() + '\n'
-
+    
     return content
 
-  def review_yaml(self, reviewed_fields, reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
-    base_var = DAField._get_base_variable(settable_var)
+  def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
+    settable_var = self.get_settable_var()
+    parent_var, _ = DAField._get_parent_variable(settable_var)
 
-    if base_var in reviewed_fields:
-      return ""
-    reviewed_fields.add(base_var)
-    
-    # Base var should only have one attribute, not further attributes
-    # e.g. `parents[0].name` instead of `parents[0].name.first`
-    # Check `DAField._get_base_variable` for implementation
-    full_display = substitute_suffix(base_var, generator_constants.FULL_DISPLAY)
-    
-    # this lets us edit the name if document just refers to the whole object
-    if settable_var in reserved_pluralizers_map.values():
-      edit_attribute = settable_var + '[0].name.first'
-    elif settable_var in [label + '[0]' for label in reserved_pluralizers_map.values()]:
-      edit_attribute = settable_var + '.name.first'
-    else:
-      edit_attribute = settable_var
-      
-    content = '  - Edit: ' + edit_attribute + "\n"
-    content += '    button: |\n'
-        
-    if base_var in reserved_pluralizers_map.values():
-      content += indent_by(bold(base_var), 6) + '\n'
-      content += indent_by("% for my_var in {}:".format(base_var), 6)
-      content += indent_by("* ${ my_var }", 8)
-      content += indent_by("% endfor", 6)
-      content += indent_by("# NOTE: a question block with '{}.revisit'".format(base_var), 4)
-      content += indent_by("# lets the user edit all of the items at once", 4)
-      
-      return content
-    
+    full_display = substitute_suffix(parent_var, full_display_map)
+
     edit_display_name = self.label if hasattr(self, 'label') else settable_var
-    content += indent_by(bold(edit_display_name) + ": ", 6)
+    content = indent_by(escape_quotes(bold(edit_display_name)) + ': ', 6)
     if hasattr(self, 'field_type'):
       if self.field_type in ['yesno', 'yesnomaybe']:
         content += indent_by('${ word(yesno(' + full_display + ')) }', 6)
@@ -377,32 +347,44 @@ class DAField(DAObject):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
-      return ('      - "{}": ${{ {} }}\n' +
-              '      - "{}": ${{ not {} }}\n').format(
-                self.raw_field_name[0], self.final_display_var,
-                self.raw_field_name[1], self.final_display_var)
+      content = ''
+      for raw_name in self.raw_field_names:
+        var_name = remove_multiple_appearance_indicator(varname(raw_name))
+        if var_name.endswith('_yes'):
+          content += '      - "{}": ${{ {} }}\n'.format(raw_name, self.final_display_var)
+        elif var_name.endswith('_no'):
+          content += '      - "{}": ${{ not {} }}\n'.format(raw_name, self.final_display_var)
+      return content
 
-    content = '      - "{}": '.format(self.raw_field_name)
+    # Handle multiple indicators
+    format_str = '      - "{}": '
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      content += '${ ' + self.variable.format() + ' }\n'
+      format_str += '${{ ' + self.variable.format() + ' }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      content += '${ currency(' + self.variable + ') }\n'
+      format_str += '${{ currency(' + self.variable + ') }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      content += r'${ "{:,.2f}".format(' + self.variable + ') }\n' 
+      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
     elif self.field_type_guess == 'signature': 
       comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      content = comment + content + '${ ' + self.final_display_var + " if i == 'final' else '' }\n"
+      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
     else:
-      content += '${ ' + self.final_display_var + ' }\n'
+      format_str += '${{ ' + self.final_display_var + ' }}\n'
+
+    content = ''
+    for raw_name in self.raw_field_names:
+      content += format_str.format(raw_name)
+    
     return content
 
   def user_ask_about_field(self, index):
     field_questions = []
-    settable_var = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    settable_var = self.get_settable_var() 
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       field_title = '{} (will be expanded to include _yes and _no)'.format(self.final_display_var)
-    elif self.raw_field_name != settable_var:
-      field_title = '{} (will be renamed to {})'.format(settable_var, self.raw_field_name)
+    elif len(self.raw_field_names) > 1:
+      field_title = '{} (will be expanded to all instances)'.format(settable_var)
+    elif self.raw_field_names[0] != settable_var:
+      field_title = '{} (will be renamed to {})'.format(settable_var, self.raw_field_names[0])
     else:
       field_title = self.final_display_var
 
@@ -423,6 +405,7 @@ class DAField(DAObject):
     return field_questions
 
   def trigger_gather(self,
+                     custom_people_plurals_map=custom_values.people_plurals_map,
                      reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                      reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -432,18 +415,20 @@ class DAField(DAObject):
     calling `gather()` for lists"""
     # TODO: we might want to think about how to handle the custom names differently
     # in the future. This lets us avoid having to specify the full/combined list of people
-    # prefixes    
+    # exact prefix matches are dealt with easily
     if hasattr(self, 'custom_trigger_gather'):
       return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
 
-    if self.final_display_var in reserved_var_plurals:
+    if (self.final_display_var in reserved_var_plurals
+         or self.final_display_var in custom_people_plurals_map.values()):
       return self.final_display_var + GATHER_CALL
 
+    # Deal with more complex matches to prefixes
     # Everything before the first period and everything from the first period to the end
-    var_with_attribute = substitute_suffix(self.final_display_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    var_with_attribute = self.get_settable_var()
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
 
     # test for existence (empty strings result in a tuple)
@@ -451,7 +436,7 @@ class DAField(DAObject):
       return self.final_display_var
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', var_parts[0][0])
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
 
     if has_plural_prefix or has_singular_prefix:
@@ -464,17 +449,40 @@ class DAField(DAObject):
         return var_parts[0][0] + first_attribute
     else:
       return self.final_display_var
+
+  def get_settable_var(self, display_to_settable_suffix=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX):
+    return substitute_suffix(self.final_display_var, display_to_settable_suffix)
   
+  def _get_attributes(self, full_display_map=generator_constants.FULL_DISPLAY):
+    """Returns attributes of this DAField, notably without the leading "prefix", or object name
+    * the plain attribute, not ParentCollection, but the direct attribute of the ParentCollection
+    * the "full display", an expression that shows the whole attribute in human readable form
+    * an expression that causes DA to set to this field
+    
+    For example: the DAField `user[0].address.zip` would return ('address', 'address.block()', 'address.address')
+    """
+    label_parts = re.findall(r'([^.]*)(\..*)*', self.get_settable_var())
+
+    prefix_with_index = label_parts[0][0] 
+
+    settable_attribute = label_parts[0][1].lstrip('.')
+    if settable_attribute == '' or settable_attribute == 'name':
+      settable_attribute = 'name.first'
+    if settable_attribute == 'address' or settable_attribute == 'mail_address':
+      settable_attribute += '.address'
+    plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
+    full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
+    return (plain_att, full_display_att, settable_attribute)
+
+
   @staticmethod
-  def _get_base_variable(var_with_attribute,
-                     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-                     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
-    """Gets the base object or list that holds the data that is in var_with_attribute
-    For example, users[0].name and users[1].name.last will both return users. 
-    NOTE: we only combine name attributes of lists right now. So users[0].address returns 
-    users[0].address and users[0].phone_number returns users[0].phone_number right now.
-    TODO(brycew): to handle all attributes correctly like that, we need the list of all attributes
-    used in the form, to show / edit them all in the same review/ revisit screen
+  def _get_parent_variable(var_with_attribute: str,
+                           custom_people_plurals_map=custom_values.people_plurals_map,
+                           undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+                           reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP) -> Tuple[str, str]:
+    """Gets the parent object or list that holds the data that is in var_with_attribute, as well
+    as what type the object is
+    For example, `users[0].name` and `users[1].name.last` will both return `users`. 
     """
     var_parts = re.findall(r'([^.]+)(\.[^.]*)?', var_with_attribute)
     if not var_parts:
@@ -486,28 +494,184 @@ class DAField(DAObject):
     # The prefix, ensuring no key or index
     prefix = re.sub(r'\[.+\]', '', indexed_var)
     
-    has_plural_prefix = prefix in reserved_pluralizers_map.values()
+    has_plural_prefix = prefix in reserved_pluralizers_map.values() or prefix in custom_people_plurals_map.values()
     has_singular_prefix = prefix in undefined_person_prefixes
-    if has_plural_prefix or has_singular_prefix:
-      first_attribute = var_parts[0][1]
-      if first_attribute == '' or first_attribute == '.name':
-        return prefix
-      return indexed_var + first_attribute
+    if has_plural_prefix:
+      return prefix, 'list'
+    if has_singular_prefix:
+      return prefix, 'object'
+    return var_with_attribute, 'primitive'
+
+
+class ParentCollection(object):
+  """A ParentCollection is "highest" level of data structure containing some DAField.
+  For example, the parent collection for `users[0].name.first` is `users`, since that is the list 
+  that contains the user object of the `name` attribute that we are referencing.
+
+  Some other examples: `trial_court` is the parent of `trial_court.division`, and for primitive
+  variables like `my_string`, the parent collection is just `my_string`.
+
+  The parent collection is useful for review screens, where we want to group related fields 
+  """
+  def __init__(self, var_name: str, var_type: str, fields: List[DAField]):
+    """Constructor:
+    @param var_name: the name of this parent collection variable
+    @param var_type: the type of this parent collection variable. Can be 'list', 'object', or 'primitive'
+    @param fields: the DAFields that all share this parent collection variable
+    """
+    self.var_name = var_name
+    self.fields = fields
+    self.attribute_map = {}
+    self.var_type = var_type
+    if self.var_type != 'primitive':  # this base var is more complex than a simple primitive type
+      for f in self.fields:
+        plain_att, disp_att, settable_att = f._get_attributes()
+        self.attribute_map[plain_att] = (disp_att, settable_att)
+
+  def revisit_page(self) -> str:
+    if self.var_type != 'list':
+      return ''
+
+    content = """---
+field: {0}.revisit
+question: |
+  Edit {0}
+subquestion: |
+  ${{ {0}.table }}
+
+  ${{ {0}.add_action() }}
+"""
+    return content.format(self.var_name)
+
+
+  def table_page(self) -> str:
+    if self.var_type != 'list':
+      return ''
+    content = """---
+table: {var_name}.table
+rows: {var_name}
+columns:
+{all_columns}
+edit:
+{settable_list}
+confirm: True
+"""
+    all_columns = ''
+    settable_list = ''
+    for att, disp_and_set in self.attribute_map.items():
+      all_columns += '  - {0}: |\n'.format(att)
+      all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
+      settable_list += '  - {}\n'.format(disp_and_set[1])
+    return content.format(var_name=self.var_name, all_columns=all_columns, settable_list=settable_list)
+
+
+  def review_yaml(self): 
+    """Generate the yaml entry for this object in the review screen list"""
+    if self.var_type == 'list':
+      edit_attribute = self.var_name + '.revisit'
     else:
-      return var_with_attribute 
+      edit_attribute = self.var_name
+      
+    content = '  - Edit: ' + edit_attribute + "\n"
+    content += '    button: |\n'
+        
+    if self.var_type == 'list': 
+      content += indent_by(bold(self.var_name), 6) + '\n'
+      content += indent_by("% for item in {}:".format(self.var_name), 6)
+      content += indent_by("* ${ item }", 8)
+      content += indent_by("% endfor", 6)
+      return content
+    
+    if self.var_type == 'object':
+      content += indent_by(bold(self.var_name), 6) + '\n'
+      for att, disp_set in self.attribute_map.items():
+        content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
+        content += indent_by('% endif', 6)
+      return content
+    
+    return content + self.fields[0].review_viewing()
 
 
 class DAFieldList(DAList):
-    """A DAFieldList contains multiple DAFields."""
-    def init(self, **kwargs):
-        self.object_type = DAField
-        self.auto_gather = False
-        # self.gathered = True
-        return super().init(**kwargs)
-    def __str__(self):
-        """I don't think this method has a real function in our code base. Perhaps debugging."""
-        return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
+  """A DAFieldList contains multiple DAFields."""
+  def init(self, **kwargs):
+    self.object_type = DAField
+    self.auto_gather = False
+    # self.gathered = True
+    return super().init(**kwargs)
+  def __str__(self):
+    return docassemble.base.functions.comma_and_list(map(lambda x: '`' + x.variable + '`', self.elements))
 
+  def __add__(self, other):
+    """Needed to make sure that DAFieldLists stay DAFieldLists when adding them"""
+    self._trigger_gather()
+    if isinstance(other, DAEmpty):
+      return self
+    if isinstance(other, DAFieldList):
+      other._trigger_gather()
+      the_list = DAFieldList(elements=self.elements + other.elements, gathered=True, auto_gather=False)
+      the_list.set_random_instance_name()
+      return the_list
+    return self.elements + other
+    
+  def consolidate_yesnos(self):
+    """Combines separate yes/no questions into a single variable, and writes back out to the yes
+    and no variables"""
+    yesno_map = defaultdict(list)
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
+      if not field.variable.endswith('_yes') and not field.variable.endswith('_no'):
+        continue
+
+      if len(yesno_map[field.variable_name_guess]) == 1:
+        yesno_map[field.variable_name_guess][0].mark_as_paired_yesno(field.raw_field_names)
+      yesno_map[field.variable_name_guess].append(field)
+
+      if len(yesno_map[field.variable_name_guess]) > 1:
+        mark_to_remove.append(idx)
+
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
+
+
+  def consolidate_duplicate_fields(self, document_type: str = 'pdf'):
+    """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just 
+    represent a single variable, leaving one remaining field that writes all of the original vars
+    """
+    if document_type.lower() == 'docx':
+      return
+  
+    field_map: Dict[str, DAField] = {}
+    mark_to_remove: List[int] = []
+    for idx, field in enumerate(self.elements):
+      if field.final_display_var in field_map.keys():
+        field_map[field.final_display_var].mark_with_duplicate(field.raw_field_names)
+        mark_to_remove.append(idx)
+      else:
+        field_map[field.final_display_var] = field
+    self.delitem(*mark_to_remove)
+    self.there_are_any = len(self.elements) > 0
+
+
+  def find_parent_collections(self) -> List[ParentCollection]:
+    """Gets all of the individual ParentCollections from the DAFields in this list."""
+    parent_coll_map = defaultdict(list)
+    for field in self.elements:
+      parent_var_and_type = DAField._get_parent_variable(field.final_display_var)
+      parent_coll_map[parent_var_and_type].append(field)
+
+    return [ParentCollection(var_and_type[0], var_and_type[1], fields) 
+            for var_and_type, fields in parent_coll_map.items()]
+
+    
+  def delitem(self, *pargs):
+    """TODO(brycew): remove when all of our servers are on 1.2.35, it's duplicating
+    https://github.com/jhpyle/docassemble/blob/8e7e4f5ee90803022779bac57308b73b41f92da8/docassemble_base/docassemble/base/core.py#L1127-L1131"""
+    for item in reversed([item for item in pargs if item < len(self.elements)]):
+      self.elements.__delitem__(item)
+    self._reset_instance_names()
+    
 
 class DAQuestion(DAObject):
     """This class represents a "question" in the generated YAML file. TODO: move
@@ -530,7 +694,6 @@ class DAQuestion(DAObject):
             content += 'progress: ' + self.progress + '\n'
         if hasattr(self, 'is_mandatory') and self.is_mandatory:
             content += "mandatory: True\n"
-        log('in question, of type {}, content: {}'.format(self.type, content), 'console')
         # TODO: refactor. Too many things shoved into "question"
         if self.type == 'question':
             done_with_content = False
@@ -541,63 +704,66 @@ class DAQuestion(DAObject):
                 content += "id: " + fix_id(self.question_text) + "\n"
             if hasattr(self, 'event'):
                 content += "event: " + self.event + "\n"
-            if hasattr(self,'has_mandatory_field') and not self.has_mandatory_field:
+            if self.needs_continue_button_field:
               content += "continue button field: " + varname(self.question_text) + "\n"
             elif hasattr(self, 'continue_button_field'):
               content += "continue button field: " + varname(self.continue_button_field) + "\n"
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
                 content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if len(self.field_list) == 1:
-                new_content, done_with_content = self.field_list[0].get_single_field_screen()
-                content += new_content
-            if self.field_list[0].field_type == 'end_attachment':
-                #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                #  # TODO: insert the email code
-                #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
-                #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
-                # attachments is no longer always a DAList
-                # TODO / FUTURE we could let this handle multiple forms at once
-                for attachment in self.attachments:  # We will only have ONE attachment
-                    # TODO: if we really use multiple attachments, we need to change this
-                    # So there is a unique variable name
-                    content += "---\n"
-                    # Use a DADict to store the attachment here
-                    content += "objects:\n"
-                    # TODO: has_addendum should be a flag set in the generator, not hardcoded
-                    content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
-                    content += "---\n"
-                    content += "objects:\n"
-                    # TODO: 
-                    content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                    content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                    content += "---\n"
-                    content += "attachment:\n"
-                    content += "    variable name: " + self.attachment_variable_name + "[i]\n"
-                    content += "    name: " + oneline(attachment.name) + "\n"
-                    content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
-                    if attachment.type == 'md':
-                        content += "    content: " + oneline(attachment.content) + "\n"
-                    elif attachment.type == 'pdf':
-                        content += "    skip undefined: True" + "\n"
-                        content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
-                        self.templates_used.add(attachment.pdf_filename)
-                        content += "    fields: " + "\n"
-                        for field in attachment.fields:
-                          content += field.attachment_yaml()
-                    elif attachment.type == 'docx':
-                        content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
-                        self.templates_used.add(attachment.docx_filename)
-                done_with_content = True
-                
+            if self.field_list.number() == 0:
+              done_with_content = True
+            else:
+              if self.field_list.number() == 1:
+                  new_content, done_with_content = self.field_list[0].get_single_field_screen()
+                  content += new_content
+              if self.field_list[0].field_type == 'end_attachment':
+                  #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
+                  #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
+                  #  # TODO: insert the email code
+                  #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
+                  #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
+                  # attachments is no longer always a DAList
+                  # TODO / FUTURE we could let this handle multiple forms at once
+                  for attachment in self.attachments:  # We will only have ONE attachment
+                      # TODO: if we really use multiple attachments, we need to change this
+                      # So there is a unique variable name
+                      content += "---\n"
+                      # Use a DADict to store the attachment here
+                      content += "objects:\n"
+                      # TODO: has_addendum should be a flag set in the generator, not hardcoded
+                      content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
+                      content += "---\n"
+                      content += "objects:\n"
+                      # TODO: 
+                      content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
+                      content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
+                      content += "---\n"
+                      content += "#################### attachment block ######################\n"
+                      content += "attachment:\n"
+                      content += "    variable name: " + self.attachment_variable_name + "[i]\n"
+                      content += "    name: " + oneline(attachment.name) + "\n"
+                      content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
+                      if attachment.type == 'md':
+                          content += "    content: " + oneline(attachment.content) + "\n"
+                      elif attachment.type == 'pdf':
+                          content += "    skip undefined: True" + "\n"
+                          content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
+                          self.templates_used.add(attachment.pdf_filename)
+                          content += "    fields:" + "\n"
+                          for field in attachment.fields:
+                            content += field.attachment_yaml()
+                      elif attachment.type == 'docx':
+                          content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
+                          self.templates_used.add(attachment.docx_filename)
+                  done_with_content = True
             if not done_with_content:
-                content += "fields:\n"
+                content += "fields:\n"  # TODO: test removing \n here
                 for field in self.field_list:
                     content += field.field_entry_yaml()
 
         elif self.type == 'signature':
-            content += "signature: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "signature: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             self.under_text
             content += "question: |\n" + indent_by(self.question_text, 2)
             if self.subquestion_text != "":
@@ -633,28 +799,27 @@ class DAQuestion(DAObject):
                 content += ",".join(params_string_builder)
                 content += ")"
               content += "\n" 
-            content += "\n"
+            if not content.endswith("\n"):              
+              content += "\n"
             
         elif self.type == 'main order':
           lines = [
+            "###################### Main order ######################\n"
             "mandatory: True",
+            "comment: |",
+            "  This block includes the logic for standalone interviews.",
+            "  Delete mandatory: True to include in another interview",
             "id: main_order_" + self.interview_label,
             "code: |",
-            "  " + "# Controls the flow of the basic building blocks of the",
-            "  " + "# interview. To use this interview in another interview",
-            "  " + "# delete the `mandatory: True` specifier or this whole block.",
-            "  " + self.intro + "  # Organization intro screen/splash screen",
-            "  " + "# Introduction to this specific interview",
+            "  " + self.intro,
             "  " + self.interview_label + "_intro",
-            "  " + "# Trigger the whole interview order block to control question order",
+            "  # Interview order block has form-specific logic controlling order/branching",
             "  interview_order_" + self.interview_label,
-            "  " + "signature_date",
-            # Save a snapshot of interview answers. 
-            # We only want a few anonymous variables
-            "  " + "# Save (anonymized) interview statistics.",
-            "  " + "store_variables_snapshot(data={'zip': users[0].address.zip})",
+            "  signature_date", # TODO: do we want this here?
+            "  # Save (anonymized) interview statistics.",
+            "  store_variables_snapshot(data={'zip': users[0].address.zip})",
             "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
-            "  " + "basic_questions_signature_flow",
+            "  basic_questions_signature_flow",
           ]
           
           for signature_field in self.signatures:
@@ -666,9 +831,11 @@ class DAQuestion(DAObject):
         elif self.type == 'interview order':
             # TODO: refactor this. Too much of it is assembly-line specific code
             # move into the interview YAML or a separate module/subclass
+            content += "#################### Interview order #####################\n"
+            content += "comment: |\n"
+            content += "  Controls order and branching logic of questions in the interview\n"
             content += "id: interview_order_" + self.interview_label + "\n"
             content += "code: |\n"
-            content += "  # This is a placeholder to control order of questions in this interview\n"
             added_field_names = set()
             for field in self.logic_list:
               if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
@@ -679,7 +846,7 @@ class DAQuestion(DAObject):
               added_field_names.add(field)
             content += "  interview_order_" + self.interview_label + " = True" + "\n"
         elif self.type == 'text_template':
-            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
                 content += "subject: " + oneline(self.template_subject) + "\n"
             if self.template_type == 'file':
@@ -687,12 +854,12 @@ class DAQuestion(DAObject):
             else:
                 content += "content: |\n" + indent_by(self.template_body, 2)
         elif self.type == 'template':
-            content += "template: " + varname(self.field_list[0].raw_field_name) + "\n"
+            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
         elif self.type == 'sections':
-            content += "features:\n  navigation: True\n"
-            content += '---\n'
+            # content += "features:\n  navigation: True\n"
+            # content += '---\n'
             content += "sections:\n"
             for section in self.sections:
                 if isinstance(section, dict):
@@ -716,6 +883,8 @@ class DAQuestion(DAObject):
             # TODO: this is begging to be refactored into
             # just dumping out a dictionary in json-like format
             # rather than us hand-writing the data structure
+            # Note 2/23/21: machine-written JSON is not pretty. 
+            # So one argument for keeping it handwritten
             if hasattr(self, 'comment'):
                 content += 'comment: |\n'
                 content += indent_by(self.comment, 2)
@@ -726,20 +895,20 @@ class DAQuestion(DAObject):
             content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
             content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
             content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += "    'title': '" + escape_quote(oneline(self.title)) + "',\n"
-            content += "    'short title': '" + escape_quote(oneline(self.short_title)) + "',\n"
-            content += "    'description': '" + escape_quote(oneline(self.description)) + "',\n"
-            content += "    'original_form': '" + escape_quote(oneline(self.original_form)) + "',\n"
-            content += "    'allowed courts': " + "[\n"
+            content += '    "title": "' + escape_quotes(oneline(self.title)) + '",\n'
+            content += '    "short title": "' + escape_quotes(oneline(self.short_title)) + '",\n'
+            content += '    "description": "' + escape_quotes(oneline(self.description)) + '",\n'
+            content += '    "original_form": "' + escape_quotes(oneline(self.original_form)) + '",\n'
+            content += '    "allowed courts": ' + '[\n'
             for court in self.allowed_courts.true_values():
-              content += "      '" + oneline(court) + "',\n"
-            content += "    ],\n"
-            content += "    'categories': [" + "\n"
+              content += '      "' + escape_quotes(oneline(court)) + '",\n'
+            content += '    ],\n'
+            content += '    "categories": [' + '\n'
             for category in self.categories.true_values():
               content += "      '" + oneline(category) + "',\n"
             if self.categories['Other']:
               for category in self.other_categories.split(','):
-                content += "      '" + escape_quote(oneline(category.strip())) + "',\n"
+                content += "      '" + escape_quotes(oneline(category.strip())) + "',\n"
             content += "    ],\n"
             content += "    'logic block variable': '" + self.interview_label + "',\n"
             content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
@@ -761,13 +930,17 @@ class DAQuestion(DAObject):
           if hasattr(self, 'id') and self.id:
             content += "id: " + self.id + "\n"
           else:
-            content += "id: " + oneline(self.question_text) + "\n"
+            without_bad_chars = varname(oneline(self.question_text))
+            if len(without_bad_chars) == 0:
+              # TODO(brycew): we can do better than meaningless text
+              without_bad_chars = str(uuid.uuid4())
+            content += "id: " + without_bad_chars + "\n"
           content += 'continue button field: ' + self.continue_button_field + "\n"
           content += "question: |\n"
           content += indent_by(self.question_text, 2)
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
-        elif self.type == "review":
+        elif self.type == "review" and len(self.parent_collections) > 0:
           if hasattr(self, 'id') and self.id:
               content += "id: " + self.id + "\n"
           else:
@@ -779,9 +952,12 @@ class DAQuestion(DAObject):
           content += "subquestion: |\n"
           content += indent_by(self.subquestion_text, 2)
           content += "review: \n"
-          reviewed_fields = set()
-          for field in self.field_list:
-              content += field.review_yaml(reviewed_fields)
+          for parent_coll in self.parent_collections:
+            content += parent_coll.review_yaml() 
+            content += '  - note: |\n      ------\n'
+          for parent_coll in self.parent_collections:
+            content += parent_coll.revisit_page()
+            content += parent_coll.table_page()
         return content
 
 class DAQuestionList(DAList):
@@ -1041,8 +1217,9 @@ def oneline(text):
     text = newlines.sub(r' ', text)
     return text
 
-def escape_quote(text):
-    return text.replace("'", "\\'")
+def escape_quotes(text):
+    """Escape both single and double quotes in strings"""
+    return text.replace('"', '\\"').replace("'", "\\'")
 
 def to_yaml_file(text):
     text = varname(text)
@@ -1178,6 +1355,7 @@ def get_docx_variables( text:str )->set:
 
 # TODO: map_names is deprecated but old code depends on it. This is temporary shim
 def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -1185,6 +1363,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   return map_raw_to_final_display(label, document_type=document_type,
               reserved_whole_words=reserved_whole_words,
+              custom_people_plurals_map=custom_people_plurals_map,
               reserved_prefixes=reserved_prefixes,
               undefined_person_prefixes=undefined_person_prefixes,
               reserved_var_plurals=reserved_var_plurals,
@@ -1192,6 +1371,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_suffixes_map=reserved_suffixes_map)
   
 def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
               reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
@@ -1211,11 +1391,13 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
 
   if (label in reserved_whole_words
    or label in reserved_var_plurals
-   or label in undefined_person_prefixes):
+   or label in undefined_person_prefixes
+   or label in custom_people_plurals_map.values()):
      return label
 
   # Break up label into its parts: prefix, digit, the rest
-  label_groups = get_reserved_label_parts(reserved_prefixes, label)
+  all_prefixes = reserved_prefixes + list(custom_people_plurals_map.values())
+  label_groups = get_reserved_label_parts(all_prefixes, label)
 
   # If no matches to automateable labels were found,
   # just use the label as it is
@@ -1226,9 +1408,11 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   # Map prefix to an adjusted version
   # At the moment, turn any singulars into plurals if needed, e.g. 'user' into 'users'
   adjusted_prefix = reserved_pluralizers_map.get(prefix, prefix)
+  adjusted_prefix = custom_people_plurals_map.get(prefix, adjusted_prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
-  if adjusted_prefix in reserved_var_plurals:
+  if (adjusted_prefix in reserved_var_plurals
+      or adjusted_prefix in custom_people_plurals_map.values()):
     digit = label_groups[2]
     if digit == '':
       index = '[0]'
@@ -1335,7 +1519,7 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
 ############################
 #  Label processing helper functions
 ############################
-def remove_multiple_appearance_indicator(label: str):
+def remove_multiple_appearance_indicator(label: str) -> str:
     return re.sub(r'_{2,}\d+', '', label)
 
 def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
@@ -1392,11 +1576,11 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     fields.remove(field)
 
   for field in fields_to_add:
-    built_in_fields.append(field)    
+    built_in_fields.append(field)
 
 
 
-  
+
 
 
 def get_person_variables(fieldslist,
@@ -1464,6 +1648,11 @@ def get_person_variables(fieldslist,
   else:
     return people
 
+def set_custom_people_map( people_var_names ):
+  """Sets the map of custom people created by the developer."""
+  for var_name in people_var_names:
+    custom_values.people_plurals_map[ var_name ] = var_name
+  return custom_values.people_plurals_map
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
