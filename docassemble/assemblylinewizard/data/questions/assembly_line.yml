@@ -1007,6 +1007,9 @@ question: |
   Preview your package
 subquestion: |
 
+  If the button below to run the interview does not work, try waiting
+  30 seconds.
+
   ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
