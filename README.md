@@ -22,3 +22,10 @@ Bryce Willey
 Lily Yang  
 David Colarusso  
 Nharika Singh  
+
+## Installation requirements
+
+* Create a Docassemble API key and add it your configuration like this:
+```
+install packages api key: 123458abcdefghijlklmno99A
+```
