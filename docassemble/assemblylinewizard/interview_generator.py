@@ -35,7 +35,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names']
+           'map_names','fix_id']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
