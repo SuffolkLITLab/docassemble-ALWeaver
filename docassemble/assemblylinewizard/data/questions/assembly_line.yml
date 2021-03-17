@@ -15,7 +15,7 @@ modules:
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
-  - interview: DAInterview
+  - interview: DAInterview.using(template_path='data/sources/interview_structure.yml')
   - main_code: DAQuestion
   - metadata_code: DAQuestion
   - metadata: DAQuestion
@@ -44,7 +44,7 @@ id: Interview Order
 code: |
   template_upload
   # debug
-  
+  #interview.blocks = DAQuestionList(auto_gather=False, gathered=True)
   interview.form_type
   interview.title
   interview_intro_prompt
@@ -73,6 +73,13 @@ code: |
   increment_sequence
 
   show_interview
+---
+# Temporary to text new Mako style questions
+code: |
+  interview.blocks[i].template_key='question'
+---
+code: |
+  interview.blocks[i].data = {}
 ---
 code: |
   set_custom_people_map( people_variables.true_values() )

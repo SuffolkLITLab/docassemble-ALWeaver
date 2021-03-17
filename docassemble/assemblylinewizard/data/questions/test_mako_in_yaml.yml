@@ -15,10 +15,8 @@ code: |
   
   mytemplate = mako.template.Template(my_blocks[0]['question'])
   mytemplate.imports = ["from docassemble.assemblylinewizard.interview_generator import *"]
-  #content = ""
   data = {"question_text": "Some question",
-          "block_id": fix_id("the id"),
-         "fix_id": fix_id}
+          "block_id": "the id"}
   content = mytemplate.render(**data)
   del mytemplate
 ---

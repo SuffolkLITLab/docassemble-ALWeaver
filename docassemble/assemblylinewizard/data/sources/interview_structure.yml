@@ -1,22 +1,24 @@
 #########################################
 # Each dictionary entry is a template for a YAML block in the generated interview
 #########################################
+# Overall metadata
+mako template imports: 
+  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent
 # Ordinary question with or without fields
 question: |
   % if event:
   event: ${ event }
   % endif
-  ${ fix_id(block_id) }
   % if block_id:
-  id: ${ block_id }
+  id: ${ fix_id(block_id) }
   % else:
   id: ${ fix_id(question_text) }
   % endif
   question: |
-    ${ question_text }
+  ${ mako_indent(question_text,2) }
   % if subquestion_text:
   subquestion: |
-    ${ indent_by(subquestion_text,2) }
+  ${ mako_indent(subquestion_text,2) }
   % endif
   % if field_list and len(field_list) > 1:
   fields:
@@ -37,145 +39,244 @@ signature: |
   id: ${ fix_id(question_text) }
   % endif
   question: |
-    ${ question_text }
+  ${ mako_indent(question_text,2) }
   % if subquestion_text:
   subquestion: |
-    ${ indent_by(subquestion_text, 2) }
+  ${ mako_indent(subquestion_text, 2) }
   % endif
   signature: ${ varname(field_list[0].raw_field_names[0]) }
   % if under_text:
   under: |
     ${ under_text}
   % endif
+preview screen: |
+  id: preview ${interview_label }
+  question: |
+    Preview your form before you sign it
+  subquestion: |
+    Here is a preview of the form you will sign on the next page.
+    
+    <%text>
+    ${ al_user_bundle.as_pdf(key='preview') }
+
+    Click the image to open it in a new tab. Click the "Make changes" button
+    to edit your answers.
+
+    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+    </%text>
+
+    Remember to come back to this window to continue and sign your form.
+download screen: |
+  id: download ${ interview_label }
+  event: ${ interview_label }_download
+  question: |
+    Your form is ready to download.
+  subquestion: |
+    <%text>
+    Thank you ${users}. Your form is ready to download and deliver.
+
+    View, download and send your form below. Click the "Make changes" button to fix any mistakes.
+
+    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+
+    ${ al_user_bundle.download_list_html() }
+
+    ${ al_user_bundle.send_button_html() }
+    </%text>
+  progress: 100
 # Code block
 code: |
-  % for line in lines:
-  ${ line }
-  % endfor
+  code: |
+    % for line in lines:
+    ${ line }
+    % endfor
 # Objects block
 objects: |
   objects:
   % for object in objects:
     - ${ object.name }: ${ object.type}
   % endfor
+# Mandatory block that is used in standalone forms.
+# Has the standard, required blocks we don't want if this
+# interview is included in another interview
+main order: |
+  ###################### Main order ######################
+  comment: |
+    This block includes the logic for standalone interviews.
+    Delete mandatory: True to include in another interview
+  mandatory: True
+  code: |
+    ${ intro }
+    ${ interview_label }_intro
+    interview_order_${ interview_label }
+    signature_date
+    # Save anonymized interview statistics (customize the saved data below)
+    ${ store_variables_snapshot(data={'zip': users[0].address.zip}) }
+    ${ interview_label }_preview_question
+    basic_questions_signature_flow
+    % for signature_field in signatures:
+    ${ signature_field }
+    % endfor
+    ${ interview_label }_download
+# Block used to control the order of interview-specific questions   
+interview order: |
+  #################### Interview order #####################
+  comment: |
+    Controls order and branching logic for questions specific to this form
+  id: interview_order_${ interview_label }
+  code: |
+  % for field in set(logic_list):
+  % if not ( field == 'signature_date' or field.endswith('.signature')):
+    ${ field }
+  % endif
+  % endfor  
+  interview_order_${ interview_label } = True
+# Optional interview features
+features: |
+  features:
+  % for key in features:
+    - ${ key }: ${ features[key] }
+  % endfor    
+# Navigation sections
+# Note: we use a list of tuples to allow controlling the order of sections.
+# We could use OrderedDict instead but this is more explicit.
+# TODO: use tuple instead of dict in the parent class/YAML
+sections: |
+  sections:
+  % for section in sections:
+  % if isinstance(section, tuple) or isinstance(section, list):
+    - ${ section[0] }: ${ section[1]}
+  % else:
+    - ${ section}
+  % endif
+# Interview-specific metadata, like title etc  
+metadata: |
+  % if comment:
+  comment: |
+    ${ mako_indent(comment, 2) }
+  % endif
+  metadata:
+  % for key in settings:
+    ${ key }: |
+  ${ mako_indent(settings[key], 4) }
+  % endfor
+  % if categories.any_true():
+    tags:
+  % for category in categories.true_values():
+      - ${ category }
+  % endfor
+# Form-specific metadata, much of it reserved for future use
+# TODO: refactor to a Docassemble `data:` block
+metadata_code: |
+  mandatory: True
+  code: |
+    interview_metadata
+    if not defined("interview_metadata['" + ${ interview_label } +"']"):
+      interview_metadata.initializeObject(${ interview_label })
+      interview_metadata["${ interview_label }""].update({
+        "title": "${ escape_quotes(oneline(title)) }",
+        "short title": "${ escape_quotes(oneline(short_title)) }",
+        "description": "${ escape_quotes(oneline(description)) }",
+        "original_form": "${ escape_quotes(oneline(original_form)) }",
+        "allowed courts": [
+          % for court in self.allowed_courts.true_values():
+          "${ escape_quotes(oneline(court)) }",
+          % endfor
+        ],
+        "categories": [
+          % for category in set(categories.true_values()) - {'Other'}:
+          "${ oneline(category) }",
+          % endfor
+          % if self.categories['Other']:
+          % for category in self.other_categories.split(','):
+          "${ escape_quotes(oneline(category.strip())) }",
+          % endfor
+        ],        
+        "logic block variable": "interview_order_${ interview_label }",
+        "attachment block variable": "${ interview_label }_attachment",
+        % if typical_role:
+        "typical role": "${ typical_role }",
+      })
+# Modules
+modules: |
+  modules:
+    % for module in modules:
+    - ${ str(module) }
+    % endfor
+# Includes
+includes: |
+  includes:
+    % for include in includes:
+    - ${ str(include) }
+    % endfor
+# interstitial question (question block without any fields)
+interstitial: |
+  % if comment:
+  comment: |
+    mako_indent(comment, 2)
+  % endif
+  % if id:
+  id: ${ fix_id(id) }
+  % elif varname(oneline(question_text)):
+  id: varname(oneline(question_text))
+  % else:
+  id: ${ str(uuid.uuid4()) }
+  % endif
+  continue button field: ${ continue_button_field }
+  question: |
+  ${ mako_indent(question_text, 2) }
+  % if subquestion:
+  ${ mako_indent(subquestion_text, 2) }
+  % endif
+# Creates the ALDocument objects representing individual templates in the interview
+attachment objects: |
+  objects:
+  % for object in objects:
+    - ${ object.name }: ALDocument${ using_string(object.params) }
+  % endfor
+# Creates ALDocumentBundle objects representing the collection of forms
+# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
+bundle objects: |
+  objects:
+  % for bundle in bundles:
+    - ${ bundle.name }: ALDocumentBundle${ using_string(bundle.params) }
+  % endfor
+# Just a spacer element in the generated YAML  
+section marker: |
+    ####################### ${ label } ##############################
+# Attachment block
+# TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
+attachment: |
+  attachment:
+    variable name: ${ attachment_variable_name }
+    name: ${ name }
+    filename: ${ varname(name).replace('_','-') }
+    % if type == 'md':
+    content: |
+    ${ mako_indent(content, 4) }
+    % elif type == 'pdf':
+    skip undefined: True
+    pdf template file: ${ filename }
+    fields:
+      % for field in fields:
+      ${ field.attachment_yaml().lstrip() } <%doc>TODO: examine if left padding should be removed in attachment_yaml method instead<%doc>
+      % endfor
+    % else:
+    docx template file: ${ filename }
+    % endif
 
 ---
-text: |
+leftover text: |
         if self.type == 'question':
               if self.field_list[0].field_type == 'end_attachment':
-                  #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                  #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  #  # TODO: insert the email code
-                  #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
                   #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
                   # attachments is no longer always a DAList
                   # TODO / FUTURE we could let this handle multiple forms at once
                   for attachment in self.attachments:  # We will only have ONE attachment
-                      # TODO: if we really use multiple attachments, we need to change this
-                      # So there is a unique variable name
-                      content += "---\n"
-                      # Use a DADict to store the attachment here
-                      content += "objects:\n"
-                      # TODO: has_addendum should be a flag set in the generator, not hardcoded
                       content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
-                      content += "---\n"
-                      content += "objects:\n"
-                      # TODO: 
                       content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
                       content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                      content += "---\n"
-                      content += "#################### attachment block ######################\n"
-                      content += "attachment:\n"
-                      content += "    variable name: " + self.attachment_variable_name + "[i]\n"
-                      content += "    name: " + oneline(attachment.name) + "\n"
-                      content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
-                      if attachment.type == 'md':
-                          content += "    content: " + oneline(attachment.content) + "\n"
-                      elif attachment.type == 'pdf':
-                          content += "    skip undefined: True" + "\n"
-                          content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
-                          self.templates_used.add(attachment.pdf_filename)
-                          content += "    fields:" + "\n"
-                          for field in attachment.fields:
-                            content += field.attachment_yaml()
-                      elif attachment.type == 'docx':
-                          content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
-                          self.templates_used.add(attachment.docx_filename)
-                  done_with_content = True
-
-        elif self.type == 'objects' and len(self.objects):
-            # An object should be a list of DAObjects with the following attributes:
-            # name, type, params [optional]
-            # params is going to be a list/iterable object of two or 3 item tuples or lists 
-            # of strings
-            # param[0] is the parameter name (argument to .using), param[1] is the value
-            # If the param has 3 parts, then param[1] will be treated as a literal rather than
-            # string value. string is default. Actual value of param[2] is reserved for future need
-            content += "objects:\n"
-            for object in self.objects:
-              content += "  - " + object.name + ': ' + object.type
-              if hasattr(object, 'params'):
-                content += ".using("
-                params_string_builder = []
-                for param in object.params:
-                  param_string = str(param[0]) + "="
-                  if len(param) > 2:
-                    # This might be an int value, other variable name, etc.
-                    param_string += str(param[1])
-                  else:
-                    # this is a normal string value and should get quoted.
-                    # use json.dumps() to properly quote strings. shouldn't come up
-                    param_string += json.dumps(str(param[1]))
-                  params_string_builder.append(param_string)
-                content += ",".join(params_string_builder)
-                content += ")"
-              content += "\n" 
-            if not content.endswith("\n"):              
-              content += "\n"
-            
-        elif self.type == 'main order':
-          lines = [
-            "###################### Main order ######################\n"
-            "mandatory: True",
-            "comment: |",
-            "  This block includes the logic for standalone interviews.",
-            "  Delete mandatory: True to include in another interview",
-            "id: main_order_" + self.interview_label,
-            "code: |",
-            "  " + self.intro,
-            "  " + self.interview_label + "_intro",
-            "  # Interview order block has form-specific logic controlling order/branching",
-            "  interview_order_" + self.interview_label,
-            "  signature_date", # TODO: do we want this here?
-            "  # Save (anonymized) interview statistics.",
-            "  store_variables_snapshot(data={'zip': users[0].address.zip})",
-            "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
-            "  basic_questions_signature_flow",
-          ]
-          
-          for signature_field in self.signatures:
-            lines.append( "  " + signature_field )
-          lines.append("  " + self.interview_label + "_download")
-          
-          content += '\n'.join(lines) + '\n'
-                                   
-        elif self.type == 'interview order':
-            # TODO: refactor this. Too much of it is assembly-line specific code
-            # move into the interview YAML or a separate module/subclass
-            content += "#################### Interview order #####################\n"
-            content += "comment: |\n"
-            content += "  Controls order and branching logic of questions in the interview\n"
-            content += "id: interview_order_" + self.interview_label + "\n"
-            content += "code: |\n"
-            added_field_names = set()
-            for field in self.logic_list:
-              if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
-                continue
-              if not field in added_field_names:
-                # We built this logic list by collecting the first field on each screen
-                content += "  " + field + "\n"
-              added_field_names.add(field)
-            content += "  interview_order_" + self.interview_label + " = True" + "\n"
+                  
         elif self.type == 'text_template':
             content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             if hasattr(self, 'template_subject') and self.template_subject:
@@ -183,110 +284,10 @@ text: |
             if self.template_type == 'file':
                 content += "content file: " + oneline(self.template_file) + "\n"
             else:
-                content += "content: |\n" + indent_by(self.template_body, 2)
+                content += "content: |\n" + mako_indent(self.template_body, 2)
         elif self.type == 'template':
             content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
             content += "content file: " + oneline(self.template_file) + "\n"
             self.templates_used.add(self.template_file)
-        elif self.type == 'sections':
-            # content += "features:\n  navigation: True\n"
-            # content += '---\n'
-            content += "sections:\n"
-            for section in self.sections:
-                if isinstance(section, dict):
-                    for key in section: # Should just be one key
-                        content += '  - ' + str(key) + ': ' + str(section[key]) + "\n"
-                elif isinstance(section, str):
-                    content += '  - ' + section
-        elif self.type == 'metadata':
-            if hasattr(self, 'comment'):
-                content += 'comment: |\n'
-                content += indent_by(self.comment, 2)
-            content += "metadata:\n"
-            for setting in self.settings:
-                content += '  ' + setting + ': |\n'
-                content += indent_by(self.settings[setting], 4)
-            if self.categories.any_true():
-              content += "  tags:\n"
-              for category in self.categories.true_values():
-                content += indent_by("- " + category, 4)
-        elif self.type == 'metadata_code':
-            # TODO: this is begging to be refactored into
-            # just dumping out a dictionary in json-like format
-            # rather than us hand-writing the data structure
-            # Note 2/23/21: machine-written JSON is not pretty. 
-            # So one argument for keeping it handwritten
-            if hasattr(self, 'comment'):
-                content += 'comment: |\n'
-                content += indent_by(self.comment, 2)
-            # We need this block to run every time to build our metadata variable
-            content += "mandatory: True\n"
-            content += "code: |\n"
-            content += "  interview_metadata # make sure we initialize the object\n"
-            content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
-            content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
-            content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += '    "title": "' + escape_quotes(oneline(self.title)) + '",\n'
-            content += '    "short title": "' + escape_quotes(oneline(self.short_title)) + '",\n'
-            content += '    "description": "' + escape_quotes(oneline(self.description)) + '",\n'
-            content += '    "original_form": "' + escape_quotes(oneline(self.original_form)) + '",\n'
-            content += '    "allowed courts": ' + '[\n'
-            for court in self.allowed_courts.true_values():
-              content += '      "' + escape_quotes(oneline(court)) + '",\n'
-            content += '    ],\n'
-            content += '    "categories": [' + '\n'
-            for category in self.categories.true_values():
-              content += "      '" + oneline(category) + "',\n"
-            if self.categories['Other']:
-              for category in self.other_categories.split(','):
-                content += "      '" + escape_quotes(oneline(category.strip())) + "',\n"
-            content += "    ],\n"
-            content += "    'logic block variable': '" + self.interview_label + "',\n"
-            content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
-            if hasattr(self, 'typical_role'):
-              content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            content += "  })\n"
-        elif self.type == 'modules':
-            content += "modules:\n"
-            for module in self.modules:
-                content += " - " + str(module) + "\n"
-        elif self.type == 'includes':
-          content += "include:\n"
-          for include in self.includes:
-            content += "  - " + include + "\n"
-        elif self.type == 'interstitial':
-          if hasattr(self, 'comment'):
-            content += 'comment: |\n'
-            content += indent_by(self.comment, 2)
-          if hasattr(self, 'id') and self.id:
-            content += "id: " + self.id + "\n"
-          else:
-            without_bad_chars = varname(oneline(self.question_text))
-            if len(without_bad_chars) == 0:
-              # TODO(brycew): we can do better than meaningless text
-              without_bad_chars = str(uuid.uuid4())
-            content += "id: " + without_bad_chars + "\n"
-          content += 'continue button field: ' + self.continue_button_field + "\n"
-          content += "question: |\n"
-          content += indent_by(self.question_text, 2)
-          content += "subquestion: |\n"
-          content += indent_by(self.subquestion_text, 2)
-        elif self.type == "review" and len(self.parent_collections) > 0:
-          if hasattr(self, 'id') and self.id:
-              content += "id: " + self.id + "\n"
-          else:
-              content += "id: " + oneline(self.question_text) + "\n"
-          if hasattr(self, 'event'):
-              content += "event: " + self.event + "\n"
-          content += "question: |\n"
-          content += indent_by(self.question_text, 2)
-          content += "subquestion: |\n"
-          content += indent_by(self.subquestion_text, 2)
-          content += "review: \n"
-          for parent_coll in self.parent_collections:
-            content += parent_coll.review_yaml() 
-            content += '  - note: |\n      ------\n'
-          for parent_coll in self.parent_collections:
-            content += parent_coll.revisit_page()
-            content += parent_coll.table_page()
+
         return content
