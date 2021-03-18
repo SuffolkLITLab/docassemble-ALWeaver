@@ -1034,224 +1034,13 @@ class DAQuestion(DABlock):
     }
     return template.render(**data)
 
-
-
-######### Deprecated
-# class PlaygroundSection(object):
-  
-#     def __init__(self, section='', project='default'):
-#         if docassemble.base.functions.this_thread.current_info['user']['is_anonymous']:
-#             raise DAError("Users must be logged in to create Playground objects")
-#         self.user_id = docassemble.base.functions.this_thread.current_info['user']['theid']
-#         self.current_info = docassemble.base.functions.this_thread.current_info
-#         self.section = section
-#         self.project = project
-#         self._update_file_list()
-#     def get_area(self):
-#         return SavedFile(self.user_id, fix=True, section='playground' + self.section)
-#     def _update_file_list(self):
-#         the_directory = directory_for(self.get_area(), self.project)
-#         self.file_list = sorted([f for f in os.listdir(the_directory) if f != '.placeholder' and os.path.isfile(os.path.join(the_directory, f))])
-#     def image_file_list(self):
-#         out_list = list()
-#         for the_file in self.file_list:
-#             _extension, mimetype = get_ext_and_mimetype(the_file)
-#             if re.search(r'^image', mimetype):
-#                 out_list.append(the_file)
-#         return out_list
-#     def reduced_file_list(self):
-#         lower_list = [f.lower() for f in self.file_list]
-#         out_list = [f for f in self.file_list if os.path.splitext(f)[1].lower() in ['.md', '.pdf', '.docx'] or os.path.splitext(f)[0].lower() + '.md' not in lower_list]
-#         return out_list
-#     def get_file(self, filename):
-#         return os.path.join(directory_for(self.get_area(), self.project), filename)
-#     def file_exists(self, filename):
-#         path = self.get_file(filename)
-#         if os.path.isfile(path):
-#             return True
-#         return False
-#     def delete_file(self, filename):
-#         area = self.get_area()
-#         the_filename = filename
-#         if self.project != 'default':
-#             the_filename = os.path.join(self.project, the_filename)
-#         area.delete_file(the_filename)
-#     def read_file(self, filename):
-#         path = self.get_file(filename)
-#         if path is None:
-#             return None
-#         with open(path, 'rU', encoding='utf-8') as fp:
-#             content = fp.read()
-#             return content
-#         return None
-#     def write_file(self, filename, content, binary=False):
-#         area = self.get_area()
-#         the_directory = directory_for(area, self.project)
-#         path = os.path.join(the_directory, filename)
-#         if binary:
-#             with open(path, 'wb') as ifile:
-#                 ifile.write(content)
-#         else:
-#             with open(path, 'w', encoding='utf-8') as ifile:
-#                 ifile.write(content)
-#         area.finalize()
-#     def commit(self):
-#         self.get_area().finalize()
-#     def copy_from(self, from_file, filename=None):
-#         if filename is None:
-#             filename = os.path.basename(from_file)
-#         to_path = self.get_file(filename)
-#         shutil.copy2(from_file, to_path)
-#         self.get_area().finalize()
-#         return filename
-#     def is_fillable_docx(self, filename):
-#         extension, _mimetype = get_ext_and_mimetype(filename)
-#         if extension != "docx":
-#             return False
-#         if not self.file_exists(filename):
-#             return False
-#         path = self.get_file(filename)
-#         result_file = word_to_markdown(path, 'docx')
-#         if result_file is None:
-#             return False
-#         with open(result_file.name, 'rU', encoding='utf-8') as fp:
-#             result = fp.read()
-#         fields = set()
-#         for variable in re.findall(r'{{ *([^\} ]+) *}}', result):
-#             fields.add(docx_variable_fix(variable))
-#         for variable in re.findall(r'{%[a-z]* for [A-Za-z\_][A-Za-z0-9\_]* in *([^\} ]+) *%}', result):
-#             fields.add(docx_variable_fix(variable))
-#         if len(fields):
-#             return True
-#         return False
-#     def is_markdown(self, filename):
-#         extension, _mimetype = get_ext_and_mimetype(filename)
-#         if extension == "md":
-#             return True
-#         return False
-#     def is_pdf(self, filename):
-#         extension, mimetype = get_ext_and_mimetype(filename)
-#         if extension == "pdf":
-#             return True
-#         return False
-#     def get_fields(self, filename):
-#         return docassemble.base.pdftk.read_fields(self.get_file(filename))
-#     def convert_file_to_md(self, filename, convert_variables=True):
-#         extension, mimetype = get_ext_and_mimetype(filename)
-#         if (mimetype and mimetype in convertible_mimetypes):
-#             the_format = convertible_mimetypes[mimetype]
-#         elif extension and extension in convertible_extensions:
-#             the_format = convertible_extensions[extension]
-#         else:
-#             return None
-#         if not self.file_exists(filename):
-#             return None
-#         path = self.get_file(filename)
-#         temp_file = word_to_markdown(path, the_format)
-#         if temp_file is None:
-#             return None
-#         out_filename = os.path.splitext(filename)[0] + '.md'
-#         if convert_variables:
-#             with open(temp_file.name, 'rU', encoding='utf-8') as fp:
-#                 self.write_file(out_filename, replace_square_brackets.sub(fix_variable_name, fp.read()))
-#         else:
-#             shutil.copyfile(temp_file.name, self.get_file(out_filename))
-#         return out_filename
-#     def variables_from_file(self, filename):
-#         content = self.read_file(filename)
-#         if content is None:
-#             return None
-#         return Playground().variables_from(content)
-
-# class Playground(PlaygroundSection):
-#     def __init__(self):
-#         return super().__init__()
-#     def interview_url(self, filename):
-#         return docassemble.base.functions.url_of('interview', i='docassemble.playground' + str(self.user_id) + project_name(self.project) + ":" + filename)
-#     def write_package(self, pkgname, info):
-#         the_yaml = yaml.safe_dump(info, default_flow_style=False, default_style = '|')
-#         pg_packages = PlaygroundSection('packages')
-#         pg_packages.write_file(pkgname, the_yaml)
-#     def get_package_as_zip(self, pkgname):
-#         pg_packages = PlaygroundSection('packages')
-#         content = pg_packages.read_file(pkgname)
-#         if content is None:
-#             raise Exception("package " + str(pkgname) + " not found")
-#         info = yaml.load(content, Loader=yaml.FullLoader)
-#         author_info = dict()
-#         author_info['author name'] = self.current_info['user']['firstname'] + " " + self.current_info['user']['lastname']
-#         author_info['author email'] = self.current_info['user']['email']
-#         author_info['author name and email'] = author_info['author name'] + ", " + author_info['author email']
-#         author_info['first name'] = self.current_info['user']['firstname']
-#         author_info['last name'] = self.current_info['user']['lastname']
-#         author_info['id'] = self.user_id
-#         if self.current_info['user']['timezone']:
-#             the_timezone = self.current_info['user']['timezone']
-#         else:
-#             the_timezone = docassemble.base.functions.get_default_timezone()
-#         zip_file = make_package_zip(pkgname, info, author_info, the_timezone)
-#         file_number, extension, mimetype = docassemble.base.parse.save_numbered_file('docassemble-' + str(pkgname) + '.zip', zip_file.name)
-#         return file_number
-#     def variables_from(self, content):
-#         the_directory = directory_for(self.get_area(), self.project)
-#         interview_source = docassemble.base.parse.InterviewSourceString(content=content, directory=the_directory, path="docassemble.playground" + str(self.user_id) + project_name(self.project) + ":_temp.yml", package='docassemble.playground' + str(self.user_id) + project_name(self.project), testing=True)
-#         interview = interview_source.get_interview()
-#         temp_current_info = copy.deepcopy(self.current_info)
-#         temp_current_info['yaml_filename'] = "docassemble.playground" + str(self.user_id) + project_name(self.project) + ":_temp.yml"
-#         interview_status = docassemble.base.parse.InterviewStatus(current_info=temp_current_info)
-#         user_dict = docassemble.base.parse.get_initial_dict()
-#         user_dict['_internal']['starttime'] = datetime.datetime.utcnow()
-#         user_dict['_internal']['modtime'] = datetime.datetime.utcnow()
-#         try:
-#             interview.assemble(user_dict, interview_status)
-#         except Exception as errmess:
-#             error_message = str(errmess)
-#             error_type = type(errmess)
-#             #logmessage("Failed assembly with error type " + str(error_type) + " and message: " + error_message)
-#         functions = set()
-#         modules = set()
-#         classes = set()
-#         fields_used = set()
-#         names_used = set()
-#         names_used.update(interview.names_used)
-#         area = SavedFile(self.user_id, fix=True, section='playgroundmodules')
-#         the_directory = directory_for(area, self.project)
-#         avail_modules = set([re.sub(r'.py$', '', f) for f in os.listdir(the_directory) if os.path.isfile(os.path.join(the_directory, f))])
-#         for question in interview.questions_list:
-#             names_used.update(question.mako_names)
-#             names_used.update(question.names_used)
-#             names_used.update(question.fields_used)
-#             fields_used.update(question.fields_used)
-#         for val in interview.questions:
-#             names_used.add(val)
-#             fields_used.add(val)
-#         for val in user_dict:
-#             if type(user_dict[val]) is types.FunctionType:
-#                 functions.add(val)
-#             elif type(user_dict[val]) is TypeType or type(user_dict[val]) is types.ClassType:
-#                 classes.add(val)
-#             elif type(user_dict[val]) is types.ModuleType:
-#                 modules.add(val)
-#         for val in docassemble.base.functions.pickleable_objects(user_dict):
-#             names_used.add(val)
-#         for var in ['_internal']:
-#             names_used.discard(var)
-#         names_used = names_used.difference( functions | classes | modules | avail_modules )
-#         undefined_names = names_used.difference(fields_used | always_defined )
-#         for var in ['_internal']:
-#             undefined_names.discard(var)
-#         names_used = names_used.difference( undefined_names )
-#         all_names = names_used | undefined_names | fields_used
-#         all_names_reduced = all_names.difference( set(['url_args']) )
-#         return dict(names_used=names_used, undefined_names=undefined_names, fields_used=fields_used, all_names=all_names, all_names_reduced=all_names_reduced)
-
 def fix_id(string:str)->str:
     if isinstance(string, str):
       return re.sub(r'[\W_]+', ' ', string).strip()
     else:
       return ''     
 
-def fix_variable_name(match):
+def fix_variable_name(match)->str:
     var_name = match.group(1)
     var_name = end_spaces.sub(r'', var_name)
     var_name = spaces.sub(r'_', var_name)
@@ -1261,12 +1050,12 @@ def fix_variable_name(match):
         return r'${ ' + var_name + ' }'
     return r''
 
-def indent_by(text, num):
+def indent_by(text:str, num:int)->str:
     if not text:
         return ""
     return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip() + "\n"
 
-def mako_indent(text, num):
+def mako_indent(text:str, num:int)->str:
   """
   Like indent_by but removes extra newline
   """
@@ -1274,7 +1063,7 @@ def mako_indent(text, num):
       return ""
   return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip()
 
-def varname(var_name):
+def varname(var_name:str)->str:
     if var_name:
       var_name = var_name.strip() 
       var_name = spaces.sub(r'_', var_name)
@@ -1283,41 +1072,31 @@ def varname(var_name):
       return var_name
     return var_name
 
-def oneline(text):
+def oneline(text:str)->str:
     '''Replaces all new line characters with a space'''
     text = newlines.sub(r' ', text)
     return text
 
-def escape_quotes(text):
+def escape_quotes(text:str)->str:
     """Escape both single and double quotes in strings"""
     return text.replace('"', '\\"').replace("'", "\\'")
 
-def to_yaml_file(text):
+def to_yaml_file(text:str)->str:
     text = varname(text)
     text = re.sub(r'\..*', r'', text)
     text = re.sub(r'[^A-Za-z0-9]+', r'_', text)
     return text + '.yml'
 
-def base_name(filename):
+def base_name(filename:str)->str:
     return os.path.splitext(filename)[0]
 
-def repr_str(text):
+def repr_str(text:str)->str:
     return remove_u.sub(r'', repr(text))
 
-def docx_variable_fix(variable):
+def docx_variable_fix(variable:str)->str:
     variable = re.sub(r'\\', '', variable)
     variable = re.sub(r'^([A-Za-z\_][A-Za-z\_0-9]*).*', r'\1', variable)
     return variable
-
-def directory_for(area, current_project):
-    if current_project == 'default':
-        return area.directory
-    else:
-        return os.path.join(area.directory, current_project)
-
-def project_name(name):
-    return '' if name == 'default' else name
-
 
 def get_pdf_fields(the_file):
   """Patch over https://github.com/jhpyle/docassemble/blob/10507a53d293c30ff05efcca6fa25f6d0ded0c93/docassemble_base/docassemble/base/core.py#L4098"""
