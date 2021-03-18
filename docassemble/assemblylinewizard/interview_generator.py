@@ -35,7 +35,7 @@ __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names','fix_id','DABlock', 'DABlockList','mako_indent']
+           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -861,6 +861,7 @@ class ParentCollection(object):
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
   def revisit_page(self) -> str:
+    # TODO: deprecated
     if self.var_type != 'list':
       return ''
 
@@ -877,9 +878,10 @@ subquestion: |
 
 
   def table_page(self) -> str:
+    # TODO: migrate to Mako format
     if self.var_type != 'list':
       return ''
-    content = """---
+    content = """
 table: {var_name}.table
 rows: {var_name}
 columns:

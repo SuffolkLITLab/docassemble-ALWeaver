@@ -58,13 +58,13 @@ code: |
   choose_field_types
   questions.gather()
   show_screen_order
-  #add_objects_block
+  add_objects_block
   #add_sections  
   #add_logic_tree
   #add_draft_intro_screen
   add_questions_to_interview
   created_preview_question  
-  #add_review_screen  
+  add_review_screen  
   # Insert comment block
   #add_short_title
   #add_form_type
@@ -618,12 +618,11 @@ code: |
   # Create objects block that specifies the number of people for
   # the developer. Switches between target_number and there_are_any list gathering
   # approaches
-  objects_block =  interview.questions.appendObject()
-  objects_block.type = "objects"
-  objects_block.objects = DAList(object_type=DAObject, auto_gather=False)
- 
+  objects_block =  interview.blocks.appendObject()
+  objects_block.template_key = "objects"
+  objects = DAList(object_type=DAObject, auto_gather=False)
   for person in person_candidates:
-    new_object = objects_block.objects.appendObject()
+    new_object = objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
     if person in people_quantities:
@@ -636,8 +635,15 @@ code: |
         new_object.params = [
           ("there_are_any","True",bool)
           ]
-      # Don't do anything if the user said zero or more            
-  objects_block.objects.gathered=True
+      else:
+        new_object.params = []
+  objects.gathered=True
+  
+  objects_block.data = {
+    "objects": objects
+  }
+ 
+
   add_objects_block = True
 ---
 code: |
@@ -811,15 +817,19 @@ need:
   - built_in_fields_used
   - interview_label
 code: |
-  review_block = interview.questions.appendObject()
-  review_block.type = "review"
-  # Add the fields, removing any duplicates by assigning to a dict first
-  review_block.field_list = fields + built_in_fields_used + signature_fields
-  review_block.parent_collections = review_block.field_list.find_parent_collections()
-  review_block.question_text = "Review Screen"
-  review_block.subquestion_text = "Edit your answers below"
-  review_block.id = interview_label + ' review screen'
-  review_block.event = "review_" + interview_label
+  review_block = interview.blocks.appendObject()
+  review_block.template_key = "review"  
+  field_list = fields + built_in_fields_used + signature_fields
+  parent_collections = field_list.find_parent_collections()
+  review_block.data = {
+    "field_list": field_list,
+    "parent_collections": parent_collections,
+    "block_id": interview_label + ' review screen',
+    "event": "review_" + interview_label
+  }
+  
+  # TODO: create the table and revisit blocks
+
   add_review_screen = True
 ---
 code: |
@@ -876,7 +886,10 @@ need:
   - signature_fields
   - interview.short_title
 code: |
+  # TODO: is there a good reason to have separate variable for PDF/DOCX filename?
+  # I think this is an artifact from when wizard only handled PDFs
   attachment = attachments.appendObject()
+  attachment.filename = template_upload[0].filename
   if template_upload[0].extension == 'pdf':
     attachment.pdf_filename = template_upload[0].filename    
     attachment.type = 'pdf'
@@ -910,6 +923,23 @@ code: |
   end_question.template_key = 'download screen'
   end_question.data = {"interview_label": interview_label}
 
+  # TODO: allow multiple attachments here eventually
+  attachment_objects  = interview.blocks.appendObject()
+  attachment_objects.template_key = "attachment objects"
+  attachment_objects.data = {
+    "attachment_variable_name": attachment_variable_name,
+    "filename": attachment.filename,
+    "description": interview.description
+  }
+  
+  attachment_bundles = interview.blocks.appendObject()
+  attachment_bundles.template_key = "bundle objects"
+  attachment_bundles.data = {
+    "attachment_variable_name": attachment_variable_name,
+    "filename": attachment.filename,        
+  }
+
+  # This is the place to handle multiple files--i.e., next_steps document
   attachment_block = interview.blocks.appendObject()
   attachment_block.template_key = 'attachment'
   attachment_block.data = {

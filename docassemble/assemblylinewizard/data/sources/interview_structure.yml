@@ -2,8 +2,11 @@
 # Each dictionary entry is a template for a YAML block in the generated interview
 #########################################
 # Overall metadata
+# TODO: this could be a good place to also store things like the list of
+# courts, the types of forms, etc. Other things people might want to configure
+# about how the weaver works. OR: that could be a separate YAML file.
 mako template imports: 
-  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent
+  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string
 # Ordinary question with or without fields
 question: |
   % if event:
@@ -95,7 +98,7 @@ code: |
 objects: |
   objects:
   % for object in objects:
-    - ${ object.name }: ${ object.type}
+    - ${ object.name }: ${ object.type }${ using_string(object.params) }
   % endfor
 # Mandatory block that is used in standalone forms.
 # Has the standard, required blocks we don't want if this
@@ -229,22 +232,26 @@ interstitial: |
   % if subquestion:
   ${ mako_indent(subquestion_text, 2) }
   % endif
-# Creates the ALDocument objects representing individual templates in the interview
+# Creates the ALDocument objects representing individual templates in the
+# interview.
+# TODO: this could handle multiple attachment objects and generate
+# parameters dynamically to be more flexible
 attachment objects: |
   objects:
-  % for object in objects:
-    - ${ object.name }: ALDocument${ using_string(object.params) }
-  % endfor
-# Creates ALDocumentBundle objects representing the collection of forms
-# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
+    - ${ attachment_variable_name }: ALDocument.using(title="${ description }", filename="${ file_name }", enabled=True, has_addendum=False)
 bundle objects: |
   objects:
-  % for bundle in bundles:
-    - ${ bundle.name }: ALDocumentBundle${ using_string(bundle.params) }
-  % endfor
+    - al_user_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ filename }.pdf", title="All forms to download for your records")
+    - al_court_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ filename }.pdf", title="All forms to download for your records")
+# Alternatively, could iterate
+# % for object in objects:
+#   - ${ object.name }: ALDocument${ using_string(object.params) }
+# % endfor
+# Creates ALDocumentBundle objects representing the collection of forms
+# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
 # Just a spacer element in the generated YAML  
 section marker: |
-    ####################### ${ label } ##############################
+  ####################### ${ label } ##############################
 # Attachment block
 # TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
 attachment: |
@@ -265,7 +272,36 @@ attachment: |
     % else:
     docx template file: ${ filename }
     % endif
+review: |
+  % if block_id:
+  id: ${ fix_id(id) }
+  % endif
+  % if event:
+  event: ${ varname(event) }
+  % endif
+  question: |
+    Review your answers
+  % if subquestion_text:
+  subquestion: |
+  ${ mako_indent(subquestion_text, 2) }
+  % endif
+  review:
+  % for parent_coll in parent_collections:
+  ${ parent_coll.review_yaml() }
+    - note: |
+      ------
+  % endfor
+revisit page: |
+  continue button field: ${ var_name }
+  question: |
+    Edit ${ var_name }
+  subquestion: |
+    ${ var_name }.table
 
+    ${ var_name }.add_action()
+# It should be possible to migrate the revisit table to a Mako template
+revisit table: |
+  ${ item.table_page() }
 ---
 leftover text: |
         if self.type == 'question':
