@@ -62,7 +62,7 @@ code: |
   #add_sections  
   #add_logic_tree
   #add_draft_intro_screen
-  #add_questions_to_interview
+  add_questions_to_interview
   created_preview_question  
   #add_review_screen  
   # Insert comment block
