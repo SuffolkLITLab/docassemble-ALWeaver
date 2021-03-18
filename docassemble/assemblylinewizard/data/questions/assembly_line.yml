@@ -53,21 +53,21 @@ code: |
   get_all_fields
   process_people_variables
   ask_people_quantity_question  
-  add_includes
-  set_metadata # Adds metadata block to the interview as first block
+  #add_includes
+  #set_metadata # Adds metadata block to the interview as first block
   choose_field_types
   questions.gather()
   show_screen_order
-  add_objects_block
-  add_sections  
-  add_logic_tree
-  add_draft_intro_screen
-  add_questions_to_interview
+  #add_objects_block
+  #add_sections  
+  #add_logic_tree
+  #add_draft_intro_screen
+  #add_questions_to_interview
   created_preview_question  
-  add_review_screen  
+  #add_review_screen  
   # Insert comment block
-  add_short_title
-  add_form_type
+  #add_short_title
+  #add_form_type
   created_attachment
   wrote_interview
   increment_sequence
@@ -891,53 +891,34 @@ need:
   - interview_label
   - attachment_variable_name
 code: |
-  preview_question = interview.questions.appendObject()
-  preview_question.type = 'interstitial'
-  preview_question.continue_button_field = interview_label + '_preview_question' 
-  preview_question.question_text = 'Review your form before you sign it'  
-  preview_question.subquestion_text = "Here is a preview of the form you will sign on the next page. \n\n ${ al_user_bundle.as_pdf(key='preview') }\n\n"
-  preview_question.subquestion_text += "Click the image to open it in a new tab. Click the 'Make changes' button to fix any mistakes.\n\n"
-  preview_question.subquestion_text += "${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') } \n\n"
-  preview_question.subquestion_text += "Remember to come back to this window to continue and sign your form."
-  preview_question.is_mandatory = False  
-
+  preview_question = interview.blocks.appendObject()
+  preview_question.template_key = 'preview screen'
+  preview_question.data = {
+    "interview_label": interview_label
+  }
   created_preview_question = True
 ---
 need:
   - attachments
   - attachment_variable_name
-  - interview
   - interview_label
+  - attachment.name
+  - attachment.type
 code: |
   # This is the question that goes with the regular attachment
-  end_question = interview.questions.appendObject() # 'all_done')
-  end_question.id = "download" # Use a consistent ID for Google Analytics
-  end_question.event = interview_label + "_download"
-  end_question.type = 'question'
-  end_question.progress = "100"
-  end_question.question_text = 'Your form is ready to download.'
+  end_question = interview.blocks.appendObject()
+  end_question.template_key = 'download screen'
+  end_question.data = {"interview_label": interview_label}
 
-  # Add a preview of the form to the draft ending screen
-  end_question.subquestion_text = 'Thank you ${users}. Your form is ready to download and deliver.\n\n'
-  end_question.subquestion_text += 'View, download and send your form below. Click the "Make changes" button to fix any mistakes. \n\n'
-  end_question.subquestion_text += "${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') } \n\n"
-  end_question.subquestion_text += "${ al_user_bundle.download_list_html() }\n\n"
-  end_question.subquestion_text += "${ al_user_bundle.send_button_html() }\n"
-  end_question.is_mandatory = False
-  end_question.attachment_variable_name = attachment_variable_name
-  end_question.interview = interview
-  end_question.interview_label = interview_label
-
-  # This only gets the one regular PDF attachment
-  end_question.attachments = attachments
-  end_question.field_list.auto_gather = False
-  item = end_question.field_list.appendObject()
-  item.field_type = 'end_attachment'
-  item.variable = 'all_done'
-  item.final_display_var = 'all_done'
-  item.raw_field_names = ['all_done']
-  # item.question = end_question
-  end_question.field_list.gathered = True  
+  attachment_block = interview.blocks.appendObject()
+  attachment_block.template_key = 'attachment'
+  attachment_block.data = {
+    "attachment_variable_name": attachment_variable_name,
+    "name": attachment.name,
+    "type": attachment.type,
+    "filename": attachment.pdf_filename if attachment.type == 'pdf' else attachment.pdf_filename,
+    "fields": attachment.fields
+  }
   
   created_attachment = True
 ---

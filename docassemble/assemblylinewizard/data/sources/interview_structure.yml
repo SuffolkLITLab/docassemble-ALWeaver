@@ -66,6 +66,7 @@ preview screen: |
     </%text>
 
     Remember to come back to this window to continue and sign your form.
+  continue button field: ${ interview_label }_preview_question    
 download screen: |
   id: download ${ interview_label }
   event: ${ interview_label }_download
@@ -259,7 +260,7 @@ attachment: |
     pdf template file: ${ filename }
     fields:
       % for field in fields:
-      ${ field.attachment_yaml().lstrip() } <%doc>TODO: examine if left padding should be removed in attachment_yaml method instead<%doc>
+      ${ field.attachment_yaml() }
       % endfor
     % else:
     docx template file: ${ filename }

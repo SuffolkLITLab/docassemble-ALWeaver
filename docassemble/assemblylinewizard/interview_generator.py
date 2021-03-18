@@ -458,7 +458,7 @@ class DAInterview(DAObject):
     templates:Dict[str,str]
     template_path:str # Like: docassemble.assemblylinewizard:data/sources/interview_structure.yml
     blocks:DABlockList
-    questions:DAQuestionList
+    questions:DAQuestionList # is this used?
 
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
@@ -490,7 +490,7 @@ class DAInterview(DAObject):
         Render and return the source of all blocks in the interview as a YAML string.
         """
         text = ""
-        for block in self.blocks:
+        for block in self.blocks + self.questions.elements:
           text += "---\n"
           if self.templates.get('mako template imports'):
             text += block.source(self.templates.get(block.template_key))
@@ -674,37 +674,39 @@ class DAField(DAObject):
     return content
 
   def attachment_yaml(self):
-    # Lets use the list-style, not dictionary style fields statement
-    # To avoid duplicate key error
+    # We use the list-style, not dictionary style fields statement
+    # to avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       content = ''
       for raw_name in self.raw_field_names:
         var_name = remove_multiple_appearance_indicator(varname(raw_name))
         if var_name.endswith('_yes'):
-          content += '      - "{}": ${{ {} }}\n'.format(raw_name, self.final_display_var)
+          content += '- "{}": ${{ {} }}'.format(raw_name, self.final_display_var)
         elif var_name.endswith('_no'):
-          content += '      - "{}": ${{ not {} }}\n'.format(raw_name, self.final_display_var)
+          content += '- "{}": ${{ not {} }}'.format(raw_name, self.final_display_var)
       return content
 
     # Handle multiple indicators
-    format_str = '      - "{}": '
+    format_str = '- "{}": '
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      format_str += '${{ ' + self.variable.format() + ' }}\n'
+      format_str += '${{ ' + self.variable.format() + ' }}'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      format_str += '${{ currency(' + self.variable + ') }}\n'
+      format_str += '${{ currency(' + self.variable + ') }}'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
+      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}' 
     elif self.field_type_guess == 'signature': 
-      comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
+      comment = "# It's a signature: test which file version this is; leave empty unless it's the final version)\n"
+      # Need to add indent for second line
+      format_str = comment + "    " + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}"
     else:
-      format_str += '${{ ' + self.final_display_var + ' }}\n'
+      format_str += '${{ ' + self.final_display_var + ' }}'
 
     content = ''
+    # Repeat for the names w/ multiple appearance indicator, like __2
     for raw_name in self.raw_field_names:
-      content += format_str.format(raw_name)
+      content += format_str.format(raw_name) + "\n    "
     
-    return content
+    return content.rstrip().rstrip("\n")
 
   def user_ask_about_field(self, index):
     field_questions = []
@@ -1030,7 +1032,7 @@ class DAQuestion(DABlock):
       "subquestion_text": self.subquestion_text,
       "field_list": self.field_list
     }
-    return template.render(**self.data)
+    return template.render(**data)
 
 
 
@@ -1273,10 +1275,12 @@ def mako_indent(text, num):
   return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip()
 
 def varname(var_name):
-    var_name = var_name.strip() 
-    var_name = spaces.sub(r'_', var_name)
-    var_name = invalid_var_characters.sub(r'', var_name)
-    var_name = digit_start.sub(r'', var_name)
+    if var_name:
+      var_name = var_name.strip() 
+      var_name = spaces.sub(r'_', var_name)
+      var_name = invalid_var_characters.sub(r'', var_name)
+      var_name = digit_start.sub(r'', var_name)
+      return var_name
     return var_name
 
 def oneline(text):
