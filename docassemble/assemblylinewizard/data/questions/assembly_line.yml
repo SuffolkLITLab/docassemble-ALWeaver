@@ -837,6 +837,19 @@ code: |
     "event": "review_" + interview_label
   }
   
+  for coll in parent_collections:
+    if coll.var_type == 'list':
+      revisit_page = interview.blocks.appendObject()
+      revisit_page.template_key = "revisit page"
+      revisit_page.data = {
+        "var_name": coll.var_name
+      }
+      revisit_table = interview.blocks.appendObject()
+      revisit_table.template_key = "revisit table"
+      revisit_table.data = {
+        "item": coll
+      }
+        
   # TODO: create the table and revisit blocks
 
   add_review_screen = True

@@ -303,13 +303,13 @@ review: |
       ------
   % endfor
 revisit page: |
-  continue button field: ${ var_name }
+  continue button field: ${ var_name }.revisit
   question: |
     Edit ${ var_name }
   subquestion: |
-    ${ var_name }.table
+    ${ "${ " + var_name + ".table }" }
 
-    ${ var_name }.add_action()
+     ${ "${ " + var_name + ".add_action() }" }
 # It should be possible to migrate the revisit table to a Mako template
 revisit table: |
   ${ item.table_page() }
