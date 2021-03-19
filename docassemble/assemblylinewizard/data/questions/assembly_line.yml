@@ -16,11 +16,9 @@ modules:
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview.using(template_path='data/sources/interview_structure.yml')
-  - main_code: DAQuestion
-  - metadata_code: DAQuestion
-  - metadata: DAQuestion
+  - metadata_code: DABlock.using(template_key="metadata code")
+  - metadata: DABlock.using(template_key="metadata")
   - modules: DAQuestion
-  - sections: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
   - built_in_fields_used: DAFieldList.using(gathered=True)
@@ -43,8 +41,6 @@ mandatory: True
 id: Interview Order
 code: |
   template_upload
-  # debug
-  #interview.blocks = DAQuestionList(auto_gather=False, gathered=True)
   interview.form_type
   interview.title
   interview_intro_prompt
@@ -53,21 +49,21 @@ code: |
   get_all_fields
   process_people_variables
   ask_people_quantity_question  
-  #add_includes
-  #set_metadata # Adds metadata block to the interview as first block
+  add_includes
+  set_metadata
   choose_field_types
   questions.gather()
   show_screen_order
   add_objects_block
-  #add_sections  
-  #add_logic_tree
+  add_sections  
+  add_logic_tree
   #add_draft_intro_screen
   add_questions_to_interview
   created_preview_question  
   add_review_screen  
   # Insert comment block
-  #add_short_title
-  #add_form_type
+  add_short_title
+  add_form_type
   created_attachment
   wrote_interview
   increment_sequence
@@ -388,35 +384,39 @@ code: |
 code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
-  include_question.type = 'includes'
+  include_question.template_key = 'includes'
   # TODO: add a graphical element to select something other than
   # massaccess.yml
-  include_question.includes = ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
+  include_question.data = {
+    "includes": ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
+    }
   add_includes = True
 ---
 code: |
   short_title_block = interview.blocks.appendObject()
-  short_title_block.type = 'code'
-  short_title_block.code = 'interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"'
+  short_title_block.template_key = 'code'
+  short_title_block.data = {
+    "lines": ['interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"']
+    }
   add_short_title = True
 ---
 code: |
   form_type_block = interview.blocks.appendObject()
-  form_type_block.type = 'code'
-  form_type_block.code = "al_form_type = '" + interview.form_type + "'"
+  form_type_block.template_key = 'code'
+  form_type_block.data = {
+      "lines": ["al_form_type = '" + interview.form_type + "'"]
+    }
   add_form_type= True
 ---
+need: interview_label
 code: |
   # Build list of section headings
   # Our current interview only uses one
-  sections.comment = """Section headings appear on the left and can be clicked
-  upon to visit an event (usually a review screen) with the section's variable
-  name.
-  Normally you will break up the review screen into multiple pages
-  to show progress."""
-  sections.type = "sections"
-  sections.sections = [{"review_" + interview_label: "Review your answers"}]
-  interview.questions.append(sections)
+  sections = interview.blocks.appendObject()
+  sections.template_key = "sections"
+  sections.data = {
+    "sections": [("review_" + interview_label, "Review your answers")]  
+  }
   add_sections = True
 ---
 code: |
@@ -438,25 +438,27 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
   # Build the dictionary of info we want the interview
   # to know about itself.
-  metadata.type = 'metadata'
-  metadata.categories = interview.categories
-  metadata.settings = {
-                        'title': interview.title,
-                        'short title': interview.short_title}  
-
-  metadata_code.comment = "This section is used by AssemblyLine to control how some of the questions work."
-  metadata_code.type = 'metadata_code'
-  metadata_code.interview_label = interview_label
-  metadata_code.interview = interview
-  metadata_code.file_name = interview.file_name
-  metadata_code.title = interview.title
-  metadata_code.short_title = interview.short_title
-  metadata_code.description = interview.description
-  metadata_code.original_form = interview.original_form
-  metadata_code.allowed_courts = interview.allowed_courts
-  metadata_code.categories = interview.categories
-  metadata_code.other_categories = interview.other_categories if defined('interview.other_categories') else None
-  metadata_code.typical_role = interview.typical_role
+  metadata.data = {
+    "categories": interview.categories,
+    "settings": {
+      'title': interview.title,
+      'short title': interview.short_title
+    }
+  }
+  
+  metadata_code.data = {
+    "comment": "This section is used by AssemblyLine to control how some of the questions work.",
+    "type": 'metadata_code',
+    "interview_label": interview_label,
+    "title": interview.title,
+    "short_title": interview.short_title,
+    "description": interview.description,
+    "original_form": interview.original_form,
+    "allowed_courts": interview.allowed_courts,
+    "categories": interview.categories,
+    "other_categories": interview.other_categories if defined('interview.other_categories') else None,
+    "typical_role": interview.typical_role,
+  }
   interview.blocks.append(metadata)
   interview.blocks.append(metadata_code)
   set_metadata = True
@@ -627,16 +629,16 @@ code: |
     new_object.type = "ALPeopleList"
     if person in people_quantities:
       if people_quantities[person] == 'one':
-        new_object.params = [
-          ("ask_number", "True", bool), 
-          ("target_number", 1, int)
-          ]
+        new_object.params = {
+          "ask_number": True, 
+          "target_number": 1,
+          }
       elif people_quantities[person] == 'more':
-        new_object.params = [
-          ("there_are_any","True",bool)
-          ]
+        new_object.params = {
+          "there_are_any": True,
+          }
       else:
-        new_object.params = []
+        new_object.params = {}
   objects.gathered=True
   
   objects_block.data = {
@@ -645,6 +647,10 @@ code: |
  
 
   add_objects_block = True
+---
+continue button field: using_string_debug
+question: |
+  ${ using_string(new_object.params) }
 ---
 code: |
   # This will add the questions and built-in fields to the screen_order 
@@ -794,21 +800,22 @@ code: |
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
       signatures.add(field.trigger_gather())
-   
-  # TODO: some of the logic in interview_generator.py should
-  # probably be moved here, or another module file
-  code_block =  interview.questions.appendObject() # 'interview order code block'
-  code_block.type = 'interview order'
-  code_block.logic_list = logic_list
-  code_block.interview_label = interview_label
-  
+      
   # Build the mandatory code block that will control overall flow
-  # Need this below collecting signatures
-  main_code = interview.questions.appendObject() # 'main code block'
-  main_code.type = 'main order'
-  main_code.intro = 'al_intro_screen'  # Splash page for your organization
-  main_code.signatures = signatures
-  main_code.interview_label = interview_label
+  main_code = interview.blocks.appendObject() # 'main code block'
+  main_code.template_key = 'main order'
+  main_code.data = {
+    "signatures": signatures,
+    "interview_label": interview_label
+  } 
+  
+  # Build interview-specific question order
+  code_block =  interview.blocks.appendObject() # 'interview order code block'
+  code_block.template_key = 'interview order'
+  code_block.data = {
+    "logic_list": logic_list,
+    "interview_label":interview_label
+  }  
 
   add_logic_tree = True  
 ---

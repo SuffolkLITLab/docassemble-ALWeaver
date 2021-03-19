@@ -110,11 +110,7 @@ class DABlock(DAObject):
   template_key:str
   data:Dict[str,any]
 
-  def init(self, *pargs, **kwargs):
-    super().init(*pargs, **kwargs)
-
-
-  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent"])->str:
+  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"])->str:
     """
     Return a string representing a YAML "document" (block), provided a string
     representing a Mako template. Optional: provide list of imports.
@@ -493,9 +489,9 @@ class DAInterview(DAObject):
         for block in self.blocks + self.questions.elements:
           text += "---\n"
           if self.templates.get('mako template imports'):
-            text += block.source(self.templates.get(block.template_key))
+            text += block.source(self.templates.get(block.template_key), imports=self.templates['mako template imports'])
           else:
-            text += block.source(self.templates.get(block.template_key, imports=self.templates['mako template imports']))
+            text += block.source(self.templates.get(block.template_key))
         return text
 
     def _load_templates(self, template_path:str)->None:

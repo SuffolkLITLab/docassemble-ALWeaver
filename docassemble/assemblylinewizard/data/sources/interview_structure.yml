@@ -6,7 +6,7 @@
 # courts, the types of forms, etc. Other things people might want to configure
 # about how the weaver works. OR: that could be a separate YAML file.
 mako template imports: 
-  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string
+  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
 question: |
   % if event:
@@ -110,12 +110,12 @@ main order: |
     Delete mandatory: True to include in another interview
   mandatory: True
   code: |
-    ${ intro }
+    al_intro_screen
     ${ interview_label }_intro
     interview_order_${ interview_label }
     signature_date
     # Save anonymized interview statistics (customize the saved data below)
-    ${ store_variables_snapshot(data={'zip': users[0].address.zip}) }
+    store_variables_snapshot(data={'zip': users[0].address.zip})
     ${ interview_label }_preview_question
     basic_questions_signature_flow
     % for signature_field in signatures:
@@ -129,12 +129,12 @@ interview order: |
     Controls order and branching logic for questions specific to this form
   id: interview_order_${ interview_label }
   code: |
-  % for field in set(logic_list):
-  % if not ( field == 'signature_date' or field.endswith('.signature')):
+    % for field in logic_list:
+    % if not ( field == 'signature_date' or field.endswith('.signature')):
     ${ field }
-  % endif
-  % endfor  
-  interview_order_${ interview_label } = True
+    % endif
+    % endfor  
+    interview_order_${ interview_label } = True
 # Optional interview features
 features: |
   features:
@@ -146,13 +146,20 @@ features: |
 # We could use OrderedDict instead but this is more explicit.
 # TODO: use tuple instead of dict in the parent class/YAML
 sections: |
+  comment: |
+    Section headings appear on the left and can be clicked
+    upon to visit an event (usually a review screen) with the section's variable
+    name.
+    Normally you will break up the review screen into multiple pages
+    to show progress.    
   sections:
   % for section in sections:
   % if isinstance(section, tuple) or isinstance(section, list):
-    - ${ section[0] }: ${ section[1]}
+    - ${ section[0] }: ${ section[1] }
   % else:
     - ${ section}
   % endif
+  % endfor
 # Interview-specific metadata, like title etc  
 metadata: |
   % if comment:
@@ -169,13 +176,14 @@ metadata: |
   % for category in categories.true_values():
       - ${ category }
   % endfor
+  % endif
 # Form-specific metadata, much of it reserved for future use
 # TODO: refactor to a Docassemble `data:` block
-metadata_code: |
+metadata code: |
   mandatory: True
   code: |
     interview_metadata
-    if not defined("interview_metadata['" + ${ interview_label } +"']"):
+    if not defined("interview_metadata['${ interview_label }']"):
       interview_metadata.initializeObject(${ interview_label })
       interview_metadata["${ interview_label }""].update({
         "title": "${ escape_quotes(oneline(title)) }",
@@ -183,7 +191,7 @@ metadata_code: |
         "description": "${ escape_quotes(oneline(description)) }",
         "original_form": "${ escape_quotes(oneline(original_form)) }",
         "allowed courts": [
-          % for court in self.allowed_courts.true_values():
+          % for court in allowed_courts.true_values():
           "${ escape_quotes(oneline(court)) }",
           % endfor
         ],
@@ -191,15 +199,17 @@ metadata_code: |
           % for category in set(categories.true_values()) - {'Other'}:
           "${ oneline(category) }",
           % endfor
-          % if self.categories['Other']:
-          % for category in self.other_categories.split(','):
+          % if categories['Other']:
+          % for category in other_categories.split(','):
           "${ escape_quotes(oneline(category.strip())) }",
           % endfor
+          % endif
         ],        
         "logic block variable": "interview_order_${ interview_label }",
         "attachment block variable": "${ interview_label }_attachment",
         % if typical_role:
         "typical role": "${ typical_role }",
+        % endif
       })
 # Modules
 modules: |
