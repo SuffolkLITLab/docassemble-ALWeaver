@@ -227,19 +227,20 @@ includes: |
 interstitial: |
   % if comment:
   comment: |
-    mako_indent(comment, 2)
+  ${ mako_indent(comment, 2) }
   % endif
-  % if id:
-  id: ${ fix_id(id) }
+  % if block_id:
+  id: ${ fix_id(block_id) }
   % elif varname(oneline(question_text)):
-  id: varname(oneline(question_text))
+  id: ${ varname(oneline(question_text)) }
   % else:
   id: ${ str(uuid.uuid4()) }
   % endif
   continue button field: ${ continue_button_field }
   question: |
   ${ mako_indent(question_text, 2) }
-  % if subquestion:
+  % if subquestion_text:
+  subquestion: |
   ${ mako_indent(subquestion_text, 2) }
   % endif
 # Creates the ALDocument objects representing individual templates in the
@@ -284,7 +285,7 @@ attachment: |
     % endif
 review: |
   % if block_id:
-  id: ${ fix_id(id) }
+  id: ${ fix_id(block_id) }
   % endif
   % if event:
   event: ${ varname(event) }

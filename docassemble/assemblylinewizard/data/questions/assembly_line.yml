@@ -57,7 +57,7 @@ code: |
   add_objects_block
   add_sections  
   add_logic_tree
-  #add_draft_intro_screen
+  add_draft_intro_screen
   add_questions_to_interview
   created_preview_question  
   add_review_screen  
@@ -421,12 +421,14 @@ code: |
 ---
 code: |
   # Create an introduction question
-  intro_question = interview.questions.appendObject()
-  intro_question.type = 'interstitial'
-  intro_question.comment = "This question is used to introduce your interview. Please customize"
-  intro_question.continue_button_field = interview_label + '_intro'
-  intro_question.question_text = interview.title
-  intro_question.subquestion_text = interview.description
+  intro_question = interview.blocks.appendObject()
+  intro_question.template_key = 'interstitial'
+  intro_question.data = {
+    "comment": "This question is used to introduce your interview. Please customize",
+    "continue_button_field": interview_label + '_intro',
+    "question_text": interview.title,
+    "subquestion_text": interview.description,
+  }
   add_draft_intro_screen = True
 ---
 code: |
@@ -587,7 +589,7 @@ code: |
 code: |
   for question in questions:
     question.type = "question"
-    interview.questions.append(question)
+    interview.blocks.append(question)
   add_questions_to_interview = True
 ---
 code: |
