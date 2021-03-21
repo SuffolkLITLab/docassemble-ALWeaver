@@ -16,8 +16,6 @@ modules:
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  #- metadata_code: DABlock.using(template_key="metadata code")
-  #- metadata: DABlock.using(template_key="metadata")
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
@@ -58,7 +56,7 @@ code: |
   show_screen_order
   add_objects_block
   add_sections  
-  add_logic_tree
+  add_interview_order
   add_draft_intro_screen
   add_questions_to_interview
   add_preview_question  
@@ -378,9 +376,6 @@ code: |
   fields.consolidate_duplicate_fields(document_type)
   fields.consolidate_yesnos()
   get_all_fields = True
----
-#code: |
-#  interview.field_list = fields
 ---
 code: |
   # Build the list of includes
@@ -814,14 +809,6 @@ code: |
     if field.trigger_gather().endswith('.signature'):
       signatures.add(field.trigger_gather())
       
-  # Build the mandatory code block that will control overall flow
-  main_code = interview.blocks.appendObject() # 'main code block'
-  main_code.template_key = 'main order'
-  main_code.data = {
-    "signatures": signatures,
-    "interview_label": interview_label
-  } 
-  
   # Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
   code_block.template_key = 'interview order'
@@ -830,7 +817,15 @@ code: |
     "interview_label":interview_label
   }  
 
-  add_logic_tree = True  
+  # Build the mandatory code block that will control overall flow
+  main_code = interview.blocks.appendObject() # 'main code block'
+  main_code.template_key = 'main order'
+  main_code.data = {
+    "signatures": signatures,
+    "interview_label": interview_label
+  } 
+
+  add_interview_order = True  
 ---
 need:
   - fields
