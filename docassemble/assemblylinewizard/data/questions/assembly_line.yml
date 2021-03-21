@@ -13,6 +13,9 @@ modules:
   - .interview_generator
   - collections
 ---
+features:
+  css: progressivedisclosure.css  
+---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
@@ -26,6 +29,7 @@ objects:
   - interview_download: DAFile
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
+  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -569,8 +573,7 @@ fields:
     exclude: questions.all_fields_used()
     none of the above: False
     choices: fields
-    object labeler: |
-      lambda y: bold(y.variable) + "[BR]" + y.label
+    object labeler: labeller_bold_plus_label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
     hide if: questions[i].is_informational_screen
@@ -583,6 +586,10 @@ fields:
 validation code: |
   if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
+---
+code: |
+  def labeller_bold_plus_label(y):
+    return bold(str(y.final_display_var)) + "[BR]" + y.label
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
@@ -887,7 +894,25 @@ subquestion: |
   
   ### Preview of Docassemble interview file
   
+  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> View contents</a>
+  
+  <div class="collapse" id="yaml_source">
+  <pre>
   ${indent_by(interview.source(),4)}
+  </pre>
+  </div>
+  
+  ### Advanced
+  
+  If you want to test your interview before you leave this screen, click
+  the "Install your interview" button. You will have a chance to uninstall
+  it once you are done. This can be a quick way to test it interactively 
+  before you leave the weaver.
+  
+  You still need to download and upload the package to your Docassemble
+  playground to finish editing and refining it.
+  
+  ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
   
 ---
 code: |
@@ -1013,3 +1038,74 @@ default screen parts:
   # May want to change the interview URL if you customize/fork
   under: |
     Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.assemblylinewizard:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
+---
+code: |
+  if install_package_task.ready():
+    run_package
+  else:
+    waiting_screen
+  run_package    
+  button_install_package = True
+---
+code: |
+  if uninstall_package_task.ready():
+    show_interview
+  else:
+    waiting_screen_uninstall
+  show_interview    
+  button_uninstall_package = True
+---
+id: run package
+event: run_package
+question: |
+  Preview your package
+subquestion: |
+
+  If the button below to run the interview does not work, try waiting
+  30 seconds.
+
+  ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }
+
+  ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
+
+  Download the YAML file only:  
+  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  
+  Download the interview as a Docassemble package:  
+  [:download: Download Package](${interview_package_download.url_for(attachment=True)})
+---
+code: |
+  install_packages_api_key = get_config('install packages api key')
+---
+code: |
+  install_package_task = background_action('install_package_event')
+---
+code: |
+  uninstall_package_task = background_action('uninstall_package_event')
+---
+event: uninstall_package_event
+code: |
+  data = {"key": install_packages_api_key,
+          "package": "docassemble." + space_to_underscore(re.sub("\W","",interview.title))
+          }
+  status = installer.delete("package", data=data)
+  background_response()            
+---
+event: install_package_event
+code: |
+  data = {"key": install_packages_api_key,
+          }
+  files = {'zip': interview_package_download }
+  # This won't persist after backround task completes
+  status = installer.post("package",data=data, files=files)
+  background_response()
+---  
+event: waiting_screen
+question: |
+  Package is being installed, please wait here
+reload: True    
+---  
+event: waiting_screen_uninstall
+question: |
+  Package is being uninstalled, please wait here
+reload: True    
