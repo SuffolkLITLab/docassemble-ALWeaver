@@ -316,9 +316,9 @@ class DAField(DAObject):
   def get_single_field_screen(self):
     settable_version = self.get_settable_var() 
     if self.field_type == 'yesno':
-      return "yesno: {}\n".format(settable_version), True
+      return "yesno: {}".format(settable_version), True
     elif self.field_type == 'yesnomaybe':
-      return "yesnomaybe: {}\n".format(settable_version), True
+      return "yesnomaybe: {}".format(settable_version), True
     else:
       return "", False
 
@@ -354,7 +354,7 @@ class DAField(DAObject):
     else:  # a standard text field
       content += self._maxlength_str() + '\n'
     
-    return content
+    return content.rstrip('\n')
 
   def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
     settable_var = self.get_settable_var()
