@@ -104,7 +104,9 @@ objects: |
 # Has the standard, required blocks we don't want if this
 # interview is included in another interview
 main order: |
+  <%text>
   ###################### Main order ######################
+  </%text>
   comment: |
     This block includes the logic for standalone interviews.
     Delete mandatory: True to include in another interview
@@ -124,7 +126,9 @@ main order: |
     ${ interview_label }_download
 # Block used to control the order of interview-specific questions   
 interview order: |
+  <%text>
   #################### Interview order #####################
+  </%text>
   comment: |
     Controls order and branching logic for questions specific to this form
   id: interview_order_${ interview_label }
@@ -146,12 +150,6 @@ features: |
 # We could use OrderedDict instead but this is more explicit.
 # TODO: use tuple instead of dict in the parent class/YAML
 sections: |
-  comment: |
-    Section headings appear on the left and can be clicked
-    upon to visit an event (usually a review screen) with the section's variable
-    name.
-    Normally you will break up the review screen into multiple pages
-    to show progress.    
   sections:
   % for section in sections:
   % if isinstance(section, tuple) or isinstance(section, list):
@@ -249,11 +247,11 @@ interstitial: |
 # parameters dynamically to be more flexible
 attachment objects: |
   objects:
-    - ${ attachment_variable_name }: ALDocument.using(title="${ description }", filename="${ file_name }", enabled=True, has_addendum=False)
+    - ${ attachment_variable_name }: ALDocument.using(title="${ description }", filename="${ filename }", enabled=True, has_addendum=False)
 bundle objects: |
   objects:
-    - al_user_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ filename }.pdf", title="All forms to download for your records")
-    - al_court_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ filename }.pdf", title="All forms to download for your records")
+    - al_user_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
+    - al_court_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
 # Alternatively, could iterate
 # % for object in objects:
 #   - ${ object.name }: ALDocument${ using_string(object.params) }
@@ -262,26 +260,26 @@ bundle objects: |
 # TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
 # Just a spacer element in the generated YAML  
 section marker: |
-  ####################### ${ label } ##############################
+  ${ "#######################" } ${ label } ##############################
 # Attachment block
 # TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
 attachment: |
   attachment:
     variable name: ${ attachment_variable_name }
     name: ${ name }
-    filename: ${ varname(name).replace('_','-') }
+    filename: ${ varname(attachment_filename).replace('_','-') }
     % if type == 'md':
     content: |
     ${ mako_indent(content, 4) }
     % elif type == 'pdf':
     skip undefined: True
-    pdf template file: ${ filename }
+    pdf template file: ${ template_filename }
     fields:
       % for field in fields:
       ${ field.attachment_yaml() }
       % endfor
     % else:
-    docx template file: ${ filename }
+    docx template file: ${ template_filename }
     % endif
 review: |
   % if block_id:
@@ -299,8 +297,6 @@ review: |
   review:
   % for parent_coll in parent_collections:
   ${ parent_coll.review_yaml() }
-    - note: |
-      ------
   % endfor
 revisit page: |
   continue button field: ${ var_name }.revisit

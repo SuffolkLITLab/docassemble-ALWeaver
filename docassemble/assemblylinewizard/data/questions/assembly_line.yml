@@ -423,11 +423,12 @@ code: |
   # Create an introduction question
   intro_question = interview.blocks.appendObject()
   intro_question.template_key = 'interstitial'
+  # TODO: separate the "description" and title from the text of an intro screen
   intro_question.data = {
     "comment": "This question is used to introduce your interview. Please customize",
     "continue_button_field": interview_label + '_intro',
     "question_text": interview.title,
-    "subquestion_text": interview.description,
+    "subquestion_text": interview.description, # this is the metadata description
   }
   add_draft_intro_screen = True
 ---
@@ -958,7 +959,7 @@ code: |
   attachment_bundles.template_key = "bundle objects"
   attachment_bundles.data = {
     "attachment_variable_name": attachment_variable_name,
-    "filename": attachment.filename,        
+    "bundle_filename": interview.file_name,        
   }
 
   # This is the place to handle multiple files--i.e., next_steps document
@@ -966,9 +967,9 @@ code: |
   attachment_block.template_key = 'attachment'
   attachment_block.data = {
     "attachment_variable_name": attachment_variable_name,
-    "name": attachment.name,
+    "attachment_filename": interview.file_name,
     "type": attachment.type,
-    "filename": attachment.pdf_filename if attachment.type == 'pdf' else attachment.pdf_filename,
+    "template_filename": attachment.pdf_filename if attachment.type == 'pdf' else attachment.pdf_filename,
     "fields": attachment.fields
   }
   
