@@ -588,28 +588,24 @@ subquestion: |
 """
     return content.format(self.var_name)
 
-
   def table_page(self) -> str:
     # TODO: migrate to Mako format
     if self.var_type != 'list':
       return ''
-    content = """
-table: {var_name}.table
+    content = """table: {var_name}.table
 rows: {var_name}
 columns:
 {all_columns}
 edit:
 {settable_list}
-confirm: True
-"""
+confirm: True"""
     all_columns = ''
     settable_list = ''
     for att, disp_and_set in self.attribute_map.items():
       all_columns += '  - {0}: |\n'.format(att)
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
-    return content.format(var_name=self.var_name, all_columns=all_columns, settable_list=settable_list)
-
+    return content.format(var_name=self.var_name, all_columns=all_columns.rstrip('\n'), settable_list=settable_list.rstrip('\n'))
 
   def review_yaml(self): 
     """Generate the yaml entry for this object in the review screen list"""
