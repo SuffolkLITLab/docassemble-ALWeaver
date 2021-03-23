@@ -384,7 +384,7 @@ code: |
 code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
-  include_question.template_key = 'includes'
+  include_question.template_key = 'include'
   # TODO: add a graphical element to select something other than
   # massaccess.yml
   include_question.data = {

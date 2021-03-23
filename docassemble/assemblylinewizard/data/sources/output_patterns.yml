@@ -218,8 +218,8 @@ modules: |
     - ${ str(module) }
     % endfor
 # Includes
-includes: |
-  includes:
+include: |
+  include:
     % for include in includes:
     - ${ str(include) }
     % endfor
