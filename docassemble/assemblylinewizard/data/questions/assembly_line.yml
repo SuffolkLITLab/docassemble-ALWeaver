@@ -16,8 +16,6 @@ modules:
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  #- metadata_code: DABlock.using(template_key="metadata code")
-  #- metadata: DABlock.using(template_key="metadata")
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
@@ -378,9 +376,6 @@ code: |
   fields.consolidate_duplicate_fields(document_type)
   fields.consolidate_yesnos()
   get_all_fields = True
----
-#code: |
-#  interview.field_list = fields
 ---
 code: |
   # Build the list of includes
