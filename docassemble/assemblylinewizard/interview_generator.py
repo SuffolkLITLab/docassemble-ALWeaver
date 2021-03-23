@@ -626,7 +626,7 @@ confirm: True
       content += indent_by("% for item in {}:".format(self.var_name), 6)
       content += indent_by("* ${ item }", 8)
       content += indent_by("% endfor", 6)
-      return content
+      return content.rstrip('\n')
     
     if self.var_type == 'object':
       content += indent_by(bold(self.var_name), 6) + '\n'
@@ -634,9 +634,9 @@ confirm: True
         content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
         content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
         content += indent_by('% endif', 6)
-      return content
+      return content.rstrip('\n')
     
-    return content + self.fields[0].review_viewing()
+    return content + self.fields[0].review_viewing().rstrip('\n')
 
 
 class DAFieldList(DAList):
@@ -788,8 +788,9 @@ def varname(var_name:str)->str:
 
 def oneline(text:str)->str:
     '''Replaces all new line characters with a space'''
-    text = newlines.sub(r' ', text)
-    return text
+    if text:
+      return newlines.sub(r' ', text)
+    return ''
 
 def escape_quotes(text:str)->str:
     """Escape both single and double quotes in strings"""

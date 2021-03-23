@@ -15,9 +15,9 @@ modules:
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
-  - interview: DAInterview.using(template_path='data/sources/interview_structure.yml')
-  - metadata_code: DABlock.using(template_key="metadata code")
-  - metadata: DABlock.using(template_key="metadata")
+  - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
+  #- metadata_code: DABlock.using(template_key="metadata code")
+  #- metadata: DABlock.using(template_key="metadata")
   - modules: DAQuestion
   - attachments: DAAttachmentList
   - preview_attachments: DAAttachmentList
@@ -50,7 +50,9 @@ code: |
   process_people_variables
   ask_people_quantity_question  
   add_includes
-  set_metadata
+  add_metadata
+  add_short_title
+  add_form_type  
   choose_field_types
   questions.gather()
   show_screen_order
@@ -59,12 +61,11 @@ code: |
   add_logic_tree
   add_draft_intro_screen
   add_questions_to_interview
-  created_preview_question  
+  add_preview_question  
   add_review_screen  
   # Insert comment block
-  add_short_title
-  add_form_type
-  created_attachment
+  add_end_question
+  add_attachment
   wrote_interview
   increment_sequence
 
@@ -378,8 +379,8 @@ code: |
   fields.consolidate_yesnos()
   get_all_fields = True
 ---
-code: |
-  interview.field_list = fields
+#code: |
+#  interview.field_list = fields
 ---
 code: |
   # Build the list of includes
@@ -432,6 +433,13 @@ code: |
   }
   add_draft_intro_screen = True
 ---
+need:
+  - interview.categories
+  - interview.title
+  - interview.short_title
+  - interview_label
+  - interview.description
+  - interview.typical_role
 code: |
   # HACK(brycew): could be a better place to put it, but can't find one :/
   if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
@@ -439,8 +447,11 @@ code: |
     interview.allowed_courts['Other'] = False
     for allowed_court in interview.allowed_courts_text.split(','):
       interview.allowed_courts[allowed_court.strip()] = True
+      
   # Build the dictionary of info we want the interview
   # to know about itself.
+  metadata = interview.blocks.appendObject()
+  metadata.template_key = "metadata"
   metadata.data = {
     "categories": interview.categories,
     "settings": {
@@ -448,10 +459,10 @@ code: |
       'short title': interview.short_title
     }
   }
-  
+
+  metadata_code = interview.blocks.appendObject()
+  metadata_code.template_key = "al metadata"
   metadata_code.data = {
-    "comment": "This section is used by AssemblyLine to control how some of the questions work.",
-    "type": 'metadata_code',
     "interview_label": interview_label,
     "title": interview.title,
     "short_title": interview.short_title,
@@ -459,12 +470,11 @@ code: |
     "original_form": interview.original_form,
     "allowed_courts": interview.allowed_courts,
     "categories": interview.categories,
-    "other_categories": interview.other_categories if defined('interview.other_categories') else None,
+    "other_categories": interview.other_categories if defined('interview.other_categories') else '',
     "typical_role": interview.typical_role,
   }
-  interview.blocks.append(metadata)
-  interview.blocks.append(metadata_code)
-  set_metadata = True
+
+  add_metadata = True
 ---
 code: |
   # Create code for the question that we use to label
@@ -932,7 +942,7 @@ code: |
   preview_question.data = {
     "interview_label": interview_label
   }
-  created_preview_question = True
+  add_preview_question = True
 ---
 need:
   - attachments
@@ -945,7 +955,15 @@ code: |
   end_question = interview.blocks.appendObject()
   end_question.template_key = 'download screen'
   end_question.data = {"interview_label": interview_label}
-
+  add_end_question = True
+---
+need:
+  - attachments
+  - attachment_variable_name
+  - interview_label
+  - attachment.name
+  - attachment.type
+code: |
   # TODO: allow multiple attachments here eventually
   attachment_objects  = interview.blocks.appendObject()
   attachment_objects.template_key = "attachment objects"
@@ -973,7 +991,7 @@ code: |
     "fields": attachment.fields
   }
   
-  created_attachment = True
+  add_attachment = True
 ---
 #######################################
 # Code to support github feedback form

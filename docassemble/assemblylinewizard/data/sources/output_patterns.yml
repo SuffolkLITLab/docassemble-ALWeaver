@@ -5,6 +5,10 @@
 # TODO: this could be a good place to also store things like the list of
 # courts, the types of forms, etc. Other things people might want to configure
 # about how the weaver works. OR: that could be a separate YAML file.
+#################################
+# All imports must be explicitly listed. They will not use Docassemble's usual missing variable
+# resolution, so you should make sure any text processing functions are safe to handle DAEmpty
+# objects. (DAEmpty is considered equivalent to False when treated as a bool)
 mako template imports: 
   - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
@@ -57,8 +61,7 @@ preview screen: |
   question: |
     Preview your form before you sign it
   subquestion: |
-    Here is a preview of the form you will sign on the next page.
-    
+    Here is a preview of the form you will sign on the next page.   
     <%text>
     ${ al_user_bundle.as_pdf(key='preview') }
 
@@ -67,7 +70,6 @@ preview screen: |
 
     ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
     </%text>
-
     Remember to come back to this window to continue and sign your form.
   continue button field: ${ interview_label }_preview_question    
 download screen: |
@@ -104,9 +106,7 @@ objects: |
 # Has the standard, required blocks we don't want if this
 # interview is included in another interview
 main order: |
-  <%text>
-  ###################### Main order ######################
-  </%text>
+  ${ "######################" } Main order ######################
   comment: |
     This block includes the logic for standalone interviews.
     Delete mandatory: True to include in another interview
@@ -126,9 +126,7 @@ main order: |
     ${ interview_label }_download
 # Block used to control the order of interview-specific questions   
 interview order: |
-  <%text>
-  #################### Interview order #####################
-  </%text>
+  ${ "####################" } Interview order #####################
   comment: |
     Controls order and branching logic for questions specific to this form
   id: interview_order_${ interview_label }
@@ -175,10 +173,14 @@ metadata: |
       - ${ category }
   % endfor
   % endif
-# Form-specific metadata, much of it reserved for future use
+# Form-specific metadata that goes into a dictionary, much of it reserved for future use
 # TODO: refactor to a Docassemble `data:` block
-metadata code: |
+al metadata: |
   mandatory: True
+  comment: |
+    This contains metadata that will not be overwritten if this YAML file is included in another
+    file. Each file gets its own key in the interview_metadata dictionary.
+    Most keys are not currently used at runtime, other than "allowed courts".
   code: |
     interview_metadata
     if not defined("interview_metadata['${ interview_label }']"):
