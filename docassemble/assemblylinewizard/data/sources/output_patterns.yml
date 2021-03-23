@@ -184,7 +184,7 @@ al metadata: |
   code: |
     interview_metadata
     if not defined("interview_metadata['${ interview_label }']"):
-      interview_metadata.initializeObject(${ interview_label })
+      interview_metadata.initializeObject("${ interview_label }")
       interview_metadata["${ interview_label }"].update({
         "title": "${ escape_quotes(oneline(title)) }",
         "short title": "${ escape_quotes(oneline(short_title)) }",
@@ -267,8 +267,8 @@ section marker: |
 # TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
 attachment: |
   attachment:
-    variable name: ${ attachment_variable_name }
-    name: ${ name }
+    variable name: ${ attachment_variable_name }[i]
+    name: ${ attachment_variable_name }
     filename: ${ varname(attachment_filename).replace('_','-') }
     % if type == 'md':
     content: |
