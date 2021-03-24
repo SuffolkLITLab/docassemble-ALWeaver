@@ -311,29 +311,3 @@ revisit page: |
 # It should be possible to migrate the revisit table to a Mako template
 revisit table: |
   ${ item.table_page() }
----
-leftover text: |
-        if self.type == 'question':
-              if self.field_list[0].field_type == 'end_attachment':
-                  #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
-                  # attachments is no longer always a DAList
-                  # TODO / FUTURE we could let this handle multiple forms at once
-                  for attachment in self.attachments:  # We will only have ONE attachment
-                      content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
-                      content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                      content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                  
-        elif self.type == 'text_template':
-            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
-            if hasattr(self, 'template_subject') and self.template_subject:
-                content += "subject: " + oneline(self.template_subject) + "\n"
-            if self.template_type == 'file':
-                content += "content file: " + oneline(self.template_file) + "\n"
-            else:
-                content += "content: |\n" + mako_indent(self.template_body, 2)
-        elif self.type == 'template':
-            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
-            content += "content file: " + oneline(self.template_file) + "\n"
-            self.templates_used.add(self.template_file)
-
-        return content
