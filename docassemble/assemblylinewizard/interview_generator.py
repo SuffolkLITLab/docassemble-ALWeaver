@@ -4,10 +4,8 @@ import keyword
 import uuid
 from collections import defaultdict
 from docx2python import docx2python
-# from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
-# from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.error import DAError
-from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAFileList, path_and_mimetype #, DADict
+from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAFileList, path_and_mimetype, user_info
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -35,7 +33,7 @@ __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string']
+           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string','mako_local_import_str']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -204,8 +202,12 @@ class DAInterview(DAObject):
         text = ""
         for block in self.blocks + self.questions.elements:
           text += "---\n"
-          if self.templates.get('mako template imports'):
-            text += block.source(self.templates.get(block.template_key), imports=self.templates['mako template imports'])
+          imports = self.templates.get('mako template imports',[])
+          local_imports = self.templates.get('mako template local imports',[])
+          formatted_local_imports = [ mako_local_import_str(user_info().package, import_key, local_imports[import_key]) for import_key in local_imports ]
+          imports = imports + formatted_local_imports
+          if imports:
+            text += block.source(self.templates.get(block.template_key), imports=imports)
           else:
             text += block.source(self.templates.get(block.template_key))
         return text
@@ -598,7 +600,8 @@ columns:
 {all_columns}
 edit:
 {settable_list}
-confirm: True"""
+confirm: True
+"""
     all_columns = ''
     settable_list = ''
     for att, disp_and_set in self.attribute_map.items():
@@ -772,6 +775,13 @@ def mako_indent(text:str, num:int)->str:
   if not text:
       return ""
   return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip()
+
+def mako_local_import_str(package_name:str, key:str, imports:List[str])->str:
+  """
+  Create an import string for mako template from the output_patterns.yml file, like
+  `from docassemble.playground1.interview_generator import mako_indent, varname`
+  """
+  return 'from ' + package_name + '.' + key + ' import ' + ",".join(imports)
 
 def varname(var_name:str)->str:
     if var_name:

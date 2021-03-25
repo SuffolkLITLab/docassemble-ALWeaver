@@ -8,9 +8,13 @@
 #################################
 # All imports must be explicitly listed. They will not use Docassemble's usual missing variable
 # resolution, so you should make sure any text processing functions are safe to handle DAEmpty
-# objects. (DAEmpty is considered equivalent to False when treated as a bool)
-mako template imports: 
-  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
+# objects.
+# You can provide local imports as a dictionary of lists. These will import from playground or runtime
+mako template local imports:
+  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
+# To import from an installed package or third-party Python package, provide a list of strings
+#mako template imports: 
+#  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
 question: |
   % if event:
