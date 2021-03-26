@@ -572,22 +572,6 @@ class ParentCollection(object):
         plain_att, disp_att, settable_att = f._get_attributes()
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
-  def revisit_page(self) -> str:
-    # TODO: deprecated
-    if self.var_type != 'list':
-      return ''
-
-    content = """---
-field: {0}.revisit
-question: |
-  Edit {0}
-subquestion: |
-  ${{ {0}.table }}
-
-  ${{ {0}.add_action() }}
-"""
-    return content.format(self.var_name)
-
   def table_page(self) -> str:
     # TODO: migrate to Mako format
     if self.var_type != 'list':
