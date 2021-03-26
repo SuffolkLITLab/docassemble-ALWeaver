@@ -388,40 +388,38 @@ class DAField(DAObject):
     return content
 
   def attachment_yaml(self):
-    # We use the list-style, not dictionary style fields statement
-    # to avoid duplicate key error
+    # Lets use the list-style, not dictionary style fields statement
+    # To avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
       content = ''
       for raw_name in self.raw_field_names:
         var_name = remove_multiple_appearance_indicator(varname(raw_name))
         if var_name.endswith('_yes'):
-          content += '- "{}": ${{ {} }}'.format(raw_name, self.final_display_var)
+          content += '      - "{}": ${{ {} }}\n'.format(raw_name, self.final_display_var)
         elif var_name.endswith('_no'):
-          content += '- "{}": ${{ not {} }}'.format(raw_name, self.final_display_var)
-      return content
+          content += '      - "{}": ${{ not {} }}\n'.format(raw_name, self.final_display_var)
+      return content.rstrip('\n')
 
     # Handle multiple indicators
-    format_str = '- "{}": '
+    format_str = '      - "{}": '
     if hasattr(self, 'field_type') and self.field_type == 'date':
-      format_str += '${{ ' + self.variable.format() + ' }}'
+      format_str += '${{ ' + self.variable.format() + ' }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'currency':
-      format_str += '${{ currency(' + self.variable + ') }}'
+      format_str += '${{ currency(' + self.variable + ') }}\n'
     elif hasattr(self, 'field_type') and self.field_type == 'number':
-      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}' 
+      format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
     elif self.field_type_guess == 'signature': 
-      comment = "# It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      # Need to add indent for second line
-      format_str = comment + "    " + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}"
+      comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
+      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
     else:
-      format_str += '${{ ' + self.final_display_var + ' }}'
+      format_str += '${{ ' + self.final_display_var + ' }}\n'
 
     content = ''
-    # Repeat for the names w/ multiple appearance indicator, like __2
     for raw_name in self.raw_field_names:
-      content += format_str.format(raw_name) + "\n    "
+      content += format_str.format(raw_name)
     
-    return content.rstrip().rstrip("\n")
-
+    return content.rstrip('\n')
+  
   def user_ask_about_field(self, index):
     field_questions = []
     settable_var = self.get_settable_var() 

@@ -282,7 +282,7 @@ attachment: |
     pdf template file: ${ template_filename }
     fields:
       % for field in fields:
-      ${ field.attachment_yaml() }
+  ${ field.attachment_yaml() }
       % endfor
     % else:
     docx template file: ${ template_filename }
