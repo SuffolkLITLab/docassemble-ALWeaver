@@ -73,13 +73,6 @@ code: |
 
   show_interview
 ---
-# Temporary to text new Mako style questions
-code: |
-  interview.blocks[i].template_key='question'
----
-code: |
-  interview.blocks[i].data = {}
----
 code: |
   set_custom_people_map( people_variables.true_values() )
   if len(people_variables.true_values()):
@@ -984,7 +977,7 @@ need:
   - attachment.name
   - attachment.type
 code: |
-  # TODO: allow multiple attachments here eventually
+  # TODO(#113): allow multiple attachments here eventually
   attachment_objects  = interview.blocks.appendObject()
   attachment_objects.template_key = "attachment objects"
   attachment_objects.data = {
