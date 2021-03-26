@@ -730,10 +730,10 @@ class DAQuestion(DABlock):
     return template.render(**data)
 
 def fix_id(string:str)->str:
-    if isinstance(string, str):
+    if string and isinstance(string, str):
       return re.sub(r'[\W_]+', ' ', string).strip()
     else:
-      return ''     
+      return str(uuid.uuid4())
 
 def fix_variable_name(match)->str:
     var_name = match.group(1)
