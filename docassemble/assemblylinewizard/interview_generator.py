@@ -318,11 +318,11 @@ class DAField(DAObject):
   def get_single_field_screen(self):
     settable_version = self.get_settable_var() 
     if self.field_type == 'yesno':
-      return "yesno: {}".format(settable_version), True
+      return "yesno: {}".format(settable_version)
     elif self.field_type == 'yesnomaybe':
-      return "yesnomaybe: {}".format(settable_version), True
+      return "yesnomaybe: {}".format(settable_version)
     else:
-      return "", False
+      return ""
 
   def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:

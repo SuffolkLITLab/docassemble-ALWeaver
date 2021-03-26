@@ -31,13 +31,13 @@ question: |
   subquestion: |
   ${ mako_indent(subquestion_text,2) }
   % endif
-  % if field_list and len(field_list) > 1:
+  % if field_list and (len(field_list) > 1 or not field_list[0].get_single_field_screen()):
   fields:
   % for field in field_list:
   ${ field.field_entry_yaml() }
   % endfor
-  % else:
-  ${ fields[0].get_single_field_screen()}
+  % elif field_list and field_list[0].get_single_field_screen():
+  ${ field_list[0].get_single_field_screen() }
   % endif
   % if continue_button_field:
   continue button field: ${ continue_button_field }

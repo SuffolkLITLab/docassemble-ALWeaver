@@ -1007,7 +1007,7 @@ code: |
     "attachment_variable_name": attachment_variable_name,
     "attachment_filename": interview.file_name,
     "type": attachment.type,
-    "template_filename": attachment.pdf_filename if attachment.type == 'pdf' else attachment.pdf_filename,
+    "template_filename": attachment.filename,
     "fields": attachment.fields
   }
   
