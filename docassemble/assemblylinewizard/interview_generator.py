@@ -1,33 +1,31 @@
 import os
 import re
 import keyword
-import copy
 import uuid
-import sys
-import yaml
-import tempfile
 from collections import defaultdict
 from docx2python import docx2python
-from docassemble.webapp.files import SavedFile, get_ext_and_mimetype, make_package_zip
-from docassemble.base.pandoc import word_to_markdown, convertible_mimetypes, convertible_extensions
 from docassemble.base.error import DAError
-from docassemble.base.util import log, space_to_underscore, bold, DAObject, DADict, DAList, DAFile, DAFileList
+from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAFileList, path_and_mimetype, user_info
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
 from docassemble.base.core import DAEmpty
-import shutil
 import datetime
 import zipfile
-import types
 import json
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple #, Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
+import ruamel.yaml as yaml
+import mako.template
+import mako.runtime
+
+mako.runtime.UNDEFINED = DAEmpty()
+
 
 TypeType = type(type(None))
 
-__all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
+__all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
@@ -35,7 +33,7 @@ __all__ = ['Playground', 'PlaygroundSection', 'indent_by', 'varname', 'DAField',
            'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names']
+           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string','mako_local_import_str']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -103,26 +101,85 @@ class DAAttachmentList(DAList):
                 output_list.append('[`' + x.docx_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
         return docassemble.base.functions.comma_and_list(output_list)
 
+class DABlock(DAObject):
+  """
+  A Block in a Docassemble interview YAML file.
+  """
+  template_key:str
+  data:Dict[str,any]
+
+  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"])->str:
+    """
+    Return a string representing a YAML "document" (block), provided a string
+    representing a Mako template. Optional: provide list of imports.
+    """
+    mako.runtime.UNDEFINED = DAEmpty()
+    template = mako.template.Template(template_string, imports=imports)
+    return template.render(**self.data)
+
+class DABlockList(DAList):
+  """
+  This represents a list of DABlocks representing seperate YAML "documents"
+  (blocks) in a Docassemble interview file
+  """
+  def init(self, *pargs, **kwargs):
+    super().init(*pargs, **kwargs)
+    self.object_type = DABlock  
+
+  def all_fields_used(self):
+    """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
+      in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
+      It prevents the formatter of the wizard from putting the same fields on two different screens."""
+    fields = set()
+    for question in self.elements:
+      if hasattr(question,'field_list'):
+        for field in question.field_list.elements:
+          fields.add(field)
+    return fields
+
+class DAQuestionList(DAList):
+  """This represents a list of DAQuestions."""
+  def init(self, **kwargs):
+    super().init(**kwargs)
+    self.object_type = DAQuestion
+    # self.auto_gather = False
+    # self.gathered = True
+    # self.is_mandatory = False
+
+  def all_fields_used(self):
+    """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
+      in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
+      It prevents the formatter of the wizard from putting the same fields on two different screens."""
+    fields = set()
+    for question in self.elements:
+      if hasattr(question,'field_list'):
+        for field in question.field_list.elements:
+          fields.add(field)
+    return fields
+
 class DAInterview(DAObject):
-    """ This class represents the final YAML output. It has a method to output to a string."""
-    def init(self, **kwargs):
-        self.blocks = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
+    """ 
+    This class represents the final YAML output. It has a method to output
+    to a string.
+
+    It is designed to load and store a list of Mako templates representing each
+    block type from a YAML file.
+    """
+    templates:Dict[str,str]
+    template_path:str # Like: docassemble.assemblylinewizard:data/sources/interview_structure.yml
+    blocks:DABlockList
+    questions:DAQuestionList # is this used?
+
+    def init(self, *pargs, **kwargs):
+        super().init(*pargs, **kwargs)
+        self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
-        self.final_screen = DAQuestion()
-        #self.decorations = DADecorationDict()
-        self.target_variable = None
-        return super().init(**kwargs)
-    def has_decorations(self):
-        return False
-        # if self.decorations.gathered and len(self.decorations) > 0:
-        #     return True
-        # return False
-    def decoration_list(self):
-        out_list = [["None", "No decoration"]]
-        for key, data in self.decorations.items():
-            out_list.append([key, '[EMOJI ' + str(data.fileref) + ', 1em] ' + str(key)])
-        return out_list
-    def package_info(self):
+        if getattr(self, 'template_path'):
+          self._load_templates(self.template_path)
+        else:
+          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
+        
+    def package_info(self)->dict:
         info = dict()
         for field in ['dependencies', 'interview_files', 'template_files', 'module_files', 'static_files']:
             if field not in info:
@@ -133,50 +190,37 @@ class DAInterview(DAObject):
         info['version'] = "1.0"
         info['license'] = "The MIT License"
         info['url'] = "https://courtformsonline.org"
-        # File structure below isn't helpful for files that aren't installed
-        # on the local playground. We need to replace with DAFiles, not a list of file names
-        # for block in self.all_blocks():
-        #     if hasattr(block, 'templates_used'):
-        #         for template in block.templates_used:
-        #             if not re.search(r'^docassemble\.', template):
-        #                 info['template_files'].append(template)
-        #     if hasattr(block, 'static_files_used'):
-        #         for static_file in block.static_files_used:
-        #             if not re.search(r'^docassemble\.', static_file):
-        #                 info['static_files'].append(static_file)
-        # info['interview_files'].append(self.yaml_file_name())
         return info
-    def yaml_file_name(self):
+
+    def yaml_file_name(self)->str:
         return to_yaml_file(self.file_name)
-    def all_blocks(self):
-        return self.blocks + self.questions.elements
-        # seen = set()
-        # out = list()
-        # for block in self.blocks:
-        #     if block not in seen:
-        #         out.append(block)
-        #         seen.add(block)
-        # for var in self.questions.elements:# sorted(self.questions.keys()):
-        #     #if var not in seen:
-        #     #    out.append(var)
-        #     #    seen.add(var)
-        # return out
-    def demonstrate(self):
-        for block in self.all_blocks():
-            block.demonstrated
-    def source(self):
-        """This method creates a YAML string that represents the entire interview"""
-        return "---\n".join(map(lambda x: x.source(), self.all_blocks()))
-    def known_source(self, skip=None):
-        output = list()
-        for block in self.all_blocks():
-            if block is skip:
-                continue
-            try:
-                output.append(block.source(follow_additional_fields=False))
-            except:
-                pass
-        return "---\n".join(output)
+
+    def source(self)->str:
+        """
+        Render and return the source of all blocks in the interview as a YAML string.
+        """
+        text = ""
+        for block in self.blocks + self.questions.elements:
+          text += "---\n"
+          imports = self.templates.get('mako template imports',[])
+          local_imports = self.templates.get('mako template local imports',[])
+          formatted_local_imports = [ mako_local_import_str(user_info().package, import_key, local_imports[import_key]) for import_key in local_imports ]
+          imports = imports + formatted_local_imports
+          if imports:
+            text += block.source(self.templates.get(block.template_key), imports=imports)
+          else:
+            text += block.source(self.templates.get(block.template_key))
+        return text
+
+    def _load_templates(self, template_path:str)->None:
+        """
+        Load YAML file with Mako templates into the templates attribute.
+        Overwrites any existing templates.
+        """
+        path = path_and_mimetype(template_path)[0]
+        with open(path) as f:
+          contents = f.read()
+        self.templates = list(yaml.safe_load_all(contents))[0] # Take the first YAML "document"
 
 class DAField(DAObject):
   """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
@@ -274,11 +318,11 @@ class DAField(DAObject):
   def get_single_field_screen(self):
     settable_version = self.get_settable_var() 
     if self.field_type == 'yesno':
-      return "yesno: {}\n".format(settable_version), True
+      return "yesno: {}".format(settable_version)
     elif self.field_type == 'yesnomaybe':
-      return "yesnomaybe: {}\n".format(settable_version), True
+      return "yesnomaybe: {}".format(settable_version)
     else:
-      return "", False
+      return ""
 
   def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:
@@ -312,7 +356,7 @@ class DAField(DAObject):
     else:  # a standard text field
       content += self._maxlength_str() + '\n'
     
-    return content
+    return content.rstrip('\n')
 
   def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
     settable_var = self.get_settable_var()
@@ -354,7 +398,7 @@ class DAField(DAObject):
           content += '      - "{}": ${{ {} }}\n'.format(raw_name, self.final_display_var)
         elif var_name.endswith('_no'):
           content += '      - "{}": ${{ not {} }}\n'.format(raw_name, self.final_display_var)
-      return content
+      return content.rstrip('\n')
 
     # Handle multiple indicators
     format_str = '      - "{}": '
@@ -374,8 +418,8 @@ class DAField(DAObject):
     for raw_name in self.raw_field_names:
       content += format_str.format(raw_name)
     
-    return content
-
+    return content.rstrip('\n')
+  
   def user_ask_about_field(self, index):
     field_questions = []
     settable_var = self.get_settable_var() 
@@ -528,27 +572,11 @@ class ParentCollection(object):
         plain_att, disp_att, settable_att = f._get_attributes()
         self.attribute_map[plain_att] = (disp_att, settable_att)
 
-  def revisit_page(self) -> str:
-    if self.var_type != 'list':
-      return ''
-
-    content = """---
-field: {0}.revisit
-question: |
-  Edit {0}
-subquestion: |
-  ${{ {0}.table }}
-
-  ${{ {0}.add_action() }}
-"""
-    return content.format(self.var_name)
-
-
   def table_page(self) -> str:
+    # TODO: migrate to Mako format
     if self.var_type != 'list':
       return ''
-    content = """---
-table: {var_name}.table
+    content = """table: {var_name}.table
 rows: {var_name}
 columns:
 {all_columns}
@@ -562,8 +590,7 @@ confirm: True
       all_columns += '  - {0}: |\n'.format(att)
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
-    return content.format(var_name=self.var_name, all_columns=all_columns, settable_list=settable_list)
-
+    return content.format(var_name=self.var_name, all_columns=all_columns.rstrip('\n'), settable_list=settable_list.rstrip('\n'))
 
   def review_yaml(self): 
     """Generate the yaml entry for this object in the review screen list"""
@@ -580,7 +607,7 @@ confirm: True
       content += indent_by("% for item in {}:".format(self.var_name), 6)
       content += indent_by("* ${ item }", 8)
       content += indent_by("% endfor", 6)
-      return content
+      return content.rstrip('\n')
     
     if self.var_type == 'object':
       content += indent_by(bold(self.var_name), 6) + '\n'
@@ -588,9 +615,9 @@ confirm: True
         content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
         content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
         content += indent_by('% endif', 6)
-      return content
+      return content.rstrip('\n')
     
-    return content + self.fields[0].review_viewing()
+    return content + self.fields[0].review_viewing().rstrip('\n')
 
 
 class DAFieldList(DAList):
@@ -672,525 +699,43 @@ class DAFieldList(DAList):
       self.elements.__delitem__(item)
     self._reset_instance_names()
     
+class DAQuestion(DABlock):
+  """
+  Special DABlock that you can iteratively build in Assembly Line Weaver.
 
-class DAQuestion(DAObject):
-    """This class represents a "question" in the generated YAML file. TODO: move
-    some of the "questions" into other block types. """
+  Defaults to using the 'question' template and adds "field_list" attribute.
+  """
+  field_list:DAFieldList
+  
+  def init(self, *pargs, **kwargs):
+    super().init(*pargs, **kwargs)
+    self.template_key = 'question'
+    self.field_list = DAFieldList()
 
-    # TODO: subclass question or come up with other types for things
-    # that aren't really questions instead of giant IF block
-    # TODO: separate out some of the code specific to the assembly-line project
-    # into its own module or perhaps interview YAML
-    def init(self, **kwargs):
-        self.field_list = DAFieldList()
-        self.templates_used = set()
-        self.static_files_used = set()
-        return super().init(**kwargs)
+  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent"])->str:
+    """
+    Return a string representing a YAML "document" (block), provided a string
+    representing a Mako template. Optional: provide list of imports.
+    """
+    mako.runtime.UNDEFINED = DAEmpty()
+    template = mako.template.Template(template_string, imports=imports)
+    data = {
+      "block_id": self.id if hasattr(self, 'id') else None,
+      "event": self.event if hasattr(self, 'event') else None,
+      "continue_button_field": varname(self.question_text) if self.needs_continue_button_field else None,
+      "question_text": self.question_text,
+      "subquestion_text": self.subquestion_text,
+      "field_list": self.field_list
+    }
+    return template.render(**data)
 
-    def source(self, follow_additional_fields=True, document_type="pdf"):
-        """This method outputs the YAML code representing a single "question" in the interview."""
-        content = ''
-        if hasattr(self, 'progress'):
-            content += 'progress: ' + self.progress + '\n'
-        if hasattr(self, 'is_mandatory') and self.is_mandatory:
-            content += "mandatory: True\n"
-        # TODO: refactor. Too many things shoved into "question"
-        if self.type == 'question':
-            done_with_content = False
-            if hasattr(self, 'id') and self.id:
-                # TODO: ask for ID in the wizard
-                content += "id: " + fix_id(self.id) + "\n"
-            else:
-                content += "id: " + fix_id(self.question_text) + "\n"
-            if hasattr(self, 'event'):
-                content += "event: " + self.event + "\n"
-            if self.needs_continue_button_field:
-              content += "continue button field: " + varname(self.question_text) + "\n"
-            elif hasattr(self, 'continue_button_field'):
-              content += "continue button field: " + varname(self.continue_button_field) + "\n"
-            content += "question: |\n" + indent_by(self.question_text, 2)
-            if self.subquestion_text != "":
-                content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if self.field_list.number() == 0:
-              done_with_content = True
-            else:
-              if self.field_list.number() == 1:
-                  new_content, done_with_content = self.field_list[0].get_single_field_screen()
-                  content += new_content
-              if self.field_list[0].field_type == 'end_attachment':
-                  #if hasattr(self, 'interview_label'):  # this tells us its the ending screen
-                  #  # content += "buttons:\n  - Exit: exit\n  - Restart: restart\n" # we don't want people to erase their session
-                  #  # TODO: insert the email code
-                  #  #content += "attachment code: " + self.attachment_variable_name + "['final']\n"
-                  #if (isinstance(self, DAAttachmentList) and self.attachments.gathered and len(self.attachments)) or (len(self.attachments)):
-                  # attachments is no longer always a DAList
-                  # TODO / FUTURE we could let this handle multiple forms at once
-                  for attachment in self.attachments:  # We will only have ONE attachment
-                      # TODO: if we really use multiple attachments, we need to change this
-                      # So there is a unique variable name
-                      content += "---\n"
-                      # Use a DADict to store the attachment here
-                      content += "objects:\n"
-                      # TODO: has_addendum should be a flag set in the generator, not hardcoded
-                      content += "  - " + self.attachment_variable_name + ': ALDocument.using(title="' + self.interview.description + '", filename="' + self.interview.file_name + '", enabled=True, has_addendum=False)\n'
-                      content += "---\n"
-                      content += "objects:\n"
-                      # TODO: 
-                      content += '  - al_user_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                      content += '  - al_court_bundle: ALDocumentBundle.using(elements=[' + self.attachment_variable_name + '], filename="' + self.interview.file_name + '.pdf", title="All forms to download for your records")' + '\n'
-                      content += "---\n"
-                      content += "#################### attachment block ######################\n"
-                      content += "attachment:\n"
-                      content += "    variable name: " + self.attachment_variable_name + "[i]\n"
-                      content += "    name: " + oneline(attachment.name) + "\n"
-                      content += "    filename: " + varname(attachment.name).replace('_', '-') + "\n"
-                      if attachment.type == 'md':
-                          content += "    content: " + oneline(attachment.content) + "\n"
-                      elif attachment.type == 'pdf':
-                          content += "    skip undefined: True" + "\n"
-                          content += "    pdf template file: " + oneline(attachment.pdf_filename) + "\n"
-                          self.templates_used.add(attachment.pdf_filename)
-                          content += "    fields:" + "\n"
-                          for field in attachment.fields:
-                            content += field.attachment_yaml()
-                      elif attachment.type == 'docx':
-                          content += "    docx template file: " + oneline(attachment.docx_filename) + "\n"
-                          self.templates_used.add(attachment.docx_filename)
-                  done_with_content = True
-            if not done_with_content:
-                content += "fields:\n"  # TODO: test removing \n here
-                for field in self.field_list:
-                    content += field.field_entry_yaml()
+def fix_id(string:str)->str:
+    if string and isinstance(string, str):
+      return re.sub(r'[\W_]+', ' ', string).strip()
+    else:
+      return str(uuid.uuid4())
 
-        elif self.type == 'signature':
-            content += "signature: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
-            self.under_text
-            content += "question: |\n" + indent_by(self.question_text, 2)
-            if self.subquestion_text != "":
-                content += "subquestion: |\n" + indent_by(self.subquestion_text, 2)
-            if self.under_text:
-                content += "under: |\n" + indent_by(self.under_text, 2)
-        elif self.type == 'code':
-            content += "code: |\n" + indent_by(self.code, 2)
-        elif self.type == 'objects' and len(self.objects):
-            # An object should be a list of DAObjects with the following attributes:
-            # name, type, params [optional]
-            # params is going to be a list/iterable object of two or 3 item tuples or lists 
-            # of strings
-            # param[0] is the parameter name (argument to .using), param[1] is the value
-            # If the param has 3 parts, then param[1] will be treated as a literal rather than
-            # string value. string is default. Actual value of param[2] is reserved for future need
-            content += "objects:\n"
-            for object in self.objects:
-              content += "  - " + object.name + ': ' + object.type
-              if hasattr(object, 'params'):
-                content += ".using("
-                params_string_builder = []
-                for param in object.params:
-                  param_string = str(param[0]) + "="
-                  if len(param) > 2:
-                    # This might be an int value, other variable name, etc.
-                    param_string += str(param[1])
-                  else:
-                    # this is a normal string value and should get quoted.
-                    # use json.dumps() to properly quote strings. shouldn't come up
-                    param_string += json.dumps(str(param[1]))
-                  params_string_builder.append(param_string)
-                content += ",".join(params_string_builder)
-                content += ")"
-              content += "\n" 
-            if not content.endswith("\n"):              
-              content += "\n"
-            
-        elif self.type == 'main order':
-          lines = [
-            "###################### Main order ######################\n"
-            "mandatory: True",
-            "comment: |",
-            "  This block includes the logic for standalone interviews.",
-            "  Delete mandatory: True to include in another interview",
-            "id: main_order_" + self.interview_label,
-            "code: |",
-            "  " + self.intro,
-            "  " + self.interview_label + "_intro",
-            "  # Interview order block has form-specific logic controlling order/branching",
-            "  interview_order_" + self.interview_label,
-            "  signature_date", # TODO: do we want this here?
-            "  # Save (anonymized) interview statistics.",
-            "  store_variables_snapshot(data={'zip': users[0].address.zip})",
-            "  " + self.interview_label + "_preview_question  # Pre-canned preview screen",
-            "  basic_questions_signature_flow",
-          ]
-          
-          for signature_field in self.signatures:
-            lines.append( "  " + signature_field )
-          lines.append("  " + self.interview_label + "_download")
-          
-          content += '\n'.join(lines) + '\n'
-                                   
-        elif self.type == 'interview order':
-            # TODO: refactor this. Too much of it is assembly-line specific code
-            # move into the interview YAML or a separate module/subclass
-            content += "#################### Interview order #####################\n"
-            content += "comment: |\n"
-            content += "  Controls order and branching logic of questions in the interview\n"
-            content += "id: interview_order_" + self.interview_label + "\n"
-            content += "code: |\n"
-            added_field_names = set()
-            for field in self.logic_list:
-              if field == 'signature_date' or field.endswith('.signature'):  # signature stuff goes in main block
-                continue
-              if not field in added_field_names:
-                # We built this logic list by collecting the first field on each screen
-                content += "  " + field + "\n"
-              added_field_names.add(field)
-            content += "  interview_order_" + self.interview_label + " = True" + "\n"
-        elif self.type == 'text_template':
-            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
-            if hasattr(self, 'template_subject') and self.template_subject:
-                content += "subject: " + oneline(self.template_subject) + "\n"
-            if self.template_type == 'file':
-                content += "content file: " + oneline(self.template_file) + "\n"
-            else:
-                content += "content: |\n" + indent_by(self.template_body, 2)
-        elif self.type == 'template':
-            content += "template: " + varname(self.field_list[0].raw_field_names[0]) + "\n"
-            content += "content file: " + oneline(self.template_file) + "\n"
-            self.templates_used.add(self.template_file)
-        elif self.type == 'sections':
-            # content += "features:\n  navigation: True\n"
-            # content += '---\n'
-            content += "sections:\n"
-            for section in self.sections:
-                if isinstance(section, dict):
-                    for key in section: # Should just be one key
-                        content += '  - ' + str(key) + ': ' + str(section[key]) + "\n"
-                elif isinstance(section, str):
-                    content += '  - ' + section
-        elif self.type == 'metadata':
-            if hasattr(self, 'comment'):
-                content += 'comment: |\n'
-                content += indent_by(self.comment, 2)
-            content += "metadata:\n"
-            for setting in self.settings:
-                content += '  ' + setting + ': |\n'
-                content += indent_by(self.settings[setting], 4)
-            if self.categories.any_true():
-              content += "  tags:\n"
-              for category in self.categories.true_values():
-                content += indent_by("- " + category, 4)
-        elif self.type == 'metadata_code':
-            # TODO: this is begging to be refactored into
-            # just dumping out a dictionary in json-like format
-            # rather than us hand-writing the data structure
-            # Note 2/23/21: machine-written JSON is not pretty. 
-            # So one argument for keeping it handwritten
-            if hasattr(self, 'comment'):
-                content += 'comment: |\n'
-                content += indent_by(self.comment, 2)
-            # We need this block to run every time to build our metadata variable
-            content += "mandatory: True\n"
-            content += "code: |\n"
-            content += "  interview_metadata # make sure we initialize the object\n"
-            content += "  if not defined(\"interview_metadata['"+ self.interview_label +  "']\"):\n"
-            content += "    interview_metadata.initializeObject('" + self.interview_label + "')\n"
-            content += "  interview_metadata['" + self.interview_label + "'].update({\n"
-            content += '    "title": "' + escape_quotes(oneline(self.title)) + '",\n'
-            content += '    "short title": "' + escape_quotes(oneline(self.short_title)) + '",\n'
-            content += '    "description": "' + escape_quotes(oneline(self.description)) + '",\n'
-            content += '    "original_form": "' + escape_quotes(oneline(self.original_form)) + '",\n'
-            content += '    "allowed courts": ' + '[\n'
-            for court in self.allowed_courts.true_values():
-              content += '      "' + escape_quotes(oneline(court)) + '",\n'
-            content += '    ],\n'
-            content += '    "categories": [' + '\n'
-            for category in self.categories.true_values():
-              content += "      '" + oneline(category) + "',\n"
-            if self.categories['Other']:
-              for category in self.other_categories.split(','):
-                content += "      '" + escape_quotes(oneline(category.strip())) + "',\n"
-            content += "    ],\n"
-            content += "    'logic block variable': '" + self.interview_label + "',\n"
-            content += "    'attachment block variable': '" + self.interview_label + "_attachment',\n"
-            if hasattr(self, 'typical_role'):
-              content += "    'typical role': '" + oneline(self.typical_role) + "',\n"
-            content += "  })\n"
-        elif self.type == 'modules':
-            content += "modules:\n"
-            for module in self.modules:
-                content += " - " + str(module) + "\n"
-        elif self.type == 'includes':
-          content += "include:\n"
-          for include in self.includes:
-            content += "  - " + include + "\n"
-        elif self.type == 'interstitial':
-          if hasattr(self, 'comment'):
-            content += 'comment: |\n'
-            content += indent_by(self.comment, 2)
-          if hasattr(self, 'id') and self.id:
-            content += "id: " + self.id + "\n"
-          else:
-            without_bad_chars = varname(oneline(self.question_text))
-            if len(without_bad_chars) == 0:
-              # TODO(brycew): we can do better than meaningless text
-              without_bad_chars = str(uuid.uuid4())
-            content += "id: " + without_bad_chars + "\n"
-          content += 'continue button field: ' + self.continue_button_field + "\n"
-          content += "question: |\n"
-          content += indent_by(self.question_text, 2)
-          content += "subquestion: |\n"
-          content += indent_by(self.subquestion_text, 2)
-        elif self.type == "review" and len(self.parent_collections) > 0:
-          if hasattr(self, 'id') and self.id:
-              content += "id: " + self.id + "\n"
-          else:
-              content += "id: " + oneline(self.question_text) + "\n"
-          if hasattr(self, 'event'):
-              content += "event: " + self.event + "\n"
-          content += "question: |\n"
-          content += indent_by(self.question_text, 2)
-          content += "subquestion: |\n"
-          content += indent_by(self.subquestion_text, 2)
-          content += "review: \n"
-          for parent_coll in self.parent_collections:
-            content += parent_coll.review_yaml() 
-            content += '  - note: |\n      ------\n'
-          for parent_coll in self.parent_collections:
-            content += parent_coll.revisit_page()
-            content += parent_coll.table_page()
-        return content
-
-class DAQuestionList(DAList):
-  """This represents a list of DAQuestions."""
-  def init(self, **kwargs):
-    super().init(**kwargs)
-    self.object_type = DAQuestion
-    # self.auto_gather = False
-    # self.gathered = True
-    # self.is_mandatory = False
-
-  def all_fields_used(self):
-    """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
-      in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-      It prevents the formatter of the wizard from putting the same fields on two different screens."""
-    fields = set()
-    for question in self.elements:
-      if hasattr(question,'field_list'):
-        for field in question.field_list.elements:
-          fields.add(field)
-    return fields
-
-class PlaygroundSection(object):
-    def __init__(self, section='', project='default'):
-        if docassemble.base.functions.this_thread.current_info['user']['is_anonymous']:
-            raise DAError("Users must be logged in to create Playground objects")
-        self.user_id = docassemble.base.functions.this_thread.current_info['user']['theid']
-        self.current_info = docassemble.base.functions.this_thread.current_info
-        self.section = section
-        self.project = project
-        self._update_file_list()
-    def get_area(self):
-        return SavedFile(self.user_id, fix=True, section='playground' + self.section)
-    def _update_file_list(self):
-        the_directory = directory_for(self.get_area(), self.project)
-        self.file_list = sorted([f for f in os.listdir(the_directory) if f != '.placeholder' and os.path.isfile(os.path.join(the_directory, f))])
-    def image_file_list(self):
-        out_list = list()
-        for the_file in self.file_list:
-            _extension, mimetype = get_ext_and_mimetype(the_file)
-            if re.search(r'^image', mimetype):
-                out_list.append(the_file)
-        return out_list
-    def reduced_file_list(self):
-        lower_list = [f.lower() for f in self.file_list]
-        out_list = [f for f in self.file_list if os.path.splitext(f)[1].lower() in ['.md', '.pdf', '.docx'] or os.path.splitext(f)[0].lower() + '.md' not in lower_list]
-        return out_list
-    def get_file(self, filename):
-        return os.path.join(directory_for(self.get_area(), self.project), filename)
-    def file_exists(self, filename):
-        path = self.get_file(filename)
-        if os.path.isfile(path):
-            return True
-        return False
-    def delete_file(self, filename):
-        area = self.get_area()
-        the_filename = filename
-        if self.project != 'default':
-            the_filename = os.path.join(self.project, the_filename)
-        area.delete_file(the_filename)
-    def read_file(self, filename):
-        path = self.get_file(filename)
-        if path is None:
-            return None
-        with open(path, 'rU', encoding='utf-8') as fp:
-            content = fp.read()
-            return content
-        return None
-    def write_file(self, filename, content, binary=False):
-        area = self.get_area()
-        the_directory = directory_for(area, self.project)
-        path = os.path.join(the_directory, filename)
-        if binary:
-            with open(path, 'wb') as ifile:
-                ifile.write(content)
-        else:
-            with open(path, 'w', encoding='utf-8') as ifile:
-                ifile.write(content)
-        area.finalize()
-    def commit(self):
-        self.get_area().finalize()
-    def copy_from(self, from_file, filename=None):
-        if filename is None:
-            filename = os.path.basename(from_file)
-        to_path = self.get_file(filename)
-        shutil.copy2(from_file, to_path)
-        self.get_area().finalize()
-        return filename
-    def is_fillable_docx(self, filename):
-        extension, _mimetype = get_ext_and_mimetype(filename)
-        if extension != "docx":
-            return False
-        if not self.file_exists(filename):
-            return False
-        path = self.get_file(filename)
-        result_file = word_to_markdown(path, 'docx')
-        if result_file is None:
-            return False
-        with open(result_file.name, 'rU', encoding='utf-8') as fp:
-            result = fp.read()
-        fields = set()
-        for variable in re.findall(r'{{ *([^\} ]+) *}}', result):
-            fields.add(docx_variable_fix(variable))
-        for variable in re.findall(r'{%[a-z]* for [A-Za-z\_][A-Za-z0-9\_]* in *([^\} ]+) *%}', result):
-            fields.add(docx_variable_fix(variable))
-        if len(fields):
-            return True
-        return False
-    def is_markdown(self, filename):
-        extension, _mimetype = get_ext_and_mimetype(filename)
-        if extension == "md":
-            return True
-        return False
-    def is_pdf(self, filename):
-        extension, mimetype = get_ext_and_mimetype(filename)
-        if extension == "pdf":
-            return True
-        return False
-    def get_fields(self, filename):
-        return docassemble.base.pdftk.read_fields(self.get_file(filename))
-    def convert_file_to_md(self, filename, convert_variables=True):
-        extension, mimetype = get_ext_and_mimetype(filename)
-        if (mimetype and mimetype in convertible_mimetypes):
-            the_format = convertible_mimetypes[mimetype]
-        elif extension and extension in convertible_extensions:
-            the_format = convertible_extensions[extension]
-        else:
-            return None
-        if not self.file_exists(filename):
-            return None
-        path = self.get_file(filename)
-        temp_file = word_to_markdown(path, the_format)
-        if temp_file is None:
-            return None
-        out_filename = os.path.splitext(filename)[0] + '.md'
-        if convert_variables:
-            with open(temp_file.name, 'rU', encoding='utf-8') as fp:
-                self.write_file(out_filename, replace_square_brackets.sub(fix_variable_name, fp.read()))
-        else:
-            shutil.copyfile(temp_file.name, self.get_file(out_filename))
-        return out_filename
-    def variables_from_file(self, filename):
-        content = self.read_file(filename)
-        if content is None:
-            return None
-        return Playground().variables_from(content)
-
-class Playground(PlaygroundSection):
-    def __init__(self):
-        return super().__init__()
-    def interview_url(self, filename):
-        return docassemble.base.functions.url_of('interview', i='docassemble.playground' + str(self.user_id) + project_name(self.project) + ":" + filename)
-    def write_package(self, pkgname, info):
-        the_yaml = yaml.safe_dump(info, default_flow_style=False, default_style = '|')
-        pg_packages = PlaygroundSection('packages')
-        pg_packages.write_file(pkgname, the_yaml)
-    def get_package_as_zip(self, pkgname):
-        pg_packages = PlaygroundSection('packages')
-        content = pg_packages.read_file(pkgname)
-        if content is None:
-            raise Exception("package " + str(pkgname) + " not found")
-        info = yaml.load(content, Loader=yaml.FullLoader)
-        author_info = dict()
-        author_info['author name'] = self.current_info['user']['firstname'] + " " + self.current_info['user']['lastname']
-        author_info['author email'] = self.current_info['user']['email']
-        author_info['author name and email'] = author_info['author name'] + ", " + author_info['author email']
-        author_info['first name'] = self.current_info['user']['firstname']
-        author_info['last name'] = self.current_info['user']['lastname']
-        author_info['id'] = self.user_id
-        if self.current_info['user']['timezone']:
-            the_timezone = self.current_info['user']['timezone']
-        else:
-            the_timezone = docassemble.base.functions.get_default_timezone()
-        zip_file = make_package_zip(pkgname, info, author_info, the_timezone)
-        file_number, extension, mimetype = docassemble.base.parse.save_numbered_file('docassemble-' + str(pkgname) + '.zip', zip_file.name)
-        return file_number
-    def variables_from(self, content):
-        the_directory = directory_for(self.get_area(), self.project)
-        interview_source = docassemble.base.parse.InterviewSourceString(content=content, directory=the_directory, path="docassemble.playground" + str(self.user_id) + project_name(self.project) + ":_temp.yml", package='docassemble.playground' + str(self.user_id) + project_name(self.project), testing=True)
-        interview = interview_source.get_interview()
-        temp_current_info = copy.deepcopy(self.current_info)
-        temp_current_info['yaml_filename'] = "docassemble.playground" + str(self.user_id) + project_name(self.project) + ":_temp.yml"
-        interview_status = docassemble.base.parse.InterviewStatus(current_info=temp_current_info)
-        user_dict = docassemble.base.parse.get_initial_dict()
-        user_dict['_internal']['starttime'] = datetime.datetime.utcnow()
-        user_dict['_internal']['modtime'] = datetime.datetime.utcnow()
-        try:
-            interview.assemble(user_dict, interview_status)
-        except Exception as errmess:
-            error_message = str(errmess)
-            error_type = type(errmess)
-            #logmessage("Failed assembly with error type " + str(error_type) + " and message: " + error_message)
-        functions = set()
-        modules = set()
-        classes = set()
-        fields_used = set()
-        names_used = set()
-        names_used.update(interview.names_used)
-        area = SavedFile(self.user_id, fix=True, section='playgroundmodules')
-        the_directory = directory_for(area, self.project)
-        avail_modules = set([re.sub(r'.py$', '', f) for f in os.listdir(the_directory) if os.path.isfile(os.path.join(the_directory, f))])
-        for question in interview.questions_list:
-            names_used.update(question.mako_names)
-            names_used.update(question.names_used)
-            names_used.update(question.fields_used)
-            fields_used.update(question.fields_used)
-        for val in interview.questions:
-            names_used.add(val)
-            fields_used.add(val)
-        for val in user_dict:
-            if type(user_dict[val]) is types.FunctionType:
-                functions.add(val)
-            elif type(user_dict[val]) is TypeType or type(user_dict[val]) is types.ClassType:
-                classes.add(val)
-            elif type(user_dict[val]) is types.ModuleType:
-                modules.add(val)
-        for val in docassemble.base.functions.pickleable_objects(user_dict):
-            names_used.add(val)
-        for var in ['_internal']:
-            names_used.discard(var)
-        names_used = names_used.difference( functions | classes | modules | avail_modules )
-        undefined_names = names_used.difference(fields_used | always_defined )
-        for var in ['_internal']:
-            undefined_names.discard(var)
-        names_used = names_used.difference( undefined_names )
-        all_names = names_used | undefined_names | fields_used
-        all_names_reduced = all_names.difference( set(['url_args']) )
-        return dict(names_used=names_used, undefined_names=undefined_names, fields_used=fields_used, all_names=all_names, all_names_reduced=all_names_reduced)
-
-def fix_id(string):
-    return re.sub(r'[\W_]+', ' ', string).strip()
-
-def fix_variable_name(match):
+def fix_variable_name(match)->str:
     var_name = match.group(1)
     var_name = end_spaces.sub(r'', var_name)
     var_name = spaces.sub(r'_', var_name)
@@ -1200,53 +745,61 @@ def fix_variable_name(match):
         return r'${ ' + var_name + ' }'
     return r''
 
-def indent_by(text, num):
+def indent_by(text:str, num:int)->str:
     if not text:
         return ""
     return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip() + "\n"
 
-def varname(var_name):
-    var_name = var_name.strip() 
-    var_name = spaces.sub(r'_', var_name)
-    var_name = invalid_var_characters.sub(r'', var_name)
-    var_name = digit_start.sub(r'', var_name)
+def mako_indent(text:str, num:int)->str:
+  """
+  Like indent_by but removes extra newline
+  """
+  if not text:
+      return ""
+  return (" " * num) + re.sub(r'\r*\n', "\n" + (" " * num), text).rstrip()
+
+def mako_local_import_str(package_name:str, key:str, imports:List[str])->str:
+  """
+  Create an import string for mako template from the output_patterns.yml file, like
+  `from docassemble.playground1.interview_generator import mako_indent, varname`
+  """
+  return 'from ' + package_name + '.' + key + ' import ' + ",".join(imports)
+
+def varname(var_name:str)->str:
+    if var_name:
+      var_name = var_name.strip() 
+      var_name = spaces.sub(r'_', var_name)
+      var_name = invalid_var_characters.sub(r'', var_name)
+      var_name = digit_start.sub(r'', var_name)
+      return var_name
     return var_name
 
-def oneline(text):
+def oneline(text:str)->str:
     '''Replaces all new line characters with a space'''
-    text = newlines.sub(r' ', text)
-    return text
+    if text:
+      return newlines.sub(r' ', text)
+    return ''
 
-def escape_quotes(text):
+def escape_quotes(text:str)->str:
     """Escape both single and double quotes in strings"""
     return text.replace('"', '\\"').replace("'", "\\'")
 
-def to_yaml_file(text):
+def to_yaml_file(text:str)->str:
     text = varname(text)
     text = re.sub(r'\..*', r'', text)
     text = re.sub(r'[^A-Za-z0-9]+', r'_', text)
     return text + '.yml'
 
-def base_name(filename):
+def base_name(filename:str)->str:
     return os.path.splitext(filename)[0]
 
-def repr_str(text):
+def repr_str(text:str)->str:
     return remove_u.sub(r'', repr(text))
 
-def docx_variable_fix(variable):
+def docx_variable_fix(variable:str)->str:
     variable = re.sub(r'\\', '', variable)
     variable = re.sub(r'^([A-Za-z\_][A-Za-z\_0-9]*).*', r'\1', variable)
     return variable
-
-def directory_for(area, current_project):
-    if current_project == 'default':
-        return area.directory
-    else:
-        return os.path.join(area.directory, current_project)
-
-def project_name(name):
-    return '' if name == 'default' else name
-
 
 def get_pdf_fields(the_file):
   """Patch over https://github.com/jhpyle/docassemble/blob/10507a53d293c30ff05efcca6fa25f6d0ded0c93/docassemble_base/docassemble/base/core.py#L4098"""
@@ -1653,6 +1206,32 @@ def set_custom_people_map( people_var_names ):
   for var_name in people_var_names:
     custom_values.people_plurals_map[ var_name ] = var_name
   return custom_values.people_plurals_map
+
+def using_string(params:dict, elements_as_variable_list:bool=False)->str:
+  """
+  Create a text representation of a .using method of a DAObject class.
+  Provide a dictionary of parameters as an argument.
+  Returns a string like: ".using(param='value', param2=True, param3=3)"
+  given a dictionary of {"param":"value","param2":True, "param3":3}.
+
+  Parameters will be converted using `repr`.
+  Special case: the parameter "elements" given a list of strings will
+  be rendered as a list of variables instead if elements_as_variable_list=True.
+
+  TODO: this is relatively rigid, but is simplest for current needs. Could easily
+  adjust the template or not use this function.
+  """
+  if not params or len(params) < 1:
+    return ""
+  retval = ".using("
+  params_string_builder = []
+  for param in params:
+    if elements_as_variable_list and param == "elements": 
+      params_string_builder.append("elements=["+",".join([str(p) for p in params[param]])+"]" )
+    else:
+      params_string_builder.append(str(param) + "=" + repr(params[param]))
+  retval += ",".join(params_string_builder)
+  return retval + ")"
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
