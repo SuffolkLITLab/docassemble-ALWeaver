@@ -326,7 +326,7 @@ class DAField(DAObject):
 
   def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:
-      return "    maxlength: {}".format(self.maxlength)
+      return "    maxlength: {}\n".format(self.maxlength)
     else:
       return ""
 
@@ -348,13 +348,13 @@ class DAField(DAObject):
       if self.field_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_type == 'email':
-        content += self._maxlength_str() + '\n'
+        content += self._maxlength_str()
       elif self.field_type == 'range':
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
-      content += self._maxlength_str() + '\n'
+      content += self._maxlength_str()
     
     return content.rstrip('\n')
 
