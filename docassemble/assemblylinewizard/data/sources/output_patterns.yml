@@ -1,0 +1,317 @@
+#########################################
+# Each dictionary entry is a template for a YAML block in the generated interview
+#########################################
+# Overall metadata
+# TODO: this could be a good place to also store things like the list of
+# courts, the types of forms, etc. Other things people might want to configure
+# about how the weaver works. OR: that could be a separate YAML file.
+#################################
+# All imports must be explicitly listed. They will not use Docassemble's usual missing variable
+# resolution, so you should make sure any text processing functions are safe to handle DAEmpty
+# objects.
+# You can provide local imports as a dictionary of lists. These will import from playground or runtime
+mako template local imports:
+  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
+# To import from an installed package or third-party Python package, provide a list of strings
+#mako template imports: 
+#  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
+# Ordinary question with or without fields
+question: |
+  % if event:
+  event: ${ event }
+  % endif
+  % if block_id:
+  id: ${ fix_id(block_id) }
+  % else:
+  id: ${ fix_id(question_text) }
+  % endif
+  question: |
+  ${ mako_indent(question_text,2) }
+  % if subquestion_text:
+  subquestion: |
+  ${ mako_indent(subquestion_text,2) }
+  % endif
+  % if field_list and (len(field_list) > 1 or not field_list[0].get_single_field_screen()):
+  fields:
+  % for field in field_list:
+  ${ field.field_entry_yaml() }
+  % endfor
+  % elif field_list and field_list[0].get_single_field_screen():
+  ${ field_list[0].get_single_field_screen() }
+  % endif
+  % if continue_button_field:
+  continue button field: ${ continue_button_field }
+  % endif
+# Signature screen
+signature: |
+  % if id:
+  id: ${ fix_id(id) }
+  % else:
+  id: ${ fix_id(question_text) }
+  % endif
+  question: |
+  ${ mako_indent(question_text,2) }
+  % if subquestion_text:
+  subquestion: |
+  ${ mako_indent(subquestion_text, 2) }
+  % endif
+  signature: ${ varname(field_list[0].raw_field_names[0]) }
+  % if under_text:
+  under: |
+    ${ under_text}
+  % endif
+preview screen: |
+  id: preview ${interview_label }
+  question: |
+    Preview your form before you sign it
+  subquestion: |
+    Here is a preview of the form you will sign on the next page.   
+    <%text>
+    ${ al_user_bundle.as_pdf(key='preview') }
+
+    Click the image to open it in a new tab. Click the "Make changes" button
+    to edit your answers.
+
+    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+    </%text>
+    Remember to come back to this window to continue and sign your form.
+  continue button field: ${ interview_label }_preview_question    
+download screen: |
+  id: download ${ interview_label }
+  event: ${ interview_label }_download
+  question: |
+    Your form is ready to download.
+  subquestion: |
+    <%text>
+    Thank you ${users}. Your form is ready to download and deliver.
+
+    View, download and send your form below. Click the "Make changes" button to fix any mistakes.
+
+    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+
+    ${ al_user_bundle.download_list_html() }
+
+    ${ al_user_bundle.send_button_html() }
+    </%text>
+  progress: 100
+# Code block
+code: |
+  code: |
+    % for line in lines:
+    ${ line }
+    % endfor
+# Objects block
+objects: |
+  objects:
+  % for object in objects:
+    - ${ object.name }: ${ object.type }${ using_string(object.params) }
+  % endfor
+# Mandatory block that is used in standalone forms.
+# Has the standard, required blocks we don't want if this
+# interview is included in another interview
+main order: |
+  ${ "######################" } Main order ######################
+  comment: |
+    This block includes the logic for standalone interviews.
+    Delete mandatory: True to include in another interview
+  mandatory: True
+  code: |
+    al_intro_screen
+    ${ interview_label }_intro
+    interview_order_${ interview_label }
+    signature_date
+    # Save anonymized interview statistics (customize the saved data below)
+    store_variables_snapshot(data={'zip': users[0].address.zip})
+    ${ interview_label }_preview_question
+    basic_questions_signature_flow
+    % for signature_field in signatures:
+    ${ signature_field }
+    % endfor
+    ${ interview_label }_download
+# Block used to control the order of interview-specific questions   
+interview order: |
+  ${ "####################" } Interview order #####################
+  comment: |
+    Controls order and branching logic for questions specific to this form
+  id: interview_order_${ interview_label }
+  code: |
+    % for field in logic_list:
+    % if not ( field == 'signature_date' or field.endswith('.signature')):
+    ${ field }
+    % endif
+    % endfor  
+    interview_order_${ interview_label } = True
+# Optional interview features
+features: |
+  features:
+  % for key in features:
+    - ${ key }: ${ features[key] }
+  % endfor    
+# Navigation sections
+# Note: we use a list of tuples to allow controlling the order of sections.
+# We could use OrderedDict instead but this is more explicit.
+# TODO: use tuple instead of dict in the parent class/YAML
+sections: |
+  sections:
+  % for section in sections:
+  % if isinstance(section, tuple) or isinstance(section, list):
+    - ${ section[0] }: ${ section[1] }
+  % else:
+    - ${ section}
+  % endif
+  % endfor
+# Interview-specific metadata, like title etc  
+metadata: |
+  % if comment:
+  comment: |
+    ${ mako_indent(comment, 2) }
+  % endif
+  metadata:
+  % for key in settings:
+    ${ key }: |
+  ${ mako_indent(settings[key], 4) }
+  % endfor
+  % if categories.any_true():
+    tags:
+  % for category in categories.true_values():
+      - ${ category }
+  % endfor
+  % endif
+# Form-specific metadata that goes into a dictionary, much of it reserved for future use
+# TODO: refactor to a Docassemble `data:` block
+al metadata: |
+  mandatory: True
+  comment: |
+    This contains metadata that will not be overwritten if this YAML file is included in another
+    file. Each file gets its own key in the interview_metadata dictionary.
+    Most keys are not currently used at runtime, other than "allowed courts".
+  code: |
+    interview_metadata
+    if not defined("interview_metadata['${ interview_label }']"):
+      interview_metadata.initializeObject("${ interview_label }")
+      interview_metadata["${ interview_label }"].update({
+        "title": "${ escape_quotes(oneline(title)) }",
+        "short title": "${ escape_quotes(oneline(short_title)) }",
+        "description": "${ escape_quotes(oneline(description)) }",
+        "original_form": "${ escape_quotes(oneline(original_form)) }",
+        "allowed courts": [
+          % for court in allowed_courts.true_values():
+          "${ escape_quotes(oneline(court)) }",
+          % endfor
+        ],
+        "categories": [
+          % for category in set(categories.true_values()) - {'Other'}:
+          "${ oneline(category) }",
+          % endfor
+          % if categories['Other']:
+          % for category in other_categories.split(','):
+          "${ escape_quotes(oneline(category.strip())) }",
+          % endfor
+          % endif
+        ],        
+        "logic block variable": "interview_order_${ interview_label }",
+        "attachment block variable": "${ interview_label }_attachment",
+        % if typical_role:
+        "typical role": "${ typical_role }",
+        % endif
+      })
+# Modules
+modules: |
+  modules:
+    % for module in modules:
+    - ${ str(module) }
+    % endfor
+# Includes
+include: |
+  include:
+    % for include in includes:
+    - ${ str(include) }
+    % endfor
+# interstitial question (question block without any fields)
+interstitial: |
+  % if comment:
+  comment: |
+  ${ mako_indent(comment, 2) }
+  % endif
+  % if block_id:
+  id: ${ fix_id(block_id) }
+  % elif varname(oneline(question_text)):
+  id: ${ varname(oneline(question_text)) }
+  % else:
+  id: ${ str(uuid.uuid4()) }
+  % endif
+  continue button field: ${ continue_button_field }
+  question: |
+  ${ mako_indent(question_text, 2) }
+  % if subquestion_text:
+  subquestion: |
+  ${ mako_indent(subquestion_text, 2) }
+  % endif
+# Creates the ALDocument objects representing individual templates in the
+# interview.
+# TODO: this could handle multiple attachment objects and generate
+# parameters dynamically to be more flexible
+attachment objects: |
+  objects:
+    - ${ attachment_variable_name }: ALDocument.using(title="${ description }", filename="${ filename }", enabled=True, has_addendum=False)
+bundle objects: |
+  objects:
+    - al_user_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
+    - al_court_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
+# Alternatively, could iterate
+# % for object in objects:
+#   - ${ object.name }: ALDocument${ using_string(object.params) }
+# % endfor
+# Creates ALDocumentBundle objects representing the collection of forms
+# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
+# Just a spacer element in the generated YAML  
+section marker: |
+  ${ "#######################" } ${ label } ##############################
+# Attachment block
+# TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
+attachment: |
+  attachment:
+    variable name: ${ attachment_variable_name }[i]
+    name: ${ attachment_variable_name }
+    filename: ${ varname(attachment_filename).replace('_','-') }
+    % if type == 'md':
+    content: |
+    ${ mako_indent(content, 4) }
+    % elif type == 'pdf':
+    skip undefined: True
+    pdf template file: ${ template_filename }
+    fields:
+      % for field in fields:
+  ${ field.attachment_yaml() }
+      % endfor
+    % else:
+    docx template file: ${ template_filename }
+    % endif
+review: |
+  % if block_id:
+  id: ${ fix_id(block_id) }
+  % endif
+  % if event:
+  event: ${ varname(event) }
+  % endif
+  question: |
+    Review your answers
+  % if subquestion_text:
+  subquestion: |
+  ${ mako_indent(subquestion_text, 2) }
+  % endif
+  review:
+  % for parent_coll in parent_collections:
+  ${ parent_coll.review_yaml() }
+  % endfor
+revisit page: |
+  continue button field: ${ var_name }.revisit
+  question: |
+    Edit ${ var_name }
+  subquestion: |
+    ${ "${ " + var_name + ".table }" }
+
+    ${ "${ " + var_name + ".add_action() }" }
+# It should be possible to migrate the revisit table to a Mako template
+revisit table: |
+  ${ item.table_page() }
