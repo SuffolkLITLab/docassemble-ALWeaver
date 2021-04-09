@@ -1087,6 +1087,7 @@ code: |
 event: install_package_event
 code: |
   data = {"key": install_packages_api_key,
+          "restart": 0
           }
   files = {'zip': interview_package_download }
   # This won't persist after backround task completes
