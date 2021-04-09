@@ -1126,6 +1126,7 @@ def get_person_variables(fieldslist,
                          people_suffixes = generator_constants.PEOPLE_SUFFIXES,
                          people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP,
                          reserved_person_pluralizers_map = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
+                         reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
                          custom_only=False):
   """
   Identify the field names that appear to represent people in the list of
@@ -1182,7 +1183,7 @@ def get_person_variables(fieldslist,
           # currently this is only trial_court
           people.add(re.sub(r"\d+$","",matches.groups()[0]))
   if custom_only:
-    return people - set(people_vars)
+    return people - set(reserved_pluralizers_map.values())
   else:
     return people
 
