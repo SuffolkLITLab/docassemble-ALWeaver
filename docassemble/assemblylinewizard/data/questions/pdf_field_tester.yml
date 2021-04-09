@@ -71,10 +71,10 @@ question: |
   Field list
 subquestion: |
 
-  Field name (bold if {reserved}) | Field type | {Internal docassemble name} (if different) | Max length
+  Field name (bold if {reserved}) | Field type | {Internal docassemble name} | Max length
   -----------|------------|-------------------|-----------
   % for field in fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''}${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${'Signature' if field[4] == '/Sig' else 'Checkbox' if field[4] == '/Btn' else "Text" if field[4] == '/Tx' else ':skull-crossbones:'} (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  ${ ":exclamation-triangle: " if ' ' in field[0] else ''}${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${'Signature' if field[4] == '/Sig' else 'Checkbox' if field[4] == '/Btn' else "Text" if field[4] == '/Tx' else ':skull-crossbones:'} (${field[4]}) | ${map_raw_to_final_display(field[0]) if is_reserved_label(field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
   The following are signature fields: ${comma_and_list(signature_fields)} 
