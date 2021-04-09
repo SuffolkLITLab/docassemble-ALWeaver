@@ -20,35 +20,6 @@ generator_constants.UNDEFINED_PERSON_PREFIXES = [
   "trial_court",
 ]
 
-# Plural vars representing people
-generator_constants.PEOPLE_VARS = [
-  'users',
-  'other_parties',
-  'plaintiffs',
-  'defendants',
-  'petitioners',
-  'respondents',
-  'spouses',
-  'parents',
-  'guardians',
-  'caregivers',
-  'attorneys',
-  'translators',
-  'debt_collectors',
-  'creditors',
-  'children',
-  'guardians_ad_litem',
-  'witnesses',
-  'decedents',
-  'interested_parties',
-]  
-
-# Part of handling plural labels
-generator_constants.RESERVED_VAR_PLURALS = generator_constants.PEOPLE_VARS + [
-  'courts',
-  'docket_numbers',
-]
-
 # Prefixes as they would appear in a PDF (singular)
 generator_constants.RESERVED_PREFIXES = ["user",
   "other_party",
@@ -77,8 +48,6 @@ generator_constants.RESERVED_PREFIXES = ["user",
   "trial_court",
   ]
 
-# reserved_pluralizers_map
-
 generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'user': 'users',
   'plaintiff': 'plaintiffs',
@@ -93,7 +62,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'translator': 'translators',
   'debt_collector': 'debt_collectors',
   'creditor': 'creditors',
-  # Non-s plurals
+  # Non "s" plurals
   'other_party': 'other_parties',
   'child': 'children',
   'guardian_ad_litem': 'guardians_ad_litem',
