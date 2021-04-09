@@ -452,7 +452,6 @@ class DAField(DAObject):
                      custom_people_plurals_map=custom_values.people_plurals_map,
                      reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-                     reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
@@ -466,7 +465,7 @@ class DAField(DAObject):
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
 
-    if (self.final_display_var in reserved_var_plurals
+    if (self.final_display_var in reserved_pluralizers_map.values()
          or self.final_display_var in custom_people_plurals_map.values()):
       return self.final_display_var + GATHER_CALL
 
@@ -911,7 +910,6 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   return map_raw_to_final_display(label, document_type=document_type,
@@ -919,7 +917,6 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               custom_people_plurals_map=custom_people_plurals_map,
               reserved_prefixes=reserved_prefixes,
               undefined_person_prefixes=undefined_person_prefixes,
-              reserved_var_plurals=reserved_var_plurals,
               reserved_pluralizers_map = reserved_pluralizers_map,
               reserved_suffixes_map=reserved_suffixes_map)
   
@@ -927,7 +924,6 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
@@ -943,7 +939,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   label = remove_multiple_appearance_indicator(label)
 
   if (label in reserved_whole_words
-   or label in reserved_var_plurals
+   or label in reserved_pluralizers_map.values() 
    or label in undefined_person_prefixes
    or label in custom_people_plurals_map.values()):
      return label
@@ -964,7 +960,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   adjusted_prefix = custom_people_plurals_map.get(prefix, adjusted_prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
-  if (adjusted_prefix in reserved_var_plurals
+  if (adjusted_prefix in reserved_pluralizers_map.values()
       or adjusted_prefix in custom_people_plurals_map.values()):
     digit = label_groups[2]
     if digit == '':
@@ -1027,21 +1023,10 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     return False
 
 
-# # TODO: Remove unused function
-# def get_regex(reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
-#     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
-
-#     # Does the ending matching a reserved name?
-#     # Note the ending list includes the . already
-#     ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
-#     ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
-
-#     return reserved_beginning_regex + '(.*)' + ending_reserved_regex
-
 ############################
 #  Identify reserved PDF labels
 ############################
-def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals = generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   '''Given a PDF label, returns whether the label fully
     matches a reserved prefix or a reserved prefix with a
     reserved suffix'''
@@ -1053,7 +1038,7 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
   if label in reserved_whole_words:
     return True
   # For the sake of time, this is the fastest way to get around something being plural
-  if label in reserved_var_plurals:
+  if label in reserved_pluralizers_map.values():
     return True
 
   # Break up label into its parts
@@ -1138,7 +1123,6 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
 
 def get_person_variables(fieldslist,
                          undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
-                         people_vars = generator_constants.PEOPLE_VARS,
                          people_suffixes = generator_constants.PEOPLE_SUFFIXES,
                          people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP,
                          reserved_person_pluralizers_map = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
@@ -1148,6 +1132,7 @@ def get_person_variables(fieldslist,
   string fields pulled from docx/PDF. Exclude people we know
   are singular Persons (such as trial_court).
   """
+  people_vars = reserved_person_pluralizers_map.values()
   people = set()
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
