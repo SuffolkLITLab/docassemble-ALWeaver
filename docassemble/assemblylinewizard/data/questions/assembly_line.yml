@@ -455,6 +455,7 @@ code: |
   metadata_code = interview.blocks.appendObject()
   metadata_code.template_key = "al metadata"
   metadata_code.data = {
+    "al_weaver_version": package_version_number,
     "interview_label": interview_label,
     "title": interview.title,
     "short_title": interview.short_title,

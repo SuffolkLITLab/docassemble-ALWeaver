@@ -13,7 +13,8 @@
 mako template local imports:
   interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
 # To import from an installed package or third-party Python package, provide a list of strings
-#mako template imports: 
+mako template imports: 
+  - from docassemble.base.util import today
 #  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
 question: |
@@ -190,6 +191,10 @@ al metadata: |
     if not defined("interview_metadata['${ interview_label }']"):
       interview_metadata.initializeObject("${ interview_label }")
       interview_metadata["${ interview_label }"].update({
+        % if al_weaver_version:
+        "al_weaver_version": "${ al_weaver_version }",
+        % endif
+        "generated on": "${ today().format("yyyy-MM-dd") }",
         "title": "${ escape_quotes(oneline(title)) }",
         "short title": "${ escape_quotes(oneline(short_title)) }",
         "description": "${ escape_quotes(oneline(description)) }",
