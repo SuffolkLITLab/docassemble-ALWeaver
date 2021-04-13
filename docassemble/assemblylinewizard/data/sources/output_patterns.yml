@@ -190,6 +190,9 @@ al metadata: |
     if not defined("interview_metadata['${ interview_label }']"):
       interview_metadata.initializeObject("${ interview_label }")
       interview_metadata["${ interview_label }"].update({
+        % if al_weaver_version:
+        "al_weaver_version": "${ al_weaver_version }",
+        % endif
         "title": "${ escape_quotes(oneline(title)) }",
         "short title": "${ escape_quotes(oneline(short_title)) }",
         "description": "${ escape_quotes(oneline(description)) }",
