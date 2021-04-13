@@ -905,7 +905,16 @@ subquestion: |
   You still need to download and upload the package to your Docassemble
   playground to finish editing and refining it.
   
+  % if install_packages_api_key:
   ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
+  % else:
+  **Sorry, you don't have an API key set up.** Ask your administrator to create
+  a Docassemble API key and save it to your configuration file, like this:
+  
+  ```
+  install packages api key: abcdeFGHIJ12345ZEKS
+  ```
+  % endif
   
 ---
 code: |
@@ -1046,29 +1055,22 @@ code: |
   else:
     waiting_screen_uninstall
   show_interview    
-  button_uninstall_package = True
----
-code: |
-  if poll_package_install_task.ready():
-    response(url=interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml', reset=1))
-  else:
-    waiting_screen_run
-  button_run_interview = True      
+  button_uninstall_package = True  
 ---
 id: run package
 event: run_package
 question: |
   Preview your package
 subquestion: |
-
-  ${ install_step1_status }
-
-  If the button below to run the interview does not work, try waiting
-  30 seconds.
+  % if not install_step1_status or (defined('task_status') and (not task_status or not task_succeeded)):
+  Something went wrong with package installation, sorry.
+  % elif not defined('task_status') or (defined('task_status') and task_status and not task_complete):
+  Please wait, the interview is not ready to run yet.
   
-  ${ action_button_html(url_action('button_run_interview'), label = "Run interview", new_window=True) }
-
-  ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }
+  <i class="fas fa-spinner fa-pulse"></i> 
+  % else:  
+  ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }  
+  % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
 
@@ -1077,6 +1079,7 @@ subquestion: |
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})
+check in: set_final_package_install_status  
 ---
 code: |
   install_packages_api_key = get_config('install packages api key')
@@ -1097,14 +1100,11 @@ code: |
 ---
 event: install_package_event
 code: |
-  import time
   data = {"key": install_packages_api_key,
           "restart": 0
           }
   files = {'zip': interview_package_download }
-  if task_not_yet_performed('install package'):
-    status = installer.post("package",data=data, files=files, task='install package')
-    
+  status = installer.post("package",data=data, files=files, task='install package')  
   background_response_action('save_status_to_answers', status=status)
 ---
 event: save_status_to_answers
@@ -1113,27 +1113,21 @@ code: |
   install_step1_status = action_argument('status')
   background_response()
 ---
+event: set_final_package_install_status
 code: |
-  poll_package_install_task = background_action('poll_package_install_event')
----
-event: poll_package_install_event
-code: |
-  if install_step1_status:
-    data = {"key": install_packages_api_key,
-            "task_id": status.get("task_id")
-            }
-    while False:
-      task_status = installer.get('package_update_status', data=data)
-      if task_status:
-        log(str(task_status))
-        if task_status.get('status') == 'working':
-          time.sleep(5) # 5 seconds
-        elif task_status.get('status') == 'completed':
-          log('Installation finished. Success: ' + str(status.get('ok')))
-          break
-      else:
-        break
-  background_response_action('save_final_status_to_answers', status=task_status)
+  data = {"key": install_packages_api_key,
+          "task_id": install_step1_status.get("task_id")
+          }
+  task_status = installer.get('package_update_status', data=data)
+  if task_status:
+    task_complete = task_status.get('status') == 'completed'
+    task_succeeded = task_status.get('ok') == True
+    log(str(task_status))
+  if task_status and task_complete:
+    if task_complete:
+      log('Installation finished. Success: ' + str(task_status.get('ok')))
+      background_response('refresh')
+  background_response_action()
 ---
 event: save_final_status_to_answers
 code: |
@@ -1145,11 +1139,6 @@ event: waiting_screen
 question: |
   Please wait while the package is installed
 reload: True    
----
-event: waiting_screen_run
-question: |
-  Please wait, the package is not ready to run yet
-reload: True  
 ---  
 event: waiting_screen_uninstall
 question: |
