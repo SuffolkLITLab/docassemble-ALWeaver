@@ -1048,14 +1048,25 @@ code: |
   show_interview    
   button_uninstall_package = True
 ---
+code: |
+  if poll_package_install_task.ready():
+    response(url=interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml', reset=1))
+  else:
+    waiting_screen_run
+  button_run_interview = True      
+---
 id: run package
 event: run_package
 question: |
   Preview your package
 subquestion: |
 
+  ${ install_step1_status }
+
   If the button below to run the interview does not work, try waiting
   30 seconds.
+  
+  ${ action_button_html(url_action('button_run_interview'), label = "Run interview", new_window=True) }
 
   ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }
 
@@ -1086,18 +1097,59 @@ code: |
 ---
 event: install_package_event
 code: |
+  import time
   data = {"key": install_packages_api_key,
           "restart": 0
           }
   files = {'zip': interview_package_download }
-  # This won't persist after backround task completes
-  status = installer.post("package",data=data, files=files)
+  if task_not_yet_performed('install package'):
+    status = installer.post("package",data=data, files=files, task='install package')
+    
+  background_response_action('save_status_to_answers', status=status)
+---
+event: save_status_to_answers
+code: |
+  # Save the background install status to the foreground
+  install_step1_status = action_argument('status')
+  background_response()
+---
+code: |
+  poll_package_install_task = background_action('poll_package_install_event')
+---
+event: poll_package_install_event
+code: |
+  if install_step1_status:
+    data = {"key": install_packages_api_key,
+            "task_id": status.get("task_id")
+            }
+    while False:
+      task_status = installer.get('package_update_status', data=data)
+      if task_status:
+        log(str(task_status))
+        if task_status.get('status') == 'working':
+          time.sleep(5) # 5 seconds
+        elif task_status.get('status') == 'completed':
+          log('Installation finished. Success: ' + str(status.get('ok')))
+          break
+      else:
+        break
+  background_response_action('save_final_status_to_answers', status=task_status)
+---
+event: save_final_status_to_answers
+code: |
+  # Save the background install status to the foreground
+  install_final_status = action_argument('status')
   background_response()
 ---  
 event: waiting_screen
 question: |
-  Package is being installed, please wait here
+  Please wait while the package is installed
 reload: True    
+---
+event: waiting_screen_run
+question: |
+  Please wait, the package is not ready to run yet
+reload: True  
 ---  
 event: waiting_screen_uninstall
 question: |
