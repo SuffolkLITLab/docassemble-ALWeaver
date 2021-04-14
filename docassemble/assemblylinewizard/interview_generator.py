@@ -409,8 +409,12 @@ class DAField(DAObject):
     elif hasattr(self, 'field_type') and self.field_type == 'number':
       format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ') }}\n' 
     elif self.field_type_guess == 'signature': 
-      comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-      format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
+      if self.final_display_var.endswith('].signature'): # This is an ALIndividual
+        # We don't need a comment with this more explanatory method name
+        format_str += '${{ ' + self.final_display_var + '_if_final(i) }}\n'
+      else: # this is less common, but not something we should break
+        comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
+        format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
     else:
       format_str += '${{ ' + self.final_display_var + ' }}\n'
 
