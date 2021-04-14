@@ -1189,7 +1189,7 @@ def get_person_variables(fieldslist,
   if custom_only:
     return people - set(reserved_pluralizers_map.values())
   else:
-    return people
+    return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
 def set_custom_people_map( people_var_names ):
   """Sets the map of custom people created by the developer."""
