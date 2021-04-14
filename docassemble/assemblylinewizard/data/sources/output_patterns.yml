@@ -7,9 +7,8 @@
 # about how the weaver works. OR: that could be a separate YAML file.
 #################################
 # All imports must be explicitly listed. They will not use Docassemble's usual missing variable
-# resolution, so you should make sure any text processing functions are safe to handle DAEmpty
-# objects.
-# You can provide local imports as a dictionary of lists. These will import from playground or runtime
+# resolution, so you should make sure any text processing functions are safe to handle DAEmpty objects.
+# You can provide local imports as a dictionary of lists. These will import from playground or runtime.
 mako template local imports:
   interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
 # To import from an installed package or third-party Python package, provide a list of strings
@@ -215,12 +214,6 @@ al metadata: |
         "typical role": "${ typical_role }",
         % endif
       })
-# Modules
-modules: |
-  modules:
-    % for module in modules:
-    - ${ str(module) }
-    % endfor
 # Includes
 include: |
   include:
@@ -247,46 +240,49 @@ interstitial: |
   subquestion: |
   ${ mako_indent(subquestion_text, 2) }
   % endif
-# Creates the ALDocument objects representing individual templates in the
-# interview.
-# TODO: this could handle multiple attachment objects and generate
-# parameters dynamically to be more flexible
-attachment objects: |
+# Creates the ALDocument objects representing individual templates in the interview.
+# Each attachment needs a separate object, but not a separate block.
+al-document objects: |
   objects:
-    - ${ attachment_variable_name }: ALDocument.using(title="${ description }", filename="${ filename }", enabled=True, has_addendum=False)
-bundle objects: |
+  % for v in attachment_attributes.values():   
+    - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=False)
+  % endfor
+# Creates ALDocumentBundle objects representing the collection of forms
+# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
+al-document-bundle objects: |
   objects:
-    - al_user_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
-    - al_court_bundle: ALDocumentBundle.using(elements=[${ attachment_variable_name }], filename="${ bundle_filename }.pdf", title="All forms to download for your records")
+    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements.values()]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements.values()]) }], filename="${ bundle_filename }", title="All forms to download for your records")
 # Alternatively, could iterate
 # % for object in objects:
 #   - ${ object.name }: ALDocument${ using_string(object.params) }
 # % endfor
-# Creates ALDocumentBundle objects representing the collection of forms
-# TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
 # Just a spacer element in the generated YAML  
 section marker: |
   ${ "#######################" } ${ label } ##############################
-# Attachment block
-# TODO: is the "interview.questions.templates_used" list needed for anything in the current weaver code?
-attachment: |
-  attachment:
-    variable name: ${ attachment_variable_name }[i]
-    name: ${ attachment_variable_name }
-    filename: ${ varname(attachment_filename).replace('_','-') }
-    % if type == 'md':
-    content: |
-    ${ mako_indent(content, 4) }
-    % elif type == 'pdf':
-    skip undefined: True
-    pdf template file: ${ template_filename }
-    fields:
-      % for field in fields:
+# Regular DA attachments block. 
+# Each attachment is specified separately, but all attachments share the same block.
+# The first attachment is the uploaded template file. Note that attachmentxxx[i] is an ALDocument object(a dictionary).
+da attachments block: |  
+  attachments:
+  % for v in attachment_attributes.values():  
+    - name: ${ v.attachment_varname.replace('_',' ') }
+      filename: ${ v.output_filename }     
+      variable name: ${ v.attachment_varname }[i]        
+    % if v.type == 'md':
+      content: |
+    ${ mako_indent(content, 6) }
+    % elif v.type == 'pdf':
+      skip undefined: True
+      pdf template file: ${ v.input_filename }
+      fields:
+      % for field in v.fields:
   ${ field.attachment_yaml() }
       % endfor
-    % else:
-    docx template file: ${ template_filename }
-    % endif
+    % else: #for now assume additional files are docx
+      docx template file: ${ v.input_filename }
+    % endif	    
+  % endfor	
 review: |
   % if block_id:
   id: ${ fix_id(block_id) }

@@ -19,17 +19,14 @@ features:
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  - modules: DAQuestion
-  - attachments: DAAttachmentList
-  - preview_attachments: DAAttachmentList
   - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
   - signature_fields: DAFieldList.using(gathered=True)
-  - questions: DAQuestionList.using(complete_attribute='complete')
+  - questions: DAQuestionList.using(complete_attribute='complete')  
   - interview_download: DAFile
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
-  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
+  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )  
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -92,8 +89,8 @@ subquestion: |
 fields:
   - Select a PDF or Word template: template_upload
     datatype: file
-    accept: |
-      ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    #accept: |
+    #  ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 help: |
   This interview has been run ${sequence} times.
 ---
@@ -118,11 +115,13 @@ fields:
       - Form that is not filed in a court: other_form
       - Letter: letter
       - Other: other
+    default: starts_case #lily
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
     none of the above: True
     code: |
       get_court_choices() + ['Other']
+    default: District Court #lily
   - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
@@ -142,6 +141,7 @@ fields:
       - Education: ED-00-00-00-00
       - Prisoners' Rights: RI-10-00-00-00
       - Other: Other
+    default: HO-00-00-00-00 #lily
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
@@ -243,6 +243,7 @@ fields:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
+    default: plaintiff #lily
   #- Number of users whose information can be filled in on this form: user_count
   #  choices:
   #    - One user of this form at a time: one
@@ -288,7 +289,7 @@ subquestion: |
   the form has in the case.
   % endif
 fields:
-  - code: people_quantity_question 
+  - code: people_quantity_question    
 help:
   label: |
     What is this about?
@@ -874,18 +875,20 @@ id: download your interview
 comment: | 
 event: show_interview
 question: |
-  All done: Download your interview
+  Congratulations, you have completed your draft interview!
 subquestion: |
+  
+  #### Download the interview as a Docassemble package  
+  Here is your package to download: ${ interview_package_download } 
 
-  ### Please download the generated interview below
+  After download,<br> 
+  1. Go to your **Playground** to add a new project.<br>
+  2. Open the new project's **Packages** folder.<br>
+  3. Use the third icon **Upload** to install this package.<br>
+  4. Go back to Playground, delete test.yml file, now you can see your interview file.
   
-  Download the YAML file only:  
-  [:download: Download YAML](${interview_download.url_for(attachment=True)})
-  
-  Download the interview as a Docassemble package:  
-  [:download: Download Package](${interview_package_download.url_for(attachment=True)})
-  
-  ### Preview of Docassemble interview file
+  _**You can preview your interview file before you download, or copy its content if you don't want to download the whole package.**_  
+  #### Preview your Docassemble interview file
   
   <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> View contents</a>
   
@@ -895,7 +898,7 @@ subquestion: |
   </pre>
   </div>
   
-  ### Advanced
+  #### Advanced
   
   If you want to test your interview before you leave this screen, click
   the "Install your interview" button. You will have a chance to uninstall
@@ -906,45 +909,67 @@ subquestion: |
   playground to finish editing and refining it.
   
   ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
-  
 ---
+objects: 
+  - labels_dict: DADict.using(auto_gather=False, gathered=True)
+  - setup_base: DAStaticFile.using(filename='setup.py')
+  - setup_final: DAFile  
+  - instruction_starts_case: DAStaticFile.using(filename='next_steps_starts_case.docx')    
+  # Here we add the "next_steps" docx files
+  # To add additional attachment files, follow this example
+  - instruction_existing_case: DAStaticFile.using(filename='next_steps_existing_case.docx')
+  - instruction_appeal: DAStaticFile.using(filename='next_steps_appeal.docx') 
+  - instruction_letter: DAStaticFile.using(filename='next_steps_letter.docx')
+  - instruction_other: DAStaticFile.using(filename='next_steps_other.docx')
+---
+# Prepare content for the Weaver's download screen.
 code: |
+  #1. Commit the generated interview 
   interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
-  interview_download.commit()
+  interview_download.commit()    
+  
+  #2. Construct the zip folder structure  
+  top_folder = "docassemble" + "-" + short_filename  
+  data_folder = top_folder + "/docassemble/" + short_filename + "/data"
+  question_folder = data_folder + "/questions"
+  template_folder = data_folder + "/templates"  
+  zipname = top_folder + '.zip'  
+     
+  #3. Prepare the package info and setup.py
+  pkg_info = "setup(name='docassemble." + short_filename + "',\n" +     """\
+      version='0.1.0',
+      description=('A docassemble extension.'),  
+      license='The MIT License',         
+     )
+  """  
+  setup_final.initialize(filename='setup.py')    
+  setup_final.write(setup_base.slurp() + pkg_info)
+  
+  #4. Add all the template files to a list
+  # Each list item is a file object, not a string.
+  template_files = [template_upload] 
+  # Here we add the "next_steps" docx file. 
+  # To add additional attachment files, follow this example
+  if interview.form_type == 'starts_case':
+    template_files.append(instruction_starts_case)
+  elif interview.form_type == 'existing_case':
+    template_files.append(instruction_existing_case)
+  elif interview.form_type == 'appeal':
+    template_files.append(instruction_appeal)
+  elif interview.form_type == 'letter':
+    template_files.append(instruction_letter)
+  elif interview.form_type == 'other_form':
+    template_files.append(instruction_other)    
 
-  folders_and_files = {
-    "templates": template_upload,
-    "questions": [interview_download],
-    "modules":[],
-    "static": [],
-    "sources": []
-  }
-  
-  create_package_zip(re.sub("\W","",interview.title), interview.package_info(), {"author name and email":"author@example.com"}, folders_and_files, interview_package_download)
-  
+  #5. Create a DA package
+  interview_package_download = zip_file(
+    {top_folder: setup_final},
+    {question_folder: interview_download},
+    {template_folder: template_files},
+    filename= zipname
+  )  
   wrote_interview = True
----
-need:
-  - template_upload[0].filename
-  - built_in_fields_used
-  - fields
-  - signature_fields
-  - interview.short_title
-code: |
-  # TODO: is there a good reason to have separate variable for PDF/DOCX filename?
-  # I think this is an artifact from when wizard only handled PDFs
-  attachment = attachments.appendObject()
-  attachment.filename = template_upload[0].filename
-  if template_upload[0].extension == 'pdf':
-    attachment.pdf_filename = template_upload[0].filename    
-    attachment.type = 'pdf'
-  else:
-    attachment.type = 'docx'
-    attachment.docx_filename = template_upload[0].filename
-  attachment.fields = built_in_fields_used + fields + signature_fields
-  attachment.name = interview.short_title
-  attachments.gathered = True
 ---
 need:
   - interview_label
@@ -958,50 +983,64 @@ code: |
   add_preview_question = True
 ---
 need:
-  - attachments
-  - attachment_variable_name
   - interview_label
-  - attachment.name
-  - attachment.type
 code: |
-  # This is the question that goes with the regular attachment
   end_question = interview.blocks.appendObject()
   end_question.template_key = 'download screen'
   end_question.data = {"interview_label": interview_label}
   add_end_question = True
----
-need:
-  - attachments
-  - attachment_variable_name
-  - interview_label
-  - attachment.name
-  - attachment.type
+---  
 code: |
-  # TODO(#113): allow multiple attachments here eventually
+  #-----------------------------------------------------------------
+  # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
+  #-----------------------------------------------------------------
+  # Set attributes for the upladed template file     
+  file1 = labels_dict.initializeObject('file1', DAObject)    
+  file1.input_filename = template_upload[0].filename
+  file1.output_filename = interview.file_name
+  file1.attachment_varname = attachment_variable_name    
+  file1.type = template_upload[0].extension  
+  file1.description = interview.description
+  file1.fields = built_in_fields_used + fields + signature_fields            
+      
+  # Set attributes for the "next_steps" docx. 
+  # To add any additional attachment files, follow this example.
+  if interview.form_type != 'other':     
+    file2 = labels_dict.initializeObject('file2', DAObject)    
+    file2.input_filename = 'next_steps_' + interview.form_type + '.docx'
+    file2.output_filename = 'Post-interview-instructions'
+    file2.attachment_varname = file2.output_filename.replace('-', '_')
+    file2.type = 'docx'
+    file2.description = 'next_steps docx file'
+    file2.fields = 'na'
+ 
+  # Bundl-name is a single value
+  if labels_dict.number() > 1:
+    bundle_name = file1.output_filename + '_package.pdf'
+  else:
+    bundle_name = file1.output_filename + '.pdf'
+    
+  #-----------------------------------------------------------------
+  # Use the above data to generate blocks related to attachment files.
+  #-----------------------------------------------------------------
+  # ALDocument objects. 
   attachment_objects  = interview.blocks.appendObject()
-  attachment_objects.template_key = "attachment objects"
+  attachment_objects.template_key = "al-document objects"
   attachment_objects.data = {
-    "attachment_variable_name": attachment_variable_name,
-    "filename": attachment.filename,
-    "description": interview.description
+    "attachment_attributes": labels_dict,    
   }
-  
+  # ALDocumentBundle objects.  
   attachment_bundles = interview.blocks.appendObject()
-  attachment_bundles.template_key = "bundle objects"
+  attachment_bundles.template_key = "al-document-bundle objects"
   attachment_bundles.data = {
-    "attachment_variable_name": attachment_variable_name,
-    "bundle_filename": interview.file_name,        
+    "bundle_elements": labels_dict,
+    "bundle_filename": bundle_name,        
   }
-
-  # This is the place to handle multiple files--i.e., next_steps document
+  # Regular DA attachments block.   
   attachment_block = interview.blocks.appendObject()
-  attachment_block.template_key = 'attachment'
+  attachment_block.template_key = 'da attachments block'
   attachment_block.data = {
-    "attachment_variable_name": attachment_variable_name,
-    "attachment_filename": interview.file_name,
-    "type": attachment.type,
-    "template_filename": attachment.filename,
-    "fields": attachment.fields
+    "attachment_attributes": labels_dict,    
   }
   
   add_attachment = True
@@ -1062,10 +1101,10 @@ subquestion: |
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
 
   Download the YAML file only:  
-  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  [:download: Download YAML](${interview_download})
   
   Download the interview as a Docassemble package:  
-  [:download: Download Package](${interview_package_download.url_for(attachment=True)})
+  [:download: Download Package](${interview_package_download})
 ---
 code: |
   install_packages_api_key = get_config('install packages api key')
