@@ -4,6 +4,15 @@ A tool to help generate draft interviews for the docassemble platform. Tightly l
 
 ## History
 
+* 2021-04-14 Multiple fixes:
+    * Migrated to more flexible Mako template structure for generated 
+      interview blocks
+    * Package can be installed (for test purposes) after being
+      generated
+    * Various refactors and code cleanup
+    * Simplified and improved generated code and order of blocks
+    * Added version number/date stamp to generated code
+
 * 2021-03-09 Extensive improvements:
     * Improvements to review screens
     * Question/field editing and reordering
