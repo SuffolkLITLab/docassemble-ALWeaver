@@ -411,7 +411,7 @@ class DAField(DAObject):
     elif self.field_type_guess == 'signature': 
       if self.final_display_var.endswith('].signature'): # This is an ALIndividual
         # We don't need a comment with this more explanatory method name
-        format_str += '${{ ' + self.final_display_var[:-9] + 'signature_if_final(i) }}\n'
+        format_str += '${{ ' + self.final_display_var + '_if_final(i) }}\n'
       else: # this is less common, but not something we should break
         comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
         format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
