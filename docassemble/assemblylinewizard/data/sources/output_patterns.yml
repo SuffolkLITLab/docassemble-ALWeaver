@@ -279,7 +279,7 @@ da attachments block: |
       % for field in v.fields:
   ${ field.attachment_yaml() }
       % endfor
-    % else: #for now assume additional files are docx
+    % else: 
       docx template file: ${ v.input_filename }
     % endif	    
   % endfor	

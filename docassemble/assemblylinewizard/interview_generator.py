@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from docx2python import docx2python
 from docassemble.base.error import DAError
-from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAFileList, path_and_mimetype, user_info
+from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAStaticFile, DAFileList, path_and_mimetype, user_info
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
@@ -26,7 +26,7 @@ mako.runtime.UNDEFINED = DAEmpty()
 TypeType = type(type(None))
 
 __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
-           'DAQuestion', 'DAInterview',  'to_yaml_file', \
+           'DAQuestion', 'DAInterview', 'to_yaml_file', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
@@ -54,6 +54,7 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
   """
   Take the pdf_field_tuple and estimate the number of characters that can fit
   in the field, based on the x/y bounding box.
+
   0: horizontal start
   1: vertical start
   2: horizontal end
@@ -90,9 +91,6 @@ class DABlock(DAObject):
     representing a Mako template. Optional: provide list of imports.
     """
     mako.runtime.UNDEFINED = DAEmpty()
-    # Ensure we weren't passed an empty list of imports NOTE: is this important?
-    if not imports:
-      imports = ["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"]
     template = mako.template.Template(template_string, imports=imports)
     return template.render(**self.data)
 
@@ -140,6 +138,7 @@ class DAInterview(DAObject):
     """ 
     This class represents the final YAML output. It has a method to output
     to a string.
+
     It is designed to load and store a list of Mako templates representing each
     block type from a YAML file.
     """
@@ -152,6 +151,10 @@ class DAInterview(DAObject):
         super().init(*pargs, **kwargs)
         self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
+        if getattr(self, 'template_path'):
+          self._load_templates(self.template_path)
+        else:
+          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
         
     def package_info(self)->dict:
         info = dict()
@@ -173,10 +176,6 @@ class DAInterview(DAObject):
         """
         Render and return the source of all blocks in the interview as a YAML string.
         """
-        if getattr(self, 'template_path'):
-          self._load_templates(self.template_path)
-        else:
-          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
         text = ""
         for block in self.blocks + self.questions.elements:
           text += "---\n"
@@ -184,7 +183,10 @@ class DAInterview(DAObject):
           local_imports = self.templates.get('mako template local imports',[])
           formatted_local_imports = [ mako_local_import_str(user_info().package, import_key, local_imports[import_key]) for import_key in local_imports ]
           imports = imports + formatted_local_imports
-          text += block.source(self.templates.get(block.template_key), imports=imports)
+          if imports:
+            text += block.source(self.templates.get(block.template_key), imports=imports)
+          else:
+            text += block.source(self.templates.get(block.template_key))
         return text
 
     def _load_templates(self, template_path:str)->None:
@@ -301,7 +303,7 @@ class DAField(DAObject):
 
   def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:
-      return "    maxlength: {}\n".format(self.maxlength)
+      return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
 
@@ -323,13 +325,13 @@ class DAField(DAObject):
       if self.field_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_type == 'email':
-        content += self._maxlength_str()
+        content += self._maxlength_str() + '\n'
       elif self.field_type == 'range':
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
-      content += self._maxlength_str()
+      content += self._maxlength_str() + '\n'
     
     return content.rstrip('\n')
 
@@ -427,6 +429,7 @@ class DAField(DAObject):
                      custom_people_plurals_map=custom_values.people_plurals_map,
                      reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                      undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+                     reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
                      reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
@@ -440,7 +443,7 @@ class DAField(DAObject):
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
 
-    if (self.final_display_var in reserved_pluralizers_map.values()
+    if (self.final_display_var in reserved_var_plurals
          or self.final_display_var in custom_people_plurals_map.values()):
       return self.final_display_var + GATHER_CALL
 
@@ -525,8 +528,10 @@ class ParentCollection(object):
   """A ParentCollection is "highest" level of data structure containing some DAField.
   For example, the parent collection for `users[0].name.first` is `users`, since that is the list 
   that contains the user object of the `name` attribute that we are referencing.
+
   Some other examples: `trial_court` is the parent of `trial_court.division`, and for primitive
   variables like `my_string`, the parent collection is just `my_string`.
+
   The parent collection is useful for review screens, where we want to group related fields 
   """
   def __init__(self, var_name: str, var_type: str, fields: List[DAField]):
@@ -674,6 +679,7 @@ class DAFieldList(DAList):
 class DAQuestion(DABlock):
   """
   Special DABlock that you can iteratively build in Assembly Line Weaver.
+
   Defaults to using the 'question' template and adds "field_list" attribute.
   """
   field_list:DAFieldList
@@ -807,9 +813,11 @@ def get_docx_variables( text:str )->set:
   """
   Given the string from a docx file with fairly simple
   code), returns a list of everything that looks like a jinja variable in the string.
+
   Limits: some attributes and methods might not be designed to be directly
   assigned in docassemble. Methods are stripped, but you may be left with
   something you didn't intend. This is only going to help reach a draft interview.
+
   Special handling for methods that look like they belong to Individual/Address classes.
   """
   #   Can be easily tested in a repl using the libs keyword and re
@@ -880,6 +888,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   return map_raw_to_final_display(label, document_type=document_type,
@@ -887,6 +896,7 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               custom_people_plurals_map=custom_people_plurals_map,
               reserved_prefixes=reserved_prefixes,
               undefined_person_prefixes=undefined_person_prefixes,
+              reserved_var_plurals=reserved_var_plurals,
               reserved_pluralizers_map = reserved_pluralizers_map,
               reserved_suffixes_map=reserved_suffixes_map)
   
@@ -894,6 +904,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+              reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS,
               reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
               reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
@@ -909,7 +920,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   label = remove_multiple_appearance_indicator(label)
 
   if (label in reserved_whole_words
-   or label in reserved_pluralizers_map.values() 
+   or label in reserved_var_plurals
    or label in undefined_person_prefixes
    or label in custom_people_plurals_map.values()):
      return label
@@ -930,7 +941,7 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   adjusted_prefix = custom_people_plurals_map.get(prefix, adjusted_prefix)
   # With reserved plurals, we're always using an index
   # of the plural version of the prefix of the label
-  if (adjusted_prefix in reserved_pluralizers_map.values()
+  if (adjusted_prefix in reserved_var_plurals
       or adjusted_prefix in custom_people_plurals_map.values()):
     digit = label_groups[2]
     if digit == '':
@@ -993,10 +1004,21 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
     return False
 
 
+# # TODO: Remove unused function
+# def get_regex(reserved_var_plurals=generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+#     reserved_beginning_regex = r'(^' + '|'.join(reserved_var_plurals) + ')'
+
+#     # Does the ending matching a reserved name?
+#     # Note the ending list includes the . already
+#     ending_reserved_regex = '(' + '|'.join(list(filter(None,reserved_suffixes_map.values()))).replace('(',r'\(').replace(')',r'\)').replace('.',r'\.')
+#     ending_reserved_regex += '|' + '|'.join(docx_only_suffixes) + ')'
+
+#     return reserved_beginning_regex + '(.*)' + ending_reserved_regex
+
 ############################
 #  Identify reserved PDF labels
 ############################
-def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED_WHOLE_WORDS, reserved_prefixes = generator_constants.RESERVED_PREFIXES, reserved_var_plurals = generator_constants.RESERVED_VAR_PLURALS, reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   '''Given a PDF label, returns whether the label fully
     matches a reserved prefix or a reserved prefix with a
     reserved suffix'''
@@ -1008,7 +1030,7 @@ def is_reserved_label(label, reserved_whole_words = generator_constants.RESERVED
   if label in reserved_whole_words:
     return True
   # For the sake of time, this is the fastest way to get around something being plural
-  if label in reserved_pluralizers_map.values():
+  if label in reserved_var_plurals:
     return True
 
   # Break up label into its parts
@@ -1093,17 +1115,16 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
 
 def get_person_variables(fieldslist,
                          undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
+                         people_vars = generator_constants.PEOPLE_VARS,
                          people_suffixes = generator_constants.PEOPLE_SUFFIXES,
                          people_suffixes_map = generator_constants.PEOPLE_SUFFIXES_MAP,
                          reserved_person_pluralizers_map = generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
-                         reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
                          custom_only=False):
   """
   Identify the field names that appear to represent people in the list of
   string fields pulled from docx/PDF. Exclude people we know
   are singular Persons (such as trial_court).
   """
-  people_vars = reserved_person_pluralizers_map.values()
   people = set()
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
@@ -1153,7 +1174,7 @@ def get_person_variables(fieldslist,
           # currently this is only trial_court
           people.add(re.sub(r"\d+$","",matches.groups()[0]))
   if custom_only:
-    return people - set(reserved_pluralizers_map.values())
+    return people - set(people_vars)
   else:
     return people
 
@@ -1169,9 +1190,11 @@ def using_string(params:dict, elements_as_variable_list:bool=False)->str:
   Provide a dictionary of parameters as an argument.
   Returns a string like: ".using(param='value', param2=True, param3=3)"
   given a dictionary of {"param":"value","param2":True, "param3":3}.
+
   Parameters will be converted using `repr`.
   Special case: the parameter "elements" given a list of strings will
   be rendered as a list of variables instead if elements_as_variable_list=True.
+
   TODO: this is relatively rigid, but is simplest for current needs. Could easily
   adjust the template or not use this function.
   """
@@ -1211,6 +1234,7 @@ def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_
     modules
     static
     sources
+
   Strucure of a docassemble package:
   + docassemble-PKGNAME/
       LICENSE
