@@ -26,7 +26,7 @@ mako.runtime.UNDEFINED = DAEmpty()
 TypeType = type(type(None))
 
 __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
-           'DAQuestion', 'DAInterview', 'DAAttachmentList', 'DAAttachment', 'to_yaml_file', \
+           'DAQuestion', 'DAInterview', 'to_yaml_file', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
@@ -77,29 +77,6 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
 
   max_chars = num_rows * num_cols
   return max_chars
-
-
-class DAAttachment(DAObject):
-    """This class represents the attachment block we will create in the final output YAML"""
-    def init(self, **kwargs):
-        return super().init(**kwargs)
-
-class DAAttachmentList(DAList):
-    """This is a list of DAAttachment objects"""
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DAAttachment
-        self.auto_gather = False
-    def url_list(self, project='default'):
-        output_list = list()
-        for x in self.elements:
-            if x.type == 'md':
-                output_list.append('[`' + x.markdown_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", file=x.markdown_filename, project=project) + ')')
-            elif x.type == 'pdf':
-                output_list.append('[`' + x.pdf_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
-            elif x.type == 'docx':
-                output_list.append('[`' + x.docx_filename + '`](' + docassemble.base.functions.url_of("playgroundfiles", section="template", project=project) + ')')
-        return docassemble.base.functions.comma_and_list(output_list)
 
 class DABlock(DAObject):
   """
@@ -326,7 +303,7 @@ class DAField(DAObject):
 
   def _maxlength_str(self) -> str:
     if hasattr(self, 'maxlength') and self.maxlength:
-      return "    maxlength: {}\n".format(self.maxlength)
+      return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
 
@@ -348,13 +325,13 @@ class DAField(DAObject):
       if self.field_type in ['integer', 'currency']:
         content += "    min: 0\n"
       elif self.field_type == 'email':
-        content += self._maxlength_str()
+        content += self._maxlength_str() + '\n'
       elif self.field_type == 'range':
         content += "    min: {}\n".format(self.range_min)
         content += "    max: {}\n".format(self.range_max)
         content += "    step: {}\n".format(self.range_step)
     else:  # a standard text field
-      content += self._maxlength_str()
+      content += self._maxlength_str() + '\n'
     
     return content.rstrip('\n')
 
