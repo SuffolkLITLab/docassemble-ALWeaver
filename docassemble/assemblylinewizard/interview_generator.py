@@ -114,6 +114,9 @@ class DABlock(DAObject):
     representing a Mako template. Optional: provide list of imports.
     """
     mako.runtime.UNDEFINED = DAEmpty()
+    # Ensure we weren't passed an empty list of imports NOTE: is this important?
+    if not imports:
+      imports = ["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"]
     template = mako.template.Template(template_string, imports=imports)
     return template.render(**self.data)
 
@@ -174,10 +177,6 @@ class DAInterview(DAObject):
         super().init(*pargs, **kwargs)
         self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
-        if getattr(self, 'template_path'):
-          self._load_templates(self.template_path)
-        else:
-          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
         
     def package_info(self)->dict:
         info = dict()
@@ -199,6 +198,10 @@ class DAInterview(DAObject):
         """
         Render and return the source of all blocks in the interview as a YAML string.
         """
+        if getattr(self, 'template_path'):
+          self._load_templates(self.template_path)
+        else:
+          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
         text = ""
         for block in self.blocks + self.questions.elements:
           text += "---\n"
@@ -206,10 +209,7 @@ class DAInterview(DAObject):
           local_imports = self.templates.get('mako template local imports',[])
           formatted_local_imports = [ mako_local_import_str(user_info().package, import_key, local_imports[import_key]) for import_key in local_imports ]
           imports = imports + formatted_local_imports
-          if imports:
-            text += block.source(self.templates.get(block.template_key), imports=imports)
-          else:
-            text += block.source(self.templates.get(block.template_key))
+          text += block.source(self.templates.get(block.template_key), imports=imports)
         return text
 
     def _load_templates(self, template_path:str)->None:
