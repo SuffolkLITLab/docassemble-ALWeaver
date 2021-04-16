@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from docx2python import docx2python
 from docassemble.base.error import DAError
-from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAStaticFile, DAFileList, path_and_mimetype, user_info
+from docassemble.base.util import log, space_to_underscore, bold, DAObject, DAList, DAFile, DAFileList, path_and_mimetype, user_info
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
