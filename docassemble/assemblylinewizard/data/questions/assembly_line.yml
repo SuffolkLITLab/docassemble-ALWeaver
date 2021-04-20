@@ -918,8 +918,8 @@ subquestion: |
   
 ---
 objects: 
-  - labels_dict: DADict.using(auto_gather=False, gathered=True)
-  - setup_base: DAStaticFile.using(filename='setup.py')
+  - labels_lists: DAList.using(auto_gather=False, gathered=True)
+  - setup_base: DAStaticFile.using(filename='setup_base.py')
   - setup_final: DAFile  
   - instruction_starts_case: DAStaticFile.using(filename='next_steps_starts_case.docx')    
   # Here we add the "next_steps" docx files
@@ -931,19 +931,19 @@ objects:
 ---
 # Prepare content for the Weaver's download screen.
 code: |
-  #1. Commit the generated interview 
+  # 1. Commit the generated interview 
   interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()    
   
-  #2. Construct the zip folder structure  
+  # 2. Construct the zip folder structure  
   top_folder = "docassemble" + "-" + short_filename  
   data_folder = top_folder + "/docassemble/" + short_filename + "/data"
   question_folder = data_folder + "/questions"
   template_folder = data_folder + "/templates"  
   zipname = top_folder + '.zip'  
      
-  #3. Prepare the package info and setup.py
+  # 3. Prepare the package info and setup.py
   pkg_info = "setup(name='docassemble." + short_filename + "',\n" +     """\
       version='0.1.0',
       description=('A docassemble extension.'),  
@@ -953,7 +953,7 @@ code: |
   setup_final.initialize(filename='setup.py')    
   setup_final.write(setup_base.slurp() + pkg_info)
   
-  #4. Add all the template files to a list
+  # 4. Add all the template files to a list
   # Each list item is a file object, not a string.
   template_files = [template_upload] 
   # Here we add the "next_steps" docx file. 
@@ -969,7 +969,7 @@ code: |
   elif interview.form_type == 'other_form':
     template_files.append(instruction_other)    
 
-  #5. Create a DA package
+  # 5. Create a DA package
   interview_package_download = zip_file(
     {top_folder: setup_final},
     {question_folder: interview_download},
@@ -1002,7 +1002,7 @@ code: |
   # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
   #-----------------------------------------------------------------
   # Set attributes for the upladed template file     
-  file1 = labels_dict.initializeObject('file1', DAObject)    
+  file1 = labels_lists.appendObject()    
   file1.input_filename = template_upload[0].filename
   file1.output_filename = interview.file_name
   file1.attachment_varname = attachment_variable_name    
@@ -1013,7 +1013,7 @@ code: |
   # Set attributes for the "next_steps" docx. 
   # To add any additional attachment files, follow this example.
   if interview.form_type != 'other':     
-    file2 = labels_dict.initializeObject('file2', DAObject)    
+    file2 = labels_lists.appendObject()    
     file2.input_filename = 'next_steps_' + interview.form_type + '.docx'
     file2.output_filename = 'Post-interview-instructions'
     file2.attachment_varname = file2.output_filename.replace('-', '_')
@@ -1022,7 +1022,7 @@ code: |
     file2.fields = 'na'
  
   # Bundl-name is a single value
-  if labels_dict.number() > 1:
+  if len(labels_lists) > 1:
     bundle_name = file1.output_filename + '_package.pdf'
   else:
     bundle_name = file1.output_filename + '.pdf'
@@ -1034,20 +1034,20 @@ code: |
   attachment_objects  = interview.blocks.appendObject()
   attachment_objects.template_key = "al-document objects"
   attachment_objects.data = {
-    "attachment_attributes": labels_dict,    
+    "attachment_attributes": labels_lists,    
   }
   # ALDocumentBundle objects.  
   attachment_bundles = interview.blocks.appendObject()
   attachment_bundles.template_key = "al-document-bundle objects"
   attachment_bundles.data = {
-    "bundle_elements": labels_dict,
+    "bundle_elements": labels_lists,
     "bundle_filename": bundle_name,        
   }
   # Regular DA attachments block.   
   attachment_block = interview.blocks.appendObject()
   attachment_block.template_key = 'da attachments block'
   attachment_block.data = {
-    "attachment_attributes": labels_dict,    
+    "attachment_attributes": labels_lists,    
   }
   
   add_attachment = True

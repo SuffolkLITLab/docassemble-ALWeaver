@@ -249,15 +249,15 @@ interstitial: |
 # Each attachment needs a separate object, but not a separate block.
 al-document objects: |
   objects:
-  % for v in attachment_attributes.values():   
+  % for v in attachment_attributes:   
     - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=False)
   % endfor
 # Creates ALDocumentBundle objects representing the collection of forms
 # TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
 al-document-bundle objects: |
   objects:
-    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements.values()]) }], filename="${ bundle_filename }", title="All forms to download for your records")
-    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements.values()]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
 # Alternatively, could iterate
 # % for object in objects:
 #   - ${ object.name }: ALDocument${ using_string(object.params) }
@@ -270,7 +270,7 @@ section marker: |
 # The first attachment is the uploaded template file. Note that attachmentxxx[i] is an ALDocument object(a dictionary).
 da attachments block: |  
   attachments:
-  % for v in attachment_attributes.values():  
+  % for v in attachment_attributes:  
     - name: ${ v.attachment_varname.replace('_',' ') }
       filename: ${ v.output_filename }     
       variable name: ${ v.attachment_varname }[i]        
