@@ -1,0 +1,17 @@
+name: Run weaver tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+
+  test-weaver:
+    runs-on: ubuntu-latest
+
+    name: Run weaver tests
+    steps:
+      - run: pip3 install virtualenv
+      - run: virtualenv -p python3.8 venv
+      - run: venv/bin/pip install -r docassemble/assemblylinewizard/requirements.txt
+      - run: venv/bin/pip install --editable .
