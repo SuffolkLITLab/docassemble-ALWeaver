@@ -875,28 +875,31 @@ question: |
   Congratulations, you have completed your draft interview!
 subquestion: |
   
-  #### Download the interview as a Docassemble package  
-  Here is your package to download: ${ interview_package_download } 
+  #### Download the generated interview 
+  **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
+    
+  ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download Your Package') }
 
   After download,<br> 
-  1. Go to your **Playground** to add a new project.<br>
-  2. Open the new project's **Packages** folder.<br>
-  3. Use the third icon **Upload** to install this package.<br>
+  1. Go to your _Playground_ to add a new project.<br>
+  2. Open the new project's _Packages_ folder.<br>
+  3. Use the third icon _Upload_ to install this package.<br>
   4. Go back to Playground, delete test.yml file, now you can see your interview file.
   
-  _**You can preview your interview file before you download, or copy its content if you don't want to download the whole package.**_  
-  #### Preview your Docassemble interview file
+  **If you rerun the Weaver and only want the yml file**, you can just download it below:  
+     
+  ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download Your Yaml File') }
   
-  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> View contents</a>
+  #### Advanced  
+  
+  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> Review your interview yml code</a>
   
   <div class="collapse" id="yaml_source">
   <pre>
   ${indent_by(interview.source(),4)}
   </pre>
   </div>
-  
-  #### Advanced
-  
+    
   If you want to test your interview before you leave this screen, click
   the "Install your interview" button. You will have a chance to uninstall
   it once you are done. This can be a quick way to test it interactively 
@@ -1112,11 +1115,11 @@ subquestion: |
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
 
   Download the YAML file only:  
-  [:download: Download YAML](${interview_download})
+  [:download: Download YAML](${interview_download.url_for(attachment=True)})
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})
-check in: set_final_package_install_status  
+check in: set_final_package_install_status
 ---
 code: |
   install_packages_api_key = get_config('install packages api key')
