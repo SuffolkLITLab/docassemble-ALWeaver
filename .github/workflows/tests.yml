@@ -11,6 +11,9 @@ jobs:
 
     name: Run weaver tests
     steps:
+      - run: sudo apt-get -y install libcurl4-openssl-dev
+      - name: Checkout
+        uses: actions/checkout@v2
       - run: pip3 install virtualenv
       - run: virtualenv -p python3.8 venv
       - run: venv/bin/pip install -r docassemble/assemblylinewizard/requirements.txt
