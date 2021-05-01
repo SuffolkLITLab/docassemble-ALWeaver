@@ -1,5 +1,4 @@
 docassemble==1.2.41
 docassemble.base==1.2.41
-docassemble.demo==1.2.41
 pyyaml
 docx2python
