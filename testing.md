@@ -49,9 +49,9 @@ To run the tests, make sure your command prompt is in your project's directory a
 
 ```
 python3 -m unittest discover
-python3 -m unittest test_file
-python3 -m unittest test_file.TestClass
-python3 -m unittest test_file.TestClass.test_method
+python3 -m unittest docassemble.assemblylinewizard.test_file
+python3 -m unittest docassemble.assemblylinewizard.test_file.TestClass
+python3 -m unittest docassemble.assemblylinewizard.test_file.TestClass.test_method
 ```
 
 ### Stop
