@@ -45,13 +45,23 @@ Everytime you want to work on testing, enter your virtual environment with
 $ source venv/bin/activate
 ```
 
-To run the tests, make sure your command prompt is in your project's directory and use one the following commands using your own file and class names where needed. These are listed in order of "runs all tests" to "runs one test":
+To run the tests, make sure your command prompt is in your project's directory (`docassemble-assemblylinewizard`) and run:
+```
+python3 -m unittest discover
+```
+
+You can also run fewer tests by getting more specific with your testing paths. For example, to run just the `test_mapped_scenarios` method in `test_map_names.py`, you can run:
+```
+python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames.test_mapped_scenarios`
+```
+
+The lines below are all valid ways to run tests. They are listed in order of "runs all tests" to "runs one test":
 
 ```
 python3 -m unittest discover
-python3 -m unittest docassemble.assemblylinewizard.test_file
-python3 -m unittest docassemble.assemblylinewizard.test_file.TestClass
-python3 -m unittest docassemble.assemblylinewizard.test_file.TestClass.test_method
+python3 -m unittest docassemble.assemblylinewizard.test_map_names
+python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames
+python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames.test_mapped_scenarios
 ```
 
 ### Stop
