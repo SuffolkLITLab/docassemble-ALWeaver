@@ -21,7 +21,7 @@ pip3 install -r docassemble/assemblylinewizard/requirements.txt
 pip3 install --editable .
 ```
 
-<!-- I had to run `virtualenv -p /usr/local/opt/python@3.8/bin/python3 venv` for the second line -->
+<!-- I had to run `virtualenv -p /usr/local/opt/python@3.8/bin/python3 venv` for the second line. I'm on OSX 10.14.5, but I also have a bunch of weird stuff set up in my configs from waaay back. If we can replicate this on a similar system that doesn't have a bunch of configs set for python, we can add this as a visible warning. -->
 
 (I used `pip3` and `python3` above, because I have both Python 2 and Python 3 on my machine, but you
 can use just `pip` and `python` if you only have Python 3.)
