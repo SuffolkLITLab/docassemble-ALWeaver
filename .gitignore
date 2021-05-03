@@ -2,3 +2,4 @@
 docassemble/assemblylinewizard/docassemble*
 .history/
 .vscode/
+*.egg-info
