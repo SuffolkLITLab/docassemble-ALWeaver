@@ -213,9 +213,9 @@ class TestMapNames(unittest.TestCase):
         # This is True if this test is run from generator-test.yml
         if run_from_yaml:
             return results
-        self.assertEqual(sum([len(passed[sc[1]]) for sc in self.scenarios]),
-                         sum([len(sc[0]) for sc in self.scenarios]))
-        self.assertEqual(sum([len(errored[sc[1]]) for sc in self.scenarios]), 0)
+        self.assertEqual(sum([len(passed[sc[1]]) for sc in test_scenarios]),
+                         sum([len(sc[0]) for sc in test_scenarios]))
+        self.assertEqual(sum([len(errored[sc[1]]) for sc in test_scenarios]), 0)
 
     def run_scenarios(self, scenarios, function):
         errored = []
