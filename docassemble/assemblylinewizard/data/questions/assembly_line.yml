@@ -22,11 +22,11 @@ objects:
   - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
   - signature_fields: DAFieldList.using(gathered=True)
-  - questions: DAQuestionList.using(complete_attribute='complete')  
+  - questions: DAQuestionList.using(complete_attribute='complete')
   - interview_download: DAFile
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
-  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )  
+  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -114,12 +114,12 @@ fields:
       - Appeal: appeal
       - Form that is not filed in a court: other_form
       - Letter: letter
-      - Other: other    
+      - Other: other
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
     none of the above: True
     code: |
-      get_court_choices() + ['Other']    
+      get_court_choices() + ['Other']
   - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
@@ -138,7 +138,7 @@ fields:
       - Public Benefits: BE-00-00-00-00
       - Education: ED-00-00-00-00
       - Prisoners' Rights: RI-10-00-00-00
-      - Other: Other    
+      - Other: Other
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
@@ -239,7 +239,7 @@ fields:
     choices:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
-      - Could be either: unknown    
+      - Could be either: unknown
   #- Number of users whose information can be filled in on this form: user_count
   #  choices:
   #    - One user of this form at a time: one
@@ -285,7 +285,7 @@ subquestion: |
   the form has in the case.
   % endif
 fields:
-  - code: people_quantity_question    
+  - code: people_quantity_question
 help:
   label: |
     What is this about?
@@ -899,7 +899,6 @@ subquestion: |
   ${indent_by(interview.source(),4)}
   </pre>
   </div>
-    
   If you want to test your interview before you leave this screen, click
   the "Install your interview" button. You will have a chance to uninstall
   it once you are done. This can be a quick way to test it interactively 
