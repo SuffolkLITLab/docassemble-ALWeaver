@@ -28,7 +28,7 @@ A tool to help generate draft interviews for the docassemble platform. Tightly l
 Quinten Steenhuis, qsteenhuis@suffolk.edu  
 Michelle  
 Bryce Willey  
-Lily   
+Lily  
 David Colarusso  
 Nharika Singh  
 
