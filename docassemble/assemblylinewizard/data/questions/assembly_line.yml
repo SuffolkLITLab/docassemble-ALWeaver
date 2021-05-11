@@ -145,12 +145,11 @@ fields:
     show if: interview.categories['Other']
   - Unique label for this interview: interview_label_draft
     default: ${short_filename}
+    maxlength: 35
     help: |
-      This label should be unique across all interviews. It will be
-      used to name the file as well as an internal label for the Docassemble
-      coder.
-      
-      It won't be shown to the end user.
+      This label should be short but unique. It will be used to name your
+      package, the main YAML file, and give a unique label to variables inside
+      your document.
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
     required: False
