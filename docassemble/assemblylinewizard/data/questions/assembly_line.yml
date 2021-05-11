@@ -921,8 +921,6 @@ subquestion: |
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
-  - setup_base: DAStaticFile.using(filename='setup_base.py')
-  - setup_final: DAFile  
   - instruction_starts_case: DAStaticFile.using(filename='next_steps_starts_case.docx')    
   # Here we add the "next_steps" docx files
   # To add additional attachment files, follow this example
