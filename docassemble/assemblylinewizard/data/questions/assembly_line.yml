@@ -143,7 +143,7 @@ fields:
     datatype: area
     rows: 2
     show if: interview.categories['Other']
-  - Unique label for this interview: interview.file_name
+  - Unique label for this interview: interview_label_draft
     default: ${short_filename}
     help: |
       This label should be unique across all interviews. It will be
@@ -863,7 +863,8 @@ code: |
   # generated interview to let us store interview-specific
   # metadata
   # We removed random ID, so make sure the file names are unique
-  interview_label = (varname(interview.file_name) if varname(interview.file_name) else varname('ending_variable_' + interview.file_name))
+  # varname will strip leading numbers--but they may be valid at the end of the label
+  interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
 ---
 code: |
   attachment_variable_name = interview_label + '_attachment'
@@ -929,10 +930,14 @@ objects:
   - instruction_letter: DAStaticFile.using(filename='next_steps_letter.docx')
   - instruction_other: DAStaticFile.using(filename='next_steps_other_form.docx')
 ---
+code: |
+  # Package title is PascalCase, per our AssemblyLine convention
+  package_title = re.sub("\W|_","", interview_label.title())
+---
 # Prepare content for the Weaver's download screen.
 code: |
   # 1. Commit the generated interview YAML file
-  interview_download.initialize(filename = interview.file_name + '.yml')
+  interview_download.initialize(filename = interview_label + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()    
   
@@ -960,7 +965,7 @@ code: |
     "sources": []
   }
   
-  create_package_zip(re.sub("\W","",interview.title), 
+  create_package_zip(package_title, 
         interview.package_info(), 
         {"author name and email":"author@example.com"}, 
         folders_and_files, 
@@ -1006,7 +1011,7 @@ code: |
   # Set attributes for the upladed template file     
   file1 = labels_lists.appendObject()    
   file1.input_filename = template_upload[0].filename
-  file1.output_filename = interview.file_name
+  file1.output_filename = interview_label
   file1.attachment_varname = attachment_variable_name    
   file1.type = template_upload[0].extension  
   file1.description = interview.description
@@ -1097,7 +1102,7 @@ subquestion: |
   
   <i class="fas fa-spinner fa-pulse"></i> 
   % else:  
-  ${ action_button_html(interview_url(reset=1, i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }  
+  ${ action_button_html(interview_url(reset=1, i="docassemble." + package_title + ":data/questions/" + interview_label + '.yml'), label = "Run interview", new_window=True ) }
   % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
@@ -1130,7 +1135,7 @@ code: |
 event: uninstall_package_event
 code: |
   data = {"key": install_packages_api_key,
-          "package": "docassemble." + space_to_underscore(re.sub("\W","",interview.title))
+          "package": "docassemble." + package_title
           }
   status = installer.delete("package", data=data)
   background_response()            

@@ -168,9 +168,6 @@ class DAInterview(DAObject):
         info['url'] = "https://courtformsonline.org"
         return info
 
-    def yaml_file_name(self)->str:
-        return to_yaml_file(self.file_name)
-
     def source(self)->str:
         """
         Render and return the source of all blocks in the interview as a YAML string.
