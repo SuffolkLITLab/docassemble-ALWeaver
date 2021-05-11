@@ -952,7 +952,7 @@ code: |
   elif interview.form_type == 'letter':
     template_files.append(instruction_letter)
   elif interview.form_type == 'other_form':
-    template_files.append(instruction_other)    
+    template_files.append(instruction_other)
 
   folders_and_files = {
     "templates": template_files,
