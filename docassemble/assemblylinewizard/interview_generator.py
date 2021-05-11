@@ -254,6 +254,9 @@ class DAField(DAObject):
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
+    self.maxlength = get_character_limit(pdf_field_tuple)
+    self.variable_name_guess = variable_name_guess
+
     if self.variable.endswith('_date'):
         self.field_type_guess = 'date'
         self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
@@ -263,14 +266,12 @@ class DAField(DAObject):
         self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
-        self.variable_name_guess = variable_name_guess
     elif pdf_field_tuple[4] == "/Sig":
         self.field_type_guess = "signature"
-        self.variable_name_guess = variable_name_guess
+    elif self.maxlength > 100:
+        self.field_type_guess = 'area'
     else:
         self.field_type_guess = 'text'
-        self.variable_name_guess = variable_name_guess
-    self.maxlength = get_character_limit(pdf_field_tuple)
     
   def mark_as_paired_yesno(self, paired_field_names: List[str]):
     """Marks this field as actually representing multiple template fields:
