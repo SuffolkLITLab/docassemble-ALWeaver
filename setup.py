@@ -53,7 +53,7 @@ setup(name='docassemble.assemblylinewizard',
       url='https://docassemble.org',
       packages=find_packages(),
       namespace_packages=['docassemble'],
-      install_requires=[],
+      install_requires=['docx2python'],
       zip_safe=False,
       package_data=find_package_data(where='docassemble/assemblylinewizard/', package='docassemble.assemblylinewizard'),
      )
