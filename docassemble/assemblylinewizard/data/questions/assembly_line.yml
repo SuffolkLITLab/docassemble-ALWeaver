@@ -170,12 +170,17 @@ help:
 id: dependency question
 question: Which jurisdictions and organizations is this form a part of?
 subquestion: |
-  New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
+  This will add those jurisdictions as dependencies. If you are unsure, leave the default options checked.
+help:
+  label: My jurisdiction is not here
+  content: |
+    New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
 fields:
   - no label: interview.dependency_choices
     datatype: checkboxes
+    required: False
     choices:
-      - Massachusetts: docassemble.ALMassachusetts>=0.0.7
+      - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
       - MassAccess: docassemble.MassAccess
     default:
       - docassemble.ALMassachusetts>=0.0.7
