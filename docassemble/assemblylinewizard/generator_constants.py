@@ -13,6 +13,8 @@ generator_constants.RESERVED_WHOLE_WORDS = [
   'signature_date',
   'docket_number',
   'docket_numbers',
+  'user_needs_interpreter',
+  'user_preferred_language',
 ]
 
 # Prefixes for singular person-like objects, like trial courts that
