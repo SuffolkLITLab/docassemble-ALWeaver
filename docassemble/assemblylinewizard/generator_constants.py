@@ -12,7 +12,6 @@ generator_constants = Object()
 generator_constants.RESERVED_WHOLE_WORDS = [
   'signature_date',
   'docket_number',
-  'docket_numbers',
   'user_needs_interpreter',
   'user_preferred_language',
 ]
@@ -48,6 +47,7 @@ generator_constants.RESERVED_PREFIXES = ["user",
   "decedent",
   "interested_party",
   "trial_court",
+  "docket_numbers",
   ]
 
 generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
@@ -75,6 +75,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
 
 generator_constants.RESERVED_PLURALIZERS_MAP = {** generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, **{
   'court': 'courts', # for backwards compatibility
+  'docket_numbers': 'docket_numbers',  
 }}
 
 # Any reason to not make all suffixes available to everyone?
