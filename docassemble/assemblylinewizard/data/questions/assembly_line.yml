@@ -991,14 +991,6 @@ code: |
   #-----------------------------------------------------------------
   # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
   #-----------------------------------------------------------------
-  # Set attributes for the upladed template file     
-  file1 = labels_lists.appendObject()    
-  file1.input_filename = template_upload[0].filename
-  file1.output_filename = interview.file_name
-  file1.attachment_varname = attachment_variable_name    
-  file1.type = template_upload[0].extension  
-  file1.description = interview.description
-  file1.fields = built_in_fields_used + fields + signature_fields            
       
   # Set attributes for the "next_steps" docx. 
   # To add any additional attachment files, follow this example.
@@ -1008,9 +1000,18 @@ code: |
     file2.output_filename = 'Post-interview-instructions'
     file2.attachment_varname = file2.output_filename.replace('-', '_')
     file2.type = 'docx'
-    file2.description = 'next_steps docx file'
+    file2.description = 'Instructions'
     file2.fields = 'na'
- 
+
+  # Set attributes for the upladed template file     
+  file1 = labels_lists.appendObject()    
+  file1.input_filename = template_upload[0].filename
+  file1.output_filename = interview.file_name
+  file1.attachment_varname = attachment_variable_name    
+  file1.type = template_upload[0].extension  
+  file1.description = interview.description
+  file1.fields = built_in_fields_used + fields + signature_fields
+
   # Bundl-name is a single value
   if len(labels_lists) > 1:
     bundle_name = file1.output_filename + '_package.pdf'
