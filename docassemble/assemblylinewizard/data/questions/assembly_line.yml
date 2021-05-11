@@ -1102,6 +1102,15 @@ subquestion: |
   % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
+  
+  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> Review your interview yml code</a>
+  
+  <div class="collapse" id="yaml_source">
+  <pre>
+  ${indent_by(interview.source(),4)}
+  </pre>
+  </div>
+
 
   Download the YAML file only:  
   [:download: Download YAML](${interview_download.url_for(attachment=True)})
@@ -1134,6 +1143,8 @@ code: |
           }
   files = {'zip': interview_package_download }
   status = installer.post("package",data=data, files=files, task='install package')  
+  # clear the interview cache
+  installer.post("clear_cache", data = {"key": install_packages_api_key } )
   background_response_action('save_status_to_answers', status=status)
 ---
 event: save_status_to_answers
