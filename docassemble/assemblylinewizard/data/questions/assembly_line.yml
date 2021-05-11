@@ -921,43 +921,24 @@ subquestion: |
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
-  - setup_base: DAStaticFile.using(filename='setup_base.py')
-  - setup_final: DAFile  
   - instruction_starts_case: DAStaticFile.using(filename='next_steps_starts_case.docx')    
   # Here we add the "next_steps" docx files
   # To add additional attachment files, follow this example
   - instruction_existing_case: DAStaticFile.using(filename='next_steps_existing_case.docx')
   - instruction_appeal: DAStaticFile.using(filename='next_steps_appeal.docx') 
   - instruction_letter: DAStaticFile.using(filename='next_steps_letter.docx')
-  - instruction_other: DAStaticFile.using(filename='next_steps_other.docx')
+  - instruction_other: DAStaticFile.using(filename='next_steps_other_form.docx')
 ---
 # Prepare content for the Weaver's download screen.
 code: |
-  # 1. Commit the generated interview 
+  # 1. Commit the generated interview YAML file
   interview_download.initialize(filename = interview.file_name + '.yml')
   interview_download.write(interview.source())
   interview_download.commit()    
   
-  # 2. Construct the zip folder structure  
-  top_folder = "docassemble" + "-" + short_filename  
-  data_folder = top_folder + "/docassemble/" + short_filename + "/data"
-  question_folder = data_folder + "/questions"
-  template_folder = data_folder + "/templates"  
-  zipname = top_folder + '.zip'  
-     
-  # 3. Prepare the package info and setup.py
-  pkg_info = "setup(name='docassemble." + short_filename + "',\n" +     """\
-      version='0.1.0',
-      description=('A docassemble extension.'),  
-      license='The MIT License',         
-     )
-  """  
-  setup_final.initialize(filename='setup.py')    
-  setup_final.write(setup_base.slurp() + pkg_info)
-  
-  # 4. Add all the template files to a list
+  # 2. Add all the template files to a list
   # Each list item is a file object, not a string.
-  template_files = [template_upload] 
+  template_files = [template_upload[0]] 
   # Here we add the "next_steps" docx file. 
   # To add additional attachment files, follow this example
   if interview.form_type == 'starts_case':
@@ -969,15 +950,22 @@ code: |
   elif interview.form_type == 'letter':
     template_files.append(instruction_letter)
   elif interview.form_type == 'other_form':
-    template_files.append(instruction_other)    
+    template_files.append(instruction_other)
 
-  # 5. Create a DA package
-  interview_package_download = zip_file(
-    {top_folder: setup_final},
-    {question_folder: interview_download},
-    {template_folder: template_files},
-    filename= zipname
-  )  
+  folders_and_files = {
+    "templates": template_files,
+    "questions": [interview_download],
+    "modules":[],
+    "static": [],
+    "sources": []
+  }
+  
+  create_package_zip(re.sub("\W","",interview.title), 
+        interview.package_info(), 
+        {"author name and email":"author@example.com"}, 
+        folders_and_files, 
+        interview_package_download)
+
   wrote_interview = True
 ---
 need:
@@ -1015,7 +1003,7 @@ code: |
   # Set attributes for the "next_steps" docx. 
   # To add any additional attachment files, follow this example.
   if interview.form_type != 'other':     
-    file2 = labels_lists.appendObject()    
+    file2 = labels_lists.appendObject()
     file2.input_filename = 'next_steps_' + interview.form_type + '.docx'
     file2.output_filename = 'Post-interview-instructions'
     file2.attachment_varname = file2.output_filename.replace('-', '_')
@@ -1108,10 +1096,19 @@ subquestion: |
   
   <i class="fas fa-spinner fa-pulse"></i> 
   % else:  
-  ${ action_button_html(interview_url(i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }  
+  ${ action_button_html(interview_url(reset=1, i="docassemble." + space_to_underscore(re.sub("\W","",interview.title)) + ":data/questions/" + interview.file_name + '.yml'), label = "Run interview", new_window=True ) }  
   % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
+  
+  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> Review your interview yml code</a>
+  
+  <div class="collapse" id="yaml_source">
+  <pre>
+  ${indent_by(interview.source(),4)}
+  </pre>
+  </div>
+
 
   Download the YAML file only:  
   [:download: Download YAML](${interview_download.url_for(attachment=True)})
@@ -1144,6 +1141,8 @@ code: |
           }
   files = {'zip': interview_package_download }
   status = installer.post("package",data=data, files=files, task='install package')  
+  # clear the interview cache
+  installer.post("clear_cache", data = {"key": install_packages_api_key } )
   background_response_action('save_status_to_answers', status=status)
 ---
 event: save_status_to_answers
