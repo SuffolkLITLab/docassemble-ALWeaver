@@ -265,10 +265,16 @@ code: |
   # Build the dynamic question code to ask about people quantities
   temp_people_quantity_question = []
   for person in person_candidates:
-    temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
-      "datatype": "radio",
-      "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
-      })
+    if person == 'users':
+      temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
+        "datatype": "radio",
+        "choices": [{'Exactly 1': 'one'},{'At least one':'more'}]
+        })
+    else:    
+      temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
+        "datatype": "radio",
+        "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
+        })
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
 ---
