@@ -154,10 +154,13 @@ class DAInterview(DAObject):
         super().init(*pargs, **kwargs)
         self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
-        
+
     def package_info(self, dependencies:List[str]=None) -> Dict[str, Any]:
+        assembly_line_dep = 'docassemble.AssemblyLine'
         if dependencies is None:
-          dependencies = ['docassemble.AssemblyLine', 'docassemble.ALMassachusetts', 'docassemble.MassAccess']
+            dependencies = [assembly_line_dep, 'docassemble.ALMassachusetts', 'docassemble.MassAccess']
+        elif assembly_line_dep not in dependencies:
+            dependencies.append(assembly_line_dep)
 
         info = dict()
         for field in ['interview_files', 'template_files', 'module_files', 'static_files']:

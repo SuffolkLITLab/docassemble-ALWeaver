@@ -167,6 +167,20 @@ help:
 
     ${fields}
 ---
+id: dependency question
+question: Which jurisdictions and organizations is this form a part of?
+subquestion: |
+  New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
+fields:
+  - no label: interview.dependency_choices
+    datatype: checkboxes
+    choices:
+      - Massachusetts: docassemble.ALMassachusetts>=0.0.7
+      - MassAccess: docassemble.MassAccess
+    default:
+      - docassemble.ALMassachusetts>=0.0.7
+      - docassemble.MassAccess
+---
 code: |
   if interview.form_type == 'starts_case':
     interview_intro_prompt_default = "Ask the court for a " + interview.short_title
@@ -967,9 +981,9 @@ code: |
     "sources": []
   }
   
-  create_package_zip(package_title, 
-        interview.package_info(), 
-        {"author name and email":"author@example.com"}, 
+  create_package_zip(package_title,
+        interview.package_info(interview.dependency_choices.true_values()),
+        {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)
 
