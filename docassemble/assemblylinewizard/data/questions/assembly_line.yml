@@ -160,12 +160,6 @@ help:
     There are ${len(all_fields)} fields total.
 
     `${all_fields}`
-
-    * ${len(fields)} Fields we'll ask about
-    * ${len(built_in_fields_used)} built-in fields
-    * ${len(signature_fields)} signature fields
-
-    ${fields}
 ---
 code: |
   if interview.form_type == 'starts_case':

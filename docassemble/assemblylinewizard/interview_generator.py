@@ -871,10 +871,10 @@ def get_docx_variables( text:str )->set:
         fields.add( re.sub(r'\.name.*', '.name.first', possible_var ))
       continue
 
-    # TODO: Put in a test here for some_list.familiar() and for some_list[0].familiar()
-
-    # Remove any methods from the end of the variable
-    methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var )
+    # Replace any methods at the end of the variable with the attributes they use
+    possible_var = substitute_suffix(possible_var, 
+                                     generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX)
+    methods_removed = re.sub( r'(.*)\..*\(.*\)', '\\1', possible_var)
     fields.add( methods_removed )
 
   return fields
