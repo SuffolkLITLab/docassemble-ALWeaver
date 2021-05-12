@@ -13,7 +13,7 @@ from docassemble.base.core import DAEmpty
 import datetime
 import zipfile
 import json
-from typing import Dict, List, Tuple #, Set
+from typing import Any, Dict, List, Tuple #, Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -154,12 +154,19 @@ class DAInterview(DAObject):
         super().init(*pargs, **kwargs)
         self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
         self.questions = DAQuestionList(auto_gather=False, gathered=True, is_mandatory=False)
-        
-    def package_info(self)->dict:
+
+    def package_info(self, dependencies:List[str]=None) -> Dict[str, Any]:
+        assembly_line_dep = 'docassemble.AssemblyLine'
+        if dependencies is None:
+            dependencies = [assembly_line_dep, 'docassemble.ALMassachusetts', 'docassemble.MassAccess']
+        elif assembly_line_dep not in dependencies:
+            dependencies.append(assembly_line_dep)
+
         info = dict()
-        for field in ['dependencies', 'interview_files', 'template_files', 'module_files', 'static_files']:
+        for field in ['interview_files', 'template_files', 'module_files', 'static_files']:
             if field not in info:
                 info[field] = list()
+        info['dependencies'] = dependencies
         info['author_name'] = ""                
         info['readme'] = ""
         info['description'] = self.title
@@ -1261,7 +1268,7 @@ def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_
   zip_download.initialize(filename="docassemble-" + pkgname + ".zip")
   zip_obj = zipfile.ZipFile(zip_download.path(),'w')
 
-  dependencies = ",".join(info['dependencies'])
+  dependencies = ",".join(['\'' + dep + '\'' for dep in info['dependencies']])
 
   initpy = """\
 try:

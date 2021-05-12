@@ -161,6 +161,25 @@ help:
 
     `${all_fields}`
 ---
+id: dependency question
+question: Which jurisdictions and organizations is this form a part of?
+subquestion: |
+  This will add those jurisdictions as dependencies. If you are unsure, leave the default options checked.
+help:
+  label: My jurisdiction is not here
+  content: |
+    New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
+fields:
+  - no label: interview.dependency_choices
+    datatype: checkboxes
+    required: False
+    choices:
+      - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
+      - MassAccess: docassemble.MassAccess
+    default:
+      - docassemble.ALMassachusetts>=0.0.7
+      - docassemble.MassAccess
+---
 code: |
   if interview.form_type == 'starts_case':
     interview_intro_prompt_default = "Ask the court for a " + interview.short_title
@@ -961,9 +980,9 @@ code: |
     "sources": []
   }
   
-  create_package_zip(package_title, 
-        interview.package_info(), 
-        {"author name and email":"author@example.com"}, 
+  create_package_zip(package_title,
+        interview.package_info(interview.dependency_choices.true_values()),
+        {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)
 
@@ -1138,8 +1157,7 @@ code: |
 ---
 event: install_package_event
 code: |
-  data = {"key": install_packages_api_key,
-          "restart": 0
+  data = {"key": install_packages_api_key
           }
   files = {'zip': interview_package_download }
   status = installer.post("package",data=data, files=files, task='install package')  
