@@ -44,7 +44,7 @@ code: |
   for field in fields:
     if ' ' in field[0]:
       warnings_temp.add('space')
-    if len(remove_multiple_indicator(varname(field[0]))) == 0:
+    if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0:
       warnings_temp.add('invalid_name')
     if field[4] not in ['/Sig','/Btn','/Tx']:
       warnings_temp.add('not handled')
@@ -55,15 +55,10 @@ question: |
   Field list
 subquestion: |
 
-  Field name (bold if {reserved}) | Field type | {Internal docassemble name} | Max length
+  Field name (bold if {reserved}) | Field type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
   % for field in fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''}
-  ${":exclamation-square: " if len(remove_multiple_indicator(varname(field[0]))) == 0 else ''}
-  ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | 
-  ${ pdf_field_type_str(field) } (${field[4]}) |
-  ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | 
-  ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
   The following are signature fields: ${comma_and_list(signature_fields)} 
@@ -87,7 +82,7 @@ subquestion: |
   % endif
 
   % if 'invalid_name' in warnings:
-  :exclamation_square: indicates that a field name is not a valid variable name.
+  :exclamation-circle: indicates that a field name is not a valid variable name.
   At the least, start the field name with an alphabetical character (a-z).
   % endif
   
@@ -111,7 +106,7 @@ help: |
 terms: 
   - reserved: |
       Means there is a built-in question for this field.
-  - Internal docassemble name: |
+  - Internal DA name: |
       Means that the variable name will be changed for Docassemble. 
       We change names that have built-in questions, as well as those starting
       with the name of a person/group of people, which we turn into "attributes" of that person.

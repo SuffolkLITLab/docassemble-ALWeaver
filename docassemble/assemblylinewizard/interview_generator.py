@@ -31,7 +31,7 @@ __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
-           'create_package_zip', \
+           'create_package_zip', 'remove_multiple_appearance_indicator', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
            'map_names','fix_id','DABlock', 'DABlockList','mako_indent',\
