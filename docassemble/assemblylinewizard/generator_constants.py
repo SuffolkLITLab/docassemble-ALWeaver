@@ -10,8 +10,10 @@ generator_constants = Object()
 
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
-  'signature_date',  # this is the plural version of this?
-  #'attorney_of_record_address_on_one_line',
+  'signature_date',
+  'docket_number',
+  'user_needs_interpreter',
+  'user_preferred_language',
 ]
 
 # Prefixes for singular person-like objects, like trial courts that
@@ -37,7 +39,6 @@ generator_constants.RESERVED_PREFIXES = ["user",
   "creditor",
   "witness",
   "court",
-  "docket_number",
   "signature_date",
   # Can't find a way to make order not matter here
   # without making everything in general more messy
@@ -46,6 +47,7 @@ generator_constants.RESERVED_PREFIXES = ["user",
   "decedent",
   "interested_party",
   "trial_court",
+  "docket_numbers",
   ]
 
 generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
@@ -72,8 +74,8 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
 }
 
 generator_constants.RESERVED_PLURALIZERS_MAP = {** generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, **{
-  'court': 'courts',
-  'docket_number': 'docket_numbers',
+  'court': 'courts', # for backwards compatibility
+  'docket_numbers': 'docket_numbers',  
 }}
 
 # Any reason to not make all suffixes available to everyone?
@@ -115,20 +117,20 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
   '_address_line_one': ".address.line_one()",
   '_address_city_state_zip': ".address.line_two()",
   '_signature': ".signature",
-  '_mail_address_block': ".mail_address.block()",
-  '_mail_address_street': ".mail_address.address",
-  '_mail_address_street2': ".mail_address.unit",
-  '_mail_address_address': ".mail_address.address",
-  '_mail_address_unit': ".mail_address.unit",
-  '_mail_address_city': ".mail_address.city",
-  '_mail_address_state': ".mail_address.state",
-  '_mail_address_zip': ".mail_address.zip",
-  '_mail_address_county': ".mail_address.county",
-  '_mail_address_country': ".mail_address.country",
-  '_mail_address_on_one_line': ".mail_address.on_one_line()",
-  '_mail_address_line_one': ".mail_address.line_one()",
-  '_mail_address_city_state_zip': ".mail_address.line_two()",
-  '_mail_address': ".mail_address",
+  '_mailing_address_block': ".mailing_address.block()",
+  '_mailing_address_street': ".mailing_address.address",
+  '_mailing_address_street2': ".mailing_address.unit",
+  '_mailing_address_address': ".mailing_address.address",
+  '_mailing_address_unit': ".mailing_address.unit",
+  '_mailing_address_city': ".mailing_address.city",
+  '_mailing_address_state': ".mailing_address.state",
+  '_mailing_address_zip': ".mailing_address.zip",
+  '_mailing_address_county': ".mailing_address.county",
+  '_mailing_address_country': ".mailing_address.country",
+  '_mailing_address_on_one_line': ".mailing_address.on_one_line()",
+  '_mailing_address_line_one': ".mailing_address.line_one()",
+  '_mailing_address_city_state_zip': ".mailing_address.line_two()",
+  '_mailing_address': ".mailing_address",
 }
 
 generator_constants.PEOPLE_SUFFIXES = list(generator_constants.PEOPLE_SUFFIXES_MAP.values()) + ['.name.full()','.name']
@@ -163,10 +165,10 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
   '\.familiar_or\(\)$': '.name.first',
   '\.familiar\(\)$': '.name.first',
   '\.formatted_age\(.*\)$': '.birthdate',
-  '\.mail_address.block\(\)$': '.mail_address.address',
-  '\.mail_address.line_one\(\)$': '.mail_address.address',
-  '\.mail_address.line_two\(\)$': '.mail_address.address',
-  '\.mail_address.on_one_line\(\)$': '.mail_address.address',
+  '\.mailing_address.block\(\)$': '.mailing_address.address',
+  '\.mailing_address.line_one\(\)$': '.mailing_address.address',
+  '\.mailing_address.line_two\(\)$': '.mailing_address.address',
+  '\.mailing_address.on_one_line\(\)$': '.mailing_address.address',
   '\.name.middle_initial\(\)$': '.name.first',
   '\.phone_numbers\(\)$': '.phone_number',
 }
@@ -176,7 +178,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
 generator_constants.FULL_DISPLAY = {
   '\.name$': '.name.full()',
   '\.address$': '.address.block()',
-  '\.mail_address$': '.mail_address.block()'
+  '\.mailing_address$': '.mailing_address.block()'
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to
