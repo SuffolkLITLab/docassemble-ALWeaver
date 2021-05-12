@@ -499,7 +499,7 @@ class DAField(DAObject):
     settable_attribute = label_parts[0][1].lstrip('.')
     if settable_attribute == '' or settable_attribute == 'name':
       settable_attribute = 'name.first'
-    if settable_attribute == 'address' or settable_attribute == 'mail_address':
+    if settable_attribute == 'address' or settable_attribute == 'mailing_address':
       settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
     full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
@@ -854,6 +854,13 @@ def get_docx_variables( text:str )->set:
     if not prefix_root.isidentifier(): continue
     # Filter out keywords like `in`
     if keyword.iskeyword( prefix_root ): continue
+          
+    if '.mailing_address' in possible_var:  # a mailing address
+      if '.mailing_address.county' in possible_var:  # a county is special
+        fields.add( possible_var )
+      else:  # all other mailing addresses (replaces .zip and such)
+        fields.add( re.sub(r'\.mailing_address.*', '.mailing_address.address', possible_var ))
+      continue
 
     # Help gathering actual address as an attribute when document says something
     # like address.block()
@@ -865,13 +872,6 @@ def get_docx_variables( text:str )->set:
       # fields.add( prefix_with_key ) # Can't recall who added or what was this supposed to do?
       # It will add an extra, erroneous entry of the object root, which usually doesn't
       # make sense for a docassemble question
-      continue
-      
-    if '.mail_address' in possible_var:  # a mailing address
-      if '.mail_address.county' in possible_var:  # a county is special
-        fields.add( possible_var )
-      else:  # all other mailing addresses (replaces .zip and such)
-        fields.add( re.sub(r'\.mail_address.*', '.mail_address.address', possible_var ))
       continue
 
     if '.name' in possible_var:  # a name
@@ -1156,7 +1156,7 @@ def get_person_variables(fieldslist,
     else:
       # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
-      # regex to check for matching suffixes, and catch things like mail_address_address
+      # regex to check for matching suffixes, and catch things like mailing_address_address
       # instead of just _address_address, if the longer one matches
       match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
