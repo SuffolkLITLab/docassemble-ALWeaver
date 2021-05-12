@@ -318,10 +318,14 @@ code: |
   if template_upload[0].extension == 'pdf':
     all_fields = get_pdf_fields(template_upload)
   else:
-    all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
+    all_fields = get_fields(template_upload)
 
   if all_fields is None:
     force_ask('empty_pdf')
+
+  bad_fields = list(filter(lambda elem: elem is not None, map(bad_name_reason, all_fields)))
+  if len(bad_fields) > 0:
+    force_ask('non_descriptive_field_name')
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
@@ -331,6 +335,20 @@ subquestion: |
   
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+
+buttons:
+  - Restart: restart
+---
+event: non_descriptive_field_name
+question: Some of the fields in your PDF are not descriptive
+subquestion: |
+  There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+  
+  The fields that have issues are:
+
+  % for bad_field in bad_fields:
+    * ${ bad_field }
+  % endfor
 
 buttons:
   - Restart: restart

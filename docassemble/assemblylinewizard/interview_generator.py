@@ -1,6 +1,7 @@
+import ast
+import keyword
 import os
 import re
-import keyword
 import uuid
 from collections import defaultdict
 from docx2python import docx2python
@@ -13,7 +14,7 @@ from docassemble.base.core import DAEmpty
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Tuple #, Set
+from typing import Any, Dict, List, Tuple, Union #, Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -33,7 +34,9 @@ __all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string','mako_local_import_str']
+           'map_names','fix_id','DABlock', 'DABlockList','mako_indent',\
+           'using_string', 'pdf_field_type_str', \
+           'bad_name_reason', 'mako_local_import_str']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -1102,10 +1105,6 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     built_in_fields.append(field)
 
 
-
-
-
-
 def get_person_variables(fieldslist,
                          undefined_person_prefixes = generator_constants.UNDEFINED_PERSON_PREFIXES,
                          people_suffixes = generator_constants.PEOPLE_SUFFIXES,
@@ -1203,6 +1202,36 @@ def using_string(params:dict, elements_as_variable_list:bool=False)->str:
       params_string_builder.append(str(param) + "=" + repr(params[param]))
   retval += ",".join(params_string_builder)
   return retval + ")"
+
+def pdf_field_type_str(field):
+  if not isinstance(field, tuple) or len(field) < 4 or not isinstance(field[4], str):
+    return ''
+  else:
+    if field[4] == '/Sig':
+      return 'Signature'
+    elif field[4] == '/Btn':
+      return 'Checkbox'
+    elif field[4] == '/Tx':
+      return 'Text'
+    else:
+      return ':skull-crossbones:'
+
+def bad_name_reason(field:Union[str, Tuple]):
+  """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
+  if isinstance(field, str):
+    # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
+    # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
+    try:
+      ast.parse(field)
+    except SyntaxError as ex:
+      return "{} isn't a valid python expression: {}".format(field, ex)
+    return None
+  else:
+    python_var = map_raw_to_final_display(remove_multiple_appearance_indicator(varname(field[0])))
+    if len(python_var) == 0:
+      return '{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters'.format(field[0], pdf_field_type_str(field))
+    return None
+
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
