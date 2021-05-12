@@ -1163,8 +1163,7 @@ code: |
 ---
 event: install_package_event
 code: |
-  data = {"key": install_packages_api_key,
-          "restart": 0
+  data = {"key": install_packages_api_key
           }
   files = {'zip': interview_package_download }
   status = installer.post("package",data=data, files=files, task='install package')  
