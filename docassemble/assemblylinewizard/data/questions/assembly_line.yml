@@ -267,8 +267,11 @@ code: |
   for person in person_candidates:
     temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
       "datatype": "radio",
-      "choices": [{'Exactly 1': 'one'},{'At least one':'more'},{'Any number, including 0': 'any'}]
+      "choices": [{'Exactly 1': 'one'},{'At least one':'more'}]
       })
+    # Users can't have 0 elements, but other parties should have the option to be empty
+    if person != 'users':
+      temp_people_quantity_question[-1]['choices'].append({'Any number, including 0': 'any'})
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
 ---
