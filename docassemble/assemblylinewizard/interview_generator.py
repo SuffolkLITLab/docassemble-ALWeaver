@@ -464,7 +464,7 @@ class DAField(DAObject):
       first_attribute = var_parts[0][1]
       if has_plural_prefix and (first_attribute == '' or first_attribute == '.name'):
         return prefix + GATHER_CALL
-      elif first_attribute == '.address' or first_attribute == '.mail_address':
+      elif first_attribute == '.address' or first_attribute == '.mailing_address':
         return var_parts[0][0] + first_attribute + '.address'
       else:
         return var_parts[0][0] + first_attribute

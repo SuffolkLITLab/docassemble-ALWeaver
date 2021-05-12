@@ -18,3 +18,4 @@ jobs:
       - run: virtualenv -p python3.8 venv
       - run: venv/bin/pip install -r docassemble/assemblylinewizard/requirements.txt
       - run: venv/bin/pip install --editable .
+      - run: venv/bin/python3 -m unittest discover
