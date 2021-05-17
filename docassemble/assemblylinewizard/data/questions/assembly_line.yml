@@ -194,7 +194,7 @@ objects:
 ---
 code: |    
   if not interview.court_related:   
-    interview.form_type = 'other'          
+    interview.form_type = 'non_court'          
     interview.allowed_courts = tmp_allowed_courts #checkboxes               
     interview.categories = tmp_categories  #checkboxes
 ---
@@ -270,6 +270,9 @@ fields:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
+      - None of the above: na 
+    help: |
+       If form type is an appeal, this is asking about the role in the trial court, not appellate proceeding.
   #- Number of users whose information can be filled in on this form: user_count
   #  choices:
   #    - One user of this form at a time: one
@@ -491,6 +494,7 @@ code: |
     "short_title": interview.short_title,
     "description": interview.description,
     "original_form": interview.original_form,
+    "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,
     "categories": interview.categories,
     "other_categories": interview.other_categories if defined('interview.other_categories') else '',
