@@ -963,15 +963,14 @@ def map_raw_to_final_display(label:str, document_type:str="pdf",
   # of the plural version of the prefix of the label
   if (adjusted_prefix in reserved_pluralizers_map.values()
       or adjusted_prefix in custom_people_plurals_map.values()):
-    maybe_digit = label_groups[2]
-    if maybe_digit == '':
-      digit = ''
+    digit_str = label_groups[2]
+    if digit_str == '':
       index = '[0]'
     else:
       try:
-        digit = int(maybe_digit)
+        digit = int(digit_str)
       except ValueError as ex:
-        raise ParsingException('{} is not a digit'.format(maybe_digit),
+        raise ParsingException('{} is not a digit'.format(digit_str),
             'Full issue: {}. This is likely a developer error! ' + \
             'Please [let us know](https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/new)!'.format(ex))
 
@@ -982,14 +981,14 @@ def map_raw_to_final_display(label:str, document_type:str="pdf",
         url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables#more-than-one"
         raise ParsingException(main_issue, err_str, url)
       else:
-        index = '[' + str(int(digit)-1) + ']'
+        index = '[' + str(digit - 1) + ']'
   else:
-    digit = ''
+    digit_str = ''
     index = ''
   
   # it's just a standalone, like "defendant", or it's a numbered singular
   # prefix, e.g. user3
-  if label == prefix or label == prefix + digit:
+  if label == prefix or label == prefix + digit_str:
     return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
