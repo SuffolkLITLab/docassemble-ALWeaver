@@ -1123,16 +1123,18 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
+      file_type = "pdf"
       # map_raw_to_final_display will only transform names that are built-in to the constants
       field_to_check = map_raw_to_final_display(field[0])
     else:
+      file_type = "docx"
       field_to_check = field
     # Exact match
     if (field_to_check) in people_vars:
       people.add(field_to_check)
     elif (field_to_check) in undefined_person_prefixes:
       pass  # Do not ask how many there will be about a singluar person
-    elif '[' in field_to_check or '.' in field_to_check:
+    elif file_type == "docx" and ('[' in field_to_check or '.' in field_to_check):
       # Check for a valid Python identifier before brackets or .
       match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
@@ -1154,7 +1156,7 @@ def get_person_variables(fieldslist,
           # Look for suffixes normally associated with people like .name.first for a DOCX
           if possible_suffix in people_suffixes:
             people.add(matches.groups()[0]) 
-    else:
+    elif file_type == "pdf":
       # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
       # regex to check for matching suffixes, and catch things like mailing_address_address
