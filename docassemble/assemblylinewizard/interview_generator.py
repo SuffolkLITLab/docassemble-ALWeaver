@@ -26,7 +26,7 @@ mako.runtime.UNDEFINED = DAEmpty()
 
 TypeType = type(type(None))
 
-__all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
+__all__ = ['ParsingException', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'to_yaml_file', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
@@ -46,6 +46,18 @@ invalid_var_characters = re.compile(r'[^A-Za-z0-9_]+')
 digit_start = re.compile(r'^[0-9]+')
 newlines = re.compile(r'\n')
 remove_u = re.compile(r'^u')
+
+class ParsingException(Exception):
+  """Throws an error if we can't understand the labels somehow, so we can tell the user"""
+  def __init__(self, message:str, description:str=None, url:str=None):
+    self.main_issue = message
+    self.description = description
+    self.url = url
+
+    super().__init__('main_issue: {}, description: {}, url: {}'.format(message, description, url))
+                     
+  def __reduce__(self):
+    return (ParsingException, (self.main_issue, self.description, self.url))
 
 def get_court_choices():
   return generator_constants.COURT_CHOICES
@@ -908,12 +920,13 @@ def map_names(label, document_type="pdf", reserved_whole_words=generator_constan
               reserved_pluralizers_map = reserved_pluralizers_map,
               reserved_suffixes_map=reserved_suffixes_map)
   
-def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+def map_raw_to_final_display(label:str, document_type:str="pdf",
+              reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
-              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+              reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP) -> str:
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
@@ -950,11 +963,26 @@ def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=ge
   # of the plural version of the prefix of the label
   if (adjusted_prefix in reserved_pluralizers_map.values()
       or adjusted_prefix in custom_people_plurals_map.values()):
-    digit = label_groups[2]
-    if digit == '':
+    maybe_digit = label_groups[2]
+    if maybe_digit == '':
+      digit = ''
       index = '[0]'
     else:
-      index = '[' + str(int(digit)-1) + ']'
+      try:
+        digit = int(maybe_digit)
+      except ValueError as ex:
+        raise ParsingException('{} is not a digit'.format(maybe_digit),
+            'Full issue: {}. This is likely a developer error! ' + \
+            'Please [let us know](https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/new)!'.format(ex))
+
+      if digit == 0:
+        main_issue = 'Cannot get the 0th item in a list'
+        err_str = 'The "{}" label refers to the 0th item in a list, when it is likely meant the 1st item. You should replace that label with "{}".'.format(
+          label, adjusted_prefix + '1' + label_groups[3])
+        url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables#more-than-one"
+        raise ParsingException(main_issue, err_str, url)
+      else:
+        index = '[' + str(int(digit)-1) + ']'
   else:
     digit = ''
     index = ''
@@ -1204,6 +1232,7 @@ def using_string(params:dict, elements_as_variable_list:bool=False)->str:
   return retval + ")"
 
 def pdf_field_type_str(field):
+  """Gets a human readable string from a PDF field code, like '/Btn'"""
   if not isinstance(field, tuple) or len(field) < 4 or not isinstance(field[4], str):
     return ''
   else:
@@ -1227,6 +1256,7 @@ def bad_name_reason(field:Union[str, Tuple]):
       return "{} isn't a valid python expression: {}".format(field, ex)
     return None
   else:
+    log(field[0], 'console')
     python_var = map_raw_to_final_display(remove_multiple_appearance_indicator(varname(field[0])))
     if len(python_var) == 0:
       return '{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters'.format(field[0], pdf_field_type_str(field))
