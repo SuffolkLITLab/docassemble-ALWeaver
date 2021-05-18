@@ -106,24 +106,40 @@ id: information about this interview
 question: |
   Information about this interview
 fields:
+  - Is your form court-related?: interview.court_related
+    datatype: yesnoradio
+    help: |
+      Answer yes if the form lists the name of a court, even if it is not
+      filed in a court. We will ask you
+      questions that help you list the correct set of courts as options.
   - Kind of form: interview.form_type
     datatype: radio
     choices:
       - Starts a new court case: starts_case
-      - Part of an existing court case: existing_case
-      - Appeal: appeal
-      - Form that is not filed in a court: other_form
+      - Filed in or responding to an existing court case: existing_case
+      - Part of an appeal of a court case: appeal
+      - Other: other      
+    show if: interview.court_related
+  - Kind of form: interview.form_type
+    datatype: radio
+    choices:
+      - Administrative form or other form that is not filed in a court: other_form
       - Letter: letter
       - Other: other
+    show if: 
+      variable: interview.court_related
+      is: False
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    none of the above: True
+    none of the above: False
     code: |
       get_court_choices() + ['Other']
+    show if: interview.court_related
   - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
-    show if: interview.allowed_courts['Other']
+    js show if: |
+      val("interview.allowed_courts['Other']") && val("interview.court_related")
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -139,10 +155,13 @@ fields:
       - Education: ED-00-00-00-00
       - Prisoners' Rights: RI-10-00-00-00
       - Other: Other
+    none of the above: False
+    show if: interview.court_related
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
-    show if: interview.categories['Other']
+    js show if: |
+      val("interview.categories['Other']") && val("interview.court_related") 
   - Unique label for this interview: interview_label_draft
     default: ${short_filename}
     maxlength: 35
@@ -179,6 +198,11 @@ fields:
     default:
       - docassemble.ALMassachusetts>=0.0.7
       - docassemble.MassAccess
+---
+code: |    
+  if not interview.court_related:   
+    interview.allowed_courts = DAEmpty()             
+    interview.categories = DAEmpty()
 ---
 code: |
   if interview.form_type == 'starts_case':
@@ -252,6 +276,9 @@ fields:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
+      - None of the above: na 
+    help: |
+       If form type is an appeal, this is asking about the role in the trial court, not appellate proceeding.
   #- Number of users whose information can be filled in on this form: user_count
   #  choices:
   #    - One user of this form at a time: one
@@ -313,27 +340,15 @@ help:
 continue button field: ask_people_quantity_question  
 ---
 comment: |
-  Get the list of fields, and check for any possible labeling errors
-  right away
+  Get the list of fields
 code: |
-  try:
-    if template_upload[0].extension == 'pdf':
-      all_fields = get_pdf_fields(template_upload)
-    else:
-      all_fields = get_fields(template_upload)
-      
-    if all_fields is None:
-      force_ask('empty_pdf')
+  if template_upload[0].extension == 'pdf':
+    all_fields = get_pdf_fields(template_upload)
+  else:
+    all_fields = get_fields(template_upload) # template_upload.get_docx_variables()
 
-    bad_fields = list(filter(
-        lambda elem: elem is not None, 
-        map(bad_name_reason, all_fields)))
-    if len(bad_fields) > 0:
-      force_ask('non_descriptive_field_name')
-      
-  except ParsingException as ex:
-    parsing_ex = ex
-    force_ask('parsing_exception')
+  if all_fields is None:
+    force_ask('empty_pdf')
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
@@ -344,32 +359,6 @@ subquestion: |
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
 
-buttons:
-  - Restart: restart
----
-event: non_descriptive_field_name
-question: Some of the fields in your PDF are not descriptive
-subquestion: |
-  There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
-  
-  The fields that have issues are:
-
-  % for bad_field in bad_fields:
-    * ${ bad_field }
-  % endfor
-
-buttons:
-  - Restart: restart
----
-event: parsing_exception
-question: ${ parsing_ex.main_issue }
-subquestion: |
-  ${ parsing_ex.description }
-
-  % if parsing_ex.url is not None:
-  Check out the [documentation](${ parsing_ex.url }) to learn more.
-  % endif
-  
 buttons:
   - Restart: restart
 ---
@@ -511,6 +500,7 @@ code: |
     "short_title": interview.short_title,
     "description": interview.description,
     "original_form": interview.original_form,
+    "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,
     "categories": interview.categories,
     "other_categories": interview.other_categories if defined('interview.other_categories') else '',
