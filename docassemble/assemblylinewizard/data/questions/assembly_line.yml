@@ -313,19 +313,27 @@ help:
 continue button field: ask_people_quantity_question  
 ---
 comment: |
-  Get the list of fields
+  Get the list of fields, and check for any possible labeling errors
+  right away
 code: |
-  if template_upload[0].extension == 'pdf':
-    all_fields = get_pdf_fields(template_upload)
-  else:
-    all_fields = get_fields(template_upload)
+  try:
+    if template_upload[0].extension == 'pdf':
+      all_fields = get_pdf_fields(template_upload)
+    else:
+      all_fields = get_fields(template_upload)
+      
+    if all_fields is None:
+      force_ask('empty_pdf')
 
-  if all_fields is None:
-    force_ask('empty_pdf')
-
-  bad_fields = list(filter(lambda elem: elem is not None, map(bad_name_reason, all_fields)))
-  if len(bad_fields) > 0:
-    force_ask('non_descriptive_field_name')
+    bad_fields = list(filter(
+        lambda elem: elem is not None, 
+        map(bad_name_reason, all_fields)))
+    if len(bad_fields) > 0:
+      force_ask('non_descriptive_field_name')
+      
+  except ParsingException as ex:
+    parsing_ex = ex
+    force_ask('parsing_exception')
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
@@ -350,6 +358,18 @@ subquestion: |
     * ${ bad_field }
   % endfor
 
+buttons:
+  - Restart: restart
+---
+event: parsing_exception
+question: ${ parsing_ex.main_issue }
+subquestion: |
+  ${ parsing_ex.description }
+
+  % if parsing_ex.url is not None:
+  Check out the [documentation](${ parsing_ex.url }) to learn more.
+  % endif
+  
 buttons:
   - Restart: restart
 ---
