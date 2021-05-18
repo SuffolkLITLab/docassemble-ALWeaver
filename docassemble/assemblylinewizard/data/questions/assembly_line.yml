@@ -199,14 +199,10 @@ fields:
       - docassemble.ALMassachusetts>=0.0.7
       - docassemble.MassAccess
 ---
-objects: 
-  - tmp_allowed_courts: DAEmpty 
-  - tmp_categories: DAEmpty 
----
 code: |    
   if not interview.court_related:   
-    interview.allowed_courts = tmp_allowed_courts #checkboxes               
-    interview.categories = tmp_categories  #checkboxes
+    interview.allowed_courts = DAEmpty()             
+    interview.categories = DAEmpty()
 ---
 code: |
   if interview.form_type == 'starts_case':
