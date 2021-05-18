@@ -90,9 +90,10 @@ download screen: |
     ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
 
     ${ al_user_bundle.download_list_html() }
-
-    ${ al_user_bundle.send_button_html() }
     </%text>
+
+    \$\{ al_user_bundle.send_button_html(send_editable_checkbox=${document_type == 'pdf'}) \}
+
   progress: 100
 # Code block
 code: |
