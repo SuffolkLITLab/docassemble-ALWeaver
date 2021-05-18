@@ -11,7 +11,7 @@ question: |
 subquestion: |
   Use this tool to validate your PDF once you have labeled all fields.
 fields:
-  - Upload a PDF template: template_upload
+  - Please upload a PDF template: template_upload
     datatype: file
     accept: |
       ".pdf, application/pdf"
@@ -39,15 +39,31 @@ subquestion: |
 buttons:
   - Restart: restart
 ---
+comment: |
+  This block was copied from assembly_line.yml
+  
+  Please update it if the assembly_line.yml is updated.
+variable name: variables_to_skip
+data:
+  - signature_date
+  - plaintiff
+  - plaintiffs
+  - defendant
+  - defendants
+  - petitioner
+  - petitioners
+  - witnesses
+  - users
+  - other_parties
+  - children
+---
 code: |
   warnings_temp = set()
   for field in fields:
     if ' ' in field[0]:
       warnings_temp.add('space')
-    if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0:
-      warnings_temp.add('invalid_name')
     if field[4] not in ['/Sig','/Btn','/Tx']:
-      warnings_temp.add('not handled')
+      'not handled'
   warnings = warnings_temp
   del warnings_temp
 ---
@@ -55,10 +71,10 @@ question: |
   Field list
 subquestion: |
 
-  Field name (bold if {reserved}) | Field type | {Internal DA name} | Max length
+  Field name (bold if {reserved}) | Field type | {Internal docassemble name} | Max length
   -----------|------------|-------------------|-----------
   % for field in fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  ${ ":exclamation-triangle: " if ' ' in field[0] else ''}${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${'Signature' if field[4] == '/Sig' else 'Checkbox' if field[4] == '/Btn' else "Text" if field[4] == '/Tx' else ':skull-crossbones:'} (${field[4]}) | ${map_raw_to_final_display(field[0]) if is_reserved_label(field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
   The following are signature fields: ${comma_and_list(signature_fields)} 
@@ -70,26 +86,21 @@ subquestion: |
   to be bold, check spelling.
   
   Names for groups of **people** should be bold if you followed our naming guidelines.
-  Make sure that you used the right name. E.g., use "plaintiff" not
+  Please make sure that you used the right name. E.g., use "plaintiff" not
   "plaintiff_tenant". Check for misspellings if a name is not bold.
   
   Let us know if we should add a new type of person.
   
   % if 'space' in warnings:
-  :exclamation-triangle: Indicates that the field name has a space in it.
-  Replace any spaces with underscores in the PDF field name before uploading to
+  :exclamation-triangle: Indicates that the field name has a space in it. Please
+  replace any spaces with underscores in the PDF field name before uploading to 
   Trello.
-  % endif
-
-  % if 'invalid_name' in warnings:
-  :exclamation-circle: indicates that a field name is not a valid variable name.
-  At the least, start the field name with an alphabetical character (a-z).
   % endif
   
   % if 'not handled' in warnings:
   :skull-crossbones: Indicates it's a field type that our interview generator
   does not currently handle. OR that the field has a duplicate name. 
-  Make sure the field is a checkbox, text
+  Please make sure the field is a checkbox, text 
   input, or digital signature field and that it is not a duplicate.
   % endif
   
@@ -106,7 +117,7 @@ help: |
 terms: 
   - reserved: |
       Means there is a built-in question for this field.
-  - Internal DA name: |
+  - Internal docassemble name: |
       Means that the variable name will be changed for Docassemble. 
       We change names that have built-in questions, as well as those starting
       with the name of a person/group of people, which we turn into "attributes" of that person.
@@ -123,10 +134,10 @@ question: |
 subquestion: |
   The fields are filled in with the name that we'll use in the YAML file.
   
-  All checkboxes should be checked. If not, check the field's
+  All checkboxes should be checked. If not, please check the field's
   "export" value. It should be set to "Yes".
   
-  If the text is unusually sized, then check the font size and
+  If the text is unusually sized, then please check the font size and 
   whether the field is set to allow multiple lines.
   
   All signature fields should be filled in with this image: ${placeholder_signature}

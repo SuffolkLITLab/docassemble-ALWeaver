@@ -1,7 +1,6 @@
-import ast
-import keyword
 import os
 import re
+import keyword
 import uuid
 from collections import defaultdict
 from docx2python import docx2python
@@ -14,7 +13,7 @@ from docassemble.base.core import DAEmpty
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Tuple, Union #, Set
+from typing import Any, Dict, List, Tuple #, Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -26,17 +25,15 @@ mako.runtime.UNDEFINED = DAEmpty()
 
 TypeType = type(type(None))
 
-__all__ = ['ParsingException', 'indent_by', 'varname', 'DAField', 'DAFieldList', \
+__all__ = ['indent_by', 'varname', 'DAField', 'DAFieldList', \
            'DAQuestion', 'DAInterview', 'to_yaml_file', \
            'base_name', 'escape_quotes', 'oneline', 'DAQuestionList', 'map_raw_to_final_display', \
            'is_reserved_label', 'attachment_download_html', \
            'get_fields', 'get_pdf_fields', 'is_reserved_docx_label','get_character_limit', \
-           'create_package_zip', 'remove_multiple_appearance_indicator', \
+           'create_package_zip', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'fix_id','DABlock', 'DABlockList','mako_indent',\
-           'using_string', 'pdf_field_type_str', \
-           'bad_name_reason', 'mako_local_import_str']
+           'map_names','fix_id','DABlock', 'DABlockList','mako_indent','using_string','mako_local_import_str']
 
 always_defined = set(["False", "None", "True", "dict", "i", "list", "menu_items", "multi_user", "role", "role_event", "role_needed", "speak_text", "track_location", "url_args", "x", "nav", "PY2", "string_types"])
 replace_square_brackets = re.compile(r'\\\[ *([^\\]+)\\\]')
@@ -46,18 +43,6 @@ invalid_var_characters = re.compile(r'[^A-Za-z0-9_]+')
 digit_start = re.compile(r'^[0-9]+')
 newlines = re.compile(r'\n')
 remove_u = re.compile(r'^u')
-
-class ParsingException(Exception):
-  """Throws an error if we can't understand the labels somehow, so we can tell the user"""
-  def __init__(self, message:str, description:str=None, url:str=None):
-    self.main_issue = message
-    self.description = description
-    self.url = url
-
-    super().__init__('main_issue: {}, description: {}, url: {}'.format(message, description, url))
-                     
-  def __reduce__(self):
-    return (ParsingException, (self.main_issue, self.description, self.url))
 
 def get_court_choices():
   return generator_constants.COURT_CHOICES
@@ -273,9 +258,6 @@ class DAField(DAObject):
 
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     self.has_label = True
-    self.maxlength = get_character_limit(pdf_field_tuple)
-    self.variable_name_guess = variable_name_guess
-
     if self.variable.endswith('_date'):
         self.field_type_guess = 'date'
         self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
@@ -285,12 +267,14 @@ class DAField(DAObject):
         self.variable_name_guess = name_no_suffix.replace('_', ' ').capitalize()
     elif pdf_field_tuple[4] == '/Btn':
         self.field_type_guess = 'yesno'
+        self.variable_name_guess = variable_name_guess
     elif pdf_field_tuple[4] == "/Sig":
         self.field_type_guess = "signature"
-    elif self.maxlength > 100:
-        self.field_type_guess = 'area'
+        self.variable_name_guess = variable_name_guess
     else:
         self.field_type_guess = 'text'
+        self.variable_name_guess = variable_name_guess
+    self.maxlength = get_character_limit(pdf_field_tuple)
     
   def mark_as_paired_yesno(self, paired_field_names: List[str]):
     """Marks this field as actually representing multiple template fields:
@@ -457,6 +441,11 @@ class DAField(DAObject):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
     calling `gather()` for lists"""
+    # TODO: we might want to think about how to handle the custom names differently
+    # in the future. This lets us avoid having to specify the full/combined list of people
+    # exact prefix matches are dealt with easily
+    if hasattr(self, 'custom_trigger_gather'):
+      return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
@@ -507,7 +496,7 @@ class DAField(DAObject):
     settable_attribute = label_parts[0][1].lstrip('.')
     if settable_attribute == '' or settable_attribute == 'name':
       settable_attribute = 'name.first'
-    if settable_attribute == 'address' or settable_attribute == 'mailing_address':
+    if settable_attribute == 'address' or settable_attribute == 'mail_address':
       settable_attribute += '.address'
     plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
     full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
@@ -862,13 +851,6 @@ def get_docx_variables( text:str )->set:
     if not prefix_root.isidentifier(): continue
     # Filter out keywords like `in`
     if keyword.iskeyword( prefix_root ): continue
-          
-    if '.mailing_address' in possible_var:  # a mailing address
-      if '.mailing_address.county' in possible_var:  # a county is special
-        fields.add( possible_var )
-      else:  # all other mailing addresses (replaces .zip and such)
-        fields.add( re.sub(r'\.mailing_address.*', '.mailing_address.address', possible_var ))
-      continue
 
     # Help gathering actual address as an attribute when document says something
     # like address.block()
@@ -880,6 +862,13 @@ def get_docx_variables( text:str )->set:
       # fields.add( prefix_with_key ) # Can't recall who added or what was this supposed to do?
       # It will add an extra, erroneous entry of the object root, which usually doesn't
       # make sense for a docassemble question
+      continue
+      
+    if '.mail_address' in possible_var:  # a mailing address
+      if '.mail_address.county' in possible_var:  # a county is special
+        fields.add( possible_var )
+      else:  # all other mailing addresses (replaces .zip and such)
+        fields.add( re.sub(r'\.mail_address.*', '.mail_address.address', possible_var ))
       continue
 
     if '.name' in possible_var:  # a name
@@ -901,13 +890,27 @@ def get_docx_variables( text:str )->set:
 ########################################################
 # Map names code
 
-def map_raw_to_final_display(label:str, document_type:str="pdf",
-              reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+# TODO: map_names is deprecated but old code depends on it. This is temporary shim
+def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               custom_people_plurals_map=custom_values.people_plurals_map,
               reserved_prefixes=generator_constants.RESERVED_PREFIXES,
               undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-              reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
-              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP) -> str:
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+  return map_raw_to_final_display(label, document_type=document_type,
+              reserved_whole_words=reserved_whole_words,
+              custom_people_plurals_map=custom_people_plurals_map,
+              reserved_prefixes=reserved_prefixes,
+              undefined_person_prefixes=undefined_person_prefixes,
+              reserved_pluralizers_map = reserved_pluralizers_map,
+              reserved_suffixes_map=reserved_suffixes_map)
+  
+def map_raw_to_final_display(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
+              custom_people_plurals_map=custom_values.people_plurals_map,
+              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+              undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
+              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
@@ -944,32 +947,18 @@ def map_raw_to_final_display(label:str, document_type:str="pdf",
   # of the plural version of the prefix of the label
   if (adjusted_prefix in reserved_pluralizers_map.values()
       or adjusted_prefix in custom_people_plurals_map.values()):
-    digit_str = label_groups[2]
-    if digit_str == '':
+    digit = label_groups[2]
+    if digit == '':
       index = '[0]'
     else:
-      try:
-        digit = int(digit_str)
-      except ValueError as ex:
-        raise ParsingException('{} is not a digit'.format(digit_str),
-            'Full issue: {}. This is likely a developer error! ' + \
-            'Please [let us know](https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/new)!'.format(ex))
-
-      if digit == 0:
-        main_issue = 'Cannot get the 0th item in a list'
-        err_str = 'The "{}" label refers to the 0th item in a list, when it is likely meant the 1st item. You should replace that label with "{}".'.format(
-          label, adjusted_prefix + '1' + label_groups[3])
-        url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables#more-than-one"
-        raise ParsingException(main_issue, err_str, url)
-      else:
-        index = '[' + str(digit - 1) + ']'
+      index = '[' + str(int(digit)-1) + ']'
   else:
-    digit_str = ''
+    digit = ''
     index = ''
   
   # it's just a standalone, like "defendant", or it's a numbered singular
   # prefix, e.g. user3
-  if label == prefix or label == prefix + digit_str:
+  if label == prefix or label == prefix + digit:
     return adjusted_prefix + index # Return the pluralized standalone variable
 
   suffix = label_groups[3]
@@ -1090,6 +1079,9 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
     if not ('[' in field.variable) and new_potential_name != field.variable:
       field.final_display_var = new_potential_name
+      for person in custom_people:
+        if field.final_display_var.startswith(person + "["):
+          field.custom_trigger_gather = person + ".gather()"
       fields_to_add.add(field)
       delete_list.append(field) # Cannot mutate in place
     else:
@@ -1097,6 +1089,9 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
       matching_docx_test = r"^(" + "|".join(custom_people) + ")\[\d+\](" + ("|".join([suffix.replace(".","\.") for suffix in people_suffixes])) + ")$"
       log(matching_docx_test)
       if re.match(matching_docx_test, field.variable):
+        for person in custom_people:
+          if field.final_display_var.startswith(person + "["):
+            field.custom_trigger_gather = person + ".gather()"
         delete_list.append(field)
         fields_to_add.add(field)
 
@@ -1105,6 +1100,10 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
 
   for field in fields_to_add:
     built_in_fields.append(field)
+
+
+
+
 
 
 def get_person_variables(fieldslist,
@@ -1124,18 +1123,16 @@ def get_person_variables(fieldslist,
   for field in fieldslist:
     # fields are currently tuples for PDF and strings for docx
     if isinstance(field, tuple):
-      file_type = "pdf"
       # map_raw_to_final_display will only transform names that are built-in to the constants
       field_to_check = map_raw_to_final_display(field[0])
     else:
-      file_type = "docx"
       field_to_check = field
     # Exact match
     if (field_to_check) in people_vars:
       people.add(field_to_check)
     elif (field_to_check) in undefined_person_prefixes:
       pass  # Do not ask how many there will be about a singluar person
-    elif file_type == "docx" and ('[' in field_to_check or '.' in field_to_check):
+    elif '[' in field_to_check or '.' in field_to_check:
       # Check for a valid Python identifier before brackets or .
       match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
       matches = re.match(match_with_brackets_or_attribute, field_to_check)
@@ -1157,10 +1154,10 @@ def get_person_variables(fieldslist,
           # Look for suffixes normally associated with people like .name.first for a DOCX
           if possible_suffix in people_suffixes:
             people.add(matches.groups()[0]) 
-    elif file_type == "pdf":
+    else:
       # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
       # In this branch and all subbranches strip trailing numbers
-      # regex to check for matching suffixes, and catch things like mailing_address_address
+      # regex to check for matching suffixes, and catch things like mail_address_address
       # instead of just _address_address, if the longer one matches
       match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
       matches = re.match(match_pdf_person_suffixes, field_to_check)
@@ -1206,38 +1203,6 @@ def using_string(params:dict, elements_as_variable_list:bool=False)->str:
       params_string_builder.append(str(param) + "=" + repr(params[param]))
   retval += ",".join(params_string_builder)
   return retval + ")"
-
-def pdf_field_type_str(field):
-  """Gets a human readable string from a PDF field code, like '/Btn'"""
-  if not isinstance(field, tuple) or len(field) < 4 or not isinstance(field[4], str):
-    return ''
-  else:
-    if field[4] == '/Sig':
-      return 'Signature'
-    elif field[4] == '/Btn':
-      return 'Checkbox'
-    elif field[4] == '/Tx':
-      return 'Text'
-    else:
-      return ':skull-crossbones:'
-
-def bad_name_reason(field:Union[str, Tuple]):
-  """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
-  if isinstance(field, str):
-    # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
-    # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
-    try:
-      ast.parse(field)
-    except SyntaxError as ex:
-      return "{} isn't a valid python expression: {}".format(field, ex)
-    return None
-  else:
-    log(field[0], 'console')
-    python_var = map_raw_to_final_display(remove_multiple_appearance_indicator(varname(field[0])))
-    if len(python_var) == 0:
-      return '{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters'.format(field[0], pdf_field_type_str(field))
-    return None
-
 
 def create_package_zip(pkgname: str, info: dict, author_info: dict, folders_and_files: dict, fileobj:DAFile=None)->DAFile:
   """
