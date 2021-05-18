@@ -106,24 +106,41 @@ id: information about this interview
 question: |
   Information about this interview
 fields:
+  - Is your form court-related?: interview.court_related
+    datatype: yesnoradio
+    help: |
+      Answer yes if the form lists the name of a court, even if it is not
+      filed in a court. We will ask you
+      questions that help you list the correct set of courts as options.
   - Kind of form: interview.form_type
     datatype: radio
     choices:
       - Starts a new court case: starts_case
-      - Part of an existing court case: existing_case
-      - Appeal: appeal
+      - Filed in or responding to an existing court case: existing_case
+      - Part of an appeal of a court case: appeal
       - Form that is not filed in a court: other_form
+      - Other: other
+    show if: interview.court_related
+  - Kind of form: interview.form_type
+    datatype: radio
+    choices:
+      - Administrative form or other form that is not filed in a court: other_form
       - Letter: letter
       - Other: other
+    show if:
+      variable: interview.court_related
+      is: False
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
-    none of the above: True
+    none of the above: False
     code: |
       get_court_choices() + ['Other']
+    show if: interview.court_related
   - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
-    show if: interview.allowed_courts['Other']
+    js show if: |
+      val("interview.allowed_courts['Other']") && val("interview.court_related")
   - Categories: interview.categories
     datatype: checkboxes
     choices:
@@ -139,10 +156,13 @@ fields:
       - Education: ED-00-00-00-00
       - Prisoners' Rights: RI-10-00-00-00
       - Other: Other
+    none of the above: False
+    show if: interview.court_related
   - Other categories (separate with a comma): interview.other_categories
     datatype: area
     rows: 2
-    show if: interview.categories['Other']
+    js show if: |
+      val("interview.categories['Other']") && val("interview.court_related")
   - Unique label for this interview: interview_label_draft
     default: ${short_filename}
     maxlength: 35
@@ -257,6 +277,9 @@ fields:
       - Plaintiff/Petitioner: plaintiff
       - Defendant/Respondent: defendant
       - Could be either: unknown
+      - None of the above: na
+    help: |
+      If form type is an appeal, this is asking about the role in the trial court, not appellate proceeding.
   #- Number of users whose information can be filled in on this form: user_count
   #  choices:
   #    - One user of this form at a time: one
@@ -516,6 +539,7 @@ code: |
     "short_title": interview.short_title,
     "description": interview.description,
     "original_form": interview.original_form,
+    "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,
     "categories": interview.categories,
     "other_categories": interview.other_categories if defined('interview.other_categories') else '',
