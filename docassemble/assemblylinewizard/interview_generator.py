@@ -34,7 +34,7 @@ __all__ = ['ParsingException', 'indent_by', 'varname', 'DAField', 'DAFieldList',
            'create_package_zip', 'remove_multiple_appearance_indicator', \
            'get_person_variables', 'get_court_choices',\
            'process_custom_people', 'set_custom_people_map',\
-           'map_names','fix_id','DABlock', 'DABlockList','mako_indent',\
+           'fix_id','DABlock', 'DABlockList','mako_indent',\
            'using_string', 'pdf_field_type_str', \
            'bad_name_reason', 'mako_local_import_str']
 
@@ -905,21 +905,6 @@ def get_docx_variables( text:str )->set:
 ########################################################
 # Map names code
 
-# TODO: map_names is deprecated but old code depends on it. This is temporary shim
-def map_names(label, document_type="pdf", reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-              custom_people_plurals_map=custom_values.people_plurals_map,
-              reserved_prefixes=generator_constants.RESERVED_PREFIXES,
-              undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-              reserved_pluralizers_map = generator_constants.RESERVED_PLURALIZERS_MAP,
-              reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
-  return map_raw_to_final_display(label, document_type=document_type,
-              reserved_whole_words=reserved_whole_words,
-              custom_people_plurals_map=custom_people_plurals_map,
-              reserved_prefixes=reserved_prefixes,
-              undefined_person_prefixes=undefined_person_prefixes,
-              reserved_pluralizers_map = reserved_pluralizers_map,
-              reserved_suffixes_map=reserved_suffixes_map)
-  
 def map_raw_to_final_display(label:str, document_type:str="pdf",
               reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
               custom_people_plurals_map=custom_values.people_plurals_map,
