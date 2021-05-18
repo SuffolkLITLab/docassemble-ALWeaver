@@ -106,18 +106,29 @@ id: information about this interview
 question: |
   Information about this interview
 fields:
-  - Is your template form court-related?: interview.court_related
+  - Is your form court-related?: interview.court_related
     datatype: yesnoradio
+    help: |
+      Answer yes if the form lists the name of a court, even if it is not
+      filed in a court. We will ask you
+      questions that help you list the correct set of courts as options.
   - Kind of form: interview.form_type
     datatype: radio
     choices:
       - Starts a new court case: starts_case
-      - Part of an existing court case: existing_case
-      - Appeal: appeal
-      - Form that is not filed in a court: other_form
+      - Filed in or responding to an existing court case: existing_case
+      - Part of an appeal of a court case: appeal
+      - Other: other      
+    show if: interview.court_related
+  - Kind of form: interview.form_type
+    datatype: radio
+    choices:
+      - Administrative form or other form that is not filed in a court: other_form
       - Letter: letter
       - Other: other
-    show if: interview.court_related
+    show if: 
+      variable: interview.court_related
+      is: False
   - Allowed courts: interview.allowed_courts
     datatype: checkboxes
     none of the above: False
@@ -188,15 +199,10 @@ fields:
       - docassemble.ALMassachusetts>=0.0.7
       - docassemble.MassAccess
 ---
-objects: 
-  - tmp_allowed_courts: DAEmpty 
-  - tmp_categories: DAEmpty 
----
 code: |    
   if not interview.court_related:   
-    interview.form_type = 'non_court'          
-    interview.allowed_courts = tmp_allowed_courts #checkboxes               
-    interview.categories = tmp_categories  #checkboxes
+    interview.allowed_courts = DAEmpty()             
+    interview.categories = DAEmpty()
 ---
 code: |
   if interview.form_type == 'starts_case':
