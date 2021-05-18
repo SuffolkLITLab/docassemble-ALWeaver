@@ -457,11 +457,6 @@ class DAField(DAObject):
     """Turn the docassemble variable string into an expression
     that makes DA ask a question for it. This is mostly
     calling `gather()` for lists"""
-    # TODO: we might want to think about how to handle the custom names differently
-    # in the future. This lets us avoid having to specify the full/combined list of people
-    # exact prefix matches are dealt with easily
-    if hasattr(self, 'custom_trigger_gather'):
-      return self.custom_trigger_gather
     GATHER_CALL = '.gather()'
     if self.final_display_var in reserved_whole_words:
       return self.final_display_var
@@ -1095,9 +1090,6 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
     # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
     if not ('[' in field.variable) and new_potential_name != field.variable:
       field.final_display_var = new_potential_name
-      for person in custom_people:
-        if field.final_display_var.startswith(person + "["):
-          field.custom_trigger_gather = person + ".gather()"
       fields_to_add.add(field)
       delete_list.append(field) # Cannot mutate in place
     else:
@@ -1105,9 +1097,6 @@ def process_custom_people(custom_people:list, fields:list, built_in_fields:list,
       matching_docx_test = r"^(" + "|".join(custom_people) + ")\[\d+\](" + ("|".join([suffix.replace(".","\.") for suffix in people_suffixes])) + ")$"
       log(matching_docx_test)
       if re.match(matching_docx_test, field.variable):
-        for person in custom_people:
-          if field.final_display_var.startswith(person + "["):
-            field.custom_trigger_gather = person + ".gather()"
         delete_list.append(field)
         fields_to_add.add(field)
 
