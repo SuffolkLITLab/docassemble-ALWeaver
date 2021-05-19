@@ -1,7 +1,7 @@
 metadata:
   title: |
-    Interview Weaver: Document Assembly Line 
-  short title: Weaver
+    Interview Weaver: Document Assembly Line - merged
+  short title: Weaver 
 ---
 features:
   question help button: True
@@ -15,6 +15,9 @@ modules:
 ---
 features:
   css: progressivedisclosure.css  
+---
+include: 
+  - pdf_field_tester.yml
 ---
 objects:
   - generator_data: DAStore.using(base='interview', encrypted=False) # store sequential use of this generator
@@ -40,6 +43,10 @@ mandatory: True
 id: Interview Order
 code: |
   template_upload
+  # Run pdf_field_tester.yml if form is in pdf.  
+  if template_upload[0].filename.endswith('pdf'):    
+    field_list_display
+    pdf_check_display
   interview.form_type
   interview.title
   interview_intro_prompt
@@ -86,11 +93,13 @@ subquestion: |
   This tool is part of the [Doc Assembly 
   Line](https://suffolklitlab.org/doc-assembly-line/)
   project.
+  
+  **If your file is PDF, we'll validate your PDF fields first.**
 fields:
   - Select a PDF or Word template: template_upload
     datatype: file
-    accept: |
-      ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    #accept: |
+    #  ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 help: |
   This interview has been run ${sequence} times.
 ---
