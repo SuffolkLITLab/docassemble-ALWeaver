@@ -1080,7 +1080,10 @@ need:
 code: |
   end_question = interview.blocks.appendObject()
   end_question.template_key = 'download screen'
-  end_question.data = {"interview_label": interview_label}
+  end_question.data = {
+      "interview_label": interview_label, 
+      "document_type": 'pdf' if any(map(lambda templ: templ.extension == 'pdf', template_upload)) else 'docx'
+  }
   add_end_question = True
 ---  
 code: |
