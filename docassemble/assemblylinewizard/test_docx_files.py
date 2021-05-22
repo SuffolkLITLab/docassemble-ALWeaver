@@ -24,7 +24,7 @@ class test_docxs(unittest.TestCase):
 
   def test_reserved_docx_labels(self):
     reserved_labels_files = Path(__file__).parent / 'test/reserved_docx_variables.docx'
-    docx_data = docx2python(unmap_suffixes_file)
+    docx_data = docx2python(reserved_labels_files)
     text = docx_data.text
     all_vars = get_docx_variables(text)
     reserved_labels = []
