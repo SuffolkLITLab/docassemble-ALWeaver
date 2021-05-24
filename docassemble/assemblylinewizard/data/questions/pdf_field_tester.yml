@@ -113,7 +113,7 @@ attachment:
   variable name: quality_check_overlay
   docx template file: quality_check_overlay.docx
 ---
-field: pdf_check_display
+id: debug filled in PDF
 question: |
   Here is the filled-in PDF
 subquestion: |
@@ -139,7 +139,6 @@ buttons:
         pdf_check_display = True    
   - Exit: exit
     url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
-continue button field: get_all_fields
 ---
 attachment:
   variable name: my_pdf
