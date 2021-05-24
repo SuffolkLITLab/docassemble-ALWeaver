@@ -109,6 +109,11 @@ code: |
   other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in fields_raw if not field[0] in signatures and not field[0] in checkbox_fields]
   pdf_fields = other_fields + checkboxes + signatures
 ---
+attachment:
+  variable name: quality_check_overlay
+  docx template file: quality_check_overlay.docx
+---
+field: pdf_check_display
 question: |
   Here is the filled-in PDF
 subquestion: |
@@ -122,7 +127,7 @@ subquestion: |
   
   All signature fields should be filled in with this image: ${placeholder_signature}
   
-  ${my_pdf}
+  ${ pdf_concatenate( overlay_pdf( quality_check_overlay, my_pdf ), filename="do_not_use.pdf") }
   
   [FILE stop_sign, 5%] **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, just press the **Exit** button below, and pass your PDF file to the next person for interview building.
   
