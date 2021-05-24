@@ -3,7 +3,7 @@ comment: |
   1. Removed upload_template and metadata blocks.
   2. Changed fields to fields_raw and signature_fields to signature_fields_test to avoid name conflicts with the Weaver's main code.  
   3. Replaced two "mandatory:true" with "continue button field: field_list_display" and field "pdf_check_display".
-  4. Added a costumed Continue button and an Exit button.
+  4. Added a customized Continue button and an Exit button.
 ---
 objects:
   - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
