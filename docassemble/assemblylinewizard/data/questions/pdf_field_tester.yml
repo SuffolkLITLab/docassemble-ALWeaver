@@ -1,9 +1,9 @@
 comment: |
-  Changes made in this file to merge this file into assembly_line.yml (5/2021):
-  1. Removed upload_template and metadata.
+  Changes made in this file to merge it into assembly_line.yml (5/2021):
+  1. Removed upload_template and metadata blocks.
   2. Changed fields to fields_raw and signature_fields to signature_fields_test to avoid name conflicts with the Weaver's main code.  
-  3. Removed two "mandatory:true".
-  4. Added "continue button field: interview.title" and "field: pdf_check_display" on the final screen to follow the Weaver's main order. 
+  3. Replaced two "mandatory:true" with "continue button field: field_list_display" and field "pdf_check_display".
+  4. Added a customized Continue button and an Exit button.
 ---
 objects:
   - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
@@ -129,14 +129,17 @@ subquestion: |
   
   ${ pdf_concatenate( overlay_pdf( quality_check_overlay, my_pdf ), filename="do_not_use.pdf") }
   
-  [FILE stop_sign, 5%] **Do not download this form.** It is just a preview
-  to help you catch any errors. 
+  [FILE stop_sign, 5%] **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, just press the **Exit** button below, and pass your PDF file to the next person for interview building.
   
-  [FILE stop_sign, 5%] **If your job is only to label the form, stop here**. Your form has passed the test, you can now pass the PDF file that you uploaded to the next person for interview building.
-  
-  [FILE green_light, 5%] **If your job is to build the interview**, press the "continue" button below to build your draft interview.
-continue button label: Continue to build interview
-continue button field: interview.title
+  [FILE green_light, 5%] **If your job is to build the interview**, press the **Continue** button below to build your draft interview.
+sets: pdf_check_display
+buttons: 
+  - Continue to build interview:  
+      code: |
+        pdf_check_display = True    
+  - Exit: exit
+    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
+continue button field: get_all_fields
 ---
 attachment:
   variable name: my_pdf
