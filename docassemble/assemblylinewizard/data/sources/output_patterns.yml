@@ -72,7 +72,7 @@ preview screen: |
     Click the image to open it in a new tab. Click the "Make changes" button
     to edit your answers.
 
-    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+    ${ action_button_html(url_action('review_' + interview_label), label='Make changes', color='info') }
     </%text>
     Remember to come back to this window to continue and sign your form.
   continue button field: ${ interview_label }_preview_question    
@@ -87,7 +87,7 @@ download screen: |
 
     View, download and send your form below. Click the "Make changes" button to fix any mistakes.
 
-    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
+    ${ action_button_html(url_action('review_' + interview_label), label='Make changes', color='info') }
 
     ${ al_user_bundle.download_list_html() }
     </%text>
