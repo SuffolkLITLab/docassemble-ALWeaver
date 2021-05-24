@@ -203,8 +203,11 @@ fields:
   - no label: interview.dependency_choices
     datatype: checkboxes
     required: False
-    code:
-      get_possible_dependencies()
+    code: |
+      [{dep: dep, 'default': is_default} 
+          for dep, is_default in 
+          zip(get_possible_dependencies(), get_is_default_from_choices())
+      ]
     default:
       code: |
         get_is_default_from_choices
@@ -425,12 +428,15 @@ code: |
 ---
 code: |
   # Build the list of includes
+  include_data = {
+    "includes": ['docassemble.AssemblyLine:al_package.yml'] + \
+        get_yml_deps_from_choices(
+            interview.dependency_choices.true_values())
+  }
   include_question = interview.blocks.appendObject()
   include_question.template_key = 'include'
-  include_question.data = {
-    "includes": ['docassemble.AssemblyLine:al_package.yml'] + 
-        get_yml_deps_from_choices(interview.dependency_choices.true_values())
-    }
+  include_question.data = include_data
+  del include_data
   add_includes = True
 ---
 code: |
