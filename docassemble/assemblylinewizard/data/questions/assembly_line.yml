@@ -8,10 +8,11 @@ features:
   # labels above fields: True
 ---
 modules:
+  - collections
   - docassemble.base.util
   - docassemble.base.logger
   - .interview_generator
-  - collections
+  - .custom_values
 ---
 features:
   css: progressivedisclosure.css  
@@ -204,13 +205,9 @@ fields:
     required: False
     code:
       get_possible_dependencies()
-      - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
-      - MassAccess: docassemble.MassAccess
     default:
       code: |
         get_is_default_from_choices
-      - docassemble.ALMassachusetts>=0.0.7
-      - docassemble.MassAccess
 ---
 code: |    
   if not interview.court_related:   
@@ -432,7 +429,7 @@ code: |
   include_question.template_key = 'include'
   include_question.data = {
     "includes": ['docassemble.AssemblyLine:al_package.yml'] + 
-        get_yml_dep_from_choices(interview.dependency_choices.true_values()
+        get_yml_deps_from_choices(interview.dependency_choices.true_values())
     }
   add_includes = True
 ---
@@ -1021,7 +1018,7 @@ code: |
   }
   
   create_package_zip(package_title,
-        interview.package_info(get_pypi_dep_from_choices(interview.dependency_choices)),
+        interview.package_info(get_pypi_deps_from_choices(interview.dependency_choices)),
         {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)

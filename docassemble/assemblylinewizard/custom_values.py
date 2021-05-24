@@ -7,6 +7,10 @@ from docassemble.base.util import DADict
 Container for widely used data that may be altered by user inputs.
 """
 
+__all__ = ['get_possible_dependencies', 'get_pypi_deps_from_choices', 'get_yml_deps_from_choices', 
+           'get_is_default_from_choices']
+
+
 # This is to workaround fact you can't do local import in Docassemble playground
 class Object(object):
   pass
@@ -50,23 +54,23 @@ def load_org_specific(all_custom_values=custom_values):
 def get_possible_dependencies(all_custom_values=custom_values):
   """Gets the possible yml files that the generated interview will depend on"""
   load_org_specific(all_custom_values)
-  return all_custom_values['dependency_choices'].keys()
+  return all_custom_values.org_specific_config['dependency_choices'].keys()
 
 
 def get_pypi_deps_from_choices(choices:Union[List[str], DADict], 
     all_custom_values=custom_values):
-  return get_value_from_choices(choices, 0)
+  return get_values_from_choices(choices, 0)
 
-def get_yml_dep_from_choices(choices:Union[List[str], DADict], 
+def get_yml_deps_from_choices(choices:Union[List[str], DADict], 
     all_custom_values=custom_values):
-  return get_value_from_choices(choices, 1)
+  return get_values_from_choices(choices, 1)
 
 def get_is_default_from_choices(all_custom_values=custom_values):
   load_org_specific(all_custom_values)
   return [dependency[0] for dependency in 
-      all_custom_values['dependency_choices'].items() if dependency[1][2]] 
+      all_custom_values.org_specific_config['dependency_choices'].items() if dependency[1][2]] 
 
-def get_value_from_choices(choices:Union[List[str], DADict], value_idx:int=0,
+def get_values_from_choices(choices:Union[List[str], DADict], value_idx:int=0,
     all_custom_values=custom_values):
   load_org_specific(all_custom_values)
   if isinstance(choices, DADict):
@@ -74,5 +78,5 @@ def get_value_from_choices(choices:Union[List[str], DADict], value_idx:int=0,
   else: # List
     choice_list = choices
   
-  return [all_custom_values['dependency_choices'][chosen_val][value_idx] 
+  return [all_custom_values.org_specific_config['dependency_choices'][chosen_val][value_idx] 
       for chosen_val in choice_list] 
