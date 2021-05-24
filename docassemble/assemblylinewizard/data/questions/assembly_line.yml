@@ -202,10 +202,13 @@ fields:
   - no label: interview.dependency_choices
     datatype: checkboxes
     required: False
-    choices:
+    code:
+      get_possible_dependencies()
       - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
       - MassAccess: docassemble.MassAccess
     default:
+      code: |
+        get_is_default_from_choices
       - docassemble.ALMassachusetts>=0.0.7
       - docassemble.MassAccess
 ---
@@ -427,10 +430,9 @@ code: |
   # Build the list of includes
   include_question = interview.blocks.appendObject()
   include_question.template_key = 'include'
-  # TODO: add a graphical element to select something other than
-  # massaccess.yml
   include_question.data = {
-    "includes": ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
+    "includes": ['docassemble.AssemblyLine:al_package.yml'] + 
+        get_yml_dep_from_choices(interview.dependency_choices.true_values()
     }
   add_includes = True
 ---
@@ -1019,7 +1021,7 @@ code: |
   }
   
   create_package_zip(package_title,
-        interview.package_info(interview.dependency_choices.true_values()),
+        interview.package_info(get_pypi_dep_from_choices(interview.dependency_choices)),
         {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)
