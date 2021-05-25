@@ -3,6 +3,9 @@ from pathlib import Path
 import yaml
 from docassemble.base.util import log, DADict
 from docassemble.base.core import objects_from_file
+# TODO(brycew): is this too deep into DA? Unclear if there are options to write
+# sources files to a package while it's running.
+from docassemble.base.functions import package_data_filename
 
 """
 Container for widely used data that may be altered by user inputs.
@@ -34,7 +37,7 @@ def load_org_specific(all_custom_values=custom_values):
   if all_custom_values.org_specific_config is None:
     try:
       all_custom_values.org_specific_config = objects_from_file('org_specific.yml')
-    except SystemError as ex:
+    except (FileNotFoundError, SystemError) as ex:
       # Populate some default values
       all_custom_values.org_specific_config = {
         'dependency_choices': {
@@ -50,6 +53,9 @@ def load_org_specific(all_custom_values=custom_values):
                True]
         }
       }
+      to_write = package_data_filename('data/sources/org_specific.yml')
+      with open(to_write, 'w') as writ:
+        writ.write(yaml.safe_dump(all_custom_values.org_specific_config))
 
 def get_possible_deps_as_choices(dep_category=None, all_custom=custom_values):
   """Gets the possible yml files that the generated interview will depend on"""
