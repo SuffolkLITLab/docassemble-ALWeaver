@@ -18,7 +18,7 @@ images:
 code: |
   try:
     checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
-
+    signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
@@ -88,8 +88,12 @@ subquestion: |
   ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
-  % if len(signature_fields) > 0:
-  The following are signature fields: ${comma_and_list(signature_fields)} 
+  % if len(signature_fields_test) > 0:
+  The following are signature fields: 
+  
+  % for sig in signature_fields_test:
+  * ${ sig }
+  % endfor
   % endif  
 
   % if len(checkbox_fields) > 0:
@@ -113,7 +117,7 @@ subquestion: |
   % endif
   
 fields:
-  - Are all fields that you expected in the list above?: all_fields_present
+  - Are all fields that you expected in the table above?: all_fields_present
     datatype: yesnoradio
     required: True
     validate: |
@@ -156,7 +160,7 @@ terms:
       with the name of a person/group of people, which we turn into "attributes" of that person.
 ---
 code: |
-  signatures = [{field: placeholder_signature} for field in signature_fields]
+  signatures = [{field: placeholder_signature} for field in signature_fields_test]
   checkboxes = [{field: 'Yes'} for field in checkbox_fields]
   other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in all_fields if not field[0] in signatures and not field[0] in checkbox_fields]
   pdf_fields = other_fields + checkboxes + signatures
