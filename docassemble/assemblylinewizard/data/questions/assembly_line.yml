@@ -43,8 +43,11 @@ mandatory: True
 id: Interview Order
 code: |
   template_upload
+  get_all_fields
   # Run pdf_field_tester.yml if form is a pdf.  
-  if template_upload[0].filename.endswith('pdf'):    
+  if template_upload[0].filename.endswith('pdf'):
+    if len(get_person_variables(all_fields, custom_only=True)) > 0:
+      process_people_variables
     field_list_display
     pdf_check_display
   interview.form_type
@@ -52,7 +55,6 @@ code: |
   interview_intro_prompt
   
   interview.typical_role
-  get_all_fields
   process_people_variables
   ask_people_quantity_question  
   add_includes
@@ -260,7 +262,7 @@ id: information about people
 question: |
   Information about people on this form
 subquestion: |  
-  For this ${interview.title} form, is the user of the form typically the 
+  For this form, is the user of the form typically the 
   Plaintiff/Petitioner or the Defendant/Respondent?
 
   The Plaintiff/Petitioner starts a case. The Defendant/Respondent
@@ -371,44 +373,6 @@ code: |
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
----
-event: empty_pdf
-question: You uploaded an empty PDF
-subquestion: |
-  The PDF you uploaded (${ template_upload[0].filename }) does not have any fillable fields.
-  To make a new interview, we need to have a document that has fillable fields.
-  
-  If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
-  For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
-
-buttons:
-  - Restart: restart
----
-event: non_descriptive_field_name
-question: Some of the fields in your PDF are not descriptive
-subquestion: |
-  There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
-  
-  The fields that have issues are:
-
-  % for bad_field in bad_fields:
-    * ${ bad_field }
-  % endfor
-
-buttons:
-  - Restart: restart
----
-event: parsing_exception
-question: ${ parsing_ex.main_issue }
-subquestion: |
-  ${ parsing_ex.description }
-
-  % if parsing_ex.url is not None:
-  Check out the [documentation](${ parsing_ex.url }) to learn more.
-  % endif
-  
-buttons:
-  - Restart: restart
 ---
 code: |
  built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
