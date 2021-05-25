@@ -196,21 +196,20 @@ question: Which jurisdictions and organizations is this form a part of?
 subquestion: |
   This will add those jurisdictions as dependencies. If you are unsure, leave the default options checked.
 help:
-  label: My jurisdiction is not here
+  label: My jurisdiction or organization is not here
   content: |
     New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
 fields:
-  - no label: interview.dependency_choices
+  - Jurisdictions: interview.jurisdiction_choices
     datatype: checkboxes
     required: False
     code: |
-      [{dep: dep, 'default': is_default} 
-          for dep, is_default in 
-          zip(get_possible_dependencies(), get_is_default_from_choices())
-      ]
-    default:
-      code: |
-        get_is_default_from_choices
+      get_possible_deps_as_choices('jurisdiction')
+  - Organizations: interview.org_choices
+    datatype: checkboxes
+    required: False
+    code: |
+      get_possible_deps_as_choices('organization')
 ---
 code: |    
   if not interview.court_related:   
@@ -431,7 +430,8 @@ code: |
   include_data = {
     "includes": ['docassemble.AssemblyLine:al_package.yml'] + \
         get_yml_deps_from_choices(
-            interview.dependency_choices.true_values())
+            interview.jurisdiction_choices.true_values() +
+            interview.org_choices.true_values())
   }
   include_question = interview.blocks.appendObject()
   include_question.template_key = 'include'
@@ -1024,7 +1024,12 @@ code: |
   }
   
   create_package_zip(package_title,
-        interview.package_info(get_pypi_deps_from_choices(interview.dependency_choices)),
+        interview.package_info(
+          get_pypi_deps_from_choices(
+            interview.jurisdiction_choices.true_values() +
+            interview.org_choices.true_values()
+          )
+        ),
         {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)
