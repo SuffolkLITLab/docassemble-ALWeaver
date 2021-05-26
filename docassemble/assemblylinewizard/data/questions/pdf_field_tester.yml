@@ -5,6 +5,9 @@ comment: |
   3. Replaced two "mandatory:true" with "continue button field: field_list_display" and field "pdf_check_display".
   4. Added a customized Continue button and an Exit button.
 ---
+modules:
+ - .interview_generator
+---
 objects:
   - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
 ---
@@ -13,12 +16,15 @@ images:
   green_light: green_light.png
 ---
 code: |
-  fields_raw = get_pdf_fields(template_upload)
-  if fields_raw is None:
-    force_ask('empty_pdf')
-
-  signature_fields_test = [field[0] for field in fields_raw if len(field) >4 and field[4] == '/Sig']
-  checkbox_fields = [field[0] for field in fields_raw if len(field) > 4 and field[4] == '/Btn']
+  try:
+    checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
+    signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
+    possible_base = get_person_variables(all_fields, custom_only=True)
+    possible_custom = [field[0] for field in all_fields 
+        if any([field[0].startswith(base) for base in possible_base])]
+  except ParsingException as ex:
+    parsing_ex = ex
+    force_ask('parsing_exception')
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
@@ -32,70 +38,130 @@ subquestion: |
 buttons:
   - Restart: restart
 ---
+event: non_descriptive_field_name
+question: Some of the fields in your PDF are not descriptive
+subquestion: |
+  There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+  
+  The fields that have issues are:
+
+  % for bad_field in bad_fields:
+    * ${ bad_field }
+  % endfor
+
+buttons:
+  - Restart: restart
+---
+event: parsing_exception
+question: ${ parsing_ex.main_issue }
+subquestion: |
+  ${ parsing_ex.description }
+
+  % if parsing_ex.url is not None:
+  Check out the [documentation](${ parsing_ex.url }) to learn more.
+  % endif
+  
+buttons:
+  - Restart: restart
+---
 code: |
   warnings_temp = set()
-  for field in fields_raw:
+  for field in all_fields:
     if ' ' in field[0]:
       warnings_temp.add('space')
-    if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0:
-      warnings_temp.add('invalid_name')
     if field[4] not in ['/Sig','/Btn','/Tx']:
       warnings_temp.add('not handled')
   warnings = warnings_temp
   del warnings_temp
 ---
 question: |
-  Field list
+  % if len(warnings) > 0:
+  Correct warnings in field labels
+  % else:
+  Check for expected fields
+  % endif
 subquestion: |
+  The table below shows all of the fields present in the PDF.
 
-  Field name (bold if {reserved}) | Field type | {Internal DA name} | Max length
+  Read through it to make sure that everything is as you expect it to be.
+
+  Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
-  % for field in fields_raw:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  % for field in all_fields:
+  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) or field[0] in possible_custom else field[0]} ${ ':question:' if field[0] in possible_custom else ''} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
-  The following are signature fields: ${comma_and_list(signature_fields_test)} 
+  % if len(signature_fields_test) > 0:
+  The following are signature fields: 
   
-  The following are checkbox fields: ${comma_and_list(checkbox_fields)}
+  % for sig in signature_fields_test:
+  * ${ sig }
+  % endfor
+  % endif  
+
+  % if len(checkbox_fields) > 0:
+  The following are checkbox fields: 
   
-  **Bold**/reserved names means that we wrote and translated a question for this
-  field that will be used as a default in every interview. If you expect it
-  to be bold, check spelling.
-  
-  Names for groups of **people** should be bold if you followed our naming guidelines.
-  Make sure that you used the right name. E.g., use "plaintiff" not
-  "plaintiff_tenant". Check for misspellings if a name is not bold.
-  
-  Let us know if we should add a new type of person.
+  % for chk in checkbox_fields:
+  * ${ chk }
+  % endfor
+  % endif
   
   % if 'space' in warnings:
   :exclamation-triangle: Indicates that the field name has a space in it.
-  Replace any spaces with underscores in the PDF field name before uploading to
-  Trello.
-  % endif
-
-  % if 'invalid_name' in warnings:
-  :exclamation-circle: indicates that a field name is not a valid variable name.
-  At the least, start the field name with an alphabetical character (a-z).
+  Replace any spaces with underscores in the PDF field name before continuing.
   % endif
   
   % if 'not handled' in warnings:
   :skull-crossbones: Indicates it's a field type that our interview generator
-  does not currently handle. OR that the field has a duplicate name. 
-  Make sure the field is a checkbox, text
-  input, or digital signature field and that it is not a duplicate.
+  does not currently handle. 
+  If you can, make the field into a checkbox, text input, 
+  or digital signature field.
   % endif
   
-  The internal Docassemble field name may be different from the name in the PDF
-  even if it is not a "reserved" name. This check is mostly to help interview
-  authors, not quality control.
-
+  % if len(possible_custom) > 0:
+  :question: Indicates that we think this field could be handled by 
+  questions in our question library, so you don't have to write your own questions for it! You can choose whether to use our default questions later.
+  % endif
+  
+fields:
+  - Are all fields that you expected in the table above?: all_fields_present
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("Double check your PDF to make sure you <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">created the field correctly</a> for details!")
+  - Are there any unexpected fields in the table?: unexpected_fields
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if not y else validation_error("You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">remove fields</a> that you won't be asking for or showing in the form")
+  - note: |
+      **Bold** names means that this field will be asked by a built-in question
+      from the AL Question Library by default. If you expect it to be bold, 
+      check the field's spelling.
+  - Are all fields you expected to be {reserved} bolded?: fields_are_reserved
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are correct")
+    help: |
+      "More of the :question: fields might be reserved than you expect: that's okay! You'll get to chose which ones are actually reserved later"
+  - Are you okay with fixing the shown warnings yourself?: will_handle_errors
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">edit your PDF</a> to address these warnings")
+    show if:
+      code: |
+        len(warnings) > 0
 continue button field: field_list_display
-help: |
-  % for field in fields_raw:
-  * ${field}
-  % endfor
-terms: 
+help:
+  label: Debug Info
+  content: |
+    % for field in all_fields:
+    * ${field}
+    % endfor
+terms:
   - reserved: |
       Means there is a built-in question for this field.
   - Internal DA name: |
@@ -106,12 +172,11 @@ terms:
 code: |
   signatures = [{field: placeholder_signature} for field in signature_fields_test]
   checkboxes = [{field: 'Yes'} for field in checkbox_fields]
-  other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in fields_raw if not field[0] in signatures and not field[0] in checkbox_fields]
+  other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in all_fields if not field[0] in signatures and not field[0] in checkbox_fields]
   pdf_fields = other_fields + checkboxes + signatures
 ---
-attachment:
-  variable name: quality_check_overlay
-  docx template file: quality_check_overlay.docx
+objects:
+  - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
 id: debug filled in PDF
 question: |
@@ -119,26 +184,31 @@ question: |
 subquestion: |
   The fields are filled in with the name that we'll use in the YAML file.
   
-  All checkboxes should be checked. If not, check the field's
-  "export" value. It should be set to "Yes".
-  
-  If the text is unusually sized, then check the font size and
-  whether the field is set to allow multiple lines.
-  
   All signature fields should be filled in with this image: ${placeholder_signature}
+
+  ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }
   
-  ${ pdf_concatenate( overlay_pdf( quality_check_overlay, my_pdf ), filename="do_not_use.pdf") }
-  
-  [FILE stop_sign, 5%] **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, just press the **Exit** button below, and pass your PDF file to the next person for interview building.
-  
-  [FILE green_light, 5%] **If your job is to build the interview**, press the **Continue** button below to build your draft interview.
-sets: pdf_check_display
-buttons: 
-  - Continue to build interview:  
-      code: |
-        pdf_check_display = True    
-  - Exit: exit
-    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
+fields:
+  - Are all the checkboxes checked?: all_checkboxes_checked
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("Check the field's 'export' value. It should be set to 'Yes'.")
+  - Is any of the text unusually sized?: unusual_size_text
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if not y else validation_error("Check the font sizes of those fields, and if the field is set to allow multiple lines")
+  - Are all signature fields filled in with the above image?: signature_filled_in
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature fields.")
+  - note: |
+      [FILE stop_sign, 5%] **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
+  - note: |
+      [FILE green_light, 5%] **If your job is to build the interview**, press the **Continue** button below to build your draft interview.
+continue button field: pdf_check_display
 ---
 attachment:
   variable name: my_pdf
