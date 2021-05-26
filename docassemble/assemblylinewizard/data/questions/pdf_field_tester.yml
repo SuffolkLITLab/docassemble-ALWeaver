@@ -19,6 +19,9 @@ code: |
   try:
     checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
     signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
+    possible_base = get_person_variables(all_fields, custom_only=True)
+    possible_custom = [field[0] for field in all_fields 
+        if any([field[0].startswith(base) for base in possible_base])]
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
@@ -85,7 +88,7 @@ subquestion: |
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
   % for field in all_fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) else field[0]} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) or field[0] in possible_custom else field[0]} ${ ':question:' if field[0] in possible_custom else ''} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
 
   % if len(signature_fields_test) > 0:
@@ -116,6 +119,11 @@ subquestion: |
   or digital signature field.
   % endif
   
+  % if len(possible_custom) > 0:
+  :question: Indicates that we think this field could be handled by 
+  questions in our question library, so you don't have to write your own questions for it! You can choose whether to use our default questions later.
+  % endif
+  
 fields:
   - Are all fields that you expected in the table above?: all_fields_present
     datatype: yesnoradio
@@ -136,6 +144,8 @@ fields:
     required: True
     validate: |
       lambda y: True if y else validation_error("Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are correct")
+    help: |
+      "More of the :question: fields might be reserved than you expect: that's okay! You'll get to chose which ones are actually reserved later"
   - Are you okay with fixing the shown warnings yourself?: will_handle_errors
     datatype: yesnoradio
     required: True
@@ -165,9 +175,8 @@ code: |
   other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in all_fields if not field[0] in signatures and not field[0] in checkbox_fields]
   pdf_fields = other_fields + checkboxes + signatures
 ---
-attachment:
-  variable name: quality_check_overlay
-  docx template file: quality_check_overlay.docx
+objects:
+  - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
 id: debug filled in PDF
 question: |
@@ -180,7 +189,7 @@ subquestion: |
   
   All signature fields should be filled in with this image: ${placeholder_signature}
   
-  ${ pdf_concatenate( overlay_pdf( quality_check_overlay, my_pdf ), filename="do_not_use.pdf") }
+  ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }
   
 fields:
   - Are all the checkboxes checked?: all_checkboxes_checked

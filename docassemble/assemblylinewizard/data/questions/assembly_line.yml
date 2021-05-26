@@ -43,16 +43,14 @@ mandatory: True
 id: Interview Order
 code: |
   template_upload
-  get_all_fields
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
-    if len(get_person_variables(all_fields, custom_only=True)) > 0:
-      process_people_variables
     field_list_display
     pdf_check_display
   interview.form_type
   interview.title
   interview_intro_prompt
+  get_all_fields
   
   interview.typical_role
   process_people_variables
