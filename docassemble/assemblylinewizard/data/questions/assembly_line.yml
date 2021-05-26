@@ -93,7 +93,7 @@ subquestion: |
   
   **What the Weaver does:**  
   
-  1. It turns your form into a draft DocAssembly interview. The end product of the Weaver is a Docassemble package for you to download.
+  1. It turns your form into a draft Docassembly interview. The end product of the Weaver is a Docassemble package for you to download.
   2. If your file is PDF, the Weaver will validate your PDF field labels first.
   3. The draft interview will include all the dependencies it needs, which are additional Docassemble packages in the _**Doc Assembly Line**_ project that offer convenient and useful functionality and visual effects for your interview.
   4. As such, variable names in the generated draft interview are standardized.
