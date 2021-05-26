@@ -183,12 +183,9 @@ question: |
   Here is the filled-in PDF
 subquestion: |
   The fields are filled in with the name that we'll use in the YAML file.
-
-  If the text is unusually sized, then check the font size and
-  whether the field is set to allow multiple lines.
   
   All signature fields should be filled in with this image: ${placeholder_signature}
-  
+
   ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }
   
 fields:
@@ -202,7 +199,7 @@ fields:
     required: True
     validate: |
       lambda y: True if not y else validation_error("Check the font sizes of those fields, and if the field is set to allow multiple lines")
-  - Are all signature fields filled in with this image?: signature_filled_in
+  - Are all signature fields filled in with the above image?: signature_filled_in
     datatype: yesnoradio
     required: True
     validate: |

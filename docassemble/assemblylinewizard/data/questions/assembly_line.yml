@@ -50,9 +50,9 @@ code: |
   interview.form_type
   interview.title
   interview_intro_prompt
-  get_all_fields
   
   interview.typical_role
+  get_all_fields
   process_people_variables
   ask_people_quantity_question  
   add_includes
