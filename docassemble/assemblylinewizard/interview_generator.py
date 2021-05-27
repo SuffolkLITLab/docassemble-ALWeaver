@@ -986,7 +986,8 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
                            reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
                            undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
                            reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
-                           reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP):
+                           reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
+                           allow_singular_suffixes=generator_constants.ALLOW_SINGULAR_SUFFIXES):
     '''Given a string, will return whether the string matches
     reserved variable names. `label` must be a string.'''
     if label in reserved_whole_words:
@@ -1012,7 +1013,9 @@ def is_reserved_docx_label(label, docx_only_suffixes=generator_constants.DOCX_ON
       docx_only_suffixes_regex = '^' + '$|^'.join(docx_only_suffixes) + '$'
       docx_suffixes_matches = re.findall(docx_only_suffixes_regex, suffix)
       if (suffix in reserved_suffixes_map.values()
-          or len(docx_suffixes_matches) > 0):
+          or len(docx_suffixes_matches) > 0) and (prefix in allow_singular_suffixes or label_parts[0][0].endswith(']')):
+          # We do NOT want users.address.address to match, only users[0].address.address
+          # but we do allow trial_court.address.address. Make sure we don't overmatch
         return True
 
     # For all other cases
