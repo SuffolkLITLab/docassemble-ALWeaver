@@ -30,6 +30,8 @@ objects:
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
+  - attachments: DAList.using(object_type=DAObject, auto_gather=False)
+  - bundles: DAList.using(object_type=DAObject, auto_gather=False)  
 ---
 code: |
   # we use this to ensure that each interview gets a unique key
@@ -939,7 +941,10 @@ subquestion: |
   2. Open the new project's _Packages_ folder.<br>
   3. Use the third icon _Upload_ to install this package.<br>
   4. Go back to Playground, delete test.yml file, now you can see your interview file.
-  
+  5. **Next steps** instructions: we created a starting point for a cover page that
+  your form's users will use. Edit this file so it has appropriate instructions for your
+  form.
+
   **If you rerun the Weaver and only want the yml file**, you can just download it below:  
      
   ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download Your Yaml File') }
@@ -1084,6 +1089,20 @@ code: |
   file1.description = interview.description
   file1.fields = built_in_fields_used + fields + signature_fields
 
+  # TODO: it would be possible to merge the "bundles" list with the
+  # attachments/labels_list.
+  bundles.clear()
+  user_bundle = bundles.appendObject()
+  user_bundle.name = 'al_user_bundle'
+  user_bundle.elements = [file2, file1]
+  
+  court_bundle = bundles.appendObject()
+  court_bundle.name = 'al_court_bundle'
+  # Court does not get the user next steps instructions
+  court_bundle.elements = [file1]
+  bundles.gathered = True
+  
+  
   # Bundl-name is a single value
   if len(labels_lists) > 1:
     bundle_name = file1.output_filename + '_package.pdf'
@@ -1103,7 +1122,7 @@ code: |
   attachment_bundles = interview.blocks.appendObject()
   attachment_bundles.template_key = "al-document-bundle objects"
   attachment_bundles.data = {
-    "bundle_elements": labels_lists,
+    "bundles": bundles,
     "bundle_filename": bundle_name,        
   }
   # Regular DA attachments block.   
