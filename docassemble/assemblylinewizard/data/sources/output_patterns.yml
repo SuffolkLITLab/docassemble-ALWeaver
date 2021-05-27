@@ -67,7 +67,7 @@ preview screen: |
   subquestion: |
     Here is a preview of the form you will sign on the next page.   
     <%text>
-    ${ al_user_bundle.as_pdf(key='preview') }
+    ${ al_court_bundle.as_pdf(key='preview') }
     </%text>
 
     Click the image to open it in a new tab. Click the "Make changes" button
