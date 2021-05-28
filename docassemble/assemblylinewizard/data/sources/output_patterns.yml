@@ -66,9 +66,8 @@ preview screen: |
     Preview your form before you sign it
   subquestion: |
     Here is a preview of the form you will sign on the next page.   
-    <%text>
-    ${ al_court_bundle.as_pdf(key='preview') }
-    </%text>
+    
+    <%text>${</%text> ${bundle_name}.as_pdf(key='preview') <%text>}</%text>
 
     Click the image to open it in a new tab. Click the "Make changes" button
     to edit your answers.
