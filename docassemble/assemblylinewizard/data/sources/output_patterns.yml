@@ -68,12 +68,13 @@ preview screen: |
     Here is a preview of the form you will sign on the next page.   
     <%text>
     ${ al_user_bundle.as_pdf(key='preview') }
+    </%text>
 
     Click the image to open it in a new tab. Click the "Make changes" button
     to edit your answers.
 
-    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
-    </%text>
+    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Make changes', color='info') <%text>}</%text>
+    
     Remember to come back to this window to continue and sign your form.
   continue button field: ${ interview_label }_preview_question    
 download screen: |
@@ -82,13 +83,13 @@ download screen: |
   question: |
     Your form is ready to download.
   subquestion: |
-    <%text>
-    Thank you ${users}. Your form is ready to download and deliver.
-
+    Thank you <%text>${users}</%text>. Your form is ready to download and deliver.
+    
     View, download and send your form below. Click the "Make changes" button to fix any mistakes.
 
-    ${ action_button_html(url_action('review_" + interview_label + "'), label='Make changes', color='info') }
-
+    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Make changes', color='info') <%text>}</%text>
+    
+    <%text>
     ${ al_user_bundle.download_list_html() }
     </%text>
 
