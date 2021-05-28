@@ -489,10 +489,12 @@ class DAField(DAObject):
     else:
       return self.final_display_var
 
-  def get_settable_var(self, display_to_settable_suffix=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX):
+  def get_settable_var(self, 
+      display_to_settable_suffix=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX):
     return substitute_suffix(self.final_display_var, display_to_settable_suffix)
   
-  def _get_attributes(self, full_display_map=generator_constants.FULL_DISPLAY):
+  def _get_attributes(self, full_display_map=generator_constants.FULL_DISPLAY,
+      primitive_pluralizer=generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP):
     """Returns attributes of this DAField, notably without the leading "prefix", or object name
     * the plain attribute, not ParentCollection, but the direct attribute of the ParentCollection
     * the "full display", an expression that shows the whole attribute in human readable form
@@ -503,14 +505,20 @@ class DAField(DAObject):
     label_parts = re.findall(r'([^.]*)(\..*)*', self.get_settable_var())
 
     prefix_with_index = label_parts[0][0] 
-
+    prefix = re.sub(r'\[.+\]', '', prefix_with_index)
     settable_attribute = label_parts[0][1].lstrip('.')
-    if settable_attribute == '' or settable_attribute == 'name':
-      settable_attribute = 'name.first'
-    if settable_attribute == 'address' or settable_attribute == 'mailing_address':
-      settable_attribute += '.address'
-    plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
-    full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
+    if prefix in primitive_pluralizer.keys():
+      # It's just a primitive (either by itself or in a list). I.e. docket_numbers
+      settable_attribute = ''
+      plain_att = ''
+      full_display_att = ''
+    else:
+      if settable_attribute == '' or settable_attribute == 'name':
+        settable_attribute = 'name.first'
+      if settable_attribute == 'address' or settable_attribute == 'mailing_address':
+        settable_attribute += '.address'
+      plain_att = re.findall(r'([^.]*)(\..*)*', settable_attribute)[0][0]
+      full_display_att = substitute_suffix('.' + plain_att, full_display_map).lstrip('.')
     return (plain_att, full_display_att, settable_attribute)
 
 
@@ -565,7 +573,8 @@ class ParentCollection(object):
     if self.var_type != 'primitive':  # this base var is more complex than a simple primitive type
       for f in self.fields:
         plain_att, disp_att, settable_att = f._get_attributes()
-        self.attribute_map[plain_att] = (disp_att, settable_att)
+        if plain_att:
+          self.attribute_map[plain_att] = (disp_att, settable_att)
 
   def table_page(self) -> str:
     # TODO: migrate to Mako format
@@ -585,6 +594,10 @@ confirm: True
       all_columns += '  - {0}: |\n'.format(att)
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
+    if len(self.attribute_map) == 0:
+      all_columns += '  - name: |\n'
+      all_columns += '      row_item\n'
+      settable_list += '  True\n'
     return content.format(var_name=self.var_name, all_columns=all_columns.rstrip('\n'), settable_list=settable_list.rstrip('\n'))
 
   def review_yaml(self): 
