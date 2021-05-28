@@ -437,7 +437,7 @@ class DAField(DAObject):
       'note': bold(field_title)
     })
     field_questions.append({
-      'label': "On-screen prompt",
+      'label': "On-screen label",
       'field': 'fields[' + str(index) + '].label',
       'default': self.variable_name_guess
     })

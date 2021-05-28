@@ -16,6 +16,9 @@ modules:
 features:
   css: progressivedisclosure.css  
 ---
+  images:
+    branding_extra: action-title.png
+---
 include: 
   - pdf_field_tester.yml
 ---
@@ -42,39 +45,46 @@ code: |
 mandatory: True
 id: Interview Order
 code: |
-  template_upload
-  # Run pdf_field_tester.yml if form is a pdf.  
+  # Upload file and run pdf_field_tester.yml if form is a pdf.  
+  template_upload  
   if template_upload[0].filename.endswith('pdf'):    
     field_list_display
-    pdf_check_display
-  interview.form_type
-  interview.title
-  interview_intro_prompt
+    pdf_check_display  
   
-  interview.typical_role
+  # Display Weaver question screens
+  interview.dependency_choices    
+  if interview.dependency_choices['docassemble.MassAccess']:
+    interview_intro_prompt #branding screen
+  interview.title #intro screen    
+  interview.typical_role #people related questions
   get_all_fields
   process_people_variables
-  ask_people_quantity_question  
+  ask_people_quantity_question    
+  choose_field_types  
+  questions.gather()
+  interview.form_type
+  show_screen_order
+  
+  # Generate draft interview yaml file 
   add_includes
   add_metadata
   add_short_title
   add_form_type  
-  choose_field_types
-  questions.gather()
-  show_screen_order
   add_objects_block
   add_sections  
   add_interview_order
-  add_draft_intro_screen
-  add_questions_to_interview
-  add_preview_question  
+  add_intro_screen
+  add_question_screens
+  add_preview_screen  
   add_review_screen  
   # Insert comment block
   add_end_question
   add_attachment
-  wrote_interview
-  increment_sequence
+  
+  # Assemble output package 
+  wrote_interview  
 
+  # Display output download screen
   show_interview
 ---
 code: |
@@ -111,9 +121,11 @@ code: |
   
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
-id: information about this interview
+id: information about court-related info
 question: |
-  Information about this interview
+  Is your form court-related? 
+subquestion: |
+  The answers below will help the Weaver to add appropriate post-interview instructions for your user.
 fields:
   - Is your form court-related?: interview.court_related
     datatype: yesnoradio
@@ -193,7 +205,7 @@ help:
 id: dependency question
 question: Which jurisdictions and organizations is this form a part of?
 subquestion: |
-  This will add those jurisdictions as dependencies. If you are unsure, leave the default options checked.
+  This will help the Weaver to add appropriate jurisdictions as dependencies for your interview. If you are unsure, leave the default options checked.
 help:
   label: My jurisdiction is not here
   content: |
@@ -204,7 +216,7 @@ fields:
     required: False
     choices:
       - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
-      - MassAccess: docassemble.MassAccess
+      - MassAccess (brand): docassemble.MassAccess
     default:
       - docassemble.ALMassachusetts>=0.0.7
       - docassemble.MassAccess
@@ -214,39 +226,33 @@ code: |
     interview.allowed_courts = DAEmpty()             
     interview.categories = DAEmpty()
 ---
-code: |
-  if interview.form_type == 'starts_case':
-    interview_intro_prompt_default = "Ask the court for a " + interview.short_title
-  elif interview.form_type == 'existing_case':
-    interview_intro_prompt_default = "File a " + interview.short_title 
-  elif interview.form_type == 'letter':
-    interview_intro_prompt_default = "Write a " + interview.short_title
-  else:
-    interview_intro_prompt_default = "Get a " + interview.short_title
----
-id: action title
+id: action-oriented splash title
 question: |
-  Action title
+  Add your form name to the branding page
 subquestion: |
-  Your interview will include a branded splash page. This screen
-  has a place to mention the name of the form. Usually, the best way
-  to do this is in the form of an action.
+  While your interview will include a branded splash page, here you have an oppertunity to add the name of your specific form in front of the brand name in some fashion.  Usually, the best way to do this is using action-oriented text to call the user to action. 
   
-  Example: "Ask the court for a restraining order" or "Demand your landlord
-  return your security deposit".
-
-  What action title do you want?
+  Example: "Ask the court for a restraining order" or "Demand your landlord return your security deposit".
+  
+  Or start with words like "File a...", "Write a...", "Get a..." depending on your form type, followed by your form name.
+  
+  Here is a visul image to help you see how it works - look at the text highlighted by the frame.  
+  [FILE branding_extra, 80%]
+  
+  **Remember:** You can always change this text later in your playground.
 fields:
-  - Action title: interview_intro_prompt
-    default: ${ interview_intro_prompt_default }
+  - Action-oriented text: interview_intro_prompt
+    default: ${ short_filename_with_spaces }
 ---
 id: form-specific intro page
 question: |
-  Your specific form's intro screen
+  Create an intro screen for your interview
 subquestion: |
-  Give the people using your form a little context. Use plain language that will be understandable to someone who uses this form without a lawyer. Tell them what they need to know about this specific form before they move forward.
+  Here you build an intro screen specifically for your form.
   
-  Remember, you can change it later.
+  Give your user some context. Use plain language that will be understandable to someone who uses this form without a lawyer. Tell them what they need to know about this specific form before they move forward.
+  
+  **Remember:** you can change the text later in your playground. 
 fields:
   - Title: interview.title
     default: ${ short_filename_with_spaces }
@@ -258,13 +264,9 @@ fields:
 ---
 id: information about people
 question: |
-  Information about people on this form
+  Tell the Weaver about user's role for your form
 subquestion: |  
-  For this ${interview.title} form, is the user of the form typically the 
-  Plaintiff/Petitioner or the Defendant/Respondent?
-
-  The Plaintiff/Petitioner starts a case. The Defendant/Respondent
-  is responding to a case someone else started.
+  Knowing user's role and "people variables" in general will help the Weaver to handle those fields accordingly.
 fields:
   - note: |
       The list of names below look like names for people, based on
@@ -280,6 +282,12 @@ fields:
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
       will help you save time writing your interview.
+  - note: |
+      For this ${interview.title} form, is the user of the form typically the 
+      Plaintiff/Petitioner or the Defendant/Respondent?
+
+      - The Plaintiff/Petitioner starts a case. 
+      - The Defendant/Respondent responds to a case someone else started.
   - User's role: interview.typical_role
     input type: radio
     choices:
@@ -325,10 +333,10 @@ code: |
   del temp_people_quantity_question
 ---
 question: |
-  Information about people
+  Quantify "people variables" on your form
 subquestion: |
   This form includes the following variables representing people:
-  ${ comma_and_list(person_candidates) }
+  ${ comma_and_list(person_candidates) }.
   
   % if added_other_party:
   **Note**: Your form includes `defendants/respondents` or
@@ -336,6 +344,8 @@ subquestion: |
   replaced with `users` and `other_parties` depending on the role the user of
   the form has in the case.
   % endif
+  
+  The Weaver needs to know how many people each variable can represent.
 fields:
   - code: people_quantity_question
 help:
@@ -473,11 +483,12 @@ code: |
   add_includes = True
 ---
 code: |
-  short_title_block = interview.blocks.appendObject()
-  short_title_block.template_key = 'code'
-  short_title_block.data = {
-    "lines": ['interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"']
-    }
+  if defined('interview_intro_prompt'):    
+    short_title_block = interview.blocks.appendObject()
+    short_title_block.template_key = 'code'
+    short_title_block.data = {
+      "lines": ['interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"']
+      }
   add_short_title = True
 ---
 code: |
@@ -510,7 +521,7 @@ code: |
     "question_text": interview.title,
     "subquestion_text": interview.description, # this is the metadata description
   }
-  add_draft_intro_screen = True
+  add_intro_screen = True
 ---
 need:
   - interview.categories
@@ -570,14 +581,16 @@ code: |
 id: choose field types
 continue button field: choose_field_types
 question: |
-  On-screen prompts
+  Create on-screen labels for your fields
 subquestion: |  
+  Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
+  
   % if len(field_question) > 0:
   1. Look at each field below. It represents a blank space on your template.
   1. If the field is handled as a "basic question", it will not be shown
-  below. Instead, we will use a pre-written prompt for it.
-  2. Assign each field an on-screen prompt. The prompt is shown to the user
-  of your form. We start with the name of the field as a prompt. Edit it so it makes sense.
+  below. Instead, we will use a pre-written label for it.
+  2. Assign each field an on-screen label. The label is shown to the user
+  of your form. We start with the name of the field as a label. Edit it so it makes sense.
   2. Double-check the kind of input your field uses, as well as the type
   of data it will hold.
     
@@ -632,7 +645,7 @@ code: |
 ---
 id: create a draft of screen i
 question: |
-  Create a draft of the ${ordinal(i)} screen
+  Create your question screens - the ${ordinal(i)} screen
 subquestion: |
   Each screen can define multiple fields at a time. Give this screen
   a title, some context for the screen, and decide which fields are
@@ -685,7 +698,7 @@ code: |
   for question in questions:
     question.type = "question"
     interview.blocks.append(question)
-  add_questions_to_interview = True
+  add_question_screens = True
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
@@ -1073,7 +1086,7 @@ code: |
   preview_question.data = {
     "interview_label": interview_label
   }
-  add_preview_question = True
+  add_preview_screen = True
 ---
 need:
   - interview_label
