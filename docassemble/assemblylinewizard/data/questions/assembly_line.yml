@@ -8,10 +8,11 @@ features:
   # labels above fields: True
 ---
 modules:
+  - collections
   - docassemble.base.util
   - docassemble.base.logger
   - .interview_generator
-  - collections
+  - .custom_values
 ---
 features:
   css: progressivedisclosure.css  
@@ -220,19 +221,20 @@ question: Which jurisdictions and organizations is this form a part of?
 subquestion: |
   This will add those jurisdictions as dependencies. If you are unsure, leave the default options checked.
 help:
-  label: My jurisdiction is not here
+  label: My jurisdiction or organization is not here
   content: |
     New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
 fields:
-  - no label: interview.dependency_choices
+  - Jurisdictions: interview.jurisdiction_choices
     datatype: checkboxes
     required: False
-    choices:
-      - Massachusetts State: docassemble.ALMassachusetts>=0.0.7
-      - MassAccess: docassemble.MassAccess
-    default:
-      - docassemble.ALMassachusetts>=0.0.7
-      - docassemble.MassAccess
+    code: |
+      get_possible_deps_as_choices('jurisdiction')
+  - Organizations: interview.org_choices
+    datatype: checkboxes
+    required: False
+    code: |
+      get_possible_deps_as_choices('organization')
 ---
 code: |    
   if not interview.court_related:   
@@ -450,13 +452,16 @@ code: |
 ---
 code: |
   # Build the list of includes
+  include_data = {
+    "includes": ['docassemble.AssemblyLine:al_package.yml'] + \
+        get_yml_deps_from_choices(
+            interview.jurisdiction_choices.true_values() +
+            interview.org_choices.true_values())
+  }
   include_question = interview.blocks.appendObject()
   include_question.template_key = 'include'
-  # TODO: add a graphical element to select something other than
-  # massaccess.yml
-  include_question.data = {
-    "includes": ['docassemble.AssemblyLine:al_package.yml', 'docassemble.MassAccess:massaccess.yml']
-    }
+  include_question.data = include_data
+  del include_data
   add_includes = True
 ---
 code: |
@@ -1044,7 +1049,12 @@ code: |
   }
   
   create_package_zip(package_title,
-        interview.package_info(interview.dependency_choices.true_values()),
+        interview.package_info(
+          get_pypi_deps_from_choices(
+            interview.jurisdiction_choices.true_values() +
+            interview.org_choices.true_values()
+          )
+        ),
         {"author name and email":"author@example.com"},
         folders_and_files, 
         interview_package_download)
