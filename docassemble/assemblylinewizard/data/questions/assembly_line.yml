@@ -82,7 +82,10 @@ code: |
 code: |
   set_custom_people_map( people_variables.true_values() )
   if len(people_variables.true_values()):
+    # Process regular fields
     process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
+    # Process signature fields
+    process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used)
   process_people_variables = True    
 ---
 id: weaver_intro
