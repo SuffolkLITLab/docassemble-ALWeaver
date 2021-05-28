@@ -138,9 +138,7 @@ interview order: |
   id: interview_order_${ interview_label }
   code: |
     % for field in logic_list:
-    % if not ( field == 'signature_date' or field.endswith('.signature')):
     ${ field }
-    % endif
     % endfor  
     interview_order_${ interview_label } = True
 # Optional interview features

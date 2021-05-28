@@ -425,7 +425,7 @@ code: |
       #is_reserved_name = 
       if is_reserved_label(pdf_field_name) or pdf_field_name in people_variables.true_values():
         new_field = built_in_fields_used.appendObject()
-      elif pdf_field_tuple[4] == '/Sig':
+      elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == '/Sig':
         new_field = signature_fields.appendObject()
       else:
         new_field = fields.appendObject()
@@ -587,9 +587,17 @@ fields:
       This field is not listed above because a built-in question already handles
       it: ${ built_in_fields_used }.
       % endif
+      % if len(signature_fields):
+      
+      These signature fields are not listed because they cannot be asked
+      on the same screen as any other variable: ${ signature_fields }
+      % endif      
+      
+      You will have a chance to change the order of these fields later in
+      this interview.
     show if:
       code: |
-        len(built_in_fields_used)
+        len(built_in_fields_used) or len(signature_fields)
 ---
 code: |
   questions[i].question_text
@@ -758,6 +766,8 @@ code: |
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
+  for field in signature_fields:
+    screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
 ---
@@ -768,6 +778,8 @@ columns:
       row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
+  - (Debug) Trigger gather: |
+      row_item.field_list[0].trigger_gather() if isinstance(row_item, DAQuestion) else row_item.trigger_gather()    
   - Edit: |
       action_button_html(url_action(row_item.attr_name('edit_question'))) if isinstance(row_item, DAQuestion) else ''
 allow reordering: True
@@ -832,6 +844,8 @@ subquestion: |
   together on one screen.
   
   ${ screen_order.table }
+help: |
+  
 ---
 code: |
   # Build the code block that will control question flow
@@ -875,19 +889,22 @@ code: |
       else:
         logic_list.append(question.field_list[0].trigger_gather())
     else:
-      # it's a built-in field, not a question block
-      logic_list.append(question.trigger_gather())      
-      # set the saved answer name so it includes the user's name in saved
-      # answer list
-      if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
-        logic_list.append("set_parts(subtitle=str(users))")
-        saved_answer_name_flag = True
+      # it's a built-in field OR a signature, not a question block
+      if not (question in built_in_fields_used and question.trigger_gather().endswith('.signature')):
+        logic_list.append(question.trigger_gather())      
+        # set the saved answer name so it includes the user's name in saved
+        # answer list
+        if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
+          logic_list.append("set_parts(subtitle=str(users))")
+          saved_answer_name_flag = True
       
-  signatures = set()
+  built_in_signatures = set()
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
-      signatures.add(field.trigger_gather())
-      
+      built_in_signatures.add(field.trigger_gather())
+  # TODO for field in signature_fields:
+    
+  
   # Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
   code_block.template_key = 'interview order'
@@ -900,7 +917,7 @@ code: |
   main_code = interview.blocks.appendObject() # 'main code block'
   main_code.template_key = 'main order'
   main_code.data = {
-    "signatures": signatures,
+    "signatures": built_in_signatures,
     "interview_label": interview_label
   } 
 
