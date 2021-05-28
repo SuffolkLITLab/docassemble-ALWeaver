@@ -108,6 +108,11 @@ objects: |
   % for object in objects:
     - ${ object.name }: ${ object.type }${ using_string(object.params) }
   % endfor
+# Signature fields block
+# Used to provide the list of signatures that will be triggered
+signature fields: |
+  code: |
+    signature_fields = ${str(list(built_in_signatures) + [field.trigger_gather() for field in signature_fields])}
 # Mandatory block that is used in standalone forms.
 # Has the standard, required blocks we don't want if this
 # interview is included in another interview

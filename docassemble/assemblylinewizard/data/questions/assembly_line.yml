@@ -66,6 +66,7 @@ code: |
   add_objects_block
   add_sections  
   add_interview_order
+  add_signature_trigger
   add_draft_intro_screen
   add_questions_to_interview
   add_preview_question  
@@ -922,6 +923,15 @@ code: |
   } 
 
   add_interview_order = True  
+---
+code: |
+  signature_fields_block = interview.blocks.appendObject()
+  signature_fields_block.template_key = 'signature fields'
+  signature_fields_block.data = {
+    "signature_fields": signature_fields,
+    "built_in_signatures": built_in_signatures
+  }
+  add_signature_trigger = True
 ---
 need:
   - fields
