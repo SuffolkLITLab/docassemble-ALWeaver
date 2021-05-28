@@ -66,9 +66,8 @@ preview screen: |
     Preview your form before you sign it
   subquestion: |
     Here is a preview of the form you will sign on the next page.   
-    <%text>
-    ${ al_user_bundle.as_pdf(key='preview') }
-    </%text>
+    
+    <%text>${</%text> ${bundle_name}.as_pdf(key='preview') <%text>}</%text>
 
     Click the image to open it in a new tab. Click the "Make changes" button
     to edit your answers.
@@ -258,8 +257,11 @@ al-document objects: |
 # TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
 al-document-bundle objects: |
   objects:
-    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
-    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+  % for bundle in bundles:
+    - ${ bundle.name }: ALDocumentBundle.using(elements=[${ ",".join([item.attachment_varname for item in bundle.elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+  % endfor
+#    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+#    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
 # Alternatively, could iterate
 # % for object in objects:
 #   - ${ object.name }: ALDocument${ using_string(object.params) }
