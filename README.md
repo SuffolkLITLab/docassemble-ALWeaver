@@ -4,8 +4,6 @@ A tool to help generate draft interviews for the docassemble platform. Tightly l
 
 ## History
 
-test
-
 * 2021-04-14 Multiple fixes:
     * Migrated to more flexible Mako template structure for generated 
       interview blocks
