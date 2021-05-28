@@ -1047,8 +1047,12 @@ code: |
   preview_question = interview.blocks.appendObject()
   preview_question.template_key = 'preview screen'
   preview_question.data = {
-    "interview_label": interview_label
+    "interview_label": interview_label,
   }
+  if interview.court_related:
+    preview_question.data['bundle_name'] = 'al_court_bundle'
+  else:
+    preview_question.data['bundle_name'] = 'al_recipient_bundle'
   add_preview_question = True
 ---
 need:
@@ -1097,7 +1101,10 @@ code: |
   user_bundle.elements = [file2, file1]
   
   court_bundle = bundles.appendObject()
-  court_bundle.name = 'al_court_bundle'
+  if interview.court_related:
+    court_bundle.name = 'al_court_bundle'
+  else:
+    court_bundle.name = 'al_recipient_bundle'
   # Court does not get the user next steps instructions
   court_bundle.elements = [file1]
   bundles.gathered = True
