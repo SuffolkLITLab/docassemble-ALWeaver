@@ -22,6 +22,13 @@ generator_constants.UNDEFINED_PERSON_PREFIXES = [
   "trial_court",
 ]
 
+# NOTE: if the suffix is allowed for a singular prefix, you must list the variable here
+# E.g., we do not allow users.address.address in a DOCX, but we do allow trial_court.address.address
+generator_constants.ALLOW_SINGULAR_SUFFIXES = [
+  "trial_court"
+]
+
+
 # Prefixes as they would appear in a PDF (singular)
 generator_constants.RESERVED_PREFIXES = ["user",
   "other_party",
