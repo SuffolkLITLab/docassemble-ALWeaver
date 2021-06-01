@@ -81,6 +81,7 @@ code: |
     process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used)
   process_people_variables = True    
 ---
+continue button field: weaver_intro
 id: opening screen
 question: |
  Interview Weaver: Document Assembly Line
@@ -113,7 +114,7 @@ subquestion: |
       - changing the "include" block unless you know what you are doing.
       - deleting generated code until you are certain. Comment it out first and test to ensure it doesn't break the interview.
  
- 6. If you want to discard your changes and start anew, simply reload the package, it will wipe out all your changes.
+  6. If you want to discard your changes and start anew, simply reload the package, it will wipe out all your changes.
 ---
 id: file upload screen
 question: |
