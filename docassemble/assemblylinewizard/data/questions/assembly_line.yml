@@ -67,6 +67,7 @@ code: |
   add_objects_block
   add_sections  
   add_interview_order
+  add_signature_trigger
   add_draft_intro_screen
   add_questions_to_interview
   add_preview_question  
@@ -82,7 +83,10 @@ code: |
 code: |
   set_custom_people_map( people_variables.true_values() )
   if len(people_variables.true_values()):
+    # Process regular fields
     process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
+    # Process signature fields
+    process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used)
   process_people_variables = True    
 ---
 id: weaver_intro
@@ -424,7 +428,7 @@ code: |
       #is_reserved_name = 
       if is_reserved_label(pdf_field_name) or pdf_field_name in people_variables.true_values():
         new_field = built_in_fields_used.appendObject()
-      elif pdf_field_tuple[4] == '/Sig':
+      elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == '/Sig':
         new_field = signature_fields.appendObject()
       else:
         new_field = fields.appendObject()
@@ -589,9 +593,17 @@ fields:
       This field is not listed above because a built-in question already handles
       it: ${ built_in_fields_used }.
       % endif
+      % if len(signature_fields):
+      
+      These signature fields are not listed because they cannot be asked
+      on the same screen as any other variable: ${ signature_fields }
+      % endif      
+      
+      You will have a chance to change the order of these fields later in
+      this interview.
     show if:
       code: |
-        len(built_in_fields_used)
+        len(built_in_fields_used) or len(signature_fields)
 ---
 code: |
   questions[i].question_text
@@ -760,6 +772,8 @@ code: |
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
+  for field in signature_fields:
+    screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
 ---
@@ -877,19 +891,22 @@ code: |
       else:
         logic_list.append(question.field_list[0].trigger_gather())
     else:
-      # it's a built-in field, not a question block
-      logic_list.append(question.trigger_gather())      
-      # set the saved answer name so it includes the user's name in saved
-      # answer list
-      if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
-        logic_list.append("set_parts(subtitle=str(users))")
-        saved_answer_name_flag = True
+      # it's a built-in field OR a signature, not a question block
+      if not (question in built_in_fields_used and question.trigger_gather().endswith('.signature')):
+        logic_list.append(question.trigger_gather())      
+        # set the saved answer name so it includes the user's name in saved
+        # answer list
+        if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
+          logic_list.append("set_parts(subtitle=str(users))")
+          saved_answer_name_flag = True
       
-  signatures = set()
+  built_in_signatures = set()
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
-      signatures.add(field.trigger_gather())
-      
+      built_in_signatures.add(field.trigger_gather())
+  # TODO for field in signature_fields:
+    
+  
   # Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
   code_block.template_key = 'interview order'
@@ -902,11 +919,20 @@ code: |
   main_code = interview.blocks.appendObject() # 'main code block'
   main_code.template_key = 'main order'
   main_code.data = {
-    "signatures": signatures,
+    "signatures": built_in_signatures,
     "interview_label": interview_label
   } 
 
   add_interview_order = True  
+---
+code: |
+  signature_fields_block = interview.blocks.appendObject()
+  signature_fields_block.template_key = 'signature fields'
+  signature_fields_block.data = {
+    "signature_fields": signature_fields,
+    "built_in_signatures": built_in_signatures
+  }
+  add_signature_trigger = True
 ---
 need:
   - fields
