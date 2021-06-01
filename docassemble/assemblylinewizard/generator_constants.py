@@ -28,7 +28,6 @@ generator_constants.ALLOW_SINGULAR_SUFFIXES = [
   "trial_court"
 ]
 
-
 # Prefixes as they would appear in a PDF (singular)
 generator_constants.RESERVED_PREFIXES = ["user",
   "other_party",
