@@ -28,7 +28,6 @@ generator_constants.ALLOW_SINGULAR_SUFFIXES = [
   "trial_court"
 ]
 
-
 # Prefixes as they would appear in a PDF (singular)
 generator_constants.RESERVED_PREFIXES = ["user",
   "other_party",
@@ -80,10 +79,17 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   'interested_party': 'interested_parties',
 }
 
-generator_constants.RESERVED_PLURALIZERS_MAP = {** generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, **{
-  'court': 'courts', # for backwards compatibility
-  'docket_numbers': 'docket_numbers',  
-}}
+generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
+  'docket_numbers': 'docket_numbers' 
+}
+
+generator_constants.RESERVED_PLURALIZERS_MAP = {
+  **generator_constants.RESERVED_PERSON_PLURALIZERS_MAP, 
+  **generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP,
+  **{
+    'court': 'courts', # for backwards compatibility 
+  }
+}
 
 # Any reason to not make all suffixes available to everyone?
 # Yes: it can break variables that overlap but have a different meaning
