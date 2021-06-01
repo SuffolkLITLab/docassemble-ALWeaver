@@ -35,6 +35,7 @@ objects:
 mandatory: True
 id: Interview Order
 code: |
+  weaver_intro
   template_upload
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
@@ -84,6 +85,8 @@ subquestion: |
   project. This powerful tool quickly turns a PDF or Word document into an
   interactive online form, which is supported at runtime by other _**Assembly
   Line**_ tools.
+
+  **What the Weaver does:**
 
   1. It turns your form into a draft Docassemble interview. The end product of the Weaver is a Docassemble package for you to download.
   2. If your file is PDF, the Weaver will validate your PDF field labels first.
