@@ -782,8 +782,6 @@ columns:
       row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
-  - (Debug) Trigger gather: |
-      row_item.field_list[0].trigger_gather() if isinstance(row_item, DAQuestion) else row_item.trigger_gather()    
   - Edit: |
       action_button_html(url_action(row_item.attr_name('edit_question'))) if isinstance(row_item, DAQuestion) else ''
 allow reordering: True
@@ -848,8 +846,6 @@ subquestion: |
   together on one screen.
   
   ${ screen_order.table }
-help: |
-  
 ---
 code: |
   # Build the code block that will control question flow

@@ -20,7 +20,6 @@ code: |
     checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
     signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
     possible_base = get_person_variables(all_fields, custom_only=True)
-    # possible_base.update(get_person_variables(signature_fields, custom_only=True))
     possible_custom = [field[0] for field in all_fields
         if any([field[0].startswith(base) for base in possible_base])]
   except ParsingException as ex:
