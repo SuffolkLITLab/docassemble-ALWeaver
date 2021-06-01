@@ -217,3 +217,63 @@ attachment:
       template_upload
   code: |
     pdf_fields
+---
+attachment:
+  variable name: test_assemble_pdf
+  pdf template file:
+    code: |
+      template_upload
+  fields:
+    - "Field1": "Value1"
+---
+code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+
+  try:
+    pdf_concatenate(test_assemble_pdf)
+  except PDFSyntaxError:
+    # Handle PDF read error
+    exit_invalid_file
+  except PdfReadError:
+    exit_livecycle_pdf
+  except:
+    exit_something_went_wrong
+  validate_pdf = True
+---
+code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+ 
+  try:
+    pdf_concatenate(template_upload)
+  except PDFSyntaxError:
+    # Handle PDF read error
+    exit_invalid_file
+  except PdfReadError:
+    exit_xref_table
+  validate_pdf = True
+---
+event: exit_xref_table
+question: |
+  This PDF is not valid
+subquestion: |
+  There was a problem reading this PDF.
+  
+  Sometimes you can fix this problem by using 
+  [documate.org/pdf](https://www.documate.org/pdf) or by using 
+  [qpdf](http://qpdf.sourceforge.net/).
+  
+  [Read 
+  more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
+buttons:
+  - Restart: restart
+---
+event: exit_something_went_wrong
+question: |
+  Something went wrong reading your template
+subquestion: |
+  Are you sure this is a valid document?
+buttons:
+  - Restart: restart
+  

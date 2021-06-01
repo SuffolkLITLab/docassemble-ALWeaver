@@ -40,6 +40,7 @@ code: |
   template_upload
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
+    validate_pdf
     field_list_display
     pdf_check_display
   interview.form_type
@@ -380,6 +381,10 @@ comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
 code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+  from zipfile import BadZipFile
+  
   try:
     if template_upload[0].extension == 'pdf':
       all_fields = get_pdf_fields(template_upload)
@@ -387,17 +392,31 @@ code: |
       all_fields = get_fields(template_upload)
       
     if all_fields is None:
-      force_ask('empty_pdf')
+      empty_pdf
 
     bad_fields = list(filter(
         lambda elem: elem is not None, 
         map(bad_name_reason, all_fields)))
     if len(bad_fields) > 0:
-      force_ask('non_descriptive_field_name')
+      non_descriptive_field_name
       
   except ParsingException as ex:
     parsing_ex = ex
-    force_ask('parsing_exception')
+    parsing_exception
+  
+  except (PDFSyntaxError, PdfReadError, BadZipFile):
+    # Handle PDF read error
+    exit_invalid_file  
+---
+event: exit_invalid_file
+question: |
+  Is this a valid file?
+subquestion: |
+  Docassemble was not able to read the file you uploaded.
+  
+  Make sure it is a valid document.
+buttons:
+  - Restart: restart
 ---
 code: |
  built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
