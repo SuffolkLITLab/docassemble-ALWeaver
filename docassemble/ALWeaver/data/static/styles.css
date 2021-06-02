@@ -20,3 +20,37 @@ a.collapsed .pdcaretclosed {
   border-width: 1px;
   border-color: gray;
 }
+
+.ma_icon {
+    position: relative;
+    height: 40px;
+    width: 40px;
+    margin-right: 15px;
+}
+
+.title {
+    display: inline;
+    position: relative;
+    top: 2px;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
+    font-weight: bold;
+    font-size: 20px;
+}
+
+@media only screen and (max-width: 766px) {
+    .title {
+        display: none
+    }
+  /*
+    .ma_icon {
+        top: -4px;
+    }
+  */
+}
+
+.da-pad-for-navbar {
+    padding-top: 70px;
+}
+
+.da-top-for-navbar {
+    top: 70px;
