@@ -1,3 +1,4 @@
+/* The following rules are for "progressive disclusure" */
 a span.pdcaretopen {
     display: inline;
 }
@@ -13,10 +14,33 @@ a.collapsed .pdcaretopen {
 a.collapsed .pdcaretclosed {
     display: inline;
 }
+/* logo and title - copied rules from AL styles.css */
+.ma_icon {
+    position: relative;
+    margin-right: 0.5rem;
+}
+.title {
+    display: inline;
+    position: relative;
+    top: 2px;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
+    font-weight: bold;
+    font-size: 20px;
+}
+@media only screen and (max-width: 766px) {
+    .title {
+        display: none
+    }
+}
 /* [FILE] image shadow */
 .daicon {    
   box-shadow: 5px 5px 15px #69868e;
   border-style: solid;
   border-width: 1px;
   border-color: gray;
+}
+/* icon image files should have no shadow */
+.icon>.daicon {    
+  box-shadow: none !important;
+  border-style: none !important; 
 }

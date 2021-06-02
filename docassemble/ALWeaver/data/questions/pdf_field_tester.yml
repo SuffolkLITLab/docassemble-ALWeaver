@@ -211,9 +211,9 @@ fields:
     validate: |
       lambda y: True if y else validation_error("Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature fields.")
   - note: |
-      [FILE stop_sign, 5%] **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
+      <span class="icon">[FILE stop_sign, 5%]</span> **If your job is only to label the form, do not download the preview form above**, its sole purpose is to help you catch any errors. Your form has passed the test, [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
   - note: |
-      [FILE green_light, 5%] **If your job is to build the interview**, press the **Continue** button below to build your draft interview.
+      <span class="icon">[FILE green_light, 5%]</span> **If your job is to build the interview**, press the **Continue** button below to build your draft interview.
 continue button field: pdf_check_display
 ---
 attachment:
