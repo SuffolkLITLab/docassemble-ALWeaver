@@ -17,7 +17,7 @@ pip3 install virtualenv
 virtualenv -p $(which python3.8) venv
 source venv/bin/activate
 pip3 install --upgrade pip
-pip3 install -r docassemble/assemblylinewizard/requirements.txt
+pip3 install -r docassemble.ALWeaver/requirements.txt
 pip3 install --editable .
 ```
 
@@ -45,23 +45,23 @@ Everytime you want to work on testing, enter your virtual environment with
 $ source venv/bin/activate
 ```
 
-To run the tests, make sure your command prompt is in your project's directory (`docassemble-assemblylinewizard`) and run:
+To run the tests, make sure your command prompt is in your project's directory (`docassemble-ALWeaver`) and run:
 ```
 python3 -m unittest discover
 ```
 
 You can also run fewer tests by getting more specific with your testing paths. For example, to run just the `test_mapped_scenarios` method in `test_map_names.py`, you can run:
 ```
-python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames.test_mapped_scenarios`
+python3 -m unittest docassemble.ALWeaver.test_map_names.TestMapNames.test_mapped_scenarios`
 ```
 
 The lines below are all valid ways to run tests. They are listed in order of "runs all tests" to "runs one test":
 
 ```
 python3 -m unittest discover
-python3 -m unittest docassemble.assemblylinewizard.test_map_names
-python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames
-python3 -m unittest docassemble.assemblylinewizard.test_map_names.TestMapNames.test_mapped_scenarios
+python3 -m unittest docassemble.ALWeaver.test_map_names
+python3 -m unittest docassemble.ALWeaver.test_map_names.TestMapNames
+python3 -m unittest docassemble.ALWeaver.test_map_names.TestMapNames.test_mapped_scenarios
 ```
 
 ### Stop

@@ -1279,18 +1279,18 @@ code: |
 ---
 code: |
   # Leaving this in but in this package, it will
-  # always be docassemble-assemblylinewizard, unless an org
+  # always be docassemble-ALWeaver, unless an org
   # forks this for their own jurisdiction
   package_name = str(user_info().package)
   if package_name and not "playground" in package_name:
     github_repo_name = package_name.replace('.','-')
   else:    
-    github_repo_name = "docassemble-assemblylinewizard"
+    github_repo_name = "docassemble-ALWeaver"
 ---
 default screen parts:
   # May want to change the interview URL if you customize/fork
   under: |
-    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.assemblylinewizard:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
+    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
 ---
 code: |
   if install_package_task.ready():

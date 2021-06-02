@@ -101,7 +101,7 @@ class DABlock(DAObject):
   template_key:str
   data:Dict[str,any]
 
-  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"])->str:
+  def source(self, template_string:str, imports:list=["from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"])->str:
     """
     Return a string representing a YAML "document" (block), provided a string
     representing a Mako template. Optional: provide list of imports.
@@ -109,7 +109,7 @@ class DABlock(DAObject):
     mako.runtime.UNDEFINED = DAEmpty()
     # Ensure we weren't passed an empty list of imports NOTE: is this important?
     if not imports:
-      imports = ["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"]
+      imports = ["from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"]
     template = mako.template.Template(template_string, imports=imports)
     return template.render(**self.data)
 
@@ -162,7 +162,7 @@ class DAInterview(DAObject):
     block type from a YAML file.
     """
     templates:Dict[str,str]
-    template_path:str # Like: docassemble.assemblylinewizard:data/sources/interview_structure.yml
+    template_path:str # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
     blocks:DABlockList
     questions:DAQuestionList # is this used?
 
@@ -198,7 +198,7 @@ class DAInterview(DAObject):
         if getattr(self, 'template_path'):
           self._load_templates(self.template_path)
         else:
-          self._load_templates("docassemble.assemblylinewizard:data/sources/interview_structure.yml")
+          self._load_templates("docassemble.ALWeaver:data/sources/interview_structure.yml")
         text = ""
         for block in self.blocks + self.questions.elements:
           text += "---\n"
@@ -721,7 +721,7 @@ class DAQuestion(DABlock):
     self.template_key = 'question'
     self.field_list = DAFieldList()
 
-  def source(self, template_string:str, imports:list=["from docassemble.assemblylinewizard.interview_generator import fix_id, varname, indent_by, mako_indent"])->str:
+  def source(self, template_string:str, imports:list=["from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent"])->str:
     """
     Return a string representing a YAML "document" (block), provided a string
     representing a Mako template. Optional: provide list of imports.
@@ -987,7 +987,7 @@ def map_raw_to_final_display(label:str, document_type:str="pdf",
       except ValueError as ex:
         raise ParsingException('{} is not a digit'.format(digit_str),
             'Full issue: {}. This is likely a developer error! ' + \
-            'Please [let us know](https://github.com/SuffolkLITLab/docassemble-assemblylinewizard/issues/new)!'.format(ex))
+            'Please [let us know](https://github.com/SuffolkLITLab/docassemble.ALWeaver/issues/new)!'.format(ex))
 
       if digit == 0:
         main_issue = 'Cannot get the 0th item in a list'

@@ -1,4 +1,4 @@
-# docassemble.assemblylinewizard
+# Assembly Line Weaver
 
 A tool to help generate draft interviews for the docassemble platform. Tightly linked to https://github.com/SuffolkLITLab/docassemble-AssemblyLine. Currently linked to https://github.com/SuffolkLITLab/docassemble-MassAccess but moving to be more jurisdiction independent.
 

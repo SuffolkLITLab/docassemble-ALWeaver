@@ -14,7 +14,7 @@ mako template local imports:
 # To import from an installed package or third-party Python package, provide a list of strings
 mako template imports: 
   - from docassemble.base.util import today
-#  - from docassemble.assemblylinewizard.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
+#  - from docassemble.ALWeaver.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
 question: |
   % if event:
