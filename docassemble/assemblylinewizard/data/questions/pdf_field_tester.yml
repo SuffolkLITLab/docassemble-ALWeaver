@@ -29,12 +29,18 @@ code: |
 event: empty_pdf
 question: You uploaded an empty PDF
 subquestion: |
-  The PDF you uploaded (${ template_upload[0].filename }) does not have any fillable fields.
-  To make a new interview with the Weaver, we need to have a document that has fillable fields.
+  The PDF you uploaded (${ template_upload[0].filename }) does not have any 
+  fillable fields. To make a new interview with the Weaver, we need to have a 
+  document that has fillable fields.
   
-  If you saved a DOCX file as a PDF, you will need to add fillable fields in a tool like [Adobe Acrobat](https://acrobat.adobe.com). 
+  If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
+  tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
 
+  If you uploaded a form that can only be opened in Adobe Acrobat (a LiveCycle
+  or XFA form), you may need to flatten it first. You can flatten an XFA form
+  using [iText PDF's free 
+  tool](https://itextpdf.com/en/demos/flatten-dynamic-xfa-pdf-free-online).
 buttons:
   - Restart: restart
 ---
@@ -217,3 +223,33 @@ attachment:
       template_upload
   code: |
     pdf_fields
+---
+code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+
+  try:
+    pdf_concatenate(template_upload)
+  except PDFSyntaxError:
+    # Handle PDF read error
+    force_ask('exit_invalid_file')
+  except PdfReadError:
+    force_ask('exit_xref_table')
+  except:
+    pass # Continue on to safer checks with get_pdf_fields
+  validate_pdf = True
+---
+event: exit_xref_table
+question: |
+  This PDF is not valid
+subquestion: |
+  There was a problem reading this PDF.
+  
+  Sometimes you can fix this problem by using 
+  [documate.org/pdf](https://www.documate.org/pdf) or by using 
+  [qpdf](http://qpdf.sourceforge.net/).
+  
+  [Read 
+  more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
+buttons:
+  - Restart: restart
