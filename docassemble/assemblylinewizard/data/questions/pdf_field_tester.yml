@@ -224,20 +224,12 @@ attachment:
   code: |
     pdf_fields
 ---
-attachment:
-  variable name: test_assemble_pdf
-  pdf template file:
-    code: |
-      template_upload
-  fields:
-    - "Field1": "Value1"
----
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
   from PyPDF2.utils import PdfReadError
 
   try:
-    pdf_concatenate(test_assemble_pdf)
+    pdf_concatenate(template_upload)
   except PDFSyntaxError:
     # Handle PDF read error
     force_ask('exit_invalid_file')
