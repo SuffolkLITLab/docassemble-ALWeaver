@@ -1,3 +1,4 @@
+/* The following rules are for "progressive disclusure" */
 a span.pdcaretopen {
     display: inline;
 }
@@ -13,21 +14,12 @@ a.collapsed .pdcaretopen {
 a.collapsed .pdcaretclosed {
     display: inline;
 }
-/* [FILE] image shadow */
-.daicon {    
-  box-shadow: 5px 5px 15px #69868e;
-  border-style: solid;
-  border-width: 1px;
-  border-color: gray;
-}
 
+/* logo and title - copied rules from AL styles.css */
 .ma_icon {
     position: relative;
-    height: 40px;
-    width: 40px;
-    margin-right: 15px;
+    margin-right: 0.5rem;
 }
-
 .title {
     display: inline;
     position: relative;
@@ -41,11 +33,19 @@ a.collapsed .pdcaretclosed {
     .title {
         display: none
     }
-  /*
-    .ma_icon {
-        top: -4px;
-    }
-  */
+}
+/* [FILE] image shadow */
+.daicon {    
+  box-shadow: 5px 5px 15px #69868e;
+  border-style: solid;
+  border-width: 1px;
+  border-color: gray;
+}
+
+/* icon image files should have no shadow */
+.icon>.daicon {    
+  box-shadow: none !important;
+  border-style: none !important; 
 }
 
 .da-pad-for-navbar {
