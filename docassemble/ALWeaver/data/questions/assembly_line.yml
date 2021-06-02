@@ -138,7 +138,7 @@ subquestion: |
 ---
 id: file upload screen
 question: |
- Upload your form file
+ Upload your template file
 subquestion: |
  Select a PDF or Word template: 
 fields:  
@@ -147,7 +147,7 @@ fields:
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   - note: |  
-      **If your file is PDF, we'll validate your PDF fields first.**
+      **If your file is a PDF, we'll validate your PDF fields first.**
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
