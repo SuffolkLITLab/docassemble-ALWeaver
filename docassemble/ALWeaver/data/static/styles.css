@@ -14,6 +14,7 @@ a.collapsed .pdcaretopen {
 a.collapsed .pdcaretclosed {
     display: inline;
 }
+
 /* logo and title - copied rules from AL styles.css */
 .ma_icon {
     position: relative;
@@ -27,6 +28,7 @@ a.collapsed .pdcaretclosed {
     font-weight: bold;
     font-size: 20px;
 }
+
 @media only screen and (max-width: 766px) {
     .title {
         display: none
@@ -39,8 +41,16 @@ a.collapsed .pdcaretclosed {
   border-width: 1px;
   border-color: gray;
 }
+
 /* icon image files should have no shadow */
 .icon>.daicon {    
   box-shadow: none !important;
   border-style: none !important; 
 }
+
+.da-pad-for-navbar {
+    padding-top: 70px;
+}
+
+.da-top-for-navbar {
+    top: 70px;
