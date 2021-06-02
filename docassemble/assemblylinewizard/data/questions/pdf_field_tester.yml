@@ -242,22 +242,9 @@ code: |
     # Handle PDF read error
     exit_invalid_file
   except PdfReadError:
-    exit_livecycle_pdf
-  except:
-    exit_something_went_wrong
-  validate_pdf = True
----
-code: |
-  from pdfminer.pdfparser import PDFSyntaxError
-  from PyPDF2.utils import PdfReadError
- 
-  try:
-    pdf_concatenate(template_upload)
-  except PDFSyntaxError:
-    # Handle PDF read error
-    exit_invalid_file
-  except PdfReadError:
     exit_xref_table
+  except:
+    pass # Continue on to safer checks with get_pdf_fields
   validate_pdf = True
 ---
 event: exit_xref_table
