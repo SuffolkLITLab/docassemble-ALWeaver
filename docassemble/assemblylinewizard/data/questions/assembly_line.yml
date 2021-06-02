@@ -18,7 +18,7 @@ modules:
   - .custom_values
 ---
 features:
-  css: progressivedisclosure.css  
+  css: styles.css  
 ---
   images:
     branding_extra: branding_extra.png
