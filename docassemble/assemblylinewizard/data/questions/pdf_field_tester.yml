@@ -240,9 +240,9 @@ code: |
     pdf_concatenate(test_assemble_pdf)
   except PDFSyntaxError:
     # Handle PDF read error
-    exit_invalid_file
+    force_ask('exit_invalid_file')
   except PdfReadError:
-    exit_xref_table
+    force_ask('exit_xref_table')
   except:
     pass # Continue on to safer checks with get_pdf_fields
   validate_pdf = True
@@ -261,12 +261,3 @@ subquestion: |
   more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
 buttons:
   - Restart: restart
----
-event: exit_something_went_wrong
-question: |
-  Something went wrong reading your template
-subquestion: |
-  Are you sure this is a valid document?
-buttons:
-  - Restart: restart
-  

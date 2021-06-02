@@ -399,22 +399,39 @@ code: |
         map(bad_name_reason, all_fields)))
     if len(bad_fields) > 0:
       non_descriptive_field_name
-      
   except ParsingException as ex:
     parsing_ex = ex
-    parsing_exception
-  
-  except (PDFSyntaxError, PdfReadError, BadZipFile):
+    force_ask('parsing_exception')
+  except (PDFSyntaxError, PdfReadError):
     # Handle PDF read error
-    exit_invalid_file  
+    force_ask('exit_invalid_pdf')
+  except (BadZipFile, KeyError):
+    force_ask('exit_invalid_docx')
 ---
-event: exit_invalid_file
+event: exit_invalid_pdf
 question: |
-  Is this a valid file?
+  Is this a valid PDF?
 subquestion: |
-  Docassemble was not able to read the file you uploaded.
+  ${ template_upload[0].filename } does not seem to be a PDF file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
   
-  Make sure it is a valid document.
+  If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
+  or [qpdf](http://qpdf.sourceforge.net/) to fix it.
+buttons:
+  - Restart: restart
+---
+event: exit_invalid_docx
+question: |
+  Is this a valid DOCX file?
+subquestion: |
+  ${ template_upload[0].filename } does not seem to be a DOCX file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
 buttons:
   - Restart: restart
 ---

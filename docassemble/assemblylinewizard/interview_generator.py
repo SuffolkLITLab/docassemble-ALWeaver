@@ -21,7 +21,6 @@ import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
 from pdfminer.pdftypes import PDFObjRef, resolve1
-from collections.abc import Iterable
 
 mako.runtime.UNDEFINED = DAEmpty()
 
