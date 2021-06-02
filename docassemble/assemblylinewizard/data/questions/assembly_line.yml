@@ -46,6 +46,7 @@ code: |
   template_upload
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
+    validate_pdf
     field_list_display
     pdf_check_display  
   
@@ -95,6 +96,7 @@ code: |
     process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used)
   process_people_variables = True    
 ---
+continue button field: weaver_intro
 id: opening screen
 question: |
  Interview Weaver: Document Assembly Line
@@ -393,13 +395,17 @@ comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
 code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+  from zipfile import BadZipFile
+  
   try:
     if template_upload[0].extension == 'pdf':
       all_fields = get_pdf_fields(template_upload)
     else:
       all_fields = get_fields(template_upload)
       
-    if all_fields is None:
+    if not all_fields:
       force_ask('empty_pdf')
 
     bad_fields = list(filter(
@@ -407,10 +413,41 @@ code: |
         map(bad_name_reason, all_fields)))
     if len(bad_fields) > 0:
       force_ask('non_descriptive_field_name')
-      
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
+  except (PDFSyntaxError, PdfReadError):
+    # Handle PDF read error
+    force_ask('exit_invalid_pdf')
+  except (BadZipFile, KeyError):
+    force_ask('exit_invalid_docx')
+---
+event: exit_invalid_pdf
+question: |
+  Is this a valid PDF?
+subquestion: |
+  ${ template_upload[0].filename } does not seem to be a PDF file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
+  
+  If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
+  or [qpdf](http://qpdf.sourceforge.net/) to fix it.
+buttons:
+  - Restart: restart
+---
+event: exit_invalid_docx
+question: |
+  Is this a valid DOCX file?
+subquestion: |
+  ${ template_upload[0].filename } does not seem to be a DOCX file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
+buttons:
+  - Restart: restart
 ---
 code: |
  built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)

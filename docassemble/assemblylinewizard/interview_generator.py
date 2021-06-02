@@ -20,6 +20,7 @@ from .custom_values import custom_values
 import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
+from pdfminer.pdftypes import PDFObjRef, resolve1
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -816,12 +817,12 @@ def get_pdf_fields(the_file):
   all_fields = docassemble.base.pdftk.read_fields(the_file.path())
   if all_fields is None:
     return None
-  for item in docassemble.base.pdftk.read_fields(the_file.path()):
-    the_type = re.sub(r'[^/A-Za-z]', '', str(item[4]))
+  for field in all_fields:
+    the_type = re.sub(r'[^/A-Za-z]', '', str(field[4]))
     if the_type == 'None':
       the_type = None
-    result = (item[0], '' if item[1] == 'something' else item[1], item[2], item[3], the_type, item[5])
-    results.append(result)
+    result = (field[0], '' if field[1] == 'something' else field[1], field[2], field[3], the_type, field[5])
+    results.append(tuple(map(shim_remove_pdf_obj_refs,result)))
   return results
 
 def get_fields(the_file):
@@ -830,15 +831,35 @@ def get_fields(the_file):
   has a valid and exiting filepath."""
   if isinstance(the_file, DAFileList):
     if the_file[0].mimetype == 'application/pdf':
-      return [field[0] for field in the_file[0].get_pdf_fields()]
+      return [shim_remove_pdf_obj_refs(field[0]) for field in the_file[0].get_pdf_fields()]
   else:
     if the_file.mimetype == 'application/pdf':
-      return [field[0] for field in the_file.get_pdf_fields()]
+      return [shim_remove_pdf_obj_refs(field[0]) for field in the_file.get_pdf_fields()]
 
   docx_data = docx2python( the_file.path() )  # Will error with invalid value
   text = docx_data.text
   return get_docx_variables( text )
 
+def shim_remove_pdf_obj_refs(value):
+  """
+  Recursively process PDF fields with unresolved PDFObjRefs so that they can be pickled and also
+  so that we can determine max char length.
+  
+  TODO: unneeded if https://github.com/jhpyle/docassemble/pull/413 is merged.
+  """
+  if isinstance(value, PDFObjRef):
+    temp_val = resolve1(value)
+    if isinstance(temp_val, list): # I think only options are lists, PDFObjRefs, or base types
+      temp_list = []
+      for val in temp_val:
+        if isinstance(val, PDFObjRef):
+          temp_list.append(shim_remove_pdf_obj_refs(val))
+        else:
+          temp_list.append(val)
+      return temp_list
+    return temp_val
+  return value
+      
 
 def get_docx_variables( text:str )->set:
   """
