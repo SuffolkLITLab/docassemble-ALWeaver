@@ -392,13 +392,13 @@ code: |
       all_fields = get_fields(template_upload)
       
     if not all_fields:
-      empty_pdf
+      force_ask('empty_pdf')
 
     bad_fields = list(filter(
         lambda elem: elem is not None, 
         map(bad_name_reason, all_fields)))
     if len(bad_fields) > 0:
-      non_descriptive_field_name
+      force_ask('non_descriptive_field_name')
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
