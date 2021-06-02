@@ -391,7 +391,7 @@ code: |
     else:
       all_fields = get_fields(template_upload)
       
-    if all_fields is None:
+    if not all_fields:
       empty_pdf
 
     bad_fields = list(filter(
