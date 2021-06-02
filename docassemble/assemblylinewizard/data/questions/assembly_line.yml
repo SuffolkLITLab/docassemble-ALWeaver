@@ -21,7 +21,7 @@ features:
   css: progressivedisclosure.css  
 ---
   images:
-    branding_extra: action-title.png
+    branding_extra: branding_extra.png
 ---
 include: 
   - pdf_field_tester.yml
@@ -49,14 +49,14 @@ code: |
     validate_pdf
     field_list_display
     pdf_check_display  
+  get_all_fields
   
   # Display Weaver question screens
-  interview.dependency_choices    
-  if interview.dependency_choices['docassemble.MassAccess']:
-    interview_intro_prompt #branding screen
+  interview.jurisdiction_choices 
+  interview_intro_prompt #branding screen
   interview.title #intro screen    
   interview.typical_role #people related questions
-  get_all_fields
+  
   process_people_variables
   ask_people_quantity_question    
   choose_field_types  
@@ -262,19 +262,35 @@ id: action-oriented splash title
 question: |
   Add your form name to the branding page
 subquestion: |
-  While your interview will include a branded splash page, here you have an oppertunity to add the name of your specific form in front of the brand name in some fashion.  Usually, the best way to do this is using action-oriented text to call the user to action. 
+  Every interview starts with a "brand" page with a terms of use.
+  Add your form's purpose to this page so your user knows they are in
+  the right place. Usually, the best way to do this is using 
+  action-oriented text to call the user to action. 
   
-  Example: "Ask the court for a restraining order" or "Demand your landlord return your security deposit".
+  Example: "Ask the court for a restraining order" or "Demand your landlord 
+  return your security deposit".
   
-  Or start with words like "File a...", "Write a...", "Get a..." depending on your form type, followed by your form name.
+  Or start with words like "File a...", "Write a...", "Get a..." depending on 
+  your form type, followed by your form name.
   
-  Here is a visul image to help you see how it works - look at the text highlighted by the frame.  
+  This is what it looks like:
+  
   [FILE branding_extra, 80%]
   
   **Remember:** You can always change this text later in your playground.
 fields:
   - Action-oriented text: interview_intro_prompt
-    default: ${ short_filename_with_spaces }
+    default: ${ interview_intro_prompt_default }
+---
+code: |
+  if interview.form_type == 'starts_case':
+    interview_intro_prompt_default = "Ask the court for a " + short_filename_with_spaces 
+  elif interview.form_type == 'existing_case':
+    interview_intro_prompt_default = "File a " + short_filename_with_spaces 
+  elif interview.form_type == 'letter':
+    interview_intro_prompt_default = "Write a " + short_filename_with_spaces 
+  else:
+    interview_intro_prompt_default = "Get a " + short_filename_with_spaces 
 ---
 id: form-specific intro page
 question: |
@@ -296,9 +312,10 @@ fields:
 ---
 id: information about people
 question: |
-  Tell the Weaver about user's role for your form
+  User's role for your form
 subquestion: |  
-  Knowing user's role and "people variables" in general will help the Weaver to handle those fields accordingly.
+  Knowing user's role and "people variables" in general will help the Weaver 
+  to handle those fields accordingly.
 fields:
   - note: |
       The list of names below look like names for people, based on
