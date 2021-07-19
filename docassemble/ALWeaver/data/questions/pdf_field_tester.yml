@@ -36,6 +36,7 @@ subquestion: |
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
   tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+
   If you uploaded a form that can only be opened in Adobe Acrobat (a LiveCycle
   or XFA form), you may need to flatten it first. You can flatten an XFA form
   using [iText PDF's free 
@@ -49,9 +50,11 @@ subquestion: |
   There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
   
   The fields that have issues are:
+
   % for bad_field in bad_fields:
     * ${ bad_field }
   % endfor
+
 buttons:
   - Restart: restart
 ---
@@ -59,6 +62,7 @@ event: parsing_exception
 question: ${ parsing_ex.main_issue }
 subquestion: |
   ${ parsing_ex.description }
+
   % if parsing_ex.url is not None:
   Check out the [documentation](${ parsing_ex.url }) to learn more.
   % endif
@@ -84,12 +88,15 @@ question: |
   % endif
 subquestion: |
   The table below shows all of the fields present in the PDF.
+
   Read through it to make sure that everything is as you expect it to be.
+
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
   % for field in all_fields:
   ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) or field[0] in possible_custom else field[0]} ${ ':question:' if field[0] in possible_custom else ''} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
   % endfor
+
   % if len(signature_fields_test) > 0:
   The following are signature fields: 
   
@@ -97,6 +104,7 @@ subquestion: |
   * ${ sig }
   % endfor
   % endif  
+
   % if len(checkbox_fields) > 0:
   The following are checkbox fields: 
   
@@ -183,6 +191,7 @@ subquestion: |
   The fields are filled in with the name that we'll use in the YAML file.
   
   All signature fields should be filled in with this image: ${placeholder_signature}
+
   ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }
   
 fields:
@@ -218,6 +227,7 @@ attachment:
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
   from PyPDF2.utils import PdfReadError
+
   try:
     pdf_concatenate(template_upload)
   except PDFSyntaxError:

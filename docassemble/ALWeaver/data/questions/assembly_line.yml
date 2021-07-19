@@ -138,16 +138,13 @@ question: |
   Upload your template file
 subquestion: |
   Select a PDF or Word template: 
-fields:    
+fields:   
   - no label: template_upload
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   - note: |
-      **Note:**  The Weaver will validate your template's field labels to ensure they meet the standard requirements. You can choose to skip it **if your file already passed the test successfully**.    
-  - Skip testing?: skip_testing
-    datatype: yesnoradio
-    default: False
+      **If your file is a PDF, we'll validate your PDF fields first.**
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
