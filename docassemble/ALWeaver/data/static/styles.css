@@ -1,4 +1,6 @@
-/* The following rules are for "progressive disclusure" */
+/*---------------------------------------------------------*/
+/* "progressive disclosure" rules 
+/*---------------------------------------------------------*/
 a span.pdcaretopen {
     display: inline;
 }
@@ -14,8 +16,9 @@ a.collapsed .pdcaretopen {
 a.collapsed .pdcaretclosed {
     display: inline;
 }
-
-/* logo and title - copied rules from AL styles.css */
+/*---------------------------------------------------------*/
+/* logo and title 
+/*---------------------------------------------------------*/
 .ma_icon {
     position: relative;
     margin-right: 0.5rem;
@@ -28,29 +31,100 @@ a.collapsed .pdcaretclosed {
     font-weight: bold;
     font-size: 20px;
 }
-
-@media only screen and (max-width: 766px) {
-    .title {
-        display: none
-    }
+/*---------------------------------------------------------*/
+/* navigation bar and footer
+/*---------------------------------------------------------*/
+.da-pad-for-navbar {
+    padding-top: 70px;
 }
-/* [FILE] image shadow */
+.da-top-for-navbar {
+    top: 70px;
+}
+.navbar, .dafooter {
+  background-color: #0d3970 !important; 
+}
+.dafooter {
+  text-align: right;
+}
+.dafooter a {
+  padding-left: 1em;
+}
+@media only screen and (max-width: 766px) {  
+  .dafooter > .container {
+    text-align: left;
+    font-size: 90%;
+    padding: 0;   
+  }
+}
+.dafooter > .container > a {
+  color: white; 
+}
+/*---------------------------------------------------------*/
+/* headings 
+/*---------------------------------------------------------*/
+h1, h2, h3, h4, h5, h6 {
+  color: #861e36; 
+}
+/*---------------------------------------------------------*/
+/* [FILE] image shadow, icon no shadow
+/*---------------------------------------------------------*/
 .daicon {    
   box-shadow: 5px 5px 15px #69868e;
   border-style: solid;
   border-width: 1px;
   border-color: gray;
 }
-
 /* icon image files should have no shadow */
 .icon>.daicon {    
   box-shadow: none !important;
   border-style: none !important; 
 }
-
-.da-pad-for-navbar {
-    padding-top: 70px;
+/*---------------------------------------------------------*/
+/* colored panels 
+/*---------------------------------------------------------*/
+.panel_blue, .panel_sky, .panel_green, .panel_silver, .panel_sand, .panel_yellow, .panel_lavender, .panel_teal {
+  padding: 0.5em 1em;
+  margin-bottom: 16px;  
+}
+.panel_blue {       
+  background-color: #d9e8ec;  
+}
+.panel_sky { 
+  background-color: #e5f3fd;
+}
+.panel_green {       
+  background-color: #e3e8e3;  
+}
+.panel_silver {
+  background-color: #e4e4e469;
+}
+.panel_sand {       
+  background-color: #f6efea;  
+}
+.panel_yellow {       
+  background-color: #fbf7e7;  
+}
+.panel_lavender {       
+  background-color: #e9e3ea99;  
+}
+.panel_teal {
+  background-color: #d9ecea;
+}
+/*---------------------------------------------------------*/
+/* open screen animation
+/*---------------------------------------------------------*/
+div.attention {
+  width: 100%;
+  background-color: #0d3970;
+  color: white;  
+  padding: 15px;
+  position: relative;
+  animation: fly 0.5s ease-in-out;
+  animation-timing-function: linear;
 }
 
-.da-top-for-navbar {
-    top: 70px;
+@keyframes fly {
+  from {left: 500px;}
+  to {left: 0px;}
+  100% {transform: rotate(360deg);}
+}
