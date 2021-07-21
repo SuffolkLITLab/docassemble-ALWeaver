@@ -1055,23 +1055,27 @@ subquestion: |
   <div class="panel_sky" markdown="1">
   #### &#11093; Download the generated interview package
   **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
-    
+  
   ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
-
-  ###### To start your project after download:
+  
+  ###### Post-download instructions  
+    <a class="collapsed" data-toggle="collapse" href="#start_project" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> To start your project after download:</a>  
+    <div class="collapse" id="start_project" markdown="1">  
   
   1. Go to your _Playground_ to add a new project.<br>
   2. Open the new project's _Packages_ folder.<br>
   3. Use the third icon _Upload_ to install this package.<br>
   4. Go back to Playground, delete test.yml file, now you can see your interview file.  
-  
-  ###### To customizing your interview:
+    </div>
+    <a class="collapsed" data-toggle="collapse" href="#customize_interview" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> To customize your interview:</a>  
+    <div class="collapse" id="customize_interview" markdown="1">  
   
   1. Start by running your interview. Make a note of anything you want to 
      change.  
   1. **Next steps** instruction file: we created a starting point for a cover page that your form's users will use. Edit this file so it has appropriate instructions for your form. 
   1. Customize the wording, reorder questions, and make the interview your
-     own! [See detailed instructions here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)   
+     own! [See detailed instructions here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)  
+     </div>
   </div>
   <div class="panel_sky" markdown="1">
   #### &#11093; Download the generated interview yml file
