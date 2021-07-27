@@ -1196,14 +1196,16 @@ code: |
   }
   add_end_question = True
 ---  
-need:
+need: # trigger these up front for idempotency
   - interview.title
   - interview_intro_prompt
+  - interview.court_related
 code: |
   #-----------------------------------------------------------------
   # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
   #-----------------------------------------------------------------
-      
+
+  labels_lists.clear()
   # Set attributes for the "next_steps" docx. 
   # To add any additional attachment files, follow this example.
   file2 = labels_lists.appendObject()
