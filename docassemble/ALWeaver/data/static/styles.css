@@ -111,20 +111,12 @@ h1, h2, h3, h4, h5, h6 {
   background-color: #d9ecea;
 }
 /*---------------------------------------------------------*/
-/* open screen animation
+/* open screen title
 /*---------------------------------------------------------*/
 div.attention {
   width: 100%;
   background-color: #0d3970;
   color: white;  
+  text-align: center;
   padding: 15px;
-  position: relative;
-  animation: fly 0.5s ease-in-out;
-  animation-timing-function: linear;
-}
-
-@keyframes fly {
-  from {left: 500px;}
-  to {left: 0px;}
-  100% {transform: rotate(360deg);}
 }

@@ -1,7 +1,9 @@
 ---
 modules:
   - docassemble.AssemblyLine.al_general
-  - docassemble.ALToolbox.copy_button
+---
+include:
+  - docassemble.ALToolbox:copy_button.yml  
 ---
 default screen parts:
   footer: |

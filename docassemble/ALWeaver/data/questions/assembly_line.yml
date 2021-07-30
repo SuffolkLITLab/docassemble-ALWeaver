@@ -102,7 +102,7 @@ code: |
 continue button field: weaver_intro
 id: opening screen
 question: |
-  <div class="attention">&#128142; Interview Weaver: a time-saving tool &#128142;</div>
+  <div class="attention">&#128142; Interview Weaver &#128142;</div>
 subquestion: |  
   
   <div class="panel_yellow" markdown="1">
@@ -128,11 +128,11 @@ subquestion: |
   2. Download your completed interview. It should run out of the box as a rough prototype.
   </div>  
 
-  <div class="panel_yellow" markdown="1">
+  <div class="panel_silver" markdown="1">
   ##### &#128204; Learn more
   The Interview Weaver is part of the [Assembly
   Line](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/) project. You can learn more about customizing your 
-  interview [here](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview).
+  interview _[here](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_.
   </div>
 ---
 id: file upload screen
@@ -1102,10 +1102,10 @@ subquestion: |
   
   <div class="panel_lavender" markdown="1">
   #### &#11093; Advanced  
-  ###### _Review code on the screen_
+  ###### Review code on the screen
   ${ collapse_template(yaml_source) } 
   
-  ###### _Run interview before download_ 
+  ###### Run interview before download
   If you want to test your interview before you leave this screen, click
   the "Install your interview" button. You will have a chance to uninstall
   it once you are done. This can be a quick way to test it interactively 
