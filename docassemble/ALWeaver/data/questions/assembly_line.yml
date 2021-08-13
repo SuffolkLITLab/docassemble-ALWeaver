@@ -1245,7 +1245,11 @@ code: |
   file1.type = template_upload[0].extension  
   file1.description = interview.description
   file1.fields = built_in_fields_used + fields + signature_fields
-
+---
+#-----------------------------------------------------------------
+# Feed data to output_patterns.yml for attachment bundles.
+#-----------------------------------------------------------------
+code: |
   # TODO: it would be possible to merge the "bundles" list with the
   # attachments/labels_list.
   bundles.clear()
@@ -1260,8 +1264,7 @@ code: |
     court_bundle.name = 'al_recipient_bundle'
   # Court does not get the user next steps instructions
   court_bundle.elements = [file1]
-  bundles.gathered = True
-  
+  bundles.gathered = True  
   
   # Bundl-name is a single value
   if len(labels_lists) > 1:
