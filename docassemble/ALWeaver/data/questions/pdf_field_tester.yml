@@ -74,6 +74,7 @@ code: |
   warnings = warnings_temp
   del warnings_temp
 ---
+id: Check for expected pdf fields
 question: |
   % if len(warnings) > 0:
   Correct warnings in field labels
@@ -186,7 +187,7 @@ code: |
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
-id: debug filled in PDF
+id: Confirm filled in PDF
 question: |
   Here is the filled-in PDF
 subquestion: |
@@ -220,6 +221,7 @@ validation code: |
   if len(msg) > 0:
     validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
 ---
+id: pdf tester success
 question: |
   Your form has passed the test
 subquestion: |  
