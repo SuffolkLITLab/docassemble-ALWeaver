@@ -1,0 +1,205 @@
+---
+modules:
+  - docassemble.AssemblyLine.al_general
+---
+include:
+  - docassemble.ALToolbox:copy_button.yml  
+---
+default screen parts:
+  footer: |
+    [:share-alt-square: Share](${ url_ask([{'undefine': ['sharing_type','how_to_share']}, 'share_form_screen', {'recompute': ['did_share_form']}, 'share_results']) })
+    [:file-alt: Documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code)
+    [:info-circle: About](${ url_action('about_this_interview') })
+    [:comment-dots: Feedback](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user=github_user, variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}  
+---
+event: about_this_interview
+id: about ALWeaver
+question: |
+  About ALWeaver
+subquestion: |  
+  ${ about_this_interview_version_info }
+back button label: |
+  Back to form
+---
+reconsider: True
+template: about_this_interview_version_info
+content: |  
+  <div class="panel_blue" markdown="1">
+  ####Version
+  **ALWeaver version**: `${ weaver_version }`.
+  
+  % if package_updated_on:
+  **Last updated** on ${ package_updated_on }.  
+  [:fab-fa-github: View code on GitHub](${ github_url }).  
+  % endif
+  </div>
+  
+  <div class="panel_green" markdown="1">
+  #### Authors
+  This tool was built by:  
+  
+  - Quinten Steenhuis
+  - Michelle
+  - Bryce Willey
+  - Lily
+  - David Colarusso
+  - Nharika Singh
+  </div>
+  
+  <div class="panel_sand" markdown="1">
+  #### Special Thanks
+  ALWeaver is built on the **docassemble** platform and inspired by the original docassemble **Wizard** tool.  
+  
+  Special thanks to **[Jonathan Pyle](https://docassemble.org)** who created the powerful docassemble platform!
+  </div>
+---
+continue button field: share_form_screen
+id: share form screen
+question: |
+  Share this website
+fields:
+  - What do you want to do?: sharing_type
+    datatype: radio
+    choices:
+      - Tell a friend about this tool: tell_friend
+      - Share my session with someone: share_session
+  -  How do you want to share the link?: how_to_share
+     datatype: radio
+     choices:
+       - Email or text message: email_or_sms
+       - Just show me the link. I will share it myself.: link_only
+     js show if: |
+       val("sharing_type") === "tell_friend" || val("sharing_type") === "share_session" 
+  - note: |
+      **Note**: the person you share this link with will be able to see and
+      edit your answers on this form.
+    show if:
+      variable: sharing_type
+      is: share_session
+  - note: |
+      You can copy and share this link
+      
+      ${ copy_button_html(  interview_url(i=user_info().filename, style="short", new_session=1), label=copy_button_label.show(), tooltip_inert_text=copy_button_tooltip_inert_text.show(), tooltip_copied_text = copy_button_tooltip_copied_text.show() ) }
+    js show if: |
+      val("sharing_type") === "tell_friend" && val("how_to_share") === "link_only"      
+  - note: |
+      You can copy and share this link (expires in 48 hours)
+      ${ copy_button_html( interview_url(temporary=48), label=copy_button_label.show(), tooltip_inert_text=copy_button_tooltip_inert_text.show(), tooltip_copied_text = copy_button_tooltip_copied_text.show()) }
+    js show if: |
+      val("sharing_type") === "share_session" && val("how_to_share") === "link_only"
+  - Email or phone number you want to send this to: share_interview_contact_method
+    validate: is_phone_or_email
+    show if:
+      variable: how_to_share
+      is: email_or_sms
+  - Message: tell_a_friend_message
+    datatype: area
+    default: |
+      Hi, I wanted to let you know about a free online form-building tool that I learned about:
+      "${single_paragraph(all_variables(special='metadata').get('title','ALWeaver'))}". I think this might help you, too. Check it out at the link in this message: 
+    js show if: |
+      val("how_to_share") === "email_or_sms" && val("sharing_type") === "tell_friend"
+  - Message: share_interview_answers_message
+    datatype: area
+    default: |
+      Hi, I wanted to share my progress on a form on ALWeaver,
+      "${single_paragraph(all_variables(special='metadata').get('title','ALWeaver'))}".
+      If you click this link, you can follow along or finish the form for me.
+    js show if: |
+      val("how_to_share") === "email_or_sms" && val("sharing_type") === "share_session"      
+  - Your name: share_form_from_name
+    default: ${ str(users[0]) if defined('users[0].name.first') else '' } 
+    show if:
+      variable: how_to_share
+      is: email_or_sms    
+back button label: |
+  Back to your form
+---
+id: Results of sharing
+continue button field: share_results
+question: |
+  % if sharing_type == 'tell_friend':
+  Thanks for sharing!
+  % elif how_to_share == 'link_only':
+  Do not forget to send the link!
+  % else:
+  Your message is on its way
+  % endif
+subquestion: |
+  % if sharing_type == 'share_session':
+  **Keep in mind**: when you make a change to your form, the
+  person you shared it with will see the change you made. You will
+  also see any changes that person makes.
+  % endif
+  
+  Click "Next" to go back to your form in progress.
+---
+need:
+  - share_session_message_template
+  - tell_a_friend_message_template
+code: |
+  if how_to_share == 'email_or_sms':
+    if phone_number_is_valid(share_interview_contact_method):
+      if sharing_type == "tell_friend":
+        success = send_sms(to=share_interview_contact_method, template=tell_a_friend_message_template)
+      else:
+        success = send_sms(to=share_interview_contact_method, template=share_session_message_template)
+    else:
+      if sharing_type == "tell_friend":
+        success = send_email(to=share_interview_contact_method, template=tell_a_friend_message_template)
+      else:
+        success = send_email(to=share_interview_contact_method, template=share_session_message_template)
+  did_share_form = True
+---
+##########
+# Copy button strings for translation
+template: copy_button_label
+content: |
+  Copy
+---
+template: copy_button_tooltip_inert_text
+content: |
+  Copy to clipboard
+---
+template: copy_button_tooltip_copied_text
+content: |
+  Copied!
+---
+##############
+# Sharing email templates
+template: share_session_message_template
+subject: |
+  Online form builder tool ALWeaver from ${ share_form_from_name }
+content: |
+  ${ share_interview_answers_message }
+  Click the link below to view and edit ${ share_form_from_name }'s
+  progress so far:
+  
+  ${ interview_url(temporary=48) }
+---
+template: tell_a_friend_message_template
+subject: |
+  ${ share_form_from_name } wants to tell you about ALWeaver
+content: |
+  ${ tell_a_friend_message }
+  ${ interview_url(i=user_info().filename, style="short", new_session=1) }
+---
+code: |  
+  github_user = "suffolklitlab"   
+  github_url = "https://github.com/" + github_user + "/" + github_repo_name 
+---
+code: |
+  res = github_modified_date(github_user, github_repo_name)
+  if res:
+    package_updated_on = res.format('yyyy-MM-dd')
+  else:
+    package_updated_on = None
+---
+imports:
+  - docassemble.ALWeaver # INSTALLED version of the package
+---
+code: |
+  try:
+    weaver_version = "ALWeaver-" + str(docassemble.ALWeaver.__version__)
+  except:
+    weaver_version = "" 

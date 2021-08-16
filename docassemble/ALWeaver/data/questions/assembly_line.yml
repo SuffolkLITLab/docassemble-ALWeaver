@@ -9,6 +9,7 @@ metadata:
 features:
   question help button: True
   # labels above fields: True
+  question back button: True
 ---
 modules:
   - collections
@@ -16,6 +17,7 @@ modules:
   - docassemble.base.logger
   - .interview_generator
   - .custom_values
+  - docassemble.ALToolbox.misc #collapse_template()  
 ---
 features:
   css: styles.css  
@@ -23,8 +25,9 @@ features:
   images:
     branding_extra: branding_extra.png
 ---
-include: 
+include:   
   - pdf_field_tester.yml
+  - visual.yml
 ---
 objects:
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
@@ -99,9 +102,11 @@ code: |
 continue button field: weaver_intro
 id: opening screen
 question: |
- Interview Weaver: Document Assembly Line
-subquestion: |
-  ##### What the Weaver does
+  <div class="attention">Interview Weaver</div>
+subquestion: |  
+  
+  <div class="panel_yellow" markdown="1">
+  ##### &#11093; What the Weaver does
   
   1. Creates a draft Docassemble interview, as a package you can install and
      continue customizing. The interview is supported at runtime by other [_**Assembly
@@ -111,42 +116,36 @@ subquestion: |
      introduction, preview, download, and user instructions, with standardized
      variable names.
   1. Catches common errors with PDF forms.
-  
-  ##### What you need to do
+  </div>
+  <div class="panel_yellow" markdown="1">
+  ##### &#11093; What you need to do
   
   1. Start with the template first. Add [standardized 
      labels](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
      to take advantage of built-in questions.
   1. Upload your template and answer all the questions on the screens.
      Smart defaults save you time along the way.
-  2. Download your completed interview. It should run out of the box as a rough
-     prototype.
+  2. Download your completed interview. It should run out of the box as a rough prototype.
+  </div>  
 
-  ##### Customizing your interview
-  
-  1. Start by running your interview. Make a note of anything you want to 
-     change.  
-  1. Customize the wording, reorder questions, and make the interview your
-     own!
-  
-  [Learn more about customizing your 
-  interview](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview).
-
+  <div class="panel_silver" markdown="1">
+  ##### &#128204; Learn more
   The Interview Weaver is part of the [Assembly
-  Line](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/)
-  project.   
+  Line](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/) project. You can learn more about customizing your 
+  interview _[here](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_.
+  </div>
 ---
 id: file upload screen
 question: |
- Upload your template file
+  Upload your template file
 subquestion: |
- Select a PDF or Word template: 
-fields:  
+  Select a PDF or Word template: 
+fields:   
   - no label: template_upload
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  - note: |  
+  - note: |
       **If your file is a PDF, we'll validate your PDF fields first.**
 ---
 code: |
@@ -1049,40 +1048,64 @@ code: |
 code: |
   attachment_variable_name = interview_label + '_attachment'
 ---
+template: start_your_project
+subject: |
+  To start your project after download:
+content: |  
+  1. Go to your _Playground_ to add a new project.
+  2. Open the new project's _Packages_ folder.
+  3. Use the third icon _Upload_ to install this package.
+  4. Go back to Playground, delete test.yml file, now you can see your interview file.  
+---
+template: customize_your_interview
+subject: |
+  To customize your interview:
+content: |  
+  1. Start by running your interview. Make a note of anything you want to 
+     change.  
+  2. **Next steps** instruction file: we created a starting point for a cover page that your form's users will use. Edit this file so it has appropriate instructions for your form. 
+  3. Customize the wording, reorder questions, and make the interview your
+     own! 
+---
+template: yaml_source
+subject: |
+  Review your interview yml code
+content: |  
+  <pre>
+  ${indent_by(interview.source(),4)}
+  </pre>
+---
 id: download your interview
 comment: | 
 event: show_interview
 question: |
   Congratulations, you have completed your draft interview!
 subquestion: |
-  
-  #### Download the generated interview 
+  <div class="panel_sky" markdown="1">
+  #### &#11093; Download the generated interview package
   **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
-    
-  ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download Your Package') }
-
-  After download,<br> 
-  1. Go to your _Playground_ to add a new project.<br>
-  2. Open the new project's _Packages_ folder.<br>
-  3. Use the third icon _Upload_ to install this package.<br>
-  4. Go back to Playground, delete test.yml file, now you can see your interview file.
-  5. **Next steps** instructions: we created a starting point for a cover page that
-  your form's users will use. Edit this file so it has appropriate instructions for your
-  form.
-
+  
+  ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
+  
+  ###### Post-download instructions         
+  ${ collapse_template(start_your_project) }  
+  ${ collapse_template(customize_your_interview) }   
+  See detailed instructions _[here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_  
+  </div>
+  
+  <div class="panel_sky" markdown="1">
+  #### &#11093; Download the generated interview yml file
   **If you rerun the Weaver and only want the yml file**, you can just download it below:  
      
-  ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download Your Yaml File') }
-  
-  #### Advanced  
-  
-  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> Review your interview yml code</a>
-  
-  <div class="collapse" id="yaml_source">
-  <pre>
-  ${indent_by(interview.source(),4)}
-  </pre>
+  ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download your yaml file') }
   </div>
+  
+  <div class="panel_lavender" markdown="1">
+  #### &#11093; Advanced  
+  ###### Review code on the screen
+  ${ collapse_template(yaml_source) } 
+  
+  ###### Run interview before download
   If you want to test your interview before you leave this screen, click
   the "Install your interview" button. You will have a chance to uninstall
   it once you are done. This can be a quick way to test it interactively 
@@ -1100,8 +1123,8 @@ subquestion: |
   ```
   install packages api key: abcdeFGHIJ12345ZEKS
   ```
-  % endif
-  
+  % endif  
+  </div>
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
@@ -1294,11 +1317,6 @@ code: |
   else:    
     github_repo_name = "docassemble-ALWeaver"
 ---
-default screen parts:
-  # May want to change the interview URL if you customize/fork
-  under: |
-    Feedback, suggestions, or comments? [Complete this survey](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user='suffolklitlab', variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}.
----
 code: |
   if install_package_task.ready():
     run_package
@@ -1332,15 +1350,8 @@ subquestion: |
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
   
-  <a class="collapsed" data-toggle="collapse" href="#yaml_source" role="button" aria-expanded="false" aria-controls="collapseExample"><span class="pdcaretopen"><i class="fas fa-caret-down"></i></span><span class="pdcaretclosed"><i class="fas fa-caret-right"></i></span> Review your interview yml code</a>
+  ${ collapse_template(yaml_source) }
   
-  <div class="collapse" id="yaml_source">
-  <pre>
-  ${indent_by(interview.source(),4)}
-  </pre>
-  </div>
-
-
   Download the YAML file only:  
   [:download: Download YAML](${interview_download.url_for(attachment=True)})
   
