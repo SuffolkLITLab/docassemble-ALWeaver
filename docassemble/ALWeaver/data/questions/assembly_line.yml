@@ -102,7 +102,7 @@ code: |
 continue button field: weaver_intro
 id: opening screen
 question: |
-  <div class="attention">&#128142; Interview Weaver &#128142;</div>
+  <div class="attention">Interview Weaver</div>
 subquestion: |  
   
   <div class="panel_yellow" markdown="1">
