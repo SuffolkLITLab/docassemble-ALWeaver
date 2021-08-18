@@ -70,6 +70,7 @@ code: |
   # Generate draft interview yaml file 
   add_includes
   add_metadata
+  add_main_interview_key
   add_short_title
   add_form_type  
   add_objects_block
@@ -641,6 +642,16 @@ code: |
   }
 
   add_metadata = True
+---
+code: |
+  interview_main_metadata_key_block = interview.blocks.appendObject()
+  interview_main_metadata_key_block.template_key = 'code'
+  interview_main_metadata_key_block.data = {
+    "lines": [
+        f"interview_metadata['main_interview_key'] =  '{interview_label}'"
+      ]
+    }  
+  add_main_interview_key = True
 ---
 code: |
   # Create code for the question that we use to label
