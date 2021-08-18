@@ -71,6 +71,7 @@ code: |
   add_includes
   add_metadata
   add_main_interview_key
+  add_github_repo_name
   add_short_title
   add_form_type  
   add_objects_block
@@ -652,6 +653,18 @@ code: |
       ]
     }  
   add_main_interview_key = True
+---
+need:
+  - package_title
+code: |
+  github_repo_name_block = interview.blocks.appendObject()
+  github_repo_name_block.template_key = 'code'
+  github_repo_name_block.data = {
+    "lines": [
+        f"github_repo_name =  'docassemble-{package_title}'"
+      ]
+    }  
+  add_github_repo_name = True
 ---
 code: |
   # Create code for the question that we use to label
