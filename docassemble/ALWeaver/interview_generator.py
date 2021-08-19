@@ -256,6 +256,12 @@ class DAField(DAObject):
     if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
+    elif self.variable.endswith('_amount'):
+        self.field_type_guess = 'currency'
+        self.variable_name_guess = f'{self.variable[:-7].replace('_',' ')} amount'
+    elif self.variable.endswith('_value'):
+        self.field_type_guess = 'currency'
+        self.variable_name_guess = f'{self.variable[:-7].replace('_',' ')} value'
     elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
