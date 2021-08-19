@@ -996,7 +996,7 @@ code: |
   for index, question in enumerate(screen_order):
     if index and index % screen_divisor == 0:
       progress += increment
-      logic_list.append("set_progress(" + str(round(progress,2)) +")")
+      logic_list.append(f"set_progress({int(progress)})")
     if isinstance(question, DAQuestion) and question.type == 'question':
       # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
