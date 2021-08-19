@@ -255,13 +255,13 @@ class DAField(DAObject):
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
     if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
-      self.variable_name_guess = 'Date of ' + self.variable[:-5].replace('_', ' ')
+      self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
     elif self.variable.endswith('_amount'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{self.variable[:-7].replace('_',' ')} amount"
+        self.variable_name_guess = f"{variable_name_guess[:-7]} amount"
     elif self.variable.endswith('_value'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{self.variable[:-7].replace('_',' ')} value"
+        self.variable_name_guess = f"{variable_name_guess[:-7]} value"
     elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
       self.variable_name_guess = variable_name_guess
@@ -296,6 +296,12 @@ class DAField(DAObject):
         self.field_type_guess = "signature"
     elif self.maxlength > 100:
         self.field_type_guess = 'area'
+    elif self.variable.endswith('_amount'):
+        self.field_type_guess = 'currency'
+        self.variable_name_guess = f"{variable_name_guess[:-7]} amount"
+    elif self.variable.endswith('_value'):
+        self.field_type_guess = 'currency'
+        self.variable_name_guess = f"{variable_name_guess[:-7]} value"        
     else:
         self.field_type_guess = 'text'
     
@@ -598,7 +604,7 @@ confirm: True
     all_columns = ''
     settable_list = ''
     for att, disp_and_set in self.attribute_map.items():
-      all_columns += '  - {0}: |\n'.format(att.capitalize().replace('_', ''))
+      all_columns += '  - {0}: |\n'.format(att.capitalize().replace('_', ' '))
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
     if len(self.attribute_map) == 0:
