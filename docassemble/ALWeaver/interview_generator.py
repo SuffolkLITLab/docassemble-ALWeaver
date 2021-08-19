@@ -598,11 +598,11 @@ confirm: True
     all_columns = ''
     settable_list = ''
     for att, disp_and_set in self.attribute_map.items():
-      all_columns += '  - {0}: |\n'.format(att)
+      all_columns += '  - {0}: |\n'.format(att.capitalize().replace('_', ''))
       all_columns += '      row_item.{0} if defined("row_item.{1}") else ""\n'.format( disp_and_set[0], disp_and_set[1])
       settable_list += '  - {}\n'.format(disp_and_set[1])
     if len(self.attribute_map) == 0:
-      all_columns += '  - name: |\n'
+      all_columns += '  - Name: |\n'
       all_columns += '      row_item\n'
       settable_list += '  True\n'
     return content.format(var_name=self.var_name, all_columns=all_columns.rstrip('\n'), settable_list=settable_list.rstrip('\n'))
@@ -618,7 +618,7 @@ confirm: True
     content += '    button: |\n'
         
     if self.var_type == 'list': 
-      content += indent_by(bold(self.var_name), 6) + '\n'
+      content += indent_by(bold(self.var_name.capitalize().replace('_', '')), 6) + '\n'
       content += indent_by("% for item in {}:".format(self.var_name), 6)
       content += indent_by("* ${ item }", 8)
       content += indent_by("% endfor", 6)
@@ -628,7 +628,7 @@ confirm: True
       content += indent_by(bold(self.var_name), 6) + '\n'
       for att, disp_set in self.attribute_map.items():
         content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
-        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name.capitalize().replace('_', ''), disp_set[0]), 6)
         content += indent_by('% endif', 6)
       return content.rstrip('\n')
     
