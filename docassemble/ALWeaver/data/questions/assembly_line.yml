@@ -70,6 +70,8 @@ code: |
   # Generate draft interview yaml file 
   add_includes
   add_metadata
+  add_main_interview_key
+  add_github_repo_name
   add_short_title
   add_form_type  
   add_objects_block
@@ -298,21 +300,42 @@ code: |
 ---
 id: form-specific intro page
 question: |
-  Create an intro screen for your interview
+  Form description and "Getting Started" page
 subquestion: |
-  Here you build an intro screen specifically for your form.
+  Use plain language that will be understandable to 
+  someone who uses this form without a lawyer.
   
-  Give your user some context. Use plain language that will be understandable to someone who uses this form without a lawyer. Tell them what they need to know about this specific form before they move forward.
+  Do your best to tell your user what they need to know before they
+  get started on the form. For example, you may want to tell them about:
   
-  **Remember:** you can change the text later in your playground. 
+  1. How much time the form will take to complete.  
+  1. Documents to have at hand.
+  1. Information they may need to ask someone else for or to look up.
+  1. Steps they will need to take before they can deliver the form, 
+    such as printing or getting a notary.
+  
+  **Remember:** you can change the text later in your playground. Start with
+  a rough draft.
 fields:
   - Title: interview.title
     default: ${ short_filename_with_spaces }
   - Short title that will show up on small screens: interview.short_title
     default: ${ short_filename_with_spaces }
-  - What your users should know: interview.description
+  - Short description of your form: interview.description
     default: ${ short_filename_with_spaces }
     datatype: area
+    rows: 2
+  - label: |
+      "Getting started" page
+    field: interview.getting_started
+    default: ${ short_filename_with_spaces }
+    datatype: area
+    help: |
+      Tell your user what they need to know before they start the form.
+      This helps your user feel prepared and
+      prevents frustration later in your interview, especially for longer
+      forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
+      of a line to add formatting.
 ---
 id: information about people
 question: |
@@ -572,7 +595,7 @@ code: |
     "comment": "This question is used to introduce your interview. Please customize",
     "continue_button_field": interview_label + '_intro',
     "question_text": interview.title,
-    "subquestion_text": interview.description, # this is the metadata description
+    "subquestion_text": interview.getting_started, # this is the metadata description
   }
   add_intro_screen = True
 ---
@@ -610,7 +633,7 @@ code: |
     "interview_label": interview_label,
     "title": interview.title,
     "short_title": interview.short_title,
-    "description": interview.description,
+    "description": single_paragraph(interview.description),
     "original_form": interview.original_form,
     "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,
@@ -620,6 +643,28 @@ code: |
   }
 
   add_metadata = True
+---
+code: |
+  interview_main_metadata_key_block = interview.blocks.appendObject()
+  interview_main_metadata_key_block.template_key = 'code'
+  interview_main_metadata_key_block.data = {
+    "lines": [
+        f"interview_metadata['main_interview_key'] =  '{interview_label}'"
+      ]
+    }  
+  add_main_interview_key = True
+---
+need:
+  - package_title
+code: |
+  github_repo_name_block = interview.blocks.appendObject()
+  github_repo_name_block.template_key = 'code'
+  github_repo_name_block.data = {
+    "lines": [
+        f"github_repo_name =  'docassemble-{package_title}'"
+      ]
+    }  
+  add_github_repo_name = True
 ---
 code: |
   # Create code for the question that we use to label
@@ -951,7 +996,7 @@ code: |
   for index, question in enumerate(screen_order):
     if index and index % screen_divisor == 0:
       progress += increment
-      logic_list.append("set_progress(" + str(round(progress,2)) +")")
+      logic_list.append(f"set_progress({int(progress)})")
     if isinstance(question, DAQuestion) and question.type == 'question':
       # TODO(bryce): make OOP: don't refer to question.type
       # Add the first field in every question to our logic tree
@@ -1245,7 +1290,7 @@ code: |
   file1.output_filename = interview_label
   file1.attachment_varname = attachment_variable_name    
   file1.type = template_upload[0].extension  
-  file1.description = interview.description
+  file1.description = interview.title
   file1.fields = built_in_fields_used + fields + signature_fields
 
   # TODO: it would be possible to merge the "bundles" list with the

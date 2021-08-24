@@ -261,7 +261,7 @@ al-document objects: |
 al-document-bundle objects: |
   objects:
   % for bundle in bundles:
-    - ${ bundle.name }: ALDocumentBundle.using(elements=[${ ",".join([item.attachment_varname for item in bundle.elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
+    - ${ bundle.name }: ALDocumentBundle.using(elements=[${ ",".join([item.attachment_varname for item in bundle.elements]) }], filename="${ bundle_filename }", title="All forms to download for your records", enabled=True)
   % endfor
 #    - al_user_bundle: ALDocumentBundle.using(elements=[${','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
 #    - al_court_bundle: ALDocumentBundle.using(elements=[${ ','.join([label.attachment_varname for label in bundle_elements]) }], filename="${ bundle_filename }", title="All forms to download for your records")
