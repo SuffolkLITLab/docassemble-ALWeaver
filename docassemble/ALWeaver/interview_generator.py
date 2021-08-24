@@ -624,7 +624,7 @@ confirm: True
     content += '    button: |\n'
         
     if self.var_type == 'list': 
-      content += indent_by(bold(self.var_name.capitalize().replace('_', '')), 6) + '\n'
+      content += indent_by(bold(self.var_name.capitalize().replace('_', ' ')), 6) + '\n'
       content += indent_by("% for item in {}:".format(self.var_name), 6)
       content += indent_by("* ${ item }", 8)
       content += indent_by("% endfor", 6)
