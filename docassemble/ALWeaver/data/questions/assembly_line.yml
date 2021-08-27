@@ -6,6 +6,9 @@ metadata:
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org  
 ---
+imports:
+  - pycountry
+---
 features:
   question help button: True
   # labels above fields: True
@@ -238,26 +241,70 @@ help:
     There are ${len(all_fields)} fields total.
 
     `${all_fields}`
+
+---
+code: |
+  interview.country = 'US'
+  # This is weird but needed for check-in logic
+  # TODO(qs): adjust when we have a way to load in org defaults at runtime
+---
+event: update_state_list
+code: |
+  if action_argument('interview.country') and action_argument('interview.country') != interview.country:          
+    interview.country = action_argument('interview.country')
+    background_response('refresh')
+  background_response()    
 ---
 id: dependency question
-question: Which jurisdictions and organizations is this form a part of?
-subquestion: |
-  This will help the Weaver to add appropriate jurisdictions as dependencies for your interview. If you are unsure, leave the default options checked.
-help:
-  label: My jurisdiction or organization is not here
-  content: |
-    New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
+question: |
+  Brand, Location and Identity
 fields:
-  - Jurisdictions: interview.jurisdiction_choices
+  - Author's name(s) (one per line): interview.author
+    datatype: area
+    rows: 3
+    default: |
+      % if user_logged_in():
+      ${ user_info().first_name } ${ user_info().last_name }
+      % else:
+      Court Forms Online
+      % endif
+    required: False
+  - note: |
+      ---
+  - Default country: interview.country
+    code: |
+      countries_list()
+    default: ${ interview.country }
+  - Default ${ safe_subdivision_type(interview.country) if safe_subdivision_type(interview.country) else 'State/Province'}: interview.state
+    code: |
+        states_list(country_code=interview.country) if pycountry.subdivisions.get(country_code=interview.country) else []
+    # default: ${ "MA" if interview.country == 'US' else '' }
+    required: False
+  - note: |
+      ---
+  - Jurisdiction package: interview.jurisdiction_choices
     datatype: checkboxes
     required: False
     code: |
       get_possible_deps_as_choices('jurisdiction')
-  - Organizations: interview.org_choices
+  - Organization package: interview.org_choices
     datatype: checkboxes
     required: False
     code: |
       get_possible_deps_as_choices('organization')
+check in: update_state_list      
+help:
+  label: What is this?
+  content: |
+    You can include default styles, courts, and custom written questions
+    that are appropriate for both your jurisdiction (i.e., state-level courts)
+    and for your organization.
+    
+    Leaving the default selections will use packages associated with the 
+    Court Forms Online project.
+    
+    New jurisdictions will be added soon. You should add those dependencies 
+    manually in the Playground until then.
 ---
 code: |    
   if not interview.court_related:   
