@@ -181,6 +181,12 @@ metadata: |
       - ${ category }
   % endfor
   % endif
+  % if len(authors):
+    authors:
+  % for author in authors:
+      - ${ author }
+  % endfor
+  % endif
 # Form-specific metadata that goes into a dictionary, much of it reserved for future use
 # TODO: refactor to a Docassemble `data:` block
 al metadata: |
