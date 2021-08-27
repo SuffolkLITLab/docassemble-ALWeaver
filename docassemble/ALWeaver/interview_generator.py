@@ -253,21 +253,19 @@ class DAField(DAObject):
 
     # variable_name_guess is the placeholder label for the field
     variable_name_guess = self.variable.replace('_', ' ').capitalize()
+    self.variable_name_guess = variable_name_guess
+
     if self.variable.endswith('_date'):
       self.field_type_guess = 'date'
       self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
     elif self.variable.endswith('_amount'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{variable_name_guess[:-7]} amount"
     elif self.variable.endswith('_value'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{variable_name_guess[:-7]} value"
     elif self.variable.endswith('.signature'):
       self.field_type_guess = "signature"
-      self.variable_name_guess = variable_name_guess
     else:
       self.field_type_guess = 'text'
-      self.variable_name_guess = variable_name_guess
 
   def fill_in_pdf_attributes(self, pdf_field_tuple):
     """Let's guess the type of each field from the name / info from PDF"""
@@ -298,10 +296,8 @@ class DAField(DAObject):
         self.field_type_guess = 'area'
     elif self.variable.endswith('_amount'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{variable_name_guess[:-7]} amount"
     elif self.variable.endswith('_value'):
         self.field_type_guess = 'currency'
-        self.variable_name_guess = f"{variable_name_guess[:-7]} value"        
     else:
         self.field_type_guess = 'text'
     
@@ -634,7 +630,7 @@ confirm: True
       content += indent_by(bold(self.var_name), 6) + '\n'
       for att, disp_set in self.attribute_map.items():
         content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
-        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name.capitalize().replace('_', ''), disp_set[0]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name.capitalize().replace('_', ' '), disp_set[0]), 6)
         content += indent_by('% endif', 6)
       return content.rstrip('\n')
     
