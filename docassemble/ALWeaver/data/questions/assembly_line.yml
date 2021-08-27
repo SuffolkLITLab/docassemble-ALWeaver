@@ -274,6 +274,7 @@ fields:
     help: |
       The information in this box will be public by default.
       It will be used on GitHub and on the "About" page of the interview.
+  # TODO(qs): we could add email for github here too, but more complicated      
   - note: |
       ---
   - Default country: interview.country
@@ -283,8 +284,9 @@ fields:
   - Default ${ safe_subdivision_type(interview.country) if safe_subdivision_type(interview.country) else 'State/Province'}: interview.state
     code: |
         states_list(country_code=interview.country) if pycountry.subdivisions.get(country_code=interview.country) else ()
-    # default: ${ "MA" if interview.country == 'US' else '' }
+    default: ${ "MA" if interview.country == 'US' else '' }
     required: False
+    
   - note: |
       ---
   - Jurisdiction package: interview.jurisdiction_choices
@@ -1271,6 +1273,8 @@ code: |
   # Package title is PascalCase, per our AssemblyLine convention
   package_title = re.sub("\W|_","", interview_label.title())
 ---
+need:
+  - interview.author
 # Prepare content for the Weaver's download screen.
 code: |
   # 1. Commit the generated interview YAML file
@@ -1289,14 +1293,28 @@ code: |
     "sources": []
   }
   
-  create_package_zip(package_title,
-        interview.package_info(
+  package_info = interview.package_info(
           get_pypi_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
             interview.org_choices.true_values()
           )
-        ),
-        {"author name and email":"author@example.com"},
+        )    
+  
+  if interview.author and str(interview.author).splitlines():
+    # TODO(qs): is it worth ever adding email here?
+    # It would conflict with listing multiple authors
+    default_vals = {
+      "author name and email": str(interview.author).splitlines()[0]
+    }
+    package_info['author_name'] = default_vals['author name and email']
+  else:
+    default_vals = {
+      "author name and email": "author@example.com"
+    }
+  
+  create_package_zip(package_title,
+        package_info,
+        default_vals,
         folders_and_files, 
         interview_package_download)
 
