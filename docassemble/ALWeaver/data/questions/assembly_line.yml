@@ -74,6 +74,7 @@ code: |
   add_includes
   add_metadata
   add_main_interview_key
+  add_default_country_and_state
   add_github_repo_name
   add_short_title
   add_form_type  
@@ -262,6 +263,7 @@ fields:
   - Author's name(s) (one per line): interview.author
     datatype: area
     rows: 3
+    # TODO(qs): update default if we have a way to load org defaults
     default: |
       % if user_logged_in():
       ${ user_info().first_name } ${ user_info().last_name }
@@ -269,6 +271,9 @@ fields:
       Court Forms Online
       % endif
     required: False
+    help: |
+      The information in this box will be public by default.
+      It will be used on GitHub and on the "About" page of the interview.
   - note: |
       ---
   - Default country: interview.country
@@ -277,7 +282,7 @@ fields:
     default: ${ interview.country }
   - Default ${ safe_subdivision_type(interview.country) if safe_subdivision_type(interview.country) else 'State/Province'}: interview.state
     code: |
-        states_list(country_code=interview.country) if pycountry.subdivisions.get(country_code=interview.country) else []
+        states_list(country_code=interview.country) if pycountry.subdivisions.get(country_code=interview.country) else ()
     # default: ${ "MA" if interview.country == 'US' else '' }
     required: False
   - note: |
@@ -690,6 +695,17 @@ code: |
   }
 
   add_metadata = True
+---
+need:
+  - interview.country
+code: |
+  interview_default_country_and_state_block = interview.blocks.appendObject()
+  interview_default_country_and_state_block.template_key = 'default country and state'
+  interview_default_country_and_state_block.data = {
+    "interview": interview
+    }
+
+  add_default_country_and_state = True
 ---
 code: |
   interview_main_metadata_key_block = interview.blocks.appendObject()

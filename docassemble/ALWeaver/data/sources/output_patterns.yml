@@ -223,6 +223,15 @@ al metadata: |
         "typical role": "${ typical_role }",
         % endif
       })
+# Default country and state
+default country and state: |
+  code: |
+    AL_DEFAULT_COUNTRY = "${ interview.country }"
+  % if hasattr(interview, 'state') and interview.state:
+  ---
+  code: |
+    AL_DEFAULT_STATE = "${ interview.state }"
+  % endif
 # Includes
 include: |
   include:
