@@ -678,7 +678,7 @@ code: |
       'title': interview.title,
       'short title': interview.short_title
     },
-    "authors": [author for author in str(interview.author).splitlines()]
+    "authors": str(interview.author).splitlines()
   }
 
   metadata_code = interview.blocks.appendObject()
