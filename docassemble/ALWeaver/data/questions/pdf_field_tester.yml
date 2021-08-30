@@ -132,16 +132,16 @@ subquestion: |
   ------------------------------------------------------------
 fields:
   - note: |
-      Confirm your field-checkup status. All the boxes must be checked, or you'll get an error message along with instructions to correct the issues.
-  - Confirm fields-checkup status: fields_checkup_status
+      Confirm your field-checkup status. All the boxes must be checked, otherwise you'll get an error message for each unchecked box along with instructions to correct the issues.
+      
+      If more of the :question: fields are listed as reserved than you expected: that's okay! You'll get to chose which ones are actually reserved later when you build your interview.
+  - no label: fields_checkup_status
     datatype: checkboxes
     choices:
       - All my fields are listed in the table above: all_fields_present
-      - There is no unexpected fields in the table: no_unexpected_fields
-      - All the reserved fields are bolded: correct_reserved_fields    
-    none of the above: False
-    help: |
-      If more of the :question: fields are listed as reserved than you expected: that's okay! You'll get to chose which ones are actually reserved later when you build your interview.
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+    none of the above: False    
   - Are you okay with fixing the shown warnings yourself?: will_handle_errors
     datatype: yesnoradio
     required: True
@@ -157,9 +157,9 @@ validation code: |
   if not fields_checkup_status['all_fields_present']:    
     all_present_msg = "<ul><li>You didn't confirm 'All my fields are listed in the table above'. Double check your PDF to make sure you <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">created the field correctly</a> for details!</li></ul>"    
   if not fields_checkup_status['no_unexpected_fields']:
-    all_expected_msg = "<ul><li>You didn't confirm 'There is no unexpected fields in the table'. You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">remove fields</a> that you won't be asking for or showing in the form.</li></ul>"
+    all_expected_msg = "<ul><li>You didn't confirm 'There are no unexpected fields in the table'. You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">remove fields</a> that you won't be asking for or showing in the form.</li></ul>"
   if not fields_checkup_status['correct_reserved_fields']:
-    correct_reserved_msg = "<ul><li>You didn't confirm 'All the reserved fields are bolded'. Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are spelled correctly.</li></ul>"
+    correct_reserved_msg = "<ul><li>You didn't confirm 'All the reserved fields are bolded as I expected'. Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are spelled correctly.</li></ul>"
   pdf_preview_msg = all_present_msg + all_expected_msg + correct_reserved_msg
   if len(pdf_preview_msg) > 0:
     validation_error(pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']")   
