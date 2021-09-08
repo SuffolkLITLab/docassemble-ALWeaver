@@ -953,7 +953,7 @@ def map_raw_to_final_display(label:str, document_type:str="pdf",
   """For a given set of specific cases, transform a
   PDF field name into a standardized object name
   that will be the value for the attachment field."""
-  if document_type.lower() == "docx":
+  if document_type.lower() == "docx" or '.' in label:
     return label # don't transform DOCX variables
 
   # Turn spaces into `_`, strip non identifier characters
