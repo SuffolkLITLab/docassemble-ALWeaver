@@ -181,6 +181,12 @@ metadata: |
       - ${ category }
   % endfor
   % endif
+  % if len(authors):
+    authors:
+  % for author in authors:
+      - ${ author }
+  % endfor
+  % endif
 # Form-specific metadata that goes into a dictionary, much of it reserved for future use
 # TODO: refactor to a Docassemble `data:` block
 al metadata: |
@@ -223,6 +229,17 @@ al metadata: |
         "typical role": "${ typical_role }",
         % endif
       })
+# Default country and state
+default country and state: |
+  code: |
+    # This controls the default country and list of states in address field questions
+    AL_DEFAULT_COUNTRY = "${ interview.default_country_code }"
+  % if hasattr(interview, 'state') and interview.state:
+  ---
+  code: |
+    # This controls the default state in address field questions
+    AL_DEFAULT_STATE = "${ interview.state }"
+  % endif
 # Includes
 include: |
   include:

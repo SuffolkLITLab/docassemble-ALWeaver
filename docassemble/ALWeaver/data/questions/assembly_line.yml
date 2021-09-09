@@ -6,6 +6,9 @@ metadata:
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org  
 ---
+imports:
+  - pycountry
+---
 features:
   question help button: True
   # labels above fields: True
@@ -71,6 +74,7 @@ code: |
   add_includes
   add_metadata
   add_main_interview_key
+  add_default_country_and_state
   add_github_repo_name
   add_short_title
   add_form_type  
@@ -238,26 +242,78 @@ help:
     There are ${len(all_fields)} fields total.
 
     `${all_fields}`
+
+---
+code: |
+  interview.default_country_code = 'US'
+  # This is weird but needed for check-in logic that refreshes list of states
+  # TODO(qs): adjust when we have a way to load in org defaults at runtime
+---
+event: update_state_list
+code: |
+  if action_argument('interview.default_country_code') and action_argument('interview.default_country_code') != interview.default_country_code:          
+    interview.default_country_code = action_argument('interview.default_country_code')
+    background_response('refresh')
+  background_response()    
 ---
 id: dependency question
-question: Which jurisdictions and organizations is this form a part of?
-subquestion: |
-  This will help the Weaver to add appropriate jurisdictions as dependencies for your interview. If you are unsure, leave the default options checked.
-help:
-  label: My jurisdiction or organization is not here
-  content: |
-    New jurisdictions will be added soon. You should add those dependencies manually in the Playground until then.
+question: |
+  Identity, location, and brand
 fields:
-  - Jurisdictions: interview.jurisdiction_choices
+  - Author name(s) (one per line): interview.author
+    datatype: area
+    rows: 3
+    # TODO(qs): update default if we have a way to load org defaults
+    default: |
+      % if user_logged_in():
+      ${ user_info().first_name } ${ user_info().last_name }
+      % else:
+      Court Forms Online
+      % endif
+    required: False
+    help: |
+      The information in this box will be public by default.
+      It will appear on the "About" page of the interview. If you
+      save this package to GitHub, it will also appear in your GitHub commit log.
+  # TODO(qs): we could add email for github here too, but more complicated
+  # and risks inappropriate contact by end users
+  - note: |
+      ---
+  - Default country (for address fields): interview.default_country_code
+    code: |
+      countries_list()
+    default: ${ interview.default_country_code }
+  - Default ${ safe_subdivision_type(interview.default_country_code) if safe_subdivision_type(interview.default_country_code) else 'State/Province'}: interview.state
+    code: |
+        states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
+    default: ${ "MA" if interview.default_country_code == 'US' else '' }
+    required: False
+    
+  - note: |
+      ---
+  - Jurisdiction package: interview.jurisdiction_choices
     datatype: checkboxes
     required: False
     code: |
       get_possible_deps_as_choices('jurisdiction')
-  - Organizations: interview.org_choices
+  - Branding package: interview.org_choices
     datatype: checkboxes
     required: False
     code: |
       get_possible_deps_as_choices('organization')
+check in: update_state_list      
+help:
+  label: What is this?
+  content: |
+    You can include default styles, courts, and custom written questions
+    that are appropriate for both your jurisdiction (i.e., state-level courts)
+    and for your organization.
+    
+    Leaving the default selections will use packages associated with the 
+    Court Forms Online project.
+    
+    New jurisdictions will be added soon. You should add those dependencies 
+    manually in the Playground until then.
 ---
 code: |    
   if not interview.court_related:   
@@ -623,7 +679,8 @@ code: |
     "settings": {
       'title': interview.title,
       'short title': interview.short_title
-    }
+    },
+    "authors": str(interview.author).splitlines()
   }
 
   metadata_code = interview.blocks.appendObject()
@@ -643,6 +700,17 @@ code: |
   }
 
   add_metadata = True
+---
+need:
+  - interview.default_country_code
+code: |
+  interview_default_country_and_state_block = interview.blocks.appendObject()
+  interview_default_country_and_state_block.template_key = 'default country and state'
+  interview_default_country_and_state_block.data = {
+    "interview": interview
+    }
+
+  add_default_country_and_state = True
 ---
 code: |
   interview_main_metadata_key_block = interview.blocks.appendObject()
@@ -1207,6 +1275,8 @@ code: |
   # Package title is PascalCase, per our AssemblyLine convention
   package_title = re.sub("\W|_","", interview_label.title())
 ---
+need:
+  - interview.author
 # Prepare content for the Weaver's download screen.
 code: |
   # 1. Commit the generated interview YAML file
@@ -1225,14 +1295,28 @@ code: |
     "sources": []
   }
   
-  create_package_zip(package_title,
-        interview.package_info(
+  package_info = interview.package_info(
           get_pypi_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
             interview.org_choices.true_values()
           )
-        ),
-        {"author name and email":"author@example.com"},
+        )    
+  
+  if interview.author and str(interview.author).splitlines():
+    # TODO(qs): is it worth ever adding email here?
+    # It would conflict with listing multiple authors
+    default_vals = {
+      "author name and email": str(interview.author).splitlines()[0]
+    }
+    package_info['author_name'] = default_vals['author name and email']
+  else:
+    default_vals = {
+      "author name and email": "author@example.com"
+    }
+  
+  create_package_zip(package_title,
+        package_info,
+        default_vals,
         folders_and_files, 
         interview_package_download)
 
