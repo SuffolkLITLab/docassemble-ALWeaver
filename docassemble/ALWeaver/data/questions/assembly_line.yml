@@ -53,8 +53,9 @@ code: |
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
     validate_pdf
-    field_list_display
-    pdf_check_display  
+    fields_checkup_status
+    all_look_good
+    validation_success
   get_all_fields
   
   # Display Weaver question screens
