@@ -245,22 +245,22 @@ help:
 
 ---
 code: |
-  interview.country = 'US'
-  # This is weird but needed for check-in logic
+  interview.default_country_code = 'US'
+  # This is weird but needed for check-in logic that refreshes list of states
   # TODO(qs): adjust when we have a way to load in org defaults at runtime
 ---
 event: update_state_list
 code: |
-  if action_argument('interview.country') and action_argument('interview.country') != interview.country:          
-    interview.country = action_argument('interview.country')
+  if action_argument('interview.default_country_code') and action_argument('interview.default_country_code') != interview.default_country_code:          
+    interview.default_country_code = action_argument('interview.default_country_code')
     background_response('refresh')
   background_response()    
 ---
 id: dependency question
 question: |
-  Brand, Location and Identity
+  Identity, location, and brand
 fields:
-  - Author's name(s) (one per line): interview.author
+  - Author name(s) (one per line): interview.author
     datatype: area
     rows: 3
     # TODO(qs): update default if we have a way to load org defaults
@@ -273,18 +273,20 @@ fields:
     required: False
     help: |
       The information in this box will be public by default.
-      It will be used on GitHub and on the "About" page of the interview.
-  # TODO(qs): we could add email for github here too, but more complicated      
+      It will appear on the "About" page of the interview. If you
+      save this package to GitHub, it will also appear in your GitHub commit log.
+  # TODO(qs): we could add email for github here too, but more complicated
+  # and risks inappropriate contact by end users
   - note: |
       ---
-  - Default country: interview.country
+  - Default country (for address fields): interview.default_country_code
     code: |
       countries_list()
-    default: ${ interview.country }
-  - Default ${ safe_subdivision_type(interview.country) if safe_subdivision_type(interview.country) else 'State/Province'}: interview.state
+    default: ${ interview.default_country_code }
+  - Default ${ safe_subdivision_type(interview.default_country_code) if safe_subdivision_type(interview.default_country_code) else 'State/Province'}: interview.state
     code: |
-        states_list(country_code=interview.country) if pycountry.subdivisions.get(country_code=interview.country) else ()
-    default: ${ "MA" if interview.country == 'US' else '' }
+        states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
+    default: ${ "MA" if interview.default_country_code == 'US' else '' }
     required: False
     
   - note: |
@@ -294,7 +296,7 @@ fields:
     required: False
     code: |
       get_possible_deps_as_choices('jurisdiction')
-  - Organization package: interview.org_choices
+  - Branding package: interview.org_choices
     datatype: checkboxes
     required: False
     code: |
@@ -700,7 +702,7 @@ code: |
   add_metadata = True
 ---
 need:
-  - interview.country
+  - interview.default_country_code
 code: |
   interview_default_country_and_state_block = interview.blocks.appendObject()
   interview_default_country_and_state_block.template_key = 'default country and state'

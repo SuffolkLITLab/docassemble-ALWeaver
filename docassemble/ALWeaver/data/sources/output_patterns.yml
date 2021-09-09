@@ -232,10 +232,12 @@ al metadata: |
 # Default country and state
 default country and state: |
   code: |
-    AL_DEFAULT_COUNTRY = "${ interview.country }"
+    # This controls the default country and list of states in address field questions
+    AL_DEFAULT_COUNTRY = "${ interview.default_country_code }"
   % if hasattr(interview, 'state') and interview.state:
   ---
   code: |
+    # This controls the default state in address field questions
     AL_DEFAULT_STATE = "${ interview.state }"
   % endif
 # Includes
