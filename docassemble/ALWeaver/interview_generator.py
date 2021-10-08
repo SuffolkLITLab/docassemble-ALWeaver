@@ -630,7 +630,7 @@ confirm: True
       content += indent_by(bold(self.var_name), 6) + '\n'
       for att, disp_set in self.attribute_map.items():
         content += indent_by('% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6)
-        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name.capitalize().replace('_', ' '), disp_set[0]), 6)
+        content += indent_by('* {}: ${{ {}.{} }}'.format(att, self.var_name, disp_set[0]), 6)
         content += indent_by('% endif', 6)
       return content.rstrip('\n')
     
