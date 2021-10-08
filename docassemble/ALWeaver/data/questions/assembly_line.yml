@@ -1295,7 +1295,6 @@ code: |
     "static": [],
     "sources": []
   }
-  #folders_and_files["templates"][0].filename
   
   package_info = interview.package_info(
           get_pypi_deps_from_choices(
