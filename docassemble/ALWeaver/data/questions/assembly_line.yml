@@ -146,6 +146,10 @@ id: file upload screen
 question: |
   Upload your template file
 subquestion: |
+  Learn more about [working with 
+  PDFs](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs),
+  including fixing broken PDFs.
+
   Select a PDF or Word template: 
 fields:   
   - no label: template_upload
@@ -154,6 +158,11 @@ fields:
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   - note: |
       **If your file is a PDF, we'll validate your PDF fields first.**
+validation code: |
+  try:
+    pdf_concatenate(template_upload, template_upload)
+  except:
+    validation_error("Your PDF file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
