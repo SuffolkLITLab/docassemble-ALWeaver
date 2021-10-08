@@ -1295,6 +1295,7 @@ code: |
     "static": [],
     "sources": []
   }
+  #folders_and_files["templates"][0].filename
   
   package_info = interview.package_info(
           get_pypi_deps_from_choices(
@@ -1364,7 +1365,7 @@ code: |
   file2 = labels_lists.appendObject()
   file2.input_filename = interview_label + '_next_steps.docx'
   file2.output_filename = 'Post-interview-instructions'
-  file2.attachment_varname = file2.output_filename.replace('-', '_')
+  file2.attachment_varname = interview_label + '_' + file2.output_filename.replace('-', '_').lower()
   file2.type = 'docx'
   file2.description = 'Instructions'
   file2.fields = 'na'
