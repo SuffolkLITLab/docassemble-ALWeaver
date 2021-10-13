@@ -74,7 +74,7 @@ code: |
   warnings = warnings_temp
   del warnings_temp
 ---
-id: Check for expected pdf fields
+id: confirm-docx-fields
 question: |
   % if len(warnings) > 0:
   Correct warnings in field labels
@@ -177,6 +177,12 @@ terms:
       Means that the variable name will be changed for Docassemble. 
       We change names that have built-in questions, as well as those starting
       with the name of a person/group of people, which we turn into "attributes" of that person.
+css: |
+  <style>
+  .question-confirm-docx-fields div.container {
+    max-width: 2000px;
+  }
+  </style>
 ---
 code: |
   signatures = [{field: placeholder_signature} for field in signature_fields_test]
