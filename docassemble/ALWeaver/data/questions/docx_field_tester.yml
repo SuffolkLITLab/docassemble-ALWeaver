@@ -1,0 +1,184 @@
+---
+modules:
+  - .interview_generator
+  - .validate_docx_files
+---
+question: |
+  File
+fields:
+  - file: template_upload
+    datatype: file
+---
+code: |
+  jinja_errors = get_jinja_errors(template_upload)
+  if jinja_errors:
+    jinja_exception
+  if contains_mako:
+    mako_syntax_in_docx  
+  verify_docx_fields
+  
+  validate_docx = True
+---
+code: |
+  from docx2python import docx2python
+  match_mako = r"\${[^{].*\}" # look for ${ without a double {{, for cases of dollar values
+  docx_data = docx2python( template_upload[0].path() )  # Will error with invalid value
+  
+  mako_matches = re.findall(match_mako, docx_data.text)
+  
+  contains_mako = len(mako_matches)
+---
+id: Did you intend to use Mako syntax
+question: |
+  Did you intend to use Mako syntax?
+subquestion: |
+  Your DOCX template looks like it is using the Mako syntax. Usually
+  this is an error, and you should stop here and fix your template.
+  
+  Specifically:
+  
+  % for match in mako_matches:
+  * ${ match }
+  % endfor
+  
+  If the matches above are "false positives" or you intentionally used
+  Mako syntax in your DOCX file, keep on going. But your template
+  might not do what you intended. DOCX files use Jinja2 syntax, not Mako.  
+  
+  Check out the documentation for 
+  [python-docx-template](https://docxtpl.readthedocs.io/en/latest/#jinja2-like-syntax) 
+  and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
+
+  Try replacing any instances of <%text>`${ }` 
+  with 
+  `{{ }}`.
+  </%text>
+sets: mako_syntax_in_docx  
+buttons: 
+  - I understand, let me continue: 
+      code: |
+        mako_syntax_in_docx = True
+  - Restart: exit
+---
+id: jinja_exception
+event: jinja_exception
+question: |
+  Your template has invalid Jinja2 syntax
+subquestion: |
+  The error was:
+  
+  ${ jinja_errors }
+  
+  Check out the documentation for 
+  [python-docx-template](https://docxtpl.readthedocs.io/en/latest/#jinja2-like-syntax) 
+  and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
+---
+id: confirm-docx-fields
+need: 
+  - update_docx_validation_fields
+continue button field: verify_docx_fields
+question: |
+  Validate your template
+subquestion: |
+  #### Fields
+  
+  All of the fields in your DOCX file are listed in the table below.
+  Confirm that the table looks right.
+  
+  A **bold** name means that this field is **reserved**.
+  Reserved fields are fields that will be handled with a question that
+  comes from the AL Question Library. For example:
+  
+  * Name fields
+  * Address fields
+  * Basic contact information and court information
+  
+  If you expect a field to be bold but it isn't, check the field's spelling.
+
+  The **type** of each field is just a guess, based on the field's name.
+  You can override the guess later.
+
+  Name (bold if {reserved}) | Type
+  --------------------------|------
+  % for field in docx_validation_fields:
+  ${ bold(field.variable) if field.reserved else field.variable} |  ${ field.field_type_guess }| 
+  % endfor
+  % for field in docx_custom_people:
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess }
+  % endfor
+  
+  % if len(docx_custom_people) > 0:
+  :question: Indicates that we think this field could be handled by 
+  questions in our question library, so you don't have to write your own 
+  questions for it! You can choose whether to use our default questions later.
+  % endif
+  
+  #### Preview  
+  Look over the PDF preview of your file below. Make sure that the
+  fonts, spacing, and styles look about right. Note: the conditional logic
+  and text your user enters can change the formatting. You will also
+  see the placeholder variable names unchanged in this preview.
+  
+  For safety, we recommend that you use the standard [Microsoft Core Fonts
+  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
+  Arial and Times New Roman, as the standard fonts in Word templates.
+  
+  If spacing or other formatting looks wrong, try editing your file in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right
+  there.
+  
+  ${ collapse_template(preview_docx_file) }
+fields:
+  - no label: fields_checkup_status
+    datatype: checkboxes
+    choices:
+      - All of my fields are listed in the table above: all_fields_present
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+      - The fonts and styles in the preview look okay: fonts_okay
+        help: |
+          Note: use the Microsoft Core Fonts for the Web to be safe.
+    minlength: 4
+    validation messages:
+      minlength: |
+        You must select all of the checkboxes to keep going.
+    none of the above: False    
+terms:
+  - reserved: |
+      Means there is a built-in question for this field.
+css: |
+  <style>
+  .question-confirm-docx-fields div.container {
+    max-width: 2000px;
+  }  
+  </style>
+---
+template: preview_docx_file
+subject: |
+  Preview your DOCX template
+content: |
+  ${ pdf_concatenate(template_upload) }
+---
+objects:
+  - docx_validation_fields: DAFieldList.using(gathered=True)
+  - docx_custom_people: DAFieldList.using(gathered=True)
+---
+need:
+  - docx_validation_fields
+code: |
+  docx_validation_fields.clear()
+  for field in all_fields:
+    new_field = docx_validation_fields.appendObject()
+    new_field.fill_in_docx_attributes(field)
+    new_field.reserved = is_reserved_docx_label(field) or field in possible_base
+    
+  possible_base = get_person_variables(all_fields, custom_only=True)
+  process_custom_people(possible_base, docx_validation_fields, docx_custom_people)  
+
+  update_docx_validation_fields = True
+
+  
+  #possible_people = [field for field in all_fields if 
+  #  is_reserved_docx_label(field, any([field.startswith(base) for base in possible_base])]
+  
+  
