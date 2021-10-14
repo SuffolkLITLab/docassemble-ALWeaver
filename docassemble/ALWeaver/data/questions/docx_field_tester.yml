@@ -1,6 +1,5 @@
 ---
 modules:
-  - .interview_generator
   - .validate_docx_files
 ---
 question: |
@@ -175,10 +174,4 @@ code: |
   possible_base = get_person_variables(all_fields, custom_only=True)
   process_custom_people(possible_base, docx_validation_fields, docx_custom_people)  
 
-  update_docx_validation_fields = True
-
-  
-  #possible_people = [field for field in all_fields if 
-  #  is_reserved_docx_label(field, any([field.startswith(base) for base in possible_base])]
-  
-  
+  update_docx_validation_fields = True  
