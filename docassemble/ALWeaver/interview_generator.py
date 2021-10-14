@@ -346,6 +346,16 @@ class DAField(DAObject):
     # Use all of these fields plainly. No restrictions/validation yet
     if self.field_type in ['yesno', 'yesnomaybe', 'file']:
       content += "    datatype: {}\n".format(self.field_type)
+    elif self.field_type == 'multiple choice radio':
+      content += "    input type: radio\n"
+      content += "    choices:\n"
+      for choice in self.choices.splitlines():
+        content += f"      - {choice}\n"
+    elif self.field_type == 'multiple choice checkboxes':
+      content += "    datatype: checkboxes\n"
+      content += "    choices:\n"
+      for choice in self.choices.splitlines():
+        content += f"      - {choice}\n"        
     elif self.field_type == 'area':
       content += "    input type: area\n"
       content += self._maxlength_str() + '\n'
@@ -452,9 +462,15 @@ class DAField(DAObject):
     })
     field_questions.append({
       'label': "Field Type",
-      'field': 'fields[' + str(index) + '].field_type',
-      'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email'], 
+      'field': f'fields[{index}].field_type',
+      'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email','multiple choice radio','multiple choice checkboxes'], 
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
+    })
+    field_questions.append({
+      'label': 'Options (one per line)',
+      'field': f'fields[{index}].choices',
+      'datatype': 'area',
+      'js show if': f"val('fields[{index}].field_type') === 'multiple choice radio' || val('fields[{index}].field_type') === 'multiple choice checkboxes'",
     })
     return field_questions
 
