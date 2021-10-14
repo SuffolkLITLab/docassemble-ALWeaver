@@ -10,7 +10,8 @@ default screen parts:
     [:share-alt-square: Share](${ url_ask([{'undefine': ['sharing_type','how_to_share']}, 'share_form_screen', {'recompute': ['did_share_form']}, 'share_results']) })
     [:file-alt: Documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code)
     [:info-circle: About](${ url_action('about_this_interview') })
-    [:comment-dots: Feedback](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user=github_user, variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}  
+    [:comment-dots: Feedback](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user=github_user, variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}
+    [:sync-alt: Restart](${ url_of('restart') } )
 ---
 event: about_this_interview
 id: about ALWeaver
