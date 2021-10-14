@@ -331,7 +331,7 @@ class DAField(DAObject):
       return ""
 
   def _maxlength_str(self) -> str:
-    if hasattr(self, 'maxlength') and self.maxlength:
+    if hasattr(self, 'maxlength') and self.maxlength and not (hasattr(self, 'send_to_addendum') and self.send_to_addendum):
       return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
@@ -456,6 +456,13 @@ class DAField(DAObject):
       'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email'], 
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
     })
+    field_questions.append({
+      'label': "Send overflow text to addendum",
+      'field': f'fields[{index}].send_to_addendum',
+      'datatype': 'yesno',
+      'show if': {'code': f'hasattr(fields[{index}], "maxlength")'},
+      'help': "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length."
+    })    
     return field_questions
 
   def trigger_gather(self,

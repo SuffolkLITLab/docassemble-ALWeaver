@@ -271,7 +271,7 @@ interstitial: |
 al-document objects: |
   objects:
   % for v in attachment_attributes:   
-    - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=False)
+    - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=${ v.has_addendum })
   % endfor
 # Creates ALDocumentBundle objects representing the collection of forms
 # TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
@@ -286,6 +286,15 @@ al-document-bundle objects: |
 # % for object in objects:
 #   - ${ object.name }: ALDocument${ using_string(object.params) }
 # % endfor
+# Creates a block that contains the list of fields that will be handled by the addendum
+# TODO: needs adjustment if we handle multiple attachments at once
+addendum fields: |
+  code: |
+    % for field in addendum_fields:
+    ${ attachment_varname }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
+    ${ attachment_varname }.overflow_fields["${ field.variable }"].label = "${ field.label }"
+    % endfor
+    ${ attachment_varname }.overflow_fields.gathered = True
 # Just a spacer element in the generated YAML  
 section marker: |
   ${ "#######################" } ${ label } ##############################
