@@ -4,6 +4,10 @@ A tool to help generate draft interviews for the docassemble platform. Tightly l
 
 ## History
 
+* 2021-10-15
+    * Handle overflow in addendum
+    * Multiple choice radio/checkbox fields
+    * DOCX validation
 * 2021-09-09
     * Improved internationalization
     * Simplified PDF checker
