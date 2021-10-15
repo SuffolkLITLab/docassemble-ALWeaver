@@ -30,6 +30,7 @@ features:
 ---
 include:   
   - pdf_field_tester.yml
+  - docx_field_tester.yml
   - visual.yml
 ---
 objects:
@@ -56,6 +57,8 @@ code: |
     fields_checkup_status
     all_look_good
     validation_success
+  else:
+    validate_docx
   get_all_fields
   
   # Display Weaver question screens
@@ -156,8 +159,6 @@ fields:
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  - note: |
-      **If your file is a PDF, we'll validate your PDF fields first.**
 validation code: |
   try:
     pdf_concatenate(template_upload, template_upload)
