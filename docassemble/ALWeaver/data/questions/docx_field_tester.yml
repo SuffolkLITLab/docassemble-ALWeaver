@@ -31,27 +31,24 @@ id: Did you intend to use Mako syntax
 question: |
   Did you intend to use Mako syntax?
 subquestion: |
-  Your DOCX template looks like it is using the Mako syntax. Usually
-  this is an error, and you should stop here and fix your template.
+  Your DOCX template looks like it is using the Mako syntax ${ }. Usually
+  this is an error. DOCX files use Jinja2 syntax, not Mako. You may want to 
+  stop here and fix your template by replacing any instances of <%text>`${ }` 
+  with `{{ }}`.</%text>
   
-  Specifically:
+  These are the lines that look like they contain Mako syntax:
   
   % for match in mako_matches:
   * ${ match }
   % endfor
   
   If the matches above are "false positives" or you intentionally used
-  Mako syntax in your DOCX file, keep on going. But your template
-  might not do what you intended. DOCX files use Jinja2 syntax, not Mako.  
+  Mako syntax in your DOCX file, keep on going, but your template
+  might not do what you intended. 
   
   Check out the documentation for 
   [python-docx-template](https://docxtpl.readthedocs.io/en/latest/#jinja2-like-syntax) 
   and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
-
-  Try replacing any instances of <%text>`${ }` 
-  with 
-  `{{ }}`.
-  </%text>
 sets: mako_syntax_in_docx  
 buttons: 
   - I understand, let me continue: 
