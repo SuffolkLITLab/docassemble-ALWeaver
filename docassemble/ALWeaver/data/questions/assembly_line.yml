@@ -93,6 +93,8 @@ code: |
   # Insert comment block
   add_end_question
   add_attachment
+  if len(addendum_fields):
+    add_addendum_fields
   
   # Assemble output package 
   wrote_interview  
@@ -1378,6 +1380,7 @@ code: |
   file2.type = 'docx'
   file2.description = 'Instructions'
   file2.fields = 'na'
+  file2.has_addendum = False
 
   # Set attributes for the uploaded template file     
   file1 = labels_lists.appendObject()    
@@ -1387,6 +1390,7 @@ code: |
   file1.type = template_upload[0].extension  
   file1.description = interview.title
   file1.fields = built_in_fields_used + fields + signature_fields
+  file1.has_addendum = bool(len(addendum_fields))
 
   # TODO: it would be possible to merge the "bundles" list with the
   # attachments/labels_list.
@@ -1435,6 +1439,18 @@ code: |
   }
   
   add_attachment = True
+---
+code: |
+  addendum_fields = [field for field in fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
+---
+code: |
+  addendum_block = interview.blocks.appendObject()
+  addendum_block.template_key = "addendum fields"
+  addendum_block.data = {
+    "attachment_varname": attachment_variable_name,
+    "addendum_fields": addendum_fields
+  }
+  add_addendum_fields = True
 ---
 #######################################
 # Code to support github feedback form

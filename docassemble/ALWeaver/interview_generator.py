@@ -331,7 +331,7 @@ class DAField(DAObject):
       return ""
 
   def _maxlength_str(self) -> str:
-    if hasattr(self, 'maxlength') and self.maxlength:
+    if hasattr(self, 'maxlength') and self.maxlength and not (hasattr(self, 'send_to_addendum') and self.send_to_addendum):
       return "    maxlength: {}".format(self.maxlength)
     else:
       return ""
@@ -403,7 +403,7 @@ class DAField(DAObject):
       content += indent_by('${ ' + self.final_display_var + ' }', 6)
     return content
 
-  def attachment_yaml(self):
+  def attachment_yaml(self, attachment_name=None):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
@@ -431,8 +431,11 @@ class DAField(DAObject):
       else: # this is less common, but not something we should break
         comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
         format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
-    else:
-      format_str += '${{ ' + self.final_display_var + ' }}\n'
+    else: # normal text field
+      if hasattr(self, 'send_to_addendum') and self.send_to_addendum and attachment_name:
+        format_str += '${{' + attachment_name + '.safe_value("' + self.final_display_var + '")}}\n'
+      else:        
+        format_str += '${{ ' + self.final_display_var + ' }}\n'
 
     content = ''
     for raw_name in self.raw_field_names:
@@ -465,13 +468,20 @@ class DAField(DAObject):
       'field': f'fields[{index}].field_type',
       'choices': ['text', 'area', 'yesno', 'integer', 'number', 'currency', 'date', 'email','multiple choice radio','multiple choice checkboxes'], 
       'default': self.field_type_guess if hasattr(self, 'field_type_guess') else None
-    })
-    field_questions.append({
+    }) 
+    field_questions.append({    
       'label': 'Options (one per line)',
       'field': f'fields[{index}].choices',
       'datatype': 'area',
       'js show if': f"val('fields[{index}].field_type') === 'multiple choice radio' || val('fields[{index}].field_type') === 'multiple choice checkboxes'",
       'hint': "Like 'Descriptive name: key_name', or just 'Descriptive name'",
+    })
+    field_questions.append({
+      'label': "Send overflow text to addendum",
+      'field': f'fields[{index}].send_to_addendum',
+      'datatype': 'yesno',
+      'show if': {'code': f'hasattr(fields[{index}], "maxlength")'},
+      'help': "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length."
     })
     return field_questions
 
