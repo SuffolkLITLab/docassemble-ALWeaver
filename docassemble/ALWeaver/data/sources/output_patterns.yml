@@ -271,7 +271,7 @@ interstitial: |
 al-document objects: |
   objects:
   % for v in attachment_attributes:   
-    - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=${ v.has_addendum })
+    - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=${ v.has_addendum }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
   % endfor
 # Creates ALDocumentBundle objects representing the collection of forms
 # TODO: this requires you to specify the bundle names in the assembly_line.yml file. There may be a more flexible way to do it.
