@@ -471,6 +471,7 @@ class DAField(DAObject):
       'field': f'fields[{index}].choices',
       'datatype': 'area',
       'js show if': f"val('fields[{index}].field_type') === 'multiple choice radio' || val('fields[{index}].field_type') === 'multiple choice checkboxes'",
+      'hint': "Like 'Descriptive name: key_name', or just 'Descriptive name'",
     })
     return field_questions
 
