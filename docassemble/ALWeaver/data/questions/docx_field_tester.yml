@@ -125,7 +125,7 @@ subquestion: |
   
   ${ collapse_template(preview_docx_file) }
 fields:
-  - no label: fields_checkup_status
+  - no label: docx_fields_checkup_status
     datatype: checkboxes
     choices:
       - All of my fields are listed in the table above: all_fields_present
