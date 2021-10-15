@@ -393,7 +393,7 @@ class DAField(DAObject):
       content += indent_by('${ ' + self.final_display_var + ' }', 6)
     return content
 
-  def attachment_yaml(self):
+  def attachment_yaml(self, attachment_name=None):
     # Lets use the list-style, not dictionary style fields statement
     # To avoid duplicate key error
     if hasattr(self, 'paired_yesno') and self.paired_yesno:
@@ -421,8 +421,11 @@ class DAField(DAObject):
       else: # this is less common, but not something we should break
         comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
         format_str = comment + format_str + '${{ ' + self.final_display_var + " if i == 'final' else '' }}\n"
-    else:
-      format_str += '${{ ' + self.final_display_var + ' }}\n'
+    else: # normal text field
+      if hasattr(self, 'send_to_addendum') and self.send_to_addendum and attachment_name:
+        format_str += '${{' + attachment_name + '.safe_value("' + self.final_display_var + '")}}\n'
+      else:        
+        format_str += '${{ ' + self.final_display_var + ' }}\n'
 
     content = ''
     for raw_name in self.raw_field_names:
