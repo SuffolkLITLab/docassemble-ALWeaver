@@ -74,7 +74,7 @@ code: |
   warnings = warnings_temp
   del warnings_temp
 ---
-id: confirm-docx-fields
+id: confirm-pdf-fields
 question: |
   % if len(warnings) > 0:
   Correct warnings in field labels
@@ -179,7 +179,7 @@ terms:
       with the name of a person/group of people, which we turn into "attributes" of that person.
 css: |
   <style>
-  .question-confirm-docx-fields div.container {
+  .question-confirm-pdf-fields div.container {
     max-width: 2000px;
   }
   </style>
