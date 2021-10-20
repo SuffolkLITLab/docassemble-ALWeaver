@@ -1494,7 +1494,7 @@ event: run_package
 question: |
   Preview your package
 subquestion: |
-  % if not install_step1_status or (defined('task_status') and (not task_status or not task_succeeded)):
+  % if not showifdef('install_step1_status') or (defined('task_status') and (not task_status or not task_succeeded)):
   Something went wrong with package installation, sorry.
   % elif not defined('task_status') or (defined('task_status') and task_status and not task_complete):
   Please wait, the interview is not ready to run yet.
