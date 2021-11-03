@@ -3,6 +3,8 @@
 A tool to help generate draft interviews for the docassemble platform. Tightly linked to https://github.com/SuffolkLITLab/docassemble-AssemblyLine. Currently linked to https://github.com/SuffolkLITLab/docassemble-MassAccess but moving to be more jurisdiction independent.
 
 ## History
+* 2021-11-03
+    * Add support for *plural* names for people in PDF files
 
 * 2021-10-15
     * Handle overflow in addendum
