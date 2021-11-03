@@ -51,6 +51,7 @@ generator_constants.RESERVED_PREFIXES = [
   "interested_partys",
   "trial_court",
   "docket_numbers",
+  "user",
   "other_party",
   "child",
   "plaintiff",
@@ -100,8 +101,6 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
   "signature_date": "signature_date",
   "decedents": "decedents",
   "interested_parties": "interested_parties",
-  "trial_court": "trial_court",
-  "docket_numbers": "docket_numbers",
   "guardians_ad_litem": "guardians_ad_litem",
   "guardians": "guardians",
   # These are left in for backwards compatibility
