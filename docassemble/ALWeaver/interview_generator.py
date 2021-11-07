@@ -917,6 +917,9 @@ def get_docx_variables( text:str )->set:
   # Variables in very simple `if` statements (allow paragraph and whitespace flags)
   for possible_variable in re.findall(r'{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}', text):
     minimally_filtered.add( possible_variable )
+  # Capture variables in `if` statements that contain a comparison
+  for possible_variable in re.findall(r'{%[^ \t]* +if ([^\} ]+) ==|is|>|<|!=|<=|>= .* +[^ \t]*%}', text):  
+    minimally_filtered.add( possible_variable )
 
   fields = set()
 
