@@ -318,6 +318,7 @@ da attachments block: |
   ${ field.attachment_yaml(attachment_name=v.attachment_varname) }
       % endfor
     % else: 
+      skip undefined: True
       docx template file: ${ v.input_filename }
     % endif	    
   % endfor	
