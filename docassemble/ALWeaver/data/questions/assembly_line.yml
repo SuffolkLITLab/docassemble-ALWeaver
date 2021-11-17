@@ -205,12 +205,13 @@ validation code: |
 code: |
   # Let someone bootstrap an interview from the form explorer
   if url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org'):
-    template_upload = DAFileList('template_upload')
+    template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
     template_upload[0] = DAFile('template_upload[0]')
     template_upload[0].initialize(extension="pdf")
     template_upload[0].from_url(url_args.get('form_to_use'))
     template_upload[0].created = True
     url_args.clear()
+    
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
