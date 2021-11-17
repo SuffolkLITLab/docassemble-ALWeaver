@@ -175,6 +175,7 @@ code: |
     template_upload[0].initialize(extension="pdf")
     template_upload[0].from_url(url_args.get('form_to_use'))
     template_upload[0].created = True
+    url_args.clear()
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
