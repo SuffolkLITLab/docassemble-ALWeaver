@@ -54,10 +54,14 @@ code: |
   # Run pdf_field_tester.yml if form is a pdf.  
   if template_upload[0].filename.endswith('pdf'):
     validate_pdf
+    if no_recognized_pdf_fields:
+      warn_no_recognized_al_labels
     fields_checkup_status
-    all_look_good
+    all_look_good    
     validation_success
   else:
+    if no_recognized_docx_fields:
+      warn_no_recognized_al_labels
     validate_docx
   get_all_fields
   
@@ -101,6 +105,37 @@ code: |
 
   # Display output download screen
   show_interview
+---
+id: no recognized fields
+question: |
+  You do not have any labels that match the Assembly Line labels
+subquestion: |
+  % if template_upload[0].filename.endswith('pdf'):
+  It is a good idea to use labels that match the Assembly Line documentation.
+  Most forms at least should use labels like `users1_name`, `petitioners`,
+  or `defendants`.
+  % else:
+  It is a good idea to use labels that match the Assembly Line documentation.
+  Most forms at least should use labels like `users[0].name.first`, `petitioners`,
+  or `defendants`.
+  % endif
+  
+  You can also add labels for:
+  
+  * names for different kinds of people
+  * signatures  
+  * addresses
+  * court information
+
+  [Read the labeling documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
+sets: warn_no_recognized_al_labels
+buttons: 
+  - I know what I'm doing, let me continue:    
+      code: |
+        warn_no_recognized_al_labels = True
+  - Exit: exit
+    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables
+  - Restart: restart
 ---
 code: |
   set_custom_people_map( people_variables.true_values() )

@@ -74,6 +74,9 @@ code: |
   warnings = warnings_temp
   del warnings_temp
 ---
+code: |
+  no_recognized_pdf_fields = not (any(field for field in all_fields if is_reserved_label(field[0])) or len(possible_custom) > 0)
+---
 id: confirm-pdf-fields
 question: |
   % if len(warnings) > 0:

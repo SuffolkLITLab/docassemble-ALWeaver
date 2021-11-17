@@ -27,6 +27,11 @@ code: |
   
   contains_mako = len(mako_matches)
 ---
+need: 
+  - update_docx_validation_fields
+code: |
+  no_recognized_docx_fields = not (any(field for field in docx_validation_fields if field.reserved) or len(docx_custom_people))
+---
 id: Did you intend to use Mako syntax
 question: |
   Did you intend to use Mako syntax?
