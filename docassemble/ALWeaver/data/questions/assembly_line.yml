@@ -74,6 +74,7 @@ code: |
   process_people_variables
   ask_people_quantity_question    
   choose_field_types  
+  review_fields_after_labeling
   questions.gather()
   interview.form_type
   show_screen_order
@@ -847,6 +848,37 @@ fields:
       code: |
         len(built_in_fields_used) or len(signature_fields)
 ---
+id: add fields
+question: |
+  Review fields
+subquestion: |
+  Take a moment to review the fields your interview already includes:
+  
+  ${ collapse_template(review_fields_to_add_template) }
+  
+  Click the button below if you want to add an extra field to your
+  interview. This will not add it to your template file.
+
+  ${ fields.add_action() }
+continue button field: review_fields_after_labeling  
+---
+template: review_fields_to_add_template
+subject: |
+  Review fields
+content: |
+  ${ fields.review_table }
+---
+code: |
+  fields.there_is_another = False
+---
+table: fields.review_table
+rows: fields + built_in_fields_used
+columns:
+  - On-screen label: |
+      row_item.label if row_item.has_label else '(n/a)'
+  - Field or variable name: |
+      f"`{row_item.variable}`"
+---
 code: |
   questions[i].question_text
   
@@ -1052,8 +1084,27 @@ code: |
 ---
 continue button field: fields[i].edit_field
 question: |
+  % if hasattr(fields[i], 'final_display_var'):
   Edit field ${ bold(fields[i].final_display_var) }
+  % else:
+  Add new field
+  % endif
+subquestion: |
+  % if not hasattr(fields[i], 'final_display_var'):
+  You can use this screen to add a draft of a new field that will
+  be asked about in your interview.
+  
+  When you add a new field, it will not automatically be included
+  in your template. You can use this feature to add fields that are used to
+  calculate a value, for example.
+  % endif
 fields:
+  - Docassemble variable name: fields[i].final_display_var
+    show if:
+      code: |
+        not hasattr(fields[i], 'label')
+    validate: |
+      lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
   - Prompt: fields[i].label
   - Type: fields[i].field_type
     choices:
@@ -1065,6 +1116,17 @@ fields:
       - currency
       - date
       - email
+      - multiple choice radio
+      - multiple choice checkboxes
+  - Options (one per line): fields[i].choices
+    datatype: area
+    js show if: |
+      val('fields[i].field_type') === 'multiple choice radio' || val('fields[i].field_type') === 'multiple choice checkboxes'
+    hint: |
+      Like 'Descriptive name: key_name', or just 'Descriptive name'
+validation code: |
+  if not hasattr(fields[i], 'variable'):
+    fields[i].variable = fields[i].final_display_var
 ---
 continue button field: questions[i].edit_question
 scan for variables: False
