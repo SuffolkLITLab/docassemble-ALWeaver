@@ -875,7 +875,7 @@ table: fields.review_table
 rows: fields + built_in_fields_used
 columns:
   - On-screen label: |
-      row_item.label if row_item.has_label else '(n/a)'
+      row_item.label if hasattr(row_item, 'label') else '(n/a)'
   - Field or variable name: |
       f"`{row_item.variable}`"
 ---
