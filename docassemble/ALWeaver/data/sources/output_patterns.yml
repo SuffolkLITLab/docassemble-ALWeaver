@@ -14,6 +14,7 @@ mako template local imports:
 # To import from an installed package or third-party Python package, provide a list of strings
 mako template imports: 
   - from docassemble.base.util import today
+  - from more_itertools import unique_everseen
 #  - from docassemble.ALWeaver.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
 question: |
@@ -135,13 +136,16 @@ main order: |
     % endfor
     ${ interview_label }_download
 # Block used to control the order of interview-specific questions   
+# note we use unique_everseen() to filter duplicate items from the interview order.
+# duplicate items can come when multiple fields share the same trigger, such as address.city and address.country
+# which appear on the same screen.
 interview order: |
   ${ "####################" } Interview order #####################
   comment: |
     Controls order and branching logic for questions specific to this form
   id: interview_order_${ interview_label }
   code: |
-    % for field in logic_list:
+    % for field in list(unique_everseen(logic_list)):
     ${ field }
     % endfor  
     interview_order_${ interview_label } = True
