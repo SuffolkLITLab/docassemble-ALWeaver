@@ -48,21 +48,26 @@ objects:
 ---
 mandatory: True
 id: Interview Order
-code: |
-  weaver_intro
-  template_upload
-  # Run pdf_field_tester.yml if form is a pdf.  
-  if template_upload[0].filename.endswith('pdf'):
-    validate_pdf
-    if no_recognized_pdf_fields:
-      warn_no_recognized_al_labels
-    fields_checkup_status
-    all_look_good    
-    validation_success
-  else:
-    if no_recognized_docx_fields:
-      warn_no_recognized_al_labels
-    validate_docx
+code: |  
+  process_url_args
+  # Check to see if we are launched from the form explorer, and
+  # skip the file validation if so
+  if url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org'):      
+    im_feeling_lucky        
+  else:   
+    weaver_intro
+    template_upload
+    if template_upload[0].filename.endswith('pdf'):
+      validate_pdf
+      if no_recognized_pdf_fields:
+        warn_no_recognized_al_labels
+      fields_checkup_status
+      all_look_good    
+      validation_success
+    else:
+      if no_recognized_docx_fields:
+        warn_no_recognized_al_labels
+      validate_docx
   get_all_fields
   
   # Display Weaver question screens
@@ -106,6 +111,24 @@ code: |
 
   # Display output download screen
   show_interview
+---
+id: feeling lucky
+question: |
+  Are you feeling lucky?
+subquestion: |
+  You can go straight to a runnable prototype of
+  "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
+  or you can customize this prototype. 
+field: im_feeling_lucky
+buttons: 
+  - Customize: False
+  - "I'm feeling lucky": True
+---
+template: template_preview
+subject: |
+  Preview
+content: |
+  ${ template_upload }
 ---
 id: no recognized fields
 question: |
@@ -204,6 +227,7 @@ validation code: |
     validation_error("Your PDF file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
 ---
 code: |
+  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
   if url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org'):
     template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
@@ -212,7 +236,11 @@ code: |
     template_upload[0].from_url(url_args.get('form_to_use'))
     template_upload[0].created = True
     url_args.clear()
-    
+  if url_args.get('title'):
+    short_filename_with_spaces = url_args.get('title')
+  if url_args.get('jur'):
+    interview.state = url_args.get('jur')
+  process_url_args = True    
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):

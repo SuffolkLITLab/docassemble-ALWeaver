@@ -41,6 +41,20 @@ def load_org_specific(all_custom_values=custom_values):
       # Populate some default values
       all_custom_values.org_specific_config = {
         'dependency_choices': {
+          'Louisiana':
+            [
+              'docassemble.ALLouisianaSC',
+              'docassemble.ALLouisianaSC:custom_organization.yml',
+              'jurisdiction',
+              False
+            ],
+          'Illinois Legal Aid Online':
+            [
+              'docassemble.ILAO',
+              'docassemble.ILAO:ilao-interview-framework.yml',
+              'organization',
+              False
+            ],
           'Massachusetts State': 
               ['docassemble.ALMassachusetts>=0.0.7', 
                'docassemble.ALMassachusetts:al_massachusetts.yml',
