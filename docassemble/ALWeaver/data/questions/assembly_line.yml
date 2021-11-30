@@ -233,6 +233,7 @@ code: |
 code: |
   # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
+  interview.original_form = url_args.get('form_to_use')
   if has_safe_pdf_in_url:
     template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
     template_upload[0] = DAFile('template_upload[0]')
@@ -242,14 +243,23 @@ code: |
   if url_args.get('title'):
     short_filename_with_spaces = url_args.get('title')
     interview.title = short_filename_with_spaces
+    short_filename = space_to_underscore(short_filename_with_spaces)
+    interview_label_draft = short_filename
   if url_args.get('jur'):
     interview.state = url_args.get('jur')
+  if url_args.get('nsmi'):
+    nsmi_tmp = url_args.get('nsmi')[1:-1].replace("'","").strip()
+    interview.categories = nsmi_tmp.split(',')
+    interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
+    interview.categories['Other'] = False
   url_args.clear()    
   process_url_args = True    
 ---
 modules:
   - .field_grouping
 ---
+scan for variables: False
+sets: process_im_feeling_lucky
 code: |
   if has_safe_pdf_in_url: # limit when this block can run
     # Set interview defaults based on the PDF passed in the URL args
@@ -289,8 +299,13 @@ code: |
       new_screen.field_list = [field for field in fields if field.variable in field_grouping[group]]          
     
     questions.gathered = True
-    # questions.gather()
-    # show_screen_order
+    interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
+    if user_logged_in():
+      interview.author = f"{user_info().first_name} {user_info().last_name}"
+    else:
+      interview.author = "Court Forms Online"    
+    interview.allowed_courts = DADict(auto_gather=False, gathered=True)
+
 
   process_im_feeling_lucky = True
 ---
