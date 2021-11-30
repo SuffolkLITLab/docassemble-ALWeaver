@@ -48,27 +48,33 @@ objects:
 ---
 mandatory: True
 id: Interview Order
-code: |
-  weaver_intro
-  template_upload
-  # Run pdf_field_tester.yml if form is a pdf.  
-  if template_upload[0].filename.endswith('pdf'):
-    validate_pdf
-    if no_recognized_pdf_fields:
-      warn_no_recognized_al_labels
-    fields_checkup_status
-    all_look_good    
-    validation_success
-  else:
-    if no_recognized_docx_fields:
-      warn_no_recognized_al_labels
-    validate_docx
-  get_all_fields
+code: |  
+  process_url_args  
+  # Check to see if we are launched from the form explorer, and
+  # skip the file validation if so
+  if has_safe_pdf_in_url:   
+    if im_feeling_lucky:
+      process_im_feeling_lucky
+  else:   
+    weaver_intro
+    template_upload
+    if template_upload[0].filename.endswith('pdf'):
+      validate_pdf
+      if no_recognized_pdf_fields:
+        warn_no_recognized_al_labels
+      fields_checkup_status
+      all_look_good    
+      validation_success
+    else:
+      if no_recognized_docx_fields:
+        warn_no_recognized_al_labels
+      validate_docx
+    get_all_fields
   
   # Display Weaver question screens
   interview.jurisdiction_choices 
   interview_intro_prompt #branding screen
-  interview.title #intro screen    
+  interview.short_title #intro screen    
   interview.typical_role #people related questions
   
   process_people_variables
@@ -106,6 +112,24 @@ code: |
 
   # Display output download screen
   show_interview
+---
+id: feeling lucky
+question: |
+  Are you feeling lucky?
+subquestion: |
+  You can go straight to a runnable prototype of
+  "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
+  or you can customize this prototype. 
+field: im_feeling_lucky
+buttons: 
+  - Customize: False
+  - "I'm feeling lucky": True
+---
+template: template_preview
+subject: |
+  Preview
+content: |
+  ${ template_upload }
 ---
 id: no recognized fields
 question: |
@@ -204,15 +228,86 @@ validation code: |
     validation_error("Your PDF file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
 ---
 code: |
+  has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
+---
+code: |
+  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
-  if url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org'):
+  interview.original_form = url_args.get('form_to_use')
+  if has_safe_pdf_in_url:
     template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
     template_upload[0] = DAFile('template_upload[0]')
     template_upload[0].initialize(extension="pdf")
     template_upload[0].from_url(url_args.get('form_to_use'))
-    template_upload[0].created = True
-    url_args.clear()
+    template_upload[0].created = True    
+  if url_args.get('title'):
+    short_filename_with_spaces = url_args.get('title')
+    interview.title = short_filename_with_spaces
+    short_filename = space_to_underscore(short_filename_with_spaces)
+    interview_label_draft = short_filename
+  if url_args.get('jur'):
+    interview.state = url_args.get('jur')
+  if url_args.get('nsmi'):
+    nsmi_tmp = url_args.get('nsmi')[1:-1].replace("'","").strip()
+    interview.categories = nsmi_tmp.split(',')
+    interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
+    interview.categories['Other'] = False
+  url_args.clear()    
+  process_url_args = True    
+---
+modules:
+  - .field_grouping
+---
+scan for variables: False
+sets: process_im_feeling_lucky
+code: |
+  if has_safe_pdf_in_url: # limit when this block can run
+    # Set interview defaults based on the PDF passed in the URL args
+    interview.jurisdiction_choices = DADict("interview.jurisdiction_choices", elements = {next(iter(dep)): dep['default'] for dep in get_possible_deps_as_choices('jurisdiction')}, auto_gather=False, gathered=True)
+    interview.org_choices = DADict("interview.org_choices", elements={next(iter(dep)): dep['default'] for dep in get_possible_deps_as_choices('organization')}, auto_gather=False, gathered=True)
+    interview.form_type = "starts_case"
+    interview_intro_prompt = interview_intro_prompt_default
+    interview.title = short_filename_with_spaces
+    interview.short_title = short_filename_with_spaces
+    interview.description = short_filename_with_spaces
+    interview.getting_started = "Before you get started, you need to..."
+
+    interview.typical_role = "unknown"
+    tmp_people_variables = get_person_variables(all_fields, custom_only=True)
+    people_variables = DADict("people_variables", auto_gather=False, gathered=True)
+    for person in tmp_people_variables:
+      people_variables[person] = True
+
+    process_people_variables
+    for person in person_candidates:
+      people_quantities[person] = "any"    
+    get_all_fields
     
+    for index, field in enumerate(fields.elements):
+      field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
+      field.label = field.variable_name_guess                
+    # choose_field_types  
+    # review_fields_after_labeling
+    
+    questions.auto_gather = False
+    field_grouping = cluster_screens( [field.variable for field in fields] )
+    for group in field_grouping:
+      new_screen = questions.appendObject()
+      new_screen.is_informational_screen = new_screen.has_mandatory_field = False
+      new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
+      new_screen.subquestion_text = ''
+      new_screen.field_list = [field for field in fields if field.variable in field_grouping[group]]          
+    
+    questions.gathered = True
+    interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
+    if user_logged_in():
+      interview.author = f"{user_info().first_name} {user_info().last_name}"
+    else:
+      interview.author = "Court Forms Online"    
+    interview.allowed_courts = DADict(auto_gather=False, gathered=True)
+
+
+  process_im_feeling_lucky = True
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
