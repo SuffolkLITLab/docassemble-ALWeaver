@@ -1055,6 +1055,12 @@ code: |
   fields[i].has_label = True
 ---
 code: |
+  # Used for adding a new field
+  fields[i].field_type_guess = fields[i].field_type
+  fields[i].raw_field_names = [fields[i].variable]
+  
+---
+code: |
   for question in questions:
     question.type = "question"
     interview.blocks.append(question)
