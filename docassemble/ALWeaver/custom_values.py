@@ -87,15 +87,15 @@ def load_org_specific(all_custom_values=custom_values):
       with open(to_write, 'w') as writ:
         writ.write(yaml.safe_dump(all_custom_values.org_specific_config))
 
-#def get_possible_deps_as_choices(dep_category=None, all_custom=custom_values):
-#  """Gets the possible yml files that the generated interview will depend on"""
-#  load_org_specific(all_custom)
-#  dep_choices = all_custom.org_specific_config['dependency_choices']
-#  if dep_category is None:
-#    return [{dep_key: dep_key, 'default': dep[3]} for dep_key, dep in dep_choices.items()]
-#  else:
-#    return [{dep_key: dep_key, 'default': dep[3]} for dep_key, dep in dep_choices.items() 
-#            if dep[2].lower() == dep_category.lower()]
+def get_possible_deps_as_choices(dep_category=None, all_custom=custom_values):
+  """Gets the possible yml files that the generated interview will depend on"""
+  load_org_specific(all_custom)
+  dep_choices = all_custom.org_specific_config['dependency_choices']
+  if dep_category is None:
+    return [{dep_key: dep_key, 'default': dep[3]} for dep_key, dep in dep_choices.items()]
+  else:
+    return [{dep_key: dep_key, 'default': dep[3]} for dep_key, dep in dep_choices.items() 
+            if dep[2].lower() == dep_category.lower()]
 
 def get_pypi_deps_from_choices(choices:Union[List[str], DADict],
     all_custom=custom_values):
@@ -117,18 +117,24 @@ def get_values_from_choices(choices:Union[List[str], DADict], value_idx:int=0,
   else: # List
     choice_list = choices
   
-  return [all_custom_values.org_specific_config['dependency_choices'][chosen_val][value_idx] 
-      for chosen_val in choice_list] 
+  return [all_custom_values.org_specific_config['dependency_choices'][chosen_val][value_idx]
+      for chosen_val in choice_list]
 
 ######################## pre load ###############################
 # This runs each time the .py file runs, which should be on each uwsgi reset
 
-def advertise_capabilities(package_name=None, yaml_name="configuration_capabilities.yml", base="docassemble.ALWeaver"):
+def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_capabilities.yml", base:str="docassemble.ALWeaver"):
   weaverdata = DAStore(base=base)
   if not package_name:
-    package_name = user_info().package
+    package_name = __name__
   published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
   published_configuration_capabilities[package_name] = yaml_name
   weaverdata.set('published_configuration_capabilities', published_configuration_capabilities)
+  
+#def load_capabilities(package_name  
+#
+# TODO: how do we want to handle advertising from the playground? We don't want to break the list of 
+# capabilities if someone has a version of the Weaver that is still in progress
 
-advertise_capabilities()
+if not __name__ == '__main__':
+  advertise_capabilities(package_name='docassemble.ALWeaver')
