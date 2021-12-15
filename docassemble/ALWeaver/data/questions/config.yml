@@ -43,12 +43,18 @@ subquestion: |
   ${ collapse_template(view_weaverdata_template) }
   
   ${ jurisdiction_choices.add_action() }  
+  
+  ${ action_button_html(url_action('delete_configuration'), label="Clear configuration", icon="trash-alt") }
 event: intro
 # docassemble.base.functions.url_action('_da_list_add', list=self.instanceName)
 ---
 question: |
   Is there another juridiction choice?
 yesno: jurisdiction_choices.there_is_another  
+---
+event: delete_configuration
+code: |
+  weaverdata.delete("published_configuration_capabilities")
 ---
 question: |
   Jurisdiction choices

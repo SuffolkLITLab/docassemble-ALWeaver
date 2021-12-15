@@ -7,6 +7,7 @@ from docassemble.base.core import objects_from_file
 # TODO(brycew): is this too deep into DA? Unclear if there are options to write
 # sources files to a package while it's running.
 import ruamel.yaml as yaml
+import sys
 from docassemble.base.functions import package_data_filename
 
 """
@@ -136,5 +137,5 @@ def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_c
 # TODO: how do we want to handle advertising from the playground? We don't want to break the list of 
 # capabilities if someone has a version of the Weaver that is still in progress
 
-if not __name__ == '__main__':
+if not __name__ == '__main__' and not 'unittest' in sys.modules:
   advertise_capabilities(package_name='docassemble.ALWeaver')
