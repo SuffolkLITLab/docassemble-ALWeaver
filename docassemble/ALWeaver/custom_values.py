@@ -9,6 +9,7 @@ from docassemble.base.core import objects_from_file
 import ruamel.yaml as yaml
 import sys
 from docassemble.base.functions import package_data_filename
+from packaging import version
 
 """
 Container for widely used data that may be altered by user inputs.
@@ -124,12 +125,19 @@ def get_values_from_choices(choices:Union[List[str], DADict], value_idx:int=0,
 ######################## pre load ###############################
 # This runs each time the .py file runs, which should be on each uwsgi reset
 
-def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_capabilities.yml", base:str="docassemble.ALWeaver"):
+def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", include_playground=False):
+  # Get the contents of the current package's capabilities file
+  this_yaml = path_and_mimetype("configuration_capabilities.yml")[0]
+  weaverdata = DAStore(base=base)  
+  published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
+  
+
+def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_capabilities.yml", base:str="docassemble.ALWeaver", minimum_version="1.5"):
   weaverdata = DAStore(base=base)
   if not package_name:
     package_name = __name__
   published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
-  published_configuration_capabilities[package_name] = yaml_name
+  published_configuration_capabilities[package_name] = (yaml_name, minimum_version)
   weaverdata.set('published_configuration_capabilities', published_configuration_capabilities)
   
 #def load_capabilities(package_name  
@@ -137,5 +145,8 @@ def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_c
 # TODO: how do we want to handle advertising from the playground? We don't want to break the list of 
 # capabilities if someone has a version of the Weaver that is still in progress
 
-if not __name__ == '__main__' and not 'unittest' in sys.modules:
-  advertise_capabilities(package_name='docassemble.ALWeaver')
+log(f"Unittest is in modules: {'unittest' in sys.modules}")
+
+#if not __name__ == '__main__' and not 'unittest' in sys.modules:
+#  advertise_capabilities()
+advertise_capabilities()
