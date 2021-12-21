@@ -10,6 +10,7 @@ import ruamel.yaml as yaml
 import sys
 from docassemble.base.functions import package_data_filename
 from packaging import version
+import os
 
 """
 Container for widely used data that may be altered by user inputs.
@@ -140,13 +141,5 @@ def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_c
   published_configuration_capabilities[package_name] = (yaml_name, minimum_version)
   weaverdata.set('published_configuration_capabilities', published_configuration_capabilities)
   
-#def load_capabilities(package_name  
-#
-# TODO: how do we want to handle advertising from the playground? We don't want to break the list of 
-# capabilities if someone has a version of the Weaver that is still in progress
-
-log(f"Unittest is in modules: {'unittest' in sys.modules}")
-
-#if not __name__ == '__main__' and not 'unittest' in sys.modules:
-#  advertise_capabilities()
-advertise_capabilities()
+if not __name__ == '__main__' and not os.environ.get('ISUNITTEST'):
+  advertise_capabilities()

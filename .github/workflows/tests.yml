@@ -5,6 +5,8 @@ on:
   workflow_dispatch:
 
 jobs:
+  env:
+    ISUNITTEST: true
 
   test-weaver:
     runs-on: ubuntu-latest
