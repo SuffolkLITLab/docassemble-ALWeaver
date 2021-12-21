@@ -13,14 +13,20 @@ organization_choices:
   - description: MassAccess
     dependency: "docassemble.MassAccess"
     include_name: "docassemble.MassAccess:massaccess.yml"
+    state: MA
+    country: US
     default: True
   - description: Illinois Legal Aid Online
     dependency: "docassemble.ILAO"
     include_name: "docassemble.ILAO:ilao-interview-framework.yml"
+    state: IL
+    country: US
     default: False
   - description: Louisiana Supreme Court
     dependency: "docassemble.ALLouisianaSC"
     include_name: "docassemble.ALLouisianaSC:custom_organization.yml"
+    state: LA
+    country: US
     default: False
 # The paths below will be prefixed with the name of this package: in the data/templates folder for templates and
 # data/sources folder for output_patterns, interview_structure, and variable_names

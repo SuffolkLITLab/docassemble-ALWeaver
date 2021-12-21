@@ -23,6 +23,9 @@ objects:
 code: |
   if weaverdata.get("jurisdiction_choices"):
     jurisdiction_choices = weaverdata.get("jurisdiction_choices")
+    
+  #capabilities = load_capabilities()    
+  
   load_values = True
 ---
 id: interview order
@@ -39,6 +42,8 @@ subquestion: |
   
   1. the list of dependencies
   1. the list of prefixes for people and static variables that will not be transformed by the Weaver
+
+  ${ repr(list(load_capabilities())) }
 
   ${ collapse_template(view_weaverdata_template) }
   
