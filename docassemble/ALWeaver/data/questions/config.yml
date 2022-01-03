@@ -5,7 +5,7 @@ modules:
 ---
 features:
   css:
-    - docassemble.ALToolbox:collapse_template.css
+    - docassemble.ALToolbox:collapse_template.css        
 ---
 metadata:
   title: Configure ALWeaver Settings
@@ -21,27 +21,44 @@ objects:
   - jurisdiction_choices: SettingsList.using(object_type=DAObject, there_are_any=True, complete_attribute="description", store=weaverdata)
 ---
 code: |
+  published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
+  
   if weaverdata.get("jurisdiction_choices"):
     jurisdiction_choices = weaverdata.get("jurisdiction_choices")
-    
-  #capabilities = load_capabilities()    
-  
+      
   load_values = True
+---
+code: |
+  #published_configuration_capabilities["my_fake_key"] = ("some_yaml", "1.5")
+  
+  #weaverdata.set("published_configuration_capabilities", published_configuration_capabilities)
+  
+  add_fake_key = True
 ---
 id: interview order
 mandatory: True
 code: |
   load_values
+  add_fake_key
   intro
+---
+imports:
+  - os
 ---
 id: intro
 question: |
   Weaver customization
 subquestion: |
+  ${ not os.environ.get('ISUNITTEST') }
+
   You can currently customize:
   
   1. the list of dependencies
   1. the list of prefixes for people and static variables that will not be transformed by the Weaver
+
+  ```
+  ${ weaverdata.keys() }
+  ```
 
   ${ repr(list(load_capabilities())) }
 
