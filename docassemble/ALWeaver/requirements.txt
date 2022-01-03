@@ -1,3 +1,4 @@
 docassemble.base
 pyyaml
 docx2python
+boto3
