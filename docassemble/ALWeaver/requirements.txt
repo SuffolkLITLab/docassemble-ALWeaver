@@ -1,4 +1,5 @@
-docassemble.base
+docassemble.base>=1.3
+docassemble.webapp
 pyyaml
 docx2python
 boto3
