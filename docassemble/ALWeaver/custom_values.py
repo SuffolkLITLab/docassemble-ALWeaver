@@ -25,7 +25,7 @@ Container for widely used data that may be altered by user inputs.
 
 __all__ = ['get_possible_deps_as_choices', 'get_pypi_deps_from_choices', 
            'get_yml_deps_from_choices', 'SettingsList', 'load_capabilities',
-          'advertise_capabilities']
+          'advertise_capabilities', '_package_name']
 
 class SettingsList(DAList):
   """
@@ -129,23 +129,32 @@ def get_yml_deps_from_choices(choices:Union[List[str], DADict]):
   else: # List
     return choices
     
-def _package_name():
+def _package_name(package_name:str=None):
   """Get package name without the name of the current module, like: docassemble.ALWeaver instead of
   docassemble.ALWeaver.advertise_capabilities"""
+  if not package_name:
+    package_name = __name__
   try:
-    return ".".join(__name__.split(".")[:-1])
+    return ".".join(package_name.split(".")[:-1])
   except:
-    return __name__
+    return package_name
 
 def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_capabilities.yml", base:str="docassemble.ALWeaver", minimum_version="1.5"):
   """
   Tell the server that the current Docassemble package contains a configuration_capabilities.yml file with settings that
   ALWeaver can use, by adding an entry to the global DAStore. This function should be set to run with a 
   # pre-load hook so it advertises itself on each server uwsgi reset.
+  
+  Defaults to work with standard Docassemble package names. If the package_name has 3 parts or more, 
+  the last part will be dropped. E.g., it will advertise "docassemble.ALWeaver", not "docassemble.ALWeaver.custom_values".
   """
   weaverdata = DAStore(base=base)
   if not package_name:
-    package_name = _package_name()    
+    package_name = _package_name()
+  elif isinstance(package_name, str):
+    package_name_parts = package_name.split(".")
+    if len(package_name_parts) > 2:
+      package_name = ".".join(package_name_parts[:-1])
   published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
   if not isinstance(published_configuration_capabilities, dict):
     published_configuration_capabilities = {}
