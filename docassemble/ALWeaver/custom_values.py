@@ -10,6 +10,7 @@ import sys
 from docassemble.base.functions import package_data_filename
 from packaging.version import Version
 import os
+from more_itertools import unique_everseen
 
 ################# To refactor - I don't think these are used but they are mentioned in interview_generator.py
 class Object(object):
@@ -18,10 +19,6 @@ custom_values = Object()
 custom_values.people_plurals_map = {}
 custom_values.org_specific_config = None
 ########################## End to refactor
-
-"""
-Container for widely used data that may be altered by user inputs.
-"""
 
 __all__ = ['get_possible_deps_as_choices', 'get_pypi_deps_from_choices', 
            'get_yml_deps_from_choices', 'SettingsList', 'load_capabilities',
@@ -69,7 +66,7 @@ def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", in
     if not include_playground and key.startswith("docassemble.playground"):
       del published_configuration_capabilities[key]
   
-  current_package_name = __name__
+  current_package_name = ".".join(__name__.split(".")[:-1])
   for package_name in published_configuration_capabilities:
     # Don't add the current package twice
     if not current_package_name == package_name:
@@ -103,7 +100,7 @@ def get_possible_deps_as_choices(dep_category=None):
         for item in _al_weaver_capabilities[capability].get('jurisdiction_choices',[])
       ])
 
-  return dep_choices
+  return list(unique_everseen(dep_choices))
 
 def get_pypi_deps_from_choices(choices:Union[List[str], DADict]):
   """Gets the Pypi dependency requirement (i.e. docassemble.AssemblyLine>=2.0.19)
@@ -117,7 +114,7 @@ def get_pypi_deps_from_choices(choices:Union[List[str], DADict]):
   for capability in _al_weaver_capabilities:
     pypi_deps.extend([choice.get('dependency') for choice in _al_weaver_capabilities[capability].get('organization_choices',[]) + _al_weaver_capabilities[capability].get('jurisdiction_choices',[]) if choice.get('dependency') and choice.get('include_name') in choice_list])
 
-  return pypi_deps
+  return list(unique_everseen(pypi_deps))
 
 def get_yml_deps_from_choices(choices:Union[List[str], DADict]):
   """Gets the yml file (i.e. docassemble.AssemblyLine:data/question/ql_baseline.yml)
