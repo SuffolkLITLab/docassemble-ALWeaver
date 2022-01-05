@@ -107,14 +107,18 @@ subject: |
   View current settings
 content: |
   #### Jurisdiction choices
-  ${ jurisdiction_choices.table }
+  ```
+  ${ get_possible_deps_as_choices('jurisdiction') }
+  ```
   
   #### Organization choices
   ```
+  ${ get_possible_deps_as_choices('organization') }
   ```
   
   #### Output pattern file
   ```
+  
   ```
   
   #### Published keys

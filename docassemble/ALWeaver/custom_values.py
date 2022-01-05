@@ -73,7 +73,7 @@ def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", in
   for package_name in published_configuration_capabilities:
     # Don't add the current package twice
     if not current_package_name == package_name:
-      path = path_and_mimetype(f"{package_name}:data/sources/{published_configuration_capabilities[package_name][0]}")
+      path = path_and_mimetype(f"{package_name}:data/sources/{published_configuration_capabilities[package_name][0]}")[0]
       try:
         with open(path) as f:
           yaml_contents = f.read()
