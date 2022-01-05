@@ -44,7 +44,9 @@ def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", in
   The local capabilities will always be the default configuration. Optionally, filter capabilities
   by version and whether playground packages can provide capabilities.
   """
-  this_yaml = path_and_mimetype("data/sources/configuration_capabilities.yml")[0]
+  current_package_name = ".".join(__name__.split(".")[:-1])
+  
+  this_yaml = path_and_mimetype(f"{current_package_name}:data/sources/configuration_capabilities.yml")[0]
   weaverdata = DAStore(base=base)
   published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
   try:
@@ -65,8 +67,7 @@ def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", in
     # Filter out capability files unless the package is installed system-wide
     if not include_playground and key.startswith("docassemble.playground"):
       del published_configuration_capabilities[key]
-  
-  current_package_name = ".".join(__name__.split(".")[:-1])
+    
   for package_name in published_configuration_capabilities:
     # Don't add the current package twice
     if not current_package_name == package_name:
