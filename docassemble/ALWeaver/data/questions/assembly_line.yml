@@ -60,18 +60,11 @@ code: |
     template_upload
     if template_upload[0].filename.endswith('pdf'):
       validate_pdf
-      log( 'wat?', 'console' )
       if no_recognized_pdf_fields:
-        log( 'a', 'console' )
         warn_no_recognized_al_labels
-        log( 'b', 'console' )
-      log( 1, 'console' )
       fields_checkup_status
-      log( 2, 'console' )
       all_look_good
-      log( 3, 'console' )
       validation_success
-      log( 4, 'console' )
     else:
       if no_recognized_docx_fields:
         warn_no_recognized_al_labels
