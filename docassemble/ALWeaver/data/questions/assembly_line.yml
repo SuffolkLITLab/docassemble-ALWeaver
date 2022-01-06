@@ -48,7 +48,7 @@ objects:
 ---
 mandatory: True
 id: Interview Order
-code: |  
+code: |
   process_url_args  
   # Check to see if we are launched from the form explorer, and
   # skip the file validation if so
@@ -60,11 +60,18 @@ code: |
     template_upload
     if template_upload[0].filename.endswith('pdf'):
       validate_pdf
+      log( 'wat?', 'console' )
       if no_recognized_pdf_fields:
+        log( 'a', 'console' )
         warn_no_recognized_al_labels
+        log( 'b', 'console' )
+      log( 1, 'console' )
       fields_checkup_status
-      all_look_good    
+      log( 2, 'console' )
+      all_look_good
+      log( 3, 'console' )
       validation_success
+      log( 4, 'console' )
     else:
       if no_recognized_docx_fields:
         warn_no_recognized_al_labels
@@ -651,6 +658,7 @@ comment: |
   right away
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
+  from pdfminer.psparser import PSEOF
   from PyPDF2.utils import PdfReadError
   from zipfile import BadZipFile
   
@@ -674,6 +682,8 @@ code: |
   except (PDFSyntaxError, PdfReadError):
     # Handle PDF read error
     force_ask('exit_invalid_pdf')
+  except PSEOF:
+    force_ask('exit_PSEOF_error')
   except (BadZipFile, KeyError):
     force_ask('exit_invalid_docx')
 ---
@@ -689,6 +699,20 @@ subquestion: |
   
   If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
   or [qpdf](http://qpdf.sourceforge.net/) to fix it.
+buttons:
+  - Restart: restart
+---
+event: exit_PSEOF_error
+question: |
+  Something is wrong with the format of this PDF
+subquestion: |
+  Docassemble was not able to read ${ template_upload[0].filename }. The error
+  was a "pdfminer.psparser.PSEOF: Unexpected EOF". It might be an XFA form or
+  something else might be wrong with its formatting.
+  
+  You can try using [documate.org/pdf](https://www.documate.org/pdf)
+  or [qpdf](http://qpdf.sourceforge.net/) to fix it, but some of your
+  interactive elements may stop working.
 buttons:
   - Restart: restart
 ---
