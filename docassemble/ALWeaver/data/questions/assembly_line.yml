@@ -697,7 +697,7 @@ buttons:
 ---
 event: exit_PSEOF_error
 question: |
-  Something is wrong with the format of this PDF
+  Something is wrong with the internals of this PDF
 subquestion: |
   Docassemble was not able to read ${ template_upload[0].filename }. The error
   was a "pdfminer.psparser.PSEOF: Unexpected EOF". It might be an XFA form or
