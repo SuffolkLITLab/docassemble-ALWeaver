@@ -256,12 +256,12 @@ attachment:
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
   from PyPDF2.utils import PdfReadError
-
+  
   try:
     pdf_concatenate(template_upload)
   except PDFSyntaxError:
     # Handle PDF read error
-    force_ask('exit_invalid_file')
+    force_ask('exit_invalid_pdf')
   except PdfReadError:
     force_ask('exit_xref_table')
   except:

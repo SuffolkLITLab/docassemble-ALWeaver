@@ -48,7 +48,7 @@ objects:
 ---
 mandatory: True
 id: Interview Order
-code: |  
+code: |
   process_url_args  
   # Check to see if we are launched from the form explorer, and
   # skip the file validation if so
@@ -63,7 +63,7 @@ code: |
       if no_recognized_pdf_fields:
         warn_no_recognized_al_labels
       fields_checkup_status
-      all_look_good    
+      all_look_good
       validation_success
     else:
       if no_recognized_docx_fields:
@@ -651,6 +651,7 @@ comment: |
   right away
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
+  from pdfminer.psparser import PSEOF
   from PyPDF2.utils import PdfReadError
   from zipfile import BadZipFile
   
@@ -674,6 +675,8 @@ code: |
   except (PDFSyntaxError, PdfReadError):
     # Handle PDF read error
     force_ask('exit_invalid_pdf')
+  except PSEOF:
+    force_ask('exit_PSEOF_error')
   except (BadZipFile, KeyError):
     force_ask('exit_invalid_docx')
 ---
@@ -689,6 +692,18 @@ subquestion: |
   
   If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
   or [qpdf](http://qpdf.sourceforge.net/) to fix it.
+buttons:
+  - Restart: restart
+---
+event: exit_PSEOF_error
+question: |
+  Something is wrong with the internals of this PDF
+subquestion: |
+  Docassemble was not able to read ${ template_upload[0].filename }.
+  
+  You can try using [qpdf](http://qpdf.sourceforge.net/) or
+  [documate.org/pdf](https://www.documate.org/pdf) to fix it, but some of your
+  interactive elements may stop working.
 buttons:
   - Restart: restart
 ---
