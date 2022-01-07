@@ -701,8 +701,8 @@ question: |
 subquestion: |
   Docassemble was not able to read ${ template_upload[0].filename }.
   
-  You can try using [documate.org/pdf](https://www.documate.org/pdf)
-  or [qpdf](http://qpdf.sourceforge.net/) to fix it, but some of your
+  You can try using [qpdf](http://qpdf.sourceforge.net/) or
+  [documate.org/pdf](https://www.documate.org/pdf) to fix it, but some of your
   interactive elements may stop working.
 buttons:
   - Restart: restart
