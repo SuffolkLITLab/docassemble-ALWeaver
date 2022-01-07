@@ -699,9 +699,7 @@ event: exit_PSEOF_error
 question: |
   Something is wrong with the internals of this PDF
 subquestion: |
-  Docassemble was not able to read ${ template_upload[0].filename }. The error
-  was a "pdfminer.psparser.PSEOF: Unexpected EOF". It might be an XFA form or
-  something else might be wrong with its formatting.
+  Docassemble was not able to read ${ template_upload[0].filename }.
   
   You can try using [documate.org/pdf](https://www.documate.org/pdf)
   or [qpdf](http://qpdf.sourceforge.net/) to fix it, but some of your
