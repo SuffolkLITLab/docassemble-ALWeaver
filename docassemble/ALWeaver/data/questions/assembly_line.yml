@@ -108,7 +108,7 @@ code: |
     add_addendum_fields
   
   # Assemble output package 
-  wrote_interview  
+  wrote_interview
 
   # Display output download screen
   show_interview
