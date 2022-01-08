@@ -109,6 +109,7 @@ code: |
   
   # Assemble output package 
   wrote_interview
+  interview_source = interview.source()
 
   # Display output download screen
   show_interview
