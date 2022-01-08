@@ -1,8 +1,7 @@
 from typing import List, Union
 from pathlib import Path
 import yaml
-from docassemble.base.util import log, DADict
-from docassemble.base.core import objects_from_file
+from docassemble.base.util import log, DADict, objects_from_file
 # TODO(brycew): is this too deep into DA? Unclear if there are options to write
 # sources files to a package while it's running.
 from docassemble.base.functions import package_data_filename
