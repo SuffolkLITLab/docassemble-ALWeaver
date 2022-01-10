@@ -1,7 +1,6 @@
 # pre-load
 
 import os
-from docassemble.base.util import DAStore, log
 from .custom_values import advertise_capabilities
 
 __all__ = []
