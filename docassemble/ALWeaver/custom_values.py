@@ -1,15 +1,8 @@
 from typing import List, Union
 from pathlib import Path
 import ruamel.yaml as yaml
-from docassemble.base.util import log, DADict, DAList, user_info, DAStore, path_and_mimetype
-from docassemble.base.core import objects_from_file
-# TODO(brycew): is this too deep into DA? Unclear if there are options to write
-# sources files to a package while it's running.
-import ruamel.yaml as yaml
-import sys
-from docassemble.base.functions import package_data_filename
+from docassemble.base.util import log, DADict, DAList, DAStore, path_and_mimetype
 from packaging.version import Version
-import os
 from more_itertools import unique_everseen
 
 ################# To refactor - I don't think these are used but they are mentioned in interview_generator.py
@@ -24,9 +17,19 @@ __all__ = ['get_possible_deps_as_choices', 'get_pypi_deps_from_choices',
            'get_yml_deps_from_choices', 'SettingsList', 'load_capabilities',
           'advertise_capabilities', '_package_name']
 
+def _package_name(package_name:str=None):
+  """Get package name without the name of the current module, like: docassemble.ALWeaver instead of
+  docassemble.ALWeaver.advertise_capabilities"""
+  if not package_name:
+    package_name = __name__
+  try:
+    return ".".join(package_name.split(".")[:-1])
+  except:
+    return package_name
+
 class SettingsList(DAList):
   """
-  A simple list that can sync itself to a DAStore
+  A simple list that can sync itself to a DAStore. 
   """
   def init(self, *pargs, **kwargs):
     super().init(*pargs, **kwargs)
@@ -40,11 +43,12 @@ class SettingsList(DAList):
 
 def load_capabilities(base:str="docassemble.ALWeaver", minimum_version="1.5", include_playground=False):
   """
-  Get the contents of the current package's capabilities file.
-  The local capabilities will always be the default configuration. Optionally, filter capabilities
-  by version and whether playground packages can provide capabilities.
+  Load and return a dictionary containing all advertised capabilities matching
+  the specified minimum version, and optionally include capabilities that were
+  advertised from a namespace matching docassemble.playground*. The local
+  capabilities will always be the default configuration.
   """
-  current_package_name = ".".join(__name__.split(".")[:-1])
+  current_package_name = _package_name()
   
   this_yaml = path_and_mimetype(f"{current_package_name}:data/sources/configuration_capabilities.yml")[0]
   weaverdata = DAStore(base=base)
@@ -127,24 +131,31 @@ def get_yml_deps_from_choices(choices:Union[List[str], DADict]):
   else: # List
     return choices
     
-def _package_name(package_name:str=None):
-  """Get package name without the name of the current module, like: docassemble.ALWeaver instead of
-  docassemble.ALWeaver.advertise_capabilities"""
-  if not package_name:
-    package_name = __name__
-  try:
-    return ".".join(package_name.split(".")[:-1])
-  except:
-    return package_name
-
 def advertise_capabilities(package_name:str=None, yaml_name:str="configuration_capabilities.yml", base:str="docassemble.ALWeaver", minimum_version="1.5"):
   """
-  Tell the server that the current Docassemble package contains a configuration_capabilities.yml file with settings that
-  ALWeaver can use, by adding an entry to the global DAStore. This function should be set to run with a 
-  # pre-load hook so it advertises itself on each server uwsgi reset.
-  
-  Defaults to work with standard Docassemble package names. If the package_name has 3 parts or more, 
-  the last part will be dropped. E.g., it will advertise "docassemble.ALWeaver", not "docassemble.ALWeaver.custom_values".
+  Tell the server that the current Docassemble package contains a
+  configuration_capabilities.yml file with settings that ALWeaver can use, by
+  adding an entry to the global DAStore. 
+
+  Defaults to work with standard Docassemble package names. If the package_name
+  has 3 parts or more, the last part will be dropped. E.g., it will advertise
+  "docassemble.ALWeaver", not "docassemble.ALWeaver.custom_values".
+
+  This function should be imported and run inside any Docassemble package that
+  contains settings that you want to advertise to the installed Weaver on a
+  given server. This function should be set to run with a # pre-load hook so it
+  advertises itself on each server uwsgi reset.
+
+  Example of an `advertise_capabilities.py` file you can include in your own package:
+  ```python
+  # pre-load
+
+  import os
+  from docassemble.ALWeaver.custom_values import advertise_capabilities
+
+  if not os.environ.get('ISUNITTEST'):
+    advertise_capabilities(__name__, minimum_version="1.5")
+  ```
   """
   weaverdata = DAStore(base=base)
   if not package_name:
