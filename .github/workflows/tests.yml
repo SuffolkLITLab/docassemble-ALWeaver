@@ -5,13 +5,13 @@ on:
   workflow_dispatch:
 
 jobs:
-
   test-weaver:
     runs-on: ubuntu-latest
-
     name: Run weaver tests
+    env:
+      ISUNITTEST: true
     steps:
-      - run: sudo apt-get update && sudo apt-get -y install libcurl4-openssl-dev
+      - run: sudo apt-get update && sudo apt-get -y install libcurl4-openssl-dev build-essential python3-dev libldap2-dev libsasl2-dev slapd ldap-utils tox lcov valgrind libzbar0
       - name: Checkout
         uses: actions/checkout@v2
       - run: pip3 install virtualenv

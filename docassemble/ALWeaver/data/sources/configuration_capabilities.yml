@@ -1,0 +1,43 @@
+######################
+# List of available configuration options that this package supplies
+# These are the "default" dependencies, etc.
+package name: Default Weaver Choices (CourtFormsOnline/MassAcccess)
+jurisdiction_choices:
+  - description: Massachusetts
+    dependency: "docassemble.ALMassachusetts>=0.0.7"
+    include_name: "docassemble.ALMassachusetts:al_massachusetts.yml"
+    default: True
+    state: MA
+    country: US
+organization_choices:
+  - description: MassAccess
+    dependency: "docassemble.MassAccess"
+    include_name: "docassemble.MassAccess:massaccess.yml"
+    state: MA
+    country: US
+    default: True
+  - description: Illinois Legal Aid Online
+    dependency: "docassemble.ILAO"
+    include_name: "docassemble.ILAO:ilao-interview-framework.yml"
+    state: IL
+    country: US
+    default: False
+  - description: Louisiana Supreme Court
+    dependency: "docassemble.ALLouisianaSC"
+    include_name: "docassemble.ALLouisianaSC:custom_organization.yml"
+    state: LA
+    country: US
+    default: False
+# The paths below will be prefixed with the name of this package: 
+# in the data/templates folder for templates and output_pattern
+# and data/sources folder for variable_names
+# Below are not yet implemented
+# next steps template files:
+#   starts_case: next_steps_starts_case.docx
+#   existing_case: next_steps_existing_case.docx
+#   appeal: next_steps_appeal.docx
+#   other_form: next_steps_other_form.docx
+#   letter: next_steps_letter.docx
+#   other: next_steps_other.docx
+# output_pattern: output_pattern.md
+# variable_names: variable_names.yml

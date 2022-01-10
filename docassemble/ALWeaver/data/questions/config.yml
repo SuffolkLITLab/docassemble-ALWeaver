@@ -1,0 +1,141 @@
+---
+modules:
+  - docassemble.ALToolbox.misc
+  - .custom_values
+---
+features:
+  css:
+    - docassemble.ALToolbox:collapse_template.css        
+---
+metadata:
+  title: Configure ALWeaver Settings
+  short title: Configure ALWeaver
+  temporary session: True
+  required privileges:
+    - admin
+---
+objects:
+  - weaverdata: DAStore.using(base="docassemble.ALWeaver")
+---
+objects:
+  - jurisdiction_choices: SettingsList.using(object_type=DAObject, there_are_any=True, complete_attribute="description", store=weaverdata)
+---
+code: |
+  published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
+  
+  if weaverdata.get("jurisdiction_choices"):
+    jurisdiction_choices = weaverdata.get("jurisdiction_choices")
+      
+  load_values = True
+---
+code: |
+  #published_configuration_capabilities["my_fake_key"] = ("some_yaml", "1.5")
+  
+  #weaverdata.set("published_configuration_capabilities", published_configuration_capabilities)
+  
+  add_fake_key = True
+---
+id: interview order
+mandatory: True
+code: |
+  load_values
+  add_fake_key
+  intro
+---
+imports:
+  - os
+---
+id: intro
+question: |
+  Weaver customization
+subquestion: |
+  ${ not os.environ.get('ISUNITTEST') }
+
+  You can currently customize:
+  
+  1. the list of dependencies
+  1. the list of prefixes for people and static variables that will not be transformed by the Weaver
+
+  ```
+  ${ weaverdata.keys() }
+  ```
+
+  ${ repr(list(load_capabilities())) }
+
+  ${ collapse_template(view_weaverdata_template) }
+  
+  ${ jurisdiction_choices.add_action() }  
+  
+  ${ action_button_html(url_action('delete_configuration'), label="Clear configuration", icon="trash-alt") }
+event: intro
+# docassemble.base.functions.url_action('_da_list_add', list=self.instanceName)
+---
+question: |
+  Is there another juridiction choice?
+yesno: jurisdiction_choices.there_is_another  
+---
+event: delete_configuration
+code: |
+  weaverdata.delete("published_configuration_capabilities")
+---
+question: |
+  Jurisdiction choices
+list collect: 
+  is final: True
+fields:
+  - Descriptive name: jurisdiction_choices[i].description
+  - Dependency to add to setup.py: jurisdiction_choices[i].dependency_name
+    help: |
+      Like: `docassemble.ALMassachusetts>=0.7` or just like `docassemble.ALMassachusetts`.
+    validate: |
+      lambda y: y.startswith('docassemble.') and not ' ' in y or validation_error("Enter a valid Docassemble package name, like 'docassemble.ALMassachusetts'")
+  - YAML file name to add to `include` statement (optional): jurisdiction_choices[i].include_name
+    help: |
+      Like: `docassemble.ALMassachusetts:massachusetts.yml`
+    required: False
+    validate: |
+      lambda y: (not y or (y.startswith('docassemble.') and ':' in y and y.endswith('.yml'))) or validation_error("Add a valid path to a YAML file, including the docassemble package name, like: 'docassemble.ALMassachusetts:massachusetts.yml'")
+  - Enable by default: jurisdiction_choices[i].default
+    datatype: yesno
+---
+code: |
+  weaverdata.set("jurisdiction_choices", jurisdiction_choices)
+  update_jurisdictions = True
+---
+template: view_weaverdata_template
+subject: |
+  View current settings
+content: |
+  #### Jurisdiction choices
+  ```
+  ${ get_possible_deps_as_choices('jurisdiction') }
+  ```
+  
+  #### Organization choices
+  ```
+  ${ get_possible_deps_as_choices('organization') }
+  ```
+  
+  #### Output pattern file
+  ```
+  
+  ```
+  
+  #### Published keys
+  
+  ```
+  ${ weaverdata.get("published_configuration_capabilities") }
+  ```
+
+---
+table: jurisdiction_choices.table
+rows: jurisdiction_choices
+columns: 
+  - Descriptive name: |
+      row_item.description
+  - Dependency: |
+      row_item.dependency_name
+  - YAML include: |
+      row_item.include_name
+  - Default: |
+      row_item.default
