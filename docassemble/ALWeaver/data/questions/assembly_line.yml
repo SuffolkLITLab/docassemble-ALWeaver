@@ -1298,6 +1298,12 @@ sets: questions[i].edit_question
 question: |
   Revew your ${ ordinal(i) } screen
 subquestion: |    
+  [Skip these screens anytime:
+  ${ action_button_html(url_action('show_screen_order'),
+                        label='Skip to the Screen Order Table',
+                        size='md',
+                        color='primary') }]
+                        
   1. You can modify **Screen title** and **Text on your question screen** here and they will be reflected in the generated draft interview.   
 fields:
   - Screen title: questions[i].question_text

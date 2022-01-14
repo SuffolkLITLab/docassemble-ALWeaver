@@ -1,11 +1,11 @@
 $(document).on('daPageLoad', function(){            
     // Grab the field for storing adjusted table order
     var orderList = $('input[type="draggable_tbl_order_list"]');
-    //$(orderList).hide(); 
+    $(orderList).hide(); 
     
     // Grab field scr_table_data (with default value json_string)    
     var json_data = $('input[type="draggable_tbl_json_string"]');    
-    //(json_data).hide();  
+    (json_data).hide();  
     
     // If table order is adjusted by user, update draggable_table with data from json_data     
     var draggable_table = $('.draggable-table');  
