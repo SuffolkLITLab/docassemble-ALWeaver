@@ -1,0 +1,31 @@
+/*---------------------------------------------------------*/
+/* Header row
+/*---------------------------------------------------------*/
+.draggable-table thead {
+  background-color: #394b69;
+  color: white;
+}
+/*---------------------------------------------------------*/
+/* Table row
+/*---------------------------------------------------------*/
+.drag {
+  cursor:all-scroll;
+}
+.drag:nth-child(even) {
+  background-color: #c5d5eac2;
+}
+.drag:hover {
+  background-color: lightblue;
+}
+/*---------------------------------------------------------*/
+/* First column visuals
+/*---------------------------------------------------------*/
+.draggable-table tr td:first-child {
+  text-align: right;  
+  vertical-align: text-top;  
+  padding-right: 10px;
+  background-image: url("drag.png");
+  background-repeat: no-repeat;
+  background-position: left;
+}
+
