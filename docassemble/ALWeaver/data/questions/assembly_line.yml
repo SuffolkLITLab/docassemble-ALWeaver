@@ -1882,9 +1882,6 @@ code: |
   
   # convert draggable_scr_table to json, then pass it to JS via a hidden field scr_table_data
   json_string = make_json(draggable_scr_table)  
-  log('initial load', 'info')
-  log(draggable_scr_table, 'info')
-  
 ---
 comment: |
   This block is called after the "screen table" is reordered by the user.  
@@ -1892,7 +1889,7 @@ code: |
   if len(scr_order_list) > 0:        
     # Update screen order used to build the logic tree and question blocks
     screen_reordered = adjust_order(original_scr_order, scr_order_list, screen_order, screen_reordered)   
-    log('reload', 'info')
+    
     # Reset the field scr_table_data (not its default value!) for JS to access
     draggable_table2 = adjust_table(scr_order_list, draggable_scr_table)     
     scr_table_data = make_json(draggable_table2) 
