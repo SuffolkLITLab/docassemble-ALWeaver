@@ -1922,7 +1922,7 @@ comment: |
 code: |     
   if len(questions[i].fld_order_list) > 0:    
     # Save the adjusted order to fields_reordered object    
-    fields_reordered2 = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
+   fields_reordered = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
     
     # Reorder field list - it will affect output interview layout    
     questions[i].field_list = fields_reordered2
