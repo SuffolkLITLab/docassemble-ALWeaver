@@ -82,10 +82,7 @@ objects:
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
-  - bundles: DAList.using(object_type=DAObject, auto_gather=False)  
-  # Can we declare the following 2 as DAList in .py???    
-  - fields_reordered: DAList.using(auto_gather=False, gathered=True) 
-  - screen_reordered: DAList.using(auto_gather=False, gathered=True) 
+  - bundles: DAList.using(object_type=DAObject, auto_gather=False)    
 ---
 mandatory: True
 id: Interview Order
@@ -1291,6 +1288,8 @@ fields:
 validation code: |
   if not hasattr(fields[i], 'variable'):
     fields[i].variable = fields[i].final_display_var
+continue button label: Save
+back button label: Cancel
 ---
 continue button field: questions[i].edit_question
 scan for variables: False
@@ -1894,7 +1893,7 @@ comment: |
 code: |   
   if len(scr_order_list) > 0:        
     # Update screen order used to build the logic tree and question blocks
-    screen_reordered = adjust_order(original_scr_order, scr_order_list, screen_order, screen_reordered)   
+    screen_reordered = adjust_order(original_scr_order, scr_order_list, screen_order)   
     
     # Reset the field scr_table_data (not its default value!) for JS to access
     draggable_table2 = adjust_table(scr_order_list, draggable_scr_table)     
@@ -1922,11 +1921,11 @@ comment: |
   This block is called after the "field table" is reordered by the user.
 code: |     
   if len(questions[i].fld_order_list) > 0:    
-    # Save the adjusted order to fields_reordered object
-    fields_reordered = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list, fields_reordered)
+    # Save the adjusted order to fields_reordered object    
+    fields_reordered2 = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
     
     # Reorder field list - it will affect output interview layout    
-    questions[i].field_list = fields_reordered
+    questions[i].field_list = fields_reordered2
     
     # Reset the field fld_table_data (not its default value!) for JS to access
     questions[i].draggable_fld_table2 = adjust_table(questions[i].fld_order_list, questions[i].draggable_fld_table)

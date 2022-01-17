@@ -31,19 +31,20 @@ def make_it_draggable(tbl_data) -> list:
 
   return [original_order, soup]	
 
-def adjust_order(old_table_order, new_table_order, old_object, new_object):  
+def adjust_order(old_table_order, new_table_order, old_object):  
   """
   1. old_table_order came from make_it_draggable, new_table_order came from JS, both are simple lists.
   2. old_object is a DAList object used to build code blocks for the output interview. 
-  3. new_object is a blank DAList.
-  
-  This function copies data from old_object to new_object using "order data/table index" from those two lists, to make new_object as the reordered version of screen_order. 
+  This function copies data from old_object to new_object using "order data/table index" from those two lists, to make new_object as the reordered version of old_object. 
   """  
   # Convert new_table_order (updated via js) from string to list
   adjusted_order = []
   adjusted_order = new_table_order.split(',')  
-    
+  
+  # Copy DAList structure from old_object
+  new_object = copy.deepcopy(old_object)
   new_object.clear() 
+  
   for scr in adjusted_order:
     # Find the row index of scr in the original table
     old_position = old_table_order.index(scr)
