@@ -68,7 +68,14 @@ setup(
     url="https://docassemble.org",
     packages=find_packages(),
     namespace_packages=["docassemble"],
-    install_requires=['PyYAML>=5.1.2','docassemble.ALToolbox>=0.3.6','docx2python>=1.27.1','numpy>=1.0.4','sklearn>=0.0','spacy>=3.2.0'],
+    install_requires=[
+        "PyYAML>=5.1.2",
+        "docassemble.ALToolbox>=0.3.6",
+        "docx2python>=1.27.1",
+        "numpy>=1.0.4",
+        "sklearn>=0.0",
+        "spacy>=3.2.0",
+    ],
     zip_safe=False,
     package_data=find_package_data(
         where="docassemble/ALWeaver/", package="docassemble.ALWeaver"
