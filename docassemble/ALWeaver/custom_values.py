@@ -24,7 +24,7 @@ __all__ = [
     "advertise_capabilities",
     "_package_name",
     "get_full_dep_details",
-    "get_matching_deps"
+    "get_matching_deps",
 ]
 
 
@@ -179,6 +179,7 @@ def get_yml_deps_from_choices(choices: Union[List[str], DADict]):
     else:  # List
         return choices
 
+
 def get_full_dep_details(dep_category=None):
     """Get the full dictionary describing each dependency (including custom ones) so that it can be
     filtered and used as needed."""
@@ -188,20 +189,18 @@ def get_full_dep_details(dep_category=None):
     for capability in _al_weaver_capabilities:
         if dep_category == "organization":
             dep_choices.extend(
-                _al_weaver_capabilities[capability].get(
-                        "organization_choices", []
-                    )
+                _al_weaver_capabilities[capability].get("organization_choices", [])
             )
         elif dep_category == "jurisdiction":
-            dep_choices.extend(_al_weaver_capabilities[capability].get(
-                        "jurisdiction_choices", []
-                    )
+            dep_choices.extend(
+                _al_weaver_capabilities[capability].get("jurisdiction_choices", [])
             )
 
     return list(unique_everseen(dep_choices))
 
+
 def get_matching_deps(dep_category=None, state=None):
-    """Get the dependencies that match the specified state. 
+    """Get the dependencies that match the specified state.
     State "ANY" has a special meaning."""
     dep_choices = []
 
@@ -213,7 +212,8 @@ def get_matching_deps(dep_category=None, state=None):
                     item.get("include_name")
                     for item in _al_weaver_capabilities[capability].get(
                         "organization_choices", []
-                    ) if item.get("state","").lower() == state.lower()
+                    )
+                    if item.get("state", "").lower() == state.lower()
                 ]
             )
         elif dep_category == "jurisdiction":
@@ -222,18 +222,21 @@ def get_matching_deps(dep_category=None, state=None):
                     item.get("include_name")
                     for item in _al_weaver_capabilities[capability].get(
                         "jurisdiction_choices", []
-                    ) if item.get("state","").lower() == state.lower()
+                    )
+                    if item.get("state", "").lower() == state.lower()
                 ]
             )
-    
+
     if len(dep_choices) > 0 or state.lower() == "any":
-      return DADict(elements={item:True for item in unique_everseen(dep_choices)},
-                    auto_gather=False, gathered=True
-                   )
-    
+        return DADict(
+            elements={item: True for item in unique_everseen(dep_choices)},
+            auto_gather=False,
+            gathered=True,
+        )
+
     return get_matching_deps(dep_category=dep_category, state="ANY")
-    
-  
+
+
 def advertise_capabilities(
     package_name: str = None,
     yaml_name: str = "configuration_capabilities.yml",
