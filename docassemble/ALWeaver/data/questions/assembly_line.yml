@@ -156,6 +156,7 @@ subquestion: |
   You can go straight to a runnable prototype of
   "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
   or you can customize this prototype. 
+
 field: im_feeling_lucky
 buttons: 
   - Customize: False
@@ -299,8 +300,8 @@ sets: process_im_feeling_lucky
 code: |
   if has_safe_pdf_in_url: # limit when this block can run
     # Set interview defaults based on the PDF passed in the URL args
-    interview.jurisdiction_choices = DADict("interview.jurisdiction_choices", elements = {next(iter(dep)): dep['default'] for dep in get_possible_deps_as_choices('jurisdiction')}, auto_gather=False, gathered=True)
-    interview.org_choices = DADict("interview.org_choices", elements={next(iter(dep)): dep['default'] for dep in get_possible_deps_as_choices('organization')}, auto_gather=False, gathered=True)
+    interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
+    interview.org_choices = get_matching_deps("organization",interview.state)
     interview.form_type = "starts_case"
     interview_intro_prompt = interview_intro_prompt_default
     interview.title = short_filename_with_spaces
