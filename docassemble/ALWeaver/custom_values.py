@@ -180,7 +180,7 @@ def get_yml_deps_from_choices(choices: Union[List[str], DADict]):
         return choices
 
 
-def get_full_dep_details(dep_category:str=None) -> List:
+def get_full_dep_details(dep_category: str = None) -> List:
     """Get the full dictionary describing each dependency (including custom ones) so that it can be
     filtered and used as needed."""
     dep_choices = []
@@ -199,7 +199,7 @@ def get_full_dep_details(dep_category:str=None) -> List:
     return list(unique_everseen(dep_choices))
 
 
-def get_matching_deps(dep_category:str=None, state:str=None) -> DADict:
+def get_matching_deps(dep_category: str = None, state: str = None) -> DADict:
     """Get the dependencies that match the specified state.
     State "ANY" has a special meaning."""
     dep_choices = []
