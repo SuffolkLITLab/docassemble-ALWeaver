@@ -1227,9 +1227,9 @@ rows: questions[i].field_list
 columns:
   - Order: |
       int(questions[i].field_list.index(row_item)) + 1  
-  - Field: |
+  - Field name: |
       row_item.final_display_var
-  - Prompt: |
+  - On-screen field label: |
       row_item.label
 edit:
   - edit_field
@@ -1922,7 +1922,7 @@ comment: |
 code: |     
   if len(questions[i].fld_order_list) > 0:    
     # Save the adjusted order to fields_reordered object    
-   fields_reordered = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
+    fields_reordered = adjust_order(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
     
     # Reorder field list - it will affect output interview layout    
     questions[i].field_list = fields_reordered

@@ -7,16 +7,15 @@ $(document).on('daPageLoad', function(){
     var json_data = $('input[type="draggable_tbl_json_string"]');    
     (json_data).hide();  
     
-    // If table order is adjusted by user, update draggable_table with data from json_data     
-    var draggable_table = $('.draggable-table');  
-    if (typeof orderList != 'undefined'){
-      if (orderList.val() != '') {
-        var json_records = JSON.parse(json_data.val()); 
-        /* Error "Uncaught SyntaxError: JSON.parse: unexpected character at line 1 column 1 of the JSON data" is seen on screens where draggable-table doesn't exist, why?*/
+    // If user adjusted the table order, update draggable_table with data from json_data     
+    var draggable_table = $('.draggable-table');      
+    // Must use $(orderList), not orderList
+    if ($(orderList).val() != undefined) {
+      if ($(orderList).val() != '') {
+        var json_records = JSON.parse($(json_data).val());  
         update_table(draggable_table, json_records);
       };
     };  
-  
 });
 
 // Drag and drop functions - only screens with a draggable table will call them
