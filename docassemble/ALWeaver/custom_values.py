@@ -199,7 +199,7 @@ def get_full_dep_details(dep_category:str=None) -> List:
     return list(unique_everseen(dep_choices))
 
 
-def get_matching_deps(dep_category=None, state=None):
+def get_matching_deps(dep_category:str=None, state:str=None) -> DADict:
     """Get the dependencies that match the specified state.
     State "ANY" has a special meaning."""
     dep_choices = []
