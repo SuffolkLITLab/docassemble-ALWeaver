@@ -157,7 +157,6 @@ subquestion: |
   "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
   or you can customize this prototype. 
 
-  ${ repr(get_matching_deps("jurisdiction", interview.state)) }
 field: im_feeling_lucky
 buttons: 
   - Customize: False
