@@ -180,7 +180,7 @@ def get_yml_deps_from_choices(choices: Union[List[str], DADict]):
         return choices
 
 
-def get_full_dep_details(dep_category=None):
+def get_full_dep_details(dep_category:str=None) -> List:
     """Get the full dictionary describing each dependency (including custom ones) so that it can be
     filtered and used as needed."""
     dep_choices = []
