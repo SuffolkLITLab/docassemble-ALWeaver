@@ -3,3 +3,19 @@ docassemble/assemblylinewizard/docassemble*
 .history/
 .vscode/
 *.egg-info
+
+# alkiln testing
+tests/chromedriver
+*DS_Store*
+node_modules*
+.env
+npm-debug.log
+error*.jpg
+screenshot_*.jpg
+downloads_*
+*_lang_*.feature
+*_report_*
+_al_test_project_name*
+# package.json is for local development only
+package.json
+package-lock.json
