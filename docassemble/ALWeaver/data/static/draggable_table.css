@@ -11,8 +11,8 @@
 .drag {
   cursor:all-scroll;
 }
-.drag:nth-child(even) {
-  background-color: #c5d5eac2;
+.drag:nth-child(odd) {
+  background-color: #ccdcf066;
 }
 .drag:hover {
   background-color: lightblue;
@@ -20,12 +20,10 @@
 /*---------------------------------------------------------*/
 /* First column visuals
 /*---------------------------------------------------------*/
-.draggable-table tr td:first-child {
-  text-align: right;  
-  vertical-align: text-top;  
-  padding-right: 10px;
+.draggable-table tr td:first-child {  
   background-image: url("drag.png");
   background-repeat: no-repeat;
-  background-position: left;
+  background-size: cover;
+  background-clip: content-box;
+  text-align: center;    
 }
-
