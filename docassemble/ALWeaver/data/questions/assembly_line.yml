@@ -280,7 +280,7 @@ code: |
   if url_args.get('title'):
     short_filename_with_spaces = url_args.get('title')
     interview.title = short_filename_with_spaces
-    short_filename = space_to_underscore(short_filename_with_spaces)
+    short_filename = space_to_underscore(varname(short_filename_with_spaces))
     interview_label_draft = short_filename
   if url_args.get('jur'):
     interview.state = url_args.get('jur')
