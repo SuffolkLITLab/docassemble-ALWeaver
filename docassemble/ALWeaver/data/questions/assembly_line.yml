@@ -348,9 +348,9 @@ code: |
 ---
 code: |
   if template_upload[0].filename.endswith('pdf'):
-    short_filename = template_upload[0].filename[:-4]
+    short_filename = space_to_underscore(varname(template_upload[0].filename.lower().strip(".pdf")))
   else:
-    short_filename = template_upload[0].filename[:-5]
+    short_filename = space_to_underscore(varname(template_upload[0].filename.lower().strip(".docx")))
   
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
