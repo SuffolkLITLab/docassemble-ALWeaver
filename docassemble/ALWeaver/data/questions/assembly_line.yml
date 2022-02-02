@@ -1549,8 +1549,11 @@ code: |
   # Package title is PascalCase, per our AssemblyLine convention
   package_title = re.sub("\W|_","", interview_label.title())
 ---
+code: |
+  sanitized_filename = f"{interview_label}.{template_upload[0].extension}"
+---
 objects:
-  - renamed_upload: DAFile.using(filename=f"{interview_label}.{template_upload[0].extension}")
+  - renamed_upload: DAFile.using(filename=sanitized_filename)
 ---
 code: |
   renamed_upload.copy_into(template_upload[0])
@@ -1654,8 +1657,8 @@ code: |
 
   # Set attributes for the uploaded template file     
   file1 = labels_lists.appendObject()    
-  file1.input_filename = f"{interview_label}.{template_upload[0].extension}"  
-  file1.output_filename = interview_label
+  file1.input_filename = sanitized_filename  
+  file1.output_filename = sanitized_filename
   file1.attachment_varname = attachment_variable_name    
   file1.type = template_upload[0].extension  
   file1.description = interview.title
