@@ -350,7 +350,7 @@ code: |
   if template_upload[0].filename.endswith('pdf'):
     short_filename = space_to_underscore(varname(template_upload[0].filename[:-len(".pdf")]))
   else:
-    short_filename = space_to_underscore(varname(template_upload[0].filename.lower().strip(".docx")))
+    short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:len(".docx")]))
   
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
