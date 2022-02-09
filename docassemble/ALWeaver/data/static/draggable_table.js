@@ -5,7 +5,7 @@ $(document).on('daPageLoad', function(){
     
     // Grab field scr_table_data (with default value json_string)    
     var json_data = $('input[type="draggable_tbl_json_string"]');    
-    (json_data).hide();  
+    $(json_data).hide();  
     
     // If user adjusted the table order, update draggable_table with data from json_data     
     var draggable_table = $('.draggable-table');      
@@ -64,13 +64,13 @@ function update_table(tbl, json_records){
       if (i-1 == k){        
         // Update the matching row (using the kth record in json_records)       
         var one_record = json_records[k];
-        UpdateOneRow(one_record, k, row);        
+        UpdateOneRow(one_record, row);        
       };
     };  // end of json data loop   
   }; // end of table row loop 
 };
 
-function UpdateOneRow(one_record, k, row){
+function UpdateOneRow(one_record, row){
   // Loop thru key/value pairs in one json record 
   var index = 0;
   for (var key in one_record){						
@@ -79,13 +79,8 @@ function UpdateOneRow(one_record, k, row){
     for (var m = 0; m < row.cells.length; m++){
       // Find matching cell by json record's index and table column's index      
       if (m == index){         
-        // If a link is found, update the table cell's innerHTML			                      
-        if (value.search("<a class=") != -1){
-          row.cells[m].innerHTML = value;     
-        // Otherwise update the table cell's innerText
-        } else {
-          row.cells[m].innerText = value;
-        };        
+      // update cell content			                              
+        row.cells[m].innerHTML = value;           
       }; // end of matching cell            
     }; //  end of matching row    
     index += 1;  

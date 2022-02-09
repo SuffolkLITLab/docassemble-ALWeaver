@@ -1,7 +1,17 @@
 from bs4 import BeautifulSoup
 import copy
 import json
-
+"""
+  Data flow:
+  1. Initial screen load: PY make_it_draggable
+    (a). outputs a draggable_table for screen display
+    (b). outputs the original table order as a list to be used later          
+  2. When a user adjusts the table: JS saves the adjusted table order as a list to a hidden field
+  3. When the Continue button is clicked: 
+    (a). PY update_table_order_var - uses 1.(b) and 2. to update an existing table order yaml var 
+    (b). PY make_json - saves adjusted table data as a json string to another hidden field    
+  4. When the Back button is clicked: JS updates the draggable_table with data saved by 3.(b)
+"""
 def make_it_draggable(tbl_data) -> list:
   """
   This function makes a markdown template table draggable:
@@ -31,17 +41,17 @@ def make_it_draggable(tbl_data) -> list:
 
   return [original_order, soup]	
 
-def adjust_order(old_table_order, new_table_order, old_object):  
+def update_table_order_var(old_table_order, new_table_order, old_object):  
   """
   1. old_table_order came from make_it_draggable, new_table_order came from JS, both are simple lists.
-  2. old_object is a DAList object used to build code blocks for the output interview. 
-  This function copies data from old_object to new_object using "order data/table index" from those two lists, to make new_object as the reordered version of old_object. 
+  2. old_object is a DAList object used to build code blocks for the output interview.   
+  This function copies data from old_object to a new DAList using the three input items, and the end result is the reordered(updated) version of old_object. 
   """  
   # Convert new_table_order (updated via js) from string to list
   adjusted_order = []
   adjusted_order = new_table_order.split(',')  
   
-  # Copy DAList structure from old_object
+  # Copy DAList structure from old_object to new_object
   new_object = copy.deepcopy(old_object)
   new_object.clear() 
   
@@ -55,81 +65,55 @@ def adjust_order(old_table_order, new_table_order, old_object):
   # Return a reordered DAList object
   return new_object
 
-def adjust_table(order, old_soup):
+def make_json(order, old_soup):
   """
-  This function saves adjusted table data to the backend after a user adjusted the table rows:
-  1. Copy the original soup object (python var to be displayed in yml) for its table structure.
-  2. Use the reordered index saved by JS to copy rows from old_soup to new_soup
-  3. The result is a reordered table soup object.
+  This function saves the adjusted table data as a json string, so that it can be passed to a hidden field on the table screen. 
+  1. Use the reordered index (order) saved by JS to copy matching rows from the original table old_soup to a list
+  2. Convert the list to json
   """  
-  # Convert new table order from string to list
+  # 1. Convert adjusted table order from string to list
   adjusted_order = []
-  adjusted_order = order.split(',')    
-  old_tbl_rows = old_soup.find_all('tr')[1:]    
-
-  # Clone old_soup for its structure
-  new_soup = copy.deepcopy(old_soup) 
-
-  # Wipe out text data in new_soup
-  for row in new_soup.find_all('tr')[1:]:      
-    for y in range(0, 3):
-      row.find_all("td")[y].string = ''            
-  # Wipe out all the links 
-  a_tag = new_soup.find_all('a')
-  for tag in a_tag:      
-    tag.decompose()   
-
-  # Copy data from old_soup to new_soup
-  for j, new_scr_name in enumerate(adjusted_order):
-    # Handle one row at a time, skip header row
-    for row in new_soup.find_all('tr')[j+1:j+2]: 
-      # Copy adjusted scr order and name
-      row.find_all("td")[0].string = str(j+1)        
-      row.find_all("td")[1].string = new_scr_name        
-
-      for r in old_tbl_rows:
-        cols = r.find_all('td')            
-        if new_scr_name in cols[1].get_text(): # Found the scr name 
-          # Copy number of fields col        
-          row.find_all("td")[2].string = cols[2].get_text()
-
-          # Copy link - Not all rows have a link
-          a_tag = r.find('a')            
-          if a_tag is not None:
-            row.find_all("td")[3].append(a_tag)                
-  return new_soup
-
-def make_json(soup_data): 
-  """
-  In order to retain the reordered table when the back button is clicked, we have to save our table data as a json string to a hidden field on the screen, which is then accessed by JS to display it.
-  
-  This function translates the soup object to a list of dicts, then to a json string.
-  """  
-  # Initialize 
+  adjusted_order = order.split(',')        
+	
+	# 2. Prepare for json string    
   collections = list()    
-  heading = list()   
-  heading = soup_data.find_all('th')
+  headings = list()   
+  headings = old_soup.find_all('th')  
 
-  # Loop thru non-heading rows, for each row create a dict using heading as its keys.  
-  for row in soup_data.find_all('tr', class_="drag"): 
-    record = dict()           
-    td = row.find_all('td')                 
-    # Multi-words heading on the screen can allow space in between, but not so in json string keys
-    # which are used in JS to update the draggable table, so we'll convert space to "_" here.
-    #  e.g. 'Number of fields' will be converted to Number_of_fields.
-    record.update({str(heading[0].text).replace(' ', '_'): td[0].text})
-    record.update({str(heading[1].text).replace(' ', '_'): td[1].text})          
-    record.update({str(heading[2].text).replace(' ', '_'): td[2].text})
+  # 3. Loop thru the adjusted order and copy data from old_soup to collections
+  for j, row_name in enumerate(adjusted_order):
 
-    # Save links differently. Not all rows have a link      
-    a_tag = row.find('a')
-    if a_tag is not None: 
-      record.update({str(heading[3].text): str(a_tag)}) 
-    
-    # Save the dict to a list
-    if record:
+    # Handle one row at a time.   
+    old_tbl_rows = old_soup.find_all('tr')[1:]   #skip heading row 
+    for old_row in old_tbl_rows:
+      old_cells = old_row.find_all('td') 
+      
+      if row_name in old_cells[1].get_text(): #found a matching row (field name)
+        # Create a dict record using heading as its keys.  	
+        record = copy_one_row(headings, j+1, old_row)     
+        # 3.3 Save the record dict to a list          
         collections.append(record)
-        
-  # Make it a json string as the output 
-  data = json.dumps(collections)     
-  return data
+
+  # 4. Return the results as a json string
+  return json.dumps(collections)
+	
+def copy_one_row(heading, index, row):     
+  record = dict()           
+  tds = row.find_all('td')   
+
+  # 1. Save adjusted table order as the 1st pair in the json record
+  record.update({str(heading[0].text): str(index)}) 
+
+  # 2. Copy the rest of the columns
+  for k in range(1, len(heading)):  
+    # Save links differently. Not all rows have a link.
+    a_tag = tds[k].find('a')          
+    if a_tag is not None: 
+      record[str(heading[k].text).replace(' ', '_')] = str(a_tag)
+    else:
+      # Multi-words heading on the screen allows space in between, but not so in json string keys
+      # which are used in JS to update the draggable table, so we'll convert space to "_" here.
+      #  e.g. 'Number of fields' will be converted to Number_of_fields.
+      record.update({str(heading[k].text).replace(' ', '_'): tds[k].text})
+
+  return record
