@@ -10,6 +10,7 @@ from typing import Dict
 
 __all__ = ["reflect_fields", "reCase", "cluster_screens", "rename_pdf_fields"]
 
+
 def reflect_fields(fields):
     """Return a mapping between the field names and either the same name, or "yes"
     if the field is a checkbox value, in order to visually capture the location of
@@ -19,10 +20,11 @@ def reflect_fields(fields):
         if field[4] == "/Btn":
             mapping.append({field[0]: "Yes"})
         else:
-            mapping.append({field[0]:field[0]})
+            mapping.append({field[0]: field[0]})
     return mapping
 
-def rename_pdf_fields(pdf_path:str, mapping:Dict[str, str])->None:
+
+def rename_pdf_fields(pdf_path: str, mapping: Dict[str, str]) -> None:
     """Given a list of dictionaries, rename the AcroForm field with a matching key to the specified value"""
     my_pdf = pikepdf.Pdf.open(pdf_path, allow_overwriting_input=True)
 
@@ -33,7 +35,8 @@ def rename_pdf_fields(pdf_path:str, mapping:Dict[str, str])->None:
             field.T = mapping[field.T]
             changed_fields = True
     if changed_fields:
-        my_pdf.save(pdf_path)  
+        my_pdf.save(pdf_path)
+
 
 def reCase(text):
     # a quick and dirty way to pull words out of
@@ -42,6 +45,7 @@ def reCase(text):
     output = re.sub("([a-z])([A-Z]|\d)", "\\1 \\2", output)
     output = re.sub("(\d)([A-Z]|[a-z])", "\\1 \\2", output)
     return output
+
 
 def cluster_screens(fields=[], damping=0.9):
     # Takes in a list (fields) and returns a suggested screen grouping
