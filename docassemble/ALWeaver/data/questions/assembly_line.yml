@@ -6,6 +6,9 @@ metadata:
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org  
 ---
+imports:
+  - formfyxer
+---
 mandatory: True
 code: |
   menu_items = [ action_menu_item('Configure Weaver', 'configure_weaver') ]
@@ -94,6 +97,8 @@ code: |
     weaver_intro
     template_upload
     if template_upload[0].filename.endswith('pdf'):
+      if yes_normalize_fields:
+        process_field_normalization
       validate_pdf
       if no_recognized_pdf_fields:
         warn_no_recognized_al_labels
@@ -258,6 +263,11 @@ fields:
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  - Rename fields automatically (PDFs only): yes_normalize_fields
+    datatype: yesno
+    help: |
+      Use our experimental code to automatically apply AssemblyLine naming conventions.
+      If you already followed naming conventions, you might want to skip this.
 validation code: |
   try:
     pdf_concatenate(template_upload, template_upload)
@@ -290,7 +300,13 @@ code: |
     interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
     interview.categories['Other'] = False
   url_args.clear()    
-  process_url_args = True    
+  process_url_args = True  
+---
+code: |
+  import os
+  formfyxer.parse_form(template_upload[0].path(), title=os.path.basename(template_upload[0].path()), jur="MA", normalize=1,rewrite=1)
+  template_upload[0].commit()
+  process_field_normalization = True
 ---
 modules:
   - .field_grouping
@@ -298,6 +314,7 @@ modules:
 scan for variables: False
 sets: process_im_feeling_lucky
 code: |
+  yes_normalize_fields = False
   if has_safe_pdf_in_url: # limit when this block can run
     # Set interview defaults based on the PDF passed in the URL args
     interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
