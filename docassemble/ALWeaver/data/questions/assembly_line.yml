@@ -51,6 +51,11 @@ features:
   question help button: True
   # labels above fields: True
   question back button: True
+  css: 
+    - styles.css  
+    - draggable_table.css
+  javascript:     
+    - draggable_table.js
 ---
 modules:
   - collections
@@ -58,13 +63,11 @@ modules:
   - docassemble.base.logger
   - .interview_generator
   - .custom_values
+  - .draggable_table
   - docassemble.ALToolbox.misc #collapse_template()  
 ---
-features:
-  css: styles.css  
----
-  images:
-    branding_extra: branding_extra.png
+images:
+  branding_extra: branding_extra.png
 ---
 include:   
   - pdf_field_tester.yml
@@ -82,7 +85,7 @@ objects:
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
-  - bundles: DAList.using(object_type=DAObject, auto_gather=False)  
+  - bundles: DAList.using(object_type=DAObject, auto_gather=False)    
 ---
 mandatory: True
 id: Interview Order
@@ -123,7 +126,11 @@ code: |
   review_fields_after_labeling
   questions.gather()
   interview.form_type
+  
+  # Review field order and screen order
+  show_field_order
   show_screen_order
+  screen_tbl_done
   
   # Generate draft interview yaml file 
   add_includes
@@ -1130,9 +1137,11 @@ code: |
   
 ---
 code: |
-  for question in questions:
-    question.type = "question"
-    interview.blocks.append(question)
+  # Use screen_reordered to reflect the user adjusted table order  
+  for question in screen_reordered:    
+    if question not in built_in_fields_used and question not in signature_fields:
+		  question.type = "question"
+		  interview.blocks.append(question)
   add_question_screens = True
 ---
 code: |
@@ -1188,8 +1197,7 @@ code: |
   
   objects_block.data = {
     "objects": objects
-  }
- 
+  } 
 
   add_objects_block = True
 ---
@@ -1224,25 +1232,23 @@ code: |
 table: screen_order.table
 rows: screen_order
 columns:
+  - Order: |
+      int(screen_order.index(row_item)) + 1  
   - Screen: |
       row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
-  - Edit: |
-      action_button_html(url_action(row_item.attr_name('edit_question'))) if isinstance(row_item, DAQuestion) else ''
-allow reordering: True
 ---
 table: questions[i].edit_table
-rows: screen_order[i].field_list
+rows: questions[i].field_list
 columns:
-  - Field: |
+  - Order: |
+      int(questions[i].field_list.index(row_item)) + 1  
+  - Field name: |
       row_item.final_display_var
-  - Prompt: |
-      row_item.label
 edit:
   - edit_field
 delete buttons: False  
-allow reordering: True  
 ---
 code: |
   questions[i].field_list.there_are_any = questions[i].field_list.number() > 0
@@ -1275,8 +1281,8 @@ fields:
         not hasattr(fields[i], 'label')
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
-  - Prompt: fields[i].label
-  - Type: fields[i].field_type
+  - On-screen field label: fields[i].label
+  - Field type: fields[i].field_type
     choices:
       - text
       - area
@@ -1297,31 +1303,53 @@ fields:
 validation code: |
   if not hasattr(fields[i], 'variable'):
     fields[i].variable = fields[i].final_display_var
+continue button label: Save
+back button label: Cancel
 ---
 continue button field: questions[i].edit_question
 scan for variables: False
 sets: questions[i].edit_question
 question: |
-  Edit question text
+  Review your ${ ordinal(i) } screen
+subquestion: |    
+  <div style="text-align:right; font-style: italic">[Skip these screens anytime: ${ action_button_html(url_action('show_screen_order'),
+                        label='Skip',
+                        size='md',
+                        color='primary') }]</div>
+                        
+  1. You can modify **Screen title** and **Text on your question screen** here and they will be reflected in the generated draft interview.   
 fields:
-  - Title: questions[i].question_text
-  - Body: questions[i].subquestion_text
+  - Screen title: questions[i].question_text
+  - Text on your question screen: questions[i].subquestion_text
     datatype: area
     required: False
   - note: |
-      #### Fields on this screen
-      ${ questions[i].edit_table }      
+      2. Click **Edit** below to modify individual field's label and type if needed.
+      3. After all the edits are done, you can **reorder** the fields in the table by **grabbing anywhere in a row and dragging it to the desired position.** _If you reorder fields before clicking Edit, you'll need to readjust field order after editing._   
+      ${ questions[i].draggable_fld_table }   
+  - no label: questions[i].fld_order_list 
+    datatype: draggable_tbl_order_list    
+    required: False
+  - no label: questions[i].table_data 
+    datatype: draggable_tbl_json_string
+    required: False
 ---
 continue button field: show_screen_order
 question: |
-  Review your interview
-subquestion: |
-  Click the button to edit or rearrange the order of screens below.
+  Review your screen order
+subquestion: |          
+  You can reorder your screens by **grabbing anywhere in a row and dragging it to the desired position.** 
+
+  ${ draggable_scr_table } 
   
-  You will see all of the built-in fields, regardless of whether they appear
-  together on one screen.
-  
-  ${ screen_order.table }
+  **NOTE:** All of the built-in fields are listed together, regardless of whether they appear together on one screen. For that reason, you don't need to reorder those rows.    
+fields:
+  - no label: scr_order_list 
+    datatype: draggable_tbl_order_list
+    required: False
+  - no label: scr_table_data
+    datatype: draggable_tbl_json_string    
+    required: False
 ---
 code: |
   # Build the code block that will control question flow
@@ -1352,7 +1380,7 @@ code: |
   progress = 0
   
   saved_answer_name_flag = False
-  for index, question in enumerate(screen_order):
+  for index, question in enumerate(screen_reordered):
     if index and index % screen_divisor == 0:
       progress += increment
       logic_list.append(f"set_progress({int(progress)})")
@@ -1869,3 +1897,60 @@ event: waiting_screen_uninstall
 question: |
   Package is being uninstalled, please wait here
 reload: True
+---
+comment: |
+  This block is called when the "screen table" is initially loaded.
+code: |
+  # Initialize the hidden field. It'll be updated in js
+  scr_order_list = '' # Will be updated in js
+  scr_table_data = '' # Will be updated in the next code block
+  
+  # Make the screen table draggable
+  html_scr_table = make_it_draggable(screen_order.table)
+  original_scr_order = html_scr_table[0] #list
+  draggable_scr_table = html_scr_table[1] #soup table    
+---
+comment: |
+  This block is called after the "screen table" is reordered by the user.  
+code: |   
+  if len(scr_order_list) > 0:        
+    # Update existing scr table order var - will affect output interview layout
+    screen_reordered = update_table_order_var(original_scr_order, scr_order_list, screen_order)   
+    
+    # Save new table data to the hidden field for JS to access
+    scr_table_data = make_json(scr_order_list, draggable_scr_table)
+  else:      
+    screen_reordered = screen_order    
+      
+  screen_tbl_done = True   
+---
+comment: |
+  This block is called when the "field table" is initially loaded.
+code: |
+  # Initialize the hidden fields. 
+  questions[i].fld_order_list = '' # Will be updated in js
+  questions[i].table_data = ''     # Will be updated in the next code block
+  
+  # Make the field table draggable  
+  questions[i].html_fld_table = make_it_draggable(questions[i].edit_table) 
+  questions[i].original_fld_order = questions[i].html_fld_table[0] #list
+  questions[i].draggable_fld_table = questions[i].html_fld_table[1] #soup table
+---
+comment: |
+  This block is called after the "field table" is reordered by the user.
+code: |     
+  if len(questions[i].fld_order_list) > 0:    
+    # Update existing fld table order var - will affect output interview layout
+    questions[i].field_list = update_table_order_var(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
+    
+    # Save new table data to the hidden field for JS to access    
+    questions[i].table_data = make_json(questions[i].fld_order_list, questions[i].draggable_fld_table)    
+    
+  questions[i].field_tbl_done = True  
+---
+# Loop thru all the field tables and display them on the screen
+code: |  
+  for j in range(0, len(questions)):      
+    questions[j].edit_question     
+    questions[j].field_tbl_done 
+  show_field_order = True
