@@ -186,6 +186,15 @@ css: |
     max-width: 2000px;
   }
   </style>
+right: |
+  #### Preview of PDF label placement
+  
+  <iframe src="${ field_preview_pdf.url_for() }" height="400"></iframe>
+  
+  _Limitations_: we do not have a way to show you the labels for
+  checkbox fields yet.
+  
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
 ---
 code: |
   signatures = [{field: placeholder_signature} for field in signature_fields_test]
@@ -245,6 +254,30 @@ buttons:
   - Exit: exit
     url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
 ---
+code: |
+  rename_fields = {}
+---
+id: rename fields
+question: |
+  Rename fields
+labels above fields: True  
+fields: 
+  - code: |
+      [{item[0]: f"rename_fields['{item[0]}']", "default" : item[0], "label above field": True, "required": False} for item in template_upload[0].get_pdf_fields()]
+right: |
+  #### Preview of PDF label placement
+  
+  <iframe src="${ field_preview_pdf.url_for() }" height="400"></iframe>
+
+  _note_: This preview will not update with live changes.
+  
+continue button field: display_rename_field_choices
+---
+code: |
+  rename_pdf_fields(template_upload[0].path(), rename_fields)
+  
+  renamed_fields = True
+---
 attachment:
   variable name: my_pdf
   pdf template file:
@@ -252,6 +285,15 @@ attachment:
       template_upload
   code: |
     pdf_fields
+---
+attachment:
+  variable name: field_preview_pdf
+  editable: False
+  pdf template file:
+    code: |
+      template_upload
+  code: |
+    reflect_fields(template_upload[0].get_pdf_fields())
 ---
 code: |
   from pdfminer.pdfparser import PDFSyntaxError

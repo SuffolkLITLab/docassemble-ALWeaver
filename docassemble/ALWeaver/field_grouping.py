@@ -1,10 +1,41 @@
 import re
 import spacy
 import numpy as np
+import pikepdf
 from numpy import unique
 from numpy import where
 from sklearn.cluster import AffinityPropagation
 from sklearn.metrics.pairwise import cosine_similarity
+from typing import Dict
+
+__all__ = ["reflect_fields", "reCase", "cluster_screens", "rename_pdf_fields"]
+
+
+def reflect_fields(fields):
+    """Return a mapping between the field names and either the same name, or "yes"
+    if the field is a checkbox value, in order to visually capture the location of
+    labeled fields on the PDF."""
+    mapping = []
+    for field in fields:
+        if field[4] == "/Btn":
+            mapping.append({field[0]: "Yes"})
+        else:
+            mapping.append({field[0]: field[0]})
+    return mapping
+
+
+def rename_pdf_fields(pdf_path: str, mapping: Dict[str, str]) -> None:
+    """Given a list of dictionaries, rename the AcroForm field with a matching key to the specified value"""
+    my_pdf = pikepdf.Pdf.open(pdf_path, allow_overwriting_input=True)
+
+    changed_fields = False
+
+    for field in my_pdf.Root.AcroForm.Fields:
+        if field.T in mapping:
+            field.T = mapping[field.T]
+            changed_fields = True
+    if changed_fields:
+        my_pdf.save(pdf_path)
 
 
 def reCase(text):
