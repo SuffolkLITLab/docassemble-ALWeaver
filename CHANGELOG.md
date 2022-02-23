@@ -1,3 +1,8 @@
+# Version v1.6.1
+
+Bug fix:
+Issue with I'm feeling lucky button
+
 # Version v1.6.0
 
 * Allow renaming fields in the automation process
