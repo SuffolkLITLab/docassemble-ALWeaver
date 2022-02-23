@@ -128,9 +128,10 @@ code: |
   interview.form_type
   
   # Review field order and screen order
-  show_field_order
-  show_screen_order
-  screen_tbl_done
+  if not (has_safe_pdf_in_url and im_feeling_lucky):
+    show_field_order
+    show_screen_order
+    screen_tbl_done
   
   # Generate draft interview yaml file 
   add_includes
