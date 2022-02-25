@@ -1563,30 +1563,53 @@ objects:
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
   - next_steps_documents: DADict.using(object_type=DADict)
 ---
+############ Next Steps documents generation ################
+comment: |
+  All of the below code is split into separate code blocks so we don't slow things down
 code: |
   next_steps_documents['starts_case']['attachment'] = next_steps_starts_case
+---
+code: |
   next_steps_documents['existing_case']['attachment'] = next_steps_existing_case
+---
+code: |
   next_steps_documents['appeal']['attachment'] = next_steps_appeal
+---
+code: |
   next_steps_documents['letter']['attachment'] = next_steps_letter
+---
+code: |
   next_steps_documents['other_form']['attachment'] = next_steps_other_form
+---
+code: |
   next_steps_documents['other']['attachment'] = next_steps_other
 ---
 attachments:
   - variable name: next_steps_starts_case
     docx template file: next_steps_starts_case.docx
     filename: ${ interview_label + '_next_steps' }
+---
+attachments:
   - variable name: next_steps_existing_case
     docx template file: next_steps_existing_case.docx
     filename: ${ interview_label + '_next_steps' }    
+---
+attachments:
   - variable name: next_steps_appeal
     docx template file: next_steps_appeal.docx
     filename: ${ interview_label + '_next_steps' }    
+---
+attachments:
   - variable name: next_steps_letter
     docx template file: next_steps_letter.docx
     filename: ${ interview_label + '_next_steps' }    
+---
+attachments:
   - variable name: next_steps_other_form
     docx template file:  next_steps_other_form.docx
     filename: ${ interview_label + '_next_steps' }    
+---
+attachments:
   - variable name: next_steps_other
     docx template file:  next_steps_other.docx
     filename: ${ interview_label + '_next_steps' }    
