@@ -1565,7 +1565,7 @@ objects:
 ---
 ############ Next Steps documents generation ################
 comment: |
-  All of the below code is split into separate code blocks so we don't slow things down
+  All of the below code is split into separate code blocks so it doesn't generate all docs when we only need 1
 code: |
   next_steps_documents['starts_case']['attachment'] = next_steps_starts_case
 ---
