@@ -1,3 +1,7 @@
+# Version v1.6.2
+
+Revert FormFyxer, spacy models aren't installing correctly. 
+
 # Version v1.6.1
 
 Bug fix:
