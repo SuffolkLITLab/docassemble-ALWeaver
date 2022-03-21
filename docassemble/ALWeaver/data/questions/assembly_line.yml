@@ -6,8 +6,8 @@ metadata:
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org  
 ---
-imports:
-  - formfyxer
+#imports:
+#  - formfyxer
 ---
 mandatory: True
 code: |
@@ -100,6 +100,7 @@ code: |
     weaver_intro
     template_upload
     if template_upload[0].filename.endswith('pdf'):
+      yes_normalize_fields = False
       if yes_normalize_fields:
         process_field_normalization
       validate_pdf
@@ -271,11 +272,11 @@ fields:
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  - Rename fields automatically (PDFs only): yes_normalize_fields
-    datatype: yesno
-    help: |
-      Use our experimental code to automatically apply AssemblyLine naming conventions.
-      If you already followed naming conventions, you might want to skip this.
+#  - Rename fields automatically (PDFs only): yes_normalize_fields
+#    datatype: yesno
+#    help: |
+#      Use our experimental code to automatically apply AssemblyLine naming conventions.
+#      If you already followed naming conventions, you might want to skip this.
 validation code: |
   try:
     pdf_concatenate(template_upload, template_upload)
@@ -312,8 +313,8 @@ code: |
 ---
 code: |
   import os
-  formfyxer.parse_form(template_upload[0].path(), title=os.path.basename(template_upload[0].path()), jur="MA", normalize=1,rewrite=1)
-  template_upload[0].commit()
+  #formfyxer.parse_form(template_upload[0].path(), title=os.path.basename(template_upload[0].path()), jur="MA", normalize=1,rewrite=1)
+  #template_upload[0].commit()
   process_field_normalization = True
 ---
 modules:
