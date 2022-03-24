@@ -43,8 +43,11 @@ def get_jinja_errors(the_file: DAFile) -> Optional[str]:
             )
         return errmess
 
+
 def get_mako_matches(the_file: DAFile) -> Iterable[str]:
-    """Find's instances of mako in the file's DOCX content's """
-    match_mako = r"\${[^{].*\}" # look for ${ without a double {{, for cases of dollar values
-    docx_data = docx2python( the_file.path() )  # Will error with invalid value
+    """Find's instances of mako in the file's DOCX content's"""
+    match_mako = (
+        r"\${[^{].*\}"  # look for ${ without a double {{, for cases of dollar values
+    )
+    docx_data = docx2python(the_file.path())  # Will error with invalid value
     return re.findall(match_mako, docx_data.text)
