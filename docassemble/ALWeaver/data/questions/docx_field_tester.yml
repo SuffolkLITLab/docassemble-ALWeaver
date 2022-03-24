@@ -19,12 +19,7 @@ code: |
   validate_docx = True
 ---
 code: |
-  from docx2python import docx2python
-  match_mako = r"\${[^{].*\}" # look for ${ without a double {{, for cases of dollar values
-  docx_data = docx2python( template_upload[0].path() )  # Will error with invalid value
-  
-  mako_matches = re.findall(match_mako, docx_data.text)
-  
+  mako_matches = get_mako_matches(template_upload[0])
   contains_mako = len(mako_matches)
 ---
 need: 
