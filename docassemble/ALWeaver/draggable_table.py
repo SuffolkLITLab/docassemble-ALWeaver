@@ -42,7 +42,7 @@ def make_it_draggable(tbl_data) -> list:
         cell = row.find_all("td")[1].get_text()
         original_order.append(cell)
 
-    return [original_order, soup]
+    return [original_order, str(soup)]
 
 
 def update_table_order_var(old_table_order, new_table_order, old_object):
@@ -70,12 +70,14 @@ def update_table_order_var(old_table_order, new_table_order, old_object):
     return new_object
 
 
-def make_json(order, old_soup):
+def make_json(order, old_html):
     """
     This function saves the adjusted table data as a json string, so that it can be passed to a hidden field on the table screen.
     1. Use the reordered index (order) saved by JS to copy matching rows from the original table old_soup to a list
     2. Convert the list to json
     """
+
+    old_soup = BeautifulSoup(old_html, 'html.parser')
     # 1. Convert adjusted table order from string to list
     adjusted_order = []
     adjusted_order = order.split(",")
