@@ -77,7 +77,7 @@ def make_json(order, old_html):
     2. Convert the list to json
     """
 
-    old_soup = BeautifulSoup(old_html, 'html.parser')
+    old_soup = BeautifulSoup(old_html, "html.parser")
     # 1. Convert adjusted table order from string to list
     adjusted_order = []
     adjusted_order = order.split(",")
