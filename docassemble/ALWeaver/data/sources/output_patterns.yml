@@ -196,43 +196,46 @@ metadata: |
 al metadata: |
   mandatory: True
   comment: |
-    This contains metadata that will not be overwritten if this YAML file is included in another
-    file. Each file gets its own key in the interview_metadata dictionary.
-    Most keys are not currently used at runtime, other than "allowed courts".
-  code: |
-    interview_metadata
-    if not defined("interview_metadata['${ interview_label }']"):
-      interview_metadata.initializeObject("${ interview_label }")
-      interview_metadata["${ interview_label }"].update({
-        % if al_weaver_version:
-        "al_weaver_version": "${ al_weaver_version }",
-        % endif
-        "generated on": "${ today().format("yyyy-MM-dd") }",
-        "title": "${ escape_quotes(oneline(title)) }",
-        "short title": "${ escape_quotes(oneline(short_title)) }",
-        "description": "${ escape_quotes(oneline(description)) }",
-        "original_form": "${ escape_quotes(oneline(original_form)) }",
-        "allowed courts": [
-          % for court in allowed_courts.true_values():
-          "${ escape_quotes(oneline(court)) }",
-          % endfor
-        ],
-        "categories": [
-          % for category in set(categories.true_values()) - {'Other'}:
-          "${ oneline(category) }",
-          % endfor
-          % if categories['Other']:
-          % for category in other_categories.split(','):
-          "${ escape_quotes(oneline(category.strip())) }",
-          % endfor
-          % endif
-        ],        
-        "logic block variable": "interview_order_${ interview_label }",
-        "attachment block variable": "${ interview_label }_attachment",
-        % if typical_role:
-        "typical role": "${ typical_role }",
-        % endif
-      })
+    Global interview metadata
+  variable name: interview_metadata["${ interview_label }"]
+  data:
+    % if al_weaver_version:
+    al_weaver_version: "${ al_weaver_version }"
+    % endif
+    generated on: "${ today().format("yyyy-MM-dd") }"
+    title: >-
+      ${ title }
+    short title: >-
+      ${ short_title }
+    description: |-
+      ${ description }
+    original_form: >-
+      original_form
+    % if len(allowed_courts.true_values()) < 1:
+    allowed courts: []
+    % else:
+    allowed courts: 
+    % for court in allowed_courts.true_values():
+      - ${ oneline(court) }
+    % endfor
+    % endif
+    % if len(categories.true_values()) < 1:
+    categories: []
+    % else:  
+    % for category in set(categories.true_values()) - {'Other'}:
+      - ${ oneline(category) }
+    % endfor
+    % if categories['Other']:
+    % for category in other_categories.split(','):
+      - ${ oneline(category.strip()) }
+    % endfor
+    % endif
+    % endif
+    logic block variable: interview_order_${ interview_label }
+    attachment block variable: ${ interview_label }_attachment  
+    % if typical_role:
+    typical role: "${ typical_role }"
+    % endif
 # Default country and state
 default country and state: |
   code: |
