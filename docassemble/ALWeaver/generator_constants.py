@@ -47,6 +47,7 @@ generator_constants.RESERVED_PREFIXES = [
     "courts",
     "decedents",
     "interested_partys",
+    "interested_parties",
     "trial_court",
     "docket_numbers",
     "user",
@@ -69,6 +70,7 @@ generator_constants.RESERVED_PREFIXES = [
     "interested_party",
     "trial_court",
     "docket_numbers",
+    "adoptees",
     # Can't find a way to make order not matter here
     # without making everything in general more messy
     "guardians_ad_litem",
@@ -99,6 +101,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "interested_parties": "interested_parties",
     "guardians_ad_litem": "guardians_ad_litem",
     "guardians": "guardians",
+    "adoptees": "adoptees",  
     # These are left in for backwards compatibility
     "user": "users",
     "plaintiff": "plaintiffs",
@@ -119,7 +122,8 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "guardian_ad_litem": "guardians_ad_litem",
     "witness": "witnesses",
     "decedent": "decedents",
-    "interested_party": "interested_parties",
+    "interested_party": "interested_parties",    
+    "adoptee": "adoptee",
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
