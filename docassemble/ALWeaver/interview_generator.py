@@ -640,16 +640,16 @@ class DAField(DAObject):
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
-        if hasattr(self, 'maxlength'):
-          field_questions.append(
-              {
-                  "label": "Send overflow text to addendum",
-                  "field": f"fields[{index}].send_to_addendum",
-                  "datatype": "yesno",
-                  "js show if": f"val('fields[{index}].field_type') === 'area' ",
-                  "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
-              }
-          )
+        if hasattr(self, "maxlength"):
+            field_questions.append(
+                {
+                    "label": "Send overflow text to addendum",
+                    "field": f"fields[{index}].send_to_addendum",
+                    "datatype": "yesno",
+                    "js show if": f"val('fields[{index}].field_type') === 'area' ",
+                    "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
+                }
+            )
         return field_questions
 
     def trigger_gather(
