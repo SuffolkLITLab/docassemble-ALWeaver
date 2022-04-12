@@ -922,7 +922,7 @@ code: |
     "interview_label": interview_label,
     "title": interview.title,
     "short_title": interview.short_title,
-    "description": single_paragraph(interview.description),
+    "description": interview.description,
     "original_form": interview.original_form,
     "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,

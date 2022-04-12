@@ -13,7 +13,7 @@ mako template local imports:
   interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
 # To import from an installed package or third-party Python package, provide a list of strings
 mako template imports: 
-  - from docassemble.base.util import today
+  - from docassemble.base.util import today, indent
   - from more_itertools import unique_everseen
 #  - from docassemble.ALWeaver.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
@@ -192,7 +192,6 @@ metadata: |
   % endfor
   % endif
 # Form-specific metadata that goes into a dictionary, much of it reserved for future use
-# TODO: refactor to a Docassemble `data:` block
 al metadata: |
   mandatory: True
   comment: |
@@ -204,13 +203,13 @@ al metadata: |
     % endif
     generated on: "${ today().format("yyyy-MM-dd") }"
     title: >-
-      ${ title }
+      ${ oneline(title) }
     short title: >-
-      ${ short_title }
+      ${ oneline(short_title) }
     description: |-
-      ${ description }
+    ${ indent(description, by=2) }
     original_form: >-
-      original_form
+    ${ indent(original_form, by=2) }
     % if len(allowed_courts.true_values()) < 1:
     allowed courts: []
     % else:
@@ -234,7 +233,7 @@ al metadata: |
     logic block variable: interview_order_${ interview_label }
     attachment block variable: ${ interview_label }_attachment  
     % if typical_role:
-    typical role: "${ typical_role }"
+    typical role: "${ oneline(typical_role) }"
     % endif
 # Default country and state
 default country and state: |
