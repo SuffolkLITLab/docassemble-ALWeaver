@@ -101,7 +101,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "interested_parties": "interested_parties",
     "guardians_ad_litem": "guardians_ad_litem",
     "guardians": "guardians",
-    "adoptees": "adoptees",  
+    "adoptees": "adoptees",
     # These are left in for backwards compatibility
     "user": "users",
     "plaintiff": "plaintiffs",
@@ -122,7 +122,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "guardian_ad_litem": "guardians_ad_litem",
     "witness": "witnesses",
     "decedent": "decedents",
-    "interested_party": "interested_parties",    
+    "interested_party": "interested_parties",
     "adoptee": "adoptees",
 }
 
