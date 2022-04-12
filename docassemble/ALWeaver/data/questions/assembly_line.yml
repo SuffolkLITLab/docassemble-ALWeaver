@@ -100,7 +100,9 @@ code: |
     weaver_intro
     template_upload
     if template_upload[0].filename.endswith('pdf'):
-      if yes_normalize_fields:
+      if yes_recognize_form_fields:
+        process_field_recognition              
+      elif yes_normalize_fields:
         process_field_normalization
       validate_pdf
       if no_recognized_pdf_fields:
@@ -271,6 +273,12 @@ fields:
     datatype: file
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
+    datatype: yesno
+    help: |
+      Use our experimental code to automatically identify boxes and lines. Form fields
+      will be added where we think the form author intended the user to type or write-in
+      information. If your document already has fields, you don't need this step.
   - Rename fields automatically (PDFs only): yes_normalize_fields
     datatype: yesno
     help: |
@@ -316,6 +324,15 @@ code: |
   template_upload[0].commit()
   process_field_normalization = True
 ---
+code: |
+  formfyxer.auto_add_fields(template_upload[0].path(), template_upload[0].path())
+  
+  # also normalize field names after newly recognizing them
+  formfyxer.parse_form(template_upload[0].path(), title=template_upload[0].filename, jur="MA", normalize=1, rewrite=1)
+  
+  template_upload[0].path().commit()
+  process_field_recognition = True  
+---
 modules:
   - .field_grouping
 ---
@@ -323,6 +340,7 @@ scan for variables: False
 sets: process_im_feeling_lucky
 code: |
   yes_normalize_fields = False
+  yes_recognize_form_fields = False
   if has_safe_pdf_in_url: # limit when this block can run
     # Set interview defaults based on the PDF passed in the URL args
     interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
