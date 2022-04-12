@@ -70,10 +70,10 @@ preview screen: |
     
     <%text>${</%text> ${bundle_name}.as_pdf(key='preview') <%text>}</%text>
 
-    Click the image to open it in a new tab. Click the "Make changes" button
+    Click the image to open it in a new tab. Click the "Edit answers" button
     to edit your answers.
 
-    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Make changes', color='info') <%text>}</%text>
+    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Edit answers', color='info') <%text>}</%text>
     
     Remember to come back to this window to continue and sign your form.
   continue button field: ${ interview_label }_preview_question    
@@ -81,13 +81,14 @@ download screen: |
   id: download ${ interview_label }
   event: ${ interview_label }_download
   question: |
-    Your form is ready to download.
+    All done
   subquestion: |
+    #### Download your document and instructions
     Thank you <%text>${users}</%text>. Your form is ready to download and deliver.
     
-    View, download and send your form below. Click the "Make changes" button to fix any mistakes.
+    View, download and send your form below. Click the "Edit answers" button to fix any mistakes.
 
-    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Make changes', color='info') <%text>}</%text>
+    <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Edit answers', color='info') <%text>}</%text>
     
     <%text>
     ${ al_user_bundle.download_list_html() }
