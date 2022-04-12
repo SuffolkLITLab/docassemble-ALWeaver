@@ -454,7 +454,9 @@ class DAField(DAObject):
         settable_var = self.get_settable_var()
         content = ""
         if self.has_label:
-            content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
+            # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
+            # We want to quote words like yes, no, and also symbols like :.
+            content += '  - "{}": {}\n'.format(escape_double_quotes(self.label), settable_var)
         else:
             content += "  - no label: {}\n".format(settable_var)
         # Use all of these fields plainly. No restrictions/validation yet
@@ -1065,6 +1067,9 @@ def escape_quotes(text: str) -> str:
     """Escape both single and double quotes in strings"""
     return text.replace('"', '\\"').replace("'", "\\'")
 
+def escape_double_quotes(text:str) -> str:
+    """Escape only double quotes in a string"""
+    return text.replace('"',r'\"')
 
 def to_yaml_file(text: str) -> str:
     text = varname(text)
