@@ -123,7 +123,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "witness": "witnesses",
     "decedent": "decedents",
     "interested_party": "interested_parties",    
-    "adoptee": "adoptee",
+    "adoptee": "adoptees",
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
