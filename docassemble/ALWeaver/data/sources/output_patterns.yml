@@ -102,6 +102,12 @@ code: |
     % for line in lines:
     ${ line }
     % endfor
+addresses to search: |
+  code: |
+    # This is a placeholder for the addresses that will be searched
+    # for matching address to court. Edit if court venue is based on 
+    # a different address than the user's
+    addresses_to_search = [user.address for user in users]
 # Objects block
 objects: |
   objects:
