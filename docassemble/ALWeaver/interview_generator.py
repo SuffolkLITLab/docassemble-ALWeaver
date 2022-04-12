@@ -618,19 +618,38 @@ class DAField(DAObject):
                     "text",
                     "area",
                     "yesno",
+                    "noyes",
+                    "yesnoradio",
+                    "noyesradio",
                     "integer",
                     "number",
                     "currency",
                     "date",
                     "email",
+                    "multiple choice dropdown",
+                    "multiple choice combobox",
                     "multiple choice radio",
                     "multiple choice checkboxes",
+                    "multiselect",
+                    "file upload",
+                    "code",
+                    "skip this field",
                 ],
                 "default": self.field_type_guess
                 if hasattr(self, "field_type_guess")
                 else None,
             }
         )
+        field_questions.append(
+            {
+                "label": "Python code",
+                "field": f"fields[{index}].code",
+                "datatype": "area",
+                "show if": {"variable": f"fields[{index}].field_type",
+                            "is": "code"
+                           },
+                "help": f"Enter a valid Python expression, such as `{self.final_display_var} = 10`",
+            })
         field_questions.append(
             {
                 "label": "Options (one per line)",
