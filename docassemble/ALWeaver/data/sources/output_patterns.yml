@@ -220,7 +220,8 @@ al metadata: |
     % endif
     % if len(categories.true_values()) < 1:
     categories: []
-    % else:  
+    % else:
+    categories:
     % for category in set(categories.true_values()) - {'Other'}:
       - ${ oneline(category) }
     % endfor
