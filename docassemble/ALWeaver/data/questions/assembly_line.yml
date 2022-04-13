@@ -142,10 +142,12 @@ code: |
   add_short_title
   add_form_type  
   add_objects_block
-  add_sections  
+  add_sections
   add_interview_order
   add_intro_screen
   add_question_screens
+  if interview.court_related:
+    add_addresses_to_search
   add_preview_screen  
   add_signature_trigger
   add_review_screen  
@@ -1691,6 +1693,12 @@ code: |
   else:
     preview_question.data['bundle_name'] = 'al_recipient_bundle'
   add_preview_screen = True
+---
+code: |
+  addresses_to_search_screen = interview.blocks.appendObject()
+  addresses_to_search_screen.template_key = "addresses to search"
+  addresses_to_search_screen.data = {}
+  add_addresses_to_search = True
 ---
 need:
   - interview_label
