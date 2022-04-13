@@ -195,7 +195,7 @@ class DABlockList(DAList):
         super().init(*pargs, **kwargs)
         self.object_type = DABlock
 
-    def all_fields_used(self):
+    def all_fields_used(self, all_fields:List = None):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
         in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
         It prevents the formatter of the wizard from putting the same fields on two different screens."""
@@ -204,6 +204,8 @@ class DABlockList(DAList):
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
                     fields.add(field)
+        if all_fields:
+            fields.update([field for field in all_fields if field.field_type in ["code", "skip this field"]])
         return fields
 
 
@@ -217,15 +219,19 @@ class DAQuestionList(DAList):
         # self.gathered = True
         # self.is_mandatory = False
 
-    def all_fields_used(self):
-        """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-        It prevents the formatter of the wizard from putting the same fields on two different screens."""
+    def all_fields_used(self, all_fields:List = None):
+        """This method is used to help us iteratively build a list of fields that have already been assigned to a
+        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
+        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
+        parameter "all_fields" is provided.
+        """
         fields = set()
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
                     fields.add(field)
+        if all_fields:
+            fields.update([field for field in all_fields if field.field_type in ["code", "skip this field"]])
         return fields
 
 
@@ -453,12 +459,14 @@ class DAField(DAObject):
     def field_entry_yaml(self) -> str:
         settable_var = self.get_settable_var()
         content = ""
+        if self.field_type in ["code", "skip this field"]:
+            return
         if self.has_label:
             content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
         else:
             content += "  - no label: {}\n".format(settable_var)
         # Use all of these fields plainly. No restrictions/validation yet
-        if self.field_type in ["yesno", "yesnomaybe", "file"]:
+        if self.field_type in ["yesno", "yesnomaybe", "file", "yesnoradio", "noyes", "noyesradio"]:
             content += "    datatype: {}\n".format(self.field_type)
         elif self.field_type == "multiple choice radio":
             content += "    input type: radio\n"
@@ -467,6 +475,21 @@ class DAField(DAObject):
                 content += f"      - {choice}\n"
         elif self.field_type == "multiple choice checkboxes":
             content += "    datatype: checkboxes\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiple choice combobox":
+            content += "    datatype: combobox\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiple choice dropdown":
+            content += "    input type: dropdown\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiselect":
+            content += "    datatype: multiselect\n"
             content += "    choices:\n"
             for choice in self.choices.splitlines():
                 content += f"      - {choice}\n"
@@ -631,7 +654,7 @@ class DAField(DAObject):
                     "multiple choice radio",
                     "multiple choice checkboxes",
                     "multiselect",
-                    "file upload",
+                    "file",
                     "code",
                     "skip this field",
                 ],
