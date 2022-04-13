@@ -197,7 +197,7 @@ class DABlockList(DAList):
         super().init(*pargs, **kwargs)
         self.object_type = DABlock
 
-    def all_fields_used(self, all_fields:List = None):
+    def all_fields_used(self, all_fields: List = None):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
         in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
         It prevents the formatter of the wizard from putting the same fields on two different screens."""
@@ -207,7 +207,13 @@ class DABlockList(DAList):
                 for field in question.field_list.elements:
                     fields.add(field)
         if all_fields:
-            fields.update([field for field in all_fields if field.field_type in ["code", "skip this field"]])
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                ]
+            )
         return fields
 
 
@@ -221,7 +227,7 @@ class DAQuestionList(DAList):
         # self.gathered = True
         # self.is_mandatory = False
 
-    def all_fields_used(self, all_fields:List = None):
+    def all_fields_used(self, all_fields: List = None):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
         screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
         It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
@@ -233,7 +239,13 @@ class DAQuestionList(DAList):
                 for field in question.field_list.elements:
                     fields.add(field)
         if all_fields:
-            fields.update([field for field in all_fields if field.field_type in ["code", "skip this field"]])
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                ]
+            )
         return fields
 
 
@@ -468,7 +480,14 @@ class DAField(DAObject):
         else:
             content += "  - no label: {}\n".format(settable_var)
         # Use all of these fields plainly. No restrictions/validation yet
-        if self.field_type in ["yesno", "yesnomaybe", "file", "yesnoradio", "noyes", "noyesradio"]:
+        if self.field_type in [
+            "yesno",
+            "yesnomaybe",
+            "file",
+            "yesnoradio",
+            "noyes",
+            "noyesradio",
+        ]:
             content += "    datatype: {}\n".format(self.field_type)
         elif self.field_type == "multiple choice radio":
             content += "    input type: radio\n"
@@ -669,11 +688,10 @@ class DAField(DAObject):
             {
                 "label": f"Complete the expression, `{self.final_display_var} = `",
                 "field": f"fields[{index}].code",
-                "show if": {"variable": f"fields[{index}].field_type",
-                            "is": "code"
-                           },
+                "show if": {"variable": f"fields[{index}].field_type", "is": "code"},
                 "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[0].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
-            })
+            }
+        )
         field_questions.append(
             {
                 "label": "Options (one per line)",
@@ -1688,12 +1706,14 @@ def bad_name_reason(field: Union[str, Tuple]):
             )
         return None
 
-def is_valid_python(code:str) -> bool:
+
+def is_valid_python(code: str) -> bool:
     try:
         ast.parse(code)
     except SyntaxError:
         return False
     return True
+
 
 def create_package_zip(
     pkgname: str,
