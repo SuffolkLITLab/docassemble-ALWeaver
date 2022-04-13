@@ -146,6 +146,7 @@ code: |
   add_interview_order
   add_intro_screen
   add_question_screens
+  add_fields_set_by_code
   add_preview_screen  
   add_signature_trigger
   add_review_screen  
@@ -1019,6 +1020,12 @@ fields:
     show if:
       code: |
         len(built_in_fields_used) or len(signature_fields)
+validation code: |
+  for field in fields:
+    if field.field_type == "code":
+        expression = f"{field.final_display_var} = {field.code}"
+        if not is_valid_python(expression):
+            validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
 ---
 id: add fields
 question: |
@@ -1144,6 +1151,21 @@ code: |
 		  question.type = "question"
 		  interview.blocks.append(question)
   add_question_screens = True
+---
+code: |
+  for field in fields:
+    if field.field_type == "code":
+      code_block = interview.blocks.appendObject()
+      code_block.template_key = "code"
+      code_block.data = {
+        "lines": [
+          f"{field.final_display_var} = {field.code}"
+        ]}
+    elif field.field_type == "skip this field":
+      code_block = interview.blocks.appendObject()
+      code_block.template_key = "code"
+      code_block.data = {"lines": [f"{field.final_display_var} = DAEmpty()"]}
+  add_fields_set_by_code = True
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))

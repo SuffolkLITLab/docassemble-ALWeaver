@@ -30,6 +30,7 @@ import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
 from pdfminer.pdftypes import PDFObjRef, resolve1
+import ast
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -70,6 +71,7 @@ __all__ = [
     "pdf_field_type_str",
     "bad_name_reason",
     "mako_local_import_str",
+    "is_valid_python",
 ]
 
 always_defined = set(
@@ -665,20 +667,19 @@ class DAField(DAObject):
         )
         field_questions.append(
             {
-                "label": "Python code",
+                "label": f"Complete the expression, `{self.final_display_var} = `",
                 "field": f"fields[{index}].code",
-                "datatype": "area",
                 "show if": {"variable": f"fields[{index}].field_type",
                             "is": "code"
                            },
-                "help": f"Enter a valid Python expression, such as `{self.final_display_var} = 10`",
+                "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[0].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
             })
         field_questions.append(
             {
                 "label": "Options (one per line)",
                 "field": f"fields[{index}].choices",
                 "datatype": "area",
-                "js show if": f"val('fields[{index}].field_type') === 'multiple choice radio' || val('fields[{index}].field_type') === 'multiple choice checkboxes'",
+                "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('fields[{index}].field_type'))",
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
@@ -1687,6 +1688,12 @@ def bad_name_reason(field: Union[str, Tuple]):
             )
         return None
 
+def is_valid_python(code:str) -> bool:
+    try:
+        ast.parse(code)
+    except SyntaxError:
+        return False
+    return True
 
 def create_package_zip(
     pkgname: str,
