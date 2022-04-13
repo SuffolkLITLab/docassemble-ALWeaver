@@ -457,7 +457,7 @@ class DAField(DAObject):
             # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
             # We want to quote words like yes, no, and also symbols like :.
             content += '  - "{}": {}\n'.format(
-                escape_double_quotes(self.label), settable_var
+                escape_double_quoted_yaml(self.label), settable_var
             )
         else:
             content += "  - no label: {}\n".format(settable_var)
@@ -1070,9 +1070,9 @@ def escape_quotes(text: str) -> str:
     return text.replace('"', '\\"').replace("'", "\\'")
 
 
-def escape_double_quotes(text: str) -> str:
-    """Escape only double quotes in a string"""
-    return text.replace('"', r"\"")
+def escape_double_quoted_yaml(text: str) -> str:
+    """Escape only double quotes in a string and the escape character itself"""
+    return text.replace(r"\",r"\\").replace('"', r"\"")
 
 
 def to_yaml_file(text: str) -> str:
