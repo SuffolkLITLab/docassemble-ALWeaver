@@ -1080,7 +1080,7 @@ code: |
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used()) < len(fields)
+  questions.there_is_another = len(questions.all_fields_used(all_fields=fields)) < len(fields)
 ---
 id: create a draft of screen i
 question: |
@@ -1104,9 +1104,9 @@ fields:
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used()
+    exclude: questions.all_fields_used(all_fields=fields)
     none of the above: False
-    choices: fields
+    choices: fields      
     object labeler: labeller_bold_plus_label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
