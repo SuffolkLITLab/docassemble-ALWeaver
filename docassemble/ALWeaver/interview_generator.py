@@ -1389,7 +1389,7 @@ def map_raw_to_final_display(
                 err_str = 'The "{}" label refers to the 0th item in a list, when it is likely meant the 1st item. You should replace that label with "{}".'.format(
                     label, adjusted_prefix + "1" + label_groups[3]
                 )
-                url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables#more-than-one"
+                url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables/#special-situation-for-names-of-people-in-pdfs"
                 raise ParsingException(main_issue, err_str, url)
             else:
                 index = "[" + str(digit - 1) + "]"
@@ -1527,6 +1527,7 @@ def process_custom_people(
     custom_people: list,
     fields: list,
     built_in_fields: list,
+    document_type: str = "pdf",
     people_suffixes: list = (
         generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
     ),
@@ -1543,7 +1544,7 @@ def process_custom_people(
     for field in fields:
         # Simpler case: PDF variables matching our naming rules
         new_potential_name = map_raw_to_final_display(
-            field.variable, reserved_prefixes=custom_people
+            field.variable, document_type=document_type, reserved_prefixes=custom_people
         )
         # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
         if not ("[" in field.variable) and new_potential_name != field.variable:
@@ -1708,7 +1709,8 @@ def bad_name_reason(field: Union[str, Tuple]):
     else:
         log(field[0], "console")
         python_var = map_raw_to_final_display(
-            remove_multiple_appearance_indicator(varname(field[0]))
+            remove_multiple_appearance_indicator(varname(field[0])), 
+            document_type="pdf"
         )
         if len(python_var) == 0:
             return "{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters".format(
