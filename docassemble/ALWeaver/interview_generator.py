@@ -1072,7 +1072,7 @@ def escape_quotes(text: str) -> str:
 
 def escape_double_quoted_yaml(text: str) -> str:
     """Escape only double quotes in a string and the escape character itself"""
-    return text.replace(r"\",r"\\").replace('"', r"\"")
+    return text.replace("\\",r"\\").replace('"', r"\"")
 
 
 def to_yaml_file(text: str) -> str:
