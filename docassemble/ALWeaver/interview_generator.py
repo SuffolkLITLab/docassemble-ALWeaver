@@ -454,7 +454,11 @@ class DAField(DAObject):
         settable_var = self.get_settable_var()
         content = ""
         if self.has_label:
-            content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
+            # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
+            # We want to quote words like yes, no, and also symbols like :.
+            content += '  - "{}": {}\n'.format(
+                escape_double_quoted_yaml(self.label), settable_var
+            )
         else:
             content += "  - no label: {}\n".format(settable_var)
         # Use all of these fields plainly. No restrictions/validation yet
@@ -640,15 +644,16 @@ class DAField(DAObject):
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
-        field_questions.append(
-            {
-                "label": "Send overflow text to addendum",
-                "field": f"fields[{index}].send_to_addendum",
-                "datatype": "yesno",
-                "show if": {"code": f'hasattr(fields[{index}], "maxlength")'},
-                "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
-            }
-        )
+        if hasattr(self, "maxlength"):
+            field_questions.append(
+                {
+                    "label": "Send overflow text to addendum",
+                    "field": f"fields[{index}].send_to_addendum",
+                    "datatype": "yesno",
+                    "js show if": f"val('fields[{index}].field_type') === 'area' ",
+                    "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
+                }
+            )
         return field_questions
 
     def trigger_gather(
@@ -1064,6 +1069,11 @@ def oneline(text: str) -> str:
 def escape_quotes(text: str) -> str:
     """Escape both single and double quotes in strings"""
     return text.replace('"', '\\"').replace("'", "\\'")
+
+
+def escape_double_quoted_yaml(text: str) -> str:
+    """Escape only double quotes in a string and the escape character itself"""
+    return text.replace("\\", r"\\").replace('"', r"\"")
 
 
 def to_yaml_file(text: str) -> str:
