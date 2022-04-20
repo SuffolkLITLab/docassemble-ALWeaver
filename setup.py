@@ -53,11 +53,7 @@ setup(name='docassemble.ALWeaver',
       url='https://docassemble.org',
       packages=find_packages(),
       namespace_packages=['docassemble'],
-<<<<<<< HEAD
-      install_requires=['PyYAML>=5.1.2', 'beautifulsoup4>=4.11.1', 'docassemble.ALToolbox>=0.4.0', 'docassemble.AssemblyLine>=2.10.2', 'docx2python>=1.27.1', 'formfyxer>=0.0.9', 'more-itertools>=8.6.0', 'numpy>=1.0.4', 'pikepdf>=5.1.1', 'sklearn>=0.0', 'spacy>=3.2.0'],
-=======
       install_requires=['PyYAML>=5.1.2', 'beautifulsoup4>=4.9.3', 'docassemble.ALToolbox>=0.4.0', 'docassemble.AssemblyLine>=2.10.1', 'docx2python>=1.27.1', 'formfyxer>=0.0.9', 'more-itertools>=8.6.0', 'numpy>=1.0.4', 'pikepdf>=5.1.1', 'sklearn>=0.0', 'spacy>=3.2.0'],
->>>>>>> main
       zip_safe=False,
       package_data=find_package_data(where='docassemble/ALWeaver/', package='docassemble.ALWeaver'),
      )
