@@ -10,7 +10,7 @@
 # resolution, so you should make sure any text processing functions are safe to handle DAEmpty objects.
 # You can provide local imports as a dictionary of lists. These will import from playground or runtime.
 mako template local imports:
-  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
+  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline, escape_double_quoted_yaml]
 # To import from an installed package or third-party Python package, provide a list of strings
 mako template imports: 
   - from docassemble.base.util import today, indent
@@ -215,7 +215,7 @@ al metadata: |
     % else:
     allowed courts: 
     % for court in allowed_courts.true_values():
-      - ${ oneline(court) }
+      - "${ escape_double_quoted_yaml(oneline(court)) }"
     % endfor
     % endif
     % if len(categories.true_values()) < 1:
@@ -223,18 +223,16 @@ al metadata: |
     % else:
     categories:
     % for category in set(categories.true_values()) - {'Other'}:
-      - ${ oneline(category) }
+      - "${ escape_double_quoted_yaml(oneline(category)) }"
     % endfor
     % if categories['Other']:
     % for category in other_categories.split(','):
-      - ${ oneline(category.strip()) }
+      - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
     % endfor
     % endif
     % endif
-    logic block variable: interview_order_${ interview_label }
-    attachment block variable: ${ interview_label }_attachment  
     % if typical_role:
-    typical role: "${ oneline(typical_role) }"
+    typical role: "${ escape_double_quoted_yaml(oneline(typical_role)) }"
     % endif
 # Default country and state
 default country and state: |
