@@ -10,10 +10,10 @@
 # resolution, so you should make sure any text processing functions are safe to handle DAEmpty objects.
 # You can provide local imports as a dictionary of lists. These will import from playground or runtime.
 mako template local imports:
-  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline]
+  interview_generator: [fix_id, varname, mako_indent, using_string, escape_quotes, oneline, escape_double_quoted_yaml]
 # To import from an installed package or third-party Python package, provide a list of strings
 mako template imports: 
-  - from docassemble.base.util import today
+  - from docassemble.base.util import today, indent
   - from more_itertools import unique_everseen
 #  - from docassemble.ALWeaver.interview_generator import fix_id, varname, mako_indent, using_string, escape_quotes, oneline
 # Ordinary question with or without fields
@@ -199,47 +199,48 @@ metadata: |
   % endfor
   % endif
 # Form-specific metadata that goes into a dictionary, much of it reserved for future use
-# TODO: refactor to a Docassemble `data:` block
 al metadata: |
   mandatory: True
   comment: |
-    This contains metadata that will not be overwritten if this YAML file is included in another
-    file. Each file gets its own key in the interview_metadata dictionary.
-    Most keys are not currently used at runtime, other than "allowed courts".
-  code: |
-    interview_metadata
-    if not defined("interview_metadata['${ interview_label }']"):
-      interview_metadata.initializeObject("${ interview_label }")
-      interview_metadata["${ interview_label }"].update({
-        % if al_weaver_version:
-        "al_weaver_version": "${ al_weaver_version }",
-        % endif
-        "generated on": "${ today().format("yyyy-MM-dd") }",
-        "title": "${ escape_quotes(oneline(title)) }",
-        "short title": "${ escape_quotes(oneline(short_title)) }",
-        "description": "${ escape_quotes(oneline(description)) }",
-        "original_form": "${ escape_quotes(oneline(original_form)) }",
-        "allowed courts": [
-          % for court in allowed_courts.true_values():
-          "${ escape_quotes(oneline(court)) }",
-          % endfor
-        ],
-        "categories": [
-          % for category in set(categories.true_values()) - {'Other'}:
-          "${ oneline(category) }",
-          % endfor
-          % if categories['Other']:
-          % for category in other_categories.split(','):
-          "${ escape_quotes(oneline(category.strip())) }",
-          % endfor
-          % endif
-        ],        
-        "logic block variable": "interview_order_${ interview_label }",
-        "attachment block variable": "${ interview_label }_attachment",
-        % if typical_role:
-        "typical role": "${ typical_role }",
-        % endif
-      })
+    Global interview metadata
+  variable name: interview_metadata["${ interview_label }"]
+  data:
+    % if al_weaver_version:
+    al_weaver_version: "${ al_weaver_version }"
+    % endif
+    generated on: "${ today().format("yyyy-MM-dd") }"
+    title: >-
+      ${ oneline(title) }
+    short title: >-
+      ${ oneline(short_title) }
+    description: |-
+    ${ indent(description, by=2) }
+    original_form: >-
+    ${ indent(original_form, by=2) }
+    % if len(allowed_courts.true_values()) < 1:
+    allowed courts: []
+    % else:
+    allowed courts: 
+    % for court in allowed_courts.true_values():
+      - "${ escape_double_quoted_yaml(oneline(court)) }"
+    % endfor
+    % endif
+    % if len(categories.true_values()) < 1:
+    categories: []
+    % else:
+    categories:
+    % for category in set(categories.true_values()) - {'Other'}:
+      - "${ escape_double_quoted_yaml(oneline(category)) }"
+    % endfor
+    % if categories['Other']:
+    % for category in other_categories.split(','):
+      - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
+    % endfor
+    % endif
+    % endif
+    % if typical_role:
+    typical role: "${ escape_double_quoted_yaml(oneline(typical_role)) }"
+    % endif
 # Default country and state
 default country and state: |
   code: |
