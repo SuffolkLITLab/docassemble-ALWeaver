@@ -30,6 +30,7 @@ import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
 from pdfminer.pdftypes import PDFObjRef, resolve1
+import ast
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -70,6 +71,7 @@ __all__ = [
     "pdf_field_type_str",
     "bad_name_reason",
     "mako_local_import_str",
+    "is_valid_python",
 ]
 
 always_defined = set(
@@ -195,7 +197,7 @@ class DABlockList(DAList):
         super().init(*pargs, **kwargs)
         self.object_type = DABlock
 
-    def all_fields_used(self):
+    def all_fields_used(self, all_fields: List = None):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
         in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
         It prevents the formatter of the wizard from putting the same fields on two different screens."""
@@ -204,6 +206,14 @@ class DABlockList(DAList):
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
                     fields.add(field)
+        if all_fields:
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                ]
+            )
         return fields
 
 
@@ -217,15 +227,25 @@ class DAQuestionList(DAList):
         # self.gathered = True
         # self.is_mandatory = False
 
-    def all_fields_used(self):
-        """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-        It prevents the formatter of the wizard from putting the same fields on two different screens."""
+    def all_fields_used(self, all_fields: List = None):
+        """This method is used to help us iteratively build a list of fields that have already been assigned to a
+        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
+        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
+        parameter "all_fields" is provided.
+        """
         fields = set()
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
                     fields.add(field)
+        if all_fields:
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                ]
+            )
         return fields
 
 
@@ -453,12 +473,25 @@ class DAField(DAObject):
     def field_entry_yaml(self) -> str:
         settable_var = self.get_settable_var()
         content = ""
+        if self.field_type in ["code", "skip this field"]:
+            return
         if self.has_label:
-            content += '  - "{}": {}\n'.format(escape_quotes(self.label), settable_var)
+            # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
+            # We want to quote words like yes, no, and also symbols like :.
+            content += '  - "{}": {}\n'.format(
+                escape_double_quoted_yaml(self.label), settable_var
+            )
         else:
             content += "  - no label: {}\n".format(settable_var)
         # Use all of these fields plainly. No restrictions/validation yet
-        if self.field_type in ["yesno", "yesnomaybe", "file"]:
+        if self.field_type in [
+            "yesno",
+            "yesnomaybe",
+            "file",
+            "yesnoradio",
+            "noyes",
+            "noyesradio",
+        ]:
             content += "    datatype: {}\n".format(self.field_type)
         elif self.field_type == "multiple choice radio":
             content += "    input type: radio\n"
@@ -467,6 +500,21 @@ class DAField(DAObject):
                 content += f"      - {choice}\n"
         elif self.field_type == "multiple choice checkboxes":
             content += "    datatype: checkboxes\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiple choice combobox":
+            content += "    datatype: combobox\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiple choice dropdown":
+            content += "    input type: dropdown\n"
+            content += "    choices:\n"
+            for choice in self.choices.splitlines():
+                content += f"      - {choice}\n"
+        elif self.field_type == "multiselect":
+            content += "    datatype: multiselect\n"
             content += "    choices:\n"
             for choice in self.choices.splitlines():
                 content += f"      - {choice}\n"
@@ -618,13 +666,22 @@ class DAField(DAObject):
                     "text",
                     "area",
                     "yesno",
+                    "noyes",
+                    "yesnoradio",
+                    "noyesradio",
                     "integer",
                     "number",
                     "currency",
                     "date",
                     "email",
+                    "multiple choice dropdown",
+                    "multiple choice combobox",
                     "multiple choice radio",
                     "multiple choice checkboxes",
+                    "multiselect",
+                    "file",
+                    "code",
+                    "skip this field",
                 ],
                 "default": self.field_type_guess
                 if hasattr(self, "field_type_guess")
@@ -633,22 +690,31 @@ class DAField(DAObject):
         )
         field_questions.append(
             {
-                "label": "Options (one per line)",
-                "field": f"fields[{index}].choices",
-                "datatype": "area",
-                "js show if": f"val('fields[{index}].field_type') === 'multiple choice radio' || val('fields[{index}].field_type') === 'multiple choice checkboxes'",
-                "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
+                "label": f"Complete the expression, `{self.final_display_var} = `",
+                "field": f"fields[{index}].code",
+                "show if": {"variable": f"fields[{index}].field_type", "is": "code"},
+                "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[0].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
             }
         )
         field_questions.append(
             {
-                "label": "Send overflow text to addendum",
-                "field": f"fields[{index}].send_to_addendum",
-                "datatype": "yesno",
-                "show if": {"code": f'hasattr(fields[{index}], "maxlength")'},
-                "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
+                "label": "Options (one per line)",
+                "field": f"fields[{index}].choices",
+                "datatype": "area",
+                "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('fields[{index}].field_type'))",
+                "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
+        if hasattr(self, "maxlength"):
+            field_questions.append(
+                {
+                    "label": "Send overflow text to addendum",
+                    "field": f"fields[{index}].send_to_addendum",
+                    "datatype": "yesno",
+                    "js show if": f"val('fields[{index}].field_type') === 'area' ",
+                    "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
+                }
+            )
         return field_questions
 
     def trigger_gather(
@@ -1064,6 +1130,11 @@ def oneline(text: str) -> str:
 def escape_quotes(text: str) -> str:
     """Escape both single and double quotes in strings"""
     return text.replace('"', '\\"').replace("'", "\\'")
+
+
+def escape_double_quoted_yaml(text: str) -> str:
+    """Escape only double quotes in a string and the escape character itself"""
+    return text.replace("\\", r"\\").replace('"', r"\"")
 
 
 def to_yaml_file(text: str) -> str:
@@ -1644,6 +1715,14 @@ def bad_name_reason(field: Union[str, Tuple]):
                 field[0], pdf_field_type_str(field)
             )
         return None
+
+
+def is_valid_python(code: str) -> bool:
+    try:
+        ast.parse(code)
+    except SyntaxError:
+        return False
+    return True
 
 
 def create_package_zip(

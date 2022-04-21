@@ -144,11 +144,14 @@ code: |
   add_short_title
   add_form_type  
   add_objects_block
-  add_sections  
+  add_sections
   add_interview_order
   add_intro_screen
   add_question_screens
-  add_preview_screen  
+  add_fields_set_by_code
+  if interview.court_related:
+    add_addresses_to_search
+  add_preview_screen
   add_signature_trigger
   add_review_screen  
   # Insert comment block
@@ -947,7 +950,7 @@ code: |
     "interview_label": interview_label,
     "title": interview.title,
     "short_title": interview.short_title,
-    "description": single_paragraph(interview.description),
+    "description": interview.description,
     "original_form": interview.original_form,
     "court_related": interview.court_related,
     "allowed_courts": interview.allowed_courts,
@@ -1044,6 +1047,12 @@ fields:
     show if:
       code: |
         len(built_in_fields_used) or len(signature_fields)
+validation code: |
+  for field in fields:
+    if field.field_type == "code":
+        expression = f"{field.final_display_var} = {field.code}"
+        if not is_valid_python(expression):
+            validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
 ---
 id: add fields
 question: |
@@ -1103,7 +1112,7 @@ code: |
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used()) < len(fields)
+  questions.there_is_another = len(questions.all_fields_used(all_fields=fields)) < len(fields)
 ---
 id: create a draft of screen i
 question: |
@@ -1127,9 +1136,9 @@ fields:
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used()
+    exclude: questions.all_fields_used(all_fields=fields)
     none of the above: False
-    choices: fields
+    choices: fields      
     object labeler: labeller_bold_plus_label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
@@ -1169,6 +1178,21 @@ code: |
 		  question.type = "question"
 		  interview.blocks.append(question)
   add_question_screens = True
+---
+code: |
+  for field in fields:
+    if field.field_type == "code":
+      code_block = interview.blocks.appendObject()
+      code_block.template_key = "code"
+      code_block.data = {
+        "lines": [
+          f"{field.final_display_var} = {field.code}"
+        ]}
+    elif field.field_type == "skip this field":
+      code_block = interview.blocks.appendObject()
+      code_block.template_key = "code"
+      code_block.data = {"lines": [f"{field.final_display_var} = DAEmpty()"]}
+  add_fields_set_by_code = True
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
@@ -1718,6 +1742,12 @@ code: |
   else:
     preview_question.data['bundle_name'] = 'al_recipient_bundle'
   add_preview_screen = True
+---
+code: |
+  addresses_to_search_screen = interview.blocks.appendObject()
+  addresses_to_search_screen.template_key = "addresses to search"
+  addresses_to_search_screen.data = {}
+  add_addresses_to_search = True
 ---
 need:
   - interview_label
