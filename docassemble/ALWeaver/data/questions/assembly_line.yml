@@ -318,19 +318,26 @@ code: |
   url_args.clear()    
   process_url_args = True  
 ---
+imports:
+  - os
+---
 code: |
-  import os
   formfyxer.parse_form(template_upload[0].path(), title=os.path.basename(template_upload[0].path()), jur="MA", normalize=1,rewrite=1)
   template_upload[0].commit()
   process_field_normalization = True
 ---
+objects:
+  - temp_new_pdf: DAFile.using(filename=os.path.basename(template_upload[0].path()))
+---
 code: |
-  formfyxer.auto_add_fields(template_upload[0].path(), template_upload[0].path())
+  temp_new_pdf.initialize()
+  formfyxer.auto_add_fields(template_upload[0].path(), temp_new_pdf.path())
   
   # also normalize field names after newly recognizing them
-  formfyxer.parse_form(template_upload[0].path(), title=template_upload[0].filename, jur="MA", normalize=1, rewrite=1)
+  formfyxer.parse_form(temp_new_pdf.path(), title=template_upload[0].filename, jur="MA", normalize=1, rewrite=1)
   
-  template_upload[0].path().commit()
+  temp_new_pdf.commit()
+  template_upload[0].copy_into(temp_new_pdf)
   process_field_recognition = True  
 ---
 modules:
@@ -1579,6 +1586,8 @@ subquestion: |
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
+---
+objects:   
   - next_steps_documents: DADict.using(object_type=DADict)
 ---
 ############ Next Steps documents generation ################
