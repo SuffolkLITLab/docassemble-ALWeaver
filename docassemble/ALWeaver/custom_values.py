@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Any, Dict, List, Union
 from pathlib import Path
 import ruamel.yaml as yaml
 from docassemble.base.util import log, DADict, DAList, DAStore, path_and_mimetype
@@ -6,11 +6,12 @@ from packaging.version import Version
 from more_itertools import unique_everseen
 
 ################# To refactor - I don't think these are used but they are mentioned in interview_generator.py
-class Object(object):
-    pass
+class CustomValues(object):
+    people_plurals_map: Dict[str, str]
+    org_specific_config: Any
 
 
-custom_values = Object()
+custom_values = CustomValues()
 custom_values.people_plurals_map = {}
 custom_values.org_specific_config = None
 ########################## End to refactor

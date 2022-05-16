@@ -1,13 +1,28 @@
 """
 Constants for interview_generator.py
 """
+from typing import Dict, List
 
 # This is to workaround fact you can't do local import in Docassemble playground
-class Object(object):
-    pass
+class GeneratorConstantObject(object):
+    RESERVED_WHOLE_WORDS: List[str]
+    UNDEFINED_PERSON_PREFIXES: List[str]
+    ALLOW_SINGULAR_SUFFIXES: List[str]
+    RESERVED_PERSON_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_PREFIXES: List[str]
+    RESERVED_PRIMITIVE_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_SUFFIXES_MAP: Dict[str, str]
+    PEOPLE_SUFFIXES_MAP: Dict[str, str]
+    PEOPLE_SUFFIXES: List[str]
+    DOCX_ONLY_SUFFIXES: List[str]
+    DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX: Dict[str, str]
+    FULL_DISPLAY: Dict[str, str]
+    COURT_CHOICES: List[str]
 
 
-generator_constants = Object()
+
+generator_constants = GeneratorConstantObject()
 
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
