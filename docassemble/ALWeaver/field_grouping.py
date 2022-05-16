@@ -30,7 +30,7 @@ def rename_pdf_fields(pdf_path: str, mapping: Dict[str, str]) -> None:
 
     changed_fields = False
 
-    for field in my_pdf.Root.AcroForm.Fields: # type: ignore
+    for field in my_pdf.Root.AcroForm.Fields:  # type: ignore
         if field.T in mapping:
             field.T = mapping[field.T]
             changed_fields = True

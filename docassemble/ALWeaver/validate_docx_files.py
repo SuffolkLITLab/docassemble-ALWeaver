@@ -37,10 +37,10 @@ def get_jinja_errors(the_file: DAFile) -> Optional[str]:
         return None
     except jinja2.exceptions.TemplateSyntaxError as the_error:
         errmess = str(the_error)
-        extra_context = the_error.docx_context if hasattr(the_error, 'docx_context') else [] # type: ignore
+        extra_context = the_error.docx_context if hasattr(the_error, "docx_context") else []  # type: ignore
         if extra_context:
             errmess += "\n\nContext:\n" + "\n".join(
-                map(lambda x: "  " + x, extra_context) 
+                map(lambda x: "  " + x, extra_context)
             )
         return errmess
 

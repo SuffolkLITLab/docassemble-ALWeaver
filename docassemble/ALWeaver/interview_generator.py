@@ -23,7 +23,7 @@ import docassemble.base.pdftk
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union # , Set
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union  # , Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -248,12 +248,16 @@ class DAQuestionList(DAList):
             )
         return fields
 
-TemplateDict = TypedDict('TemplateDict', {
-  'mako template imports': List[str],
-  'mako template local imports': Dict[str, List[str]],
-  },
-  total=False
+
+TemplateDict = TypedDict(
+    "TemplateDict",
+    {
+        "mako template imports": List[str],
+        "mako template local imports": Dict[str, List[str]],
+    },
+    total=False,
 )
+
 
 class DAInterview(DAObject):
     """
@@ -319,7 +323,9 @@ class DAInterview(DAObject):
         for block in self.blocks + self.questions.elements:
             text += "---\n"
             imports = list(self.templates.get("mako template imports", []))
-            local_imports:Dict[str, List[str]] = self.templates.get("mako template local imports", {})
+            local_imports: Dict[str, List[str]] = self.templates.get(
+                "mako template local imports", {}
+            )
             formatted_local_imports = [
                 mako_local_import_str(
                     user_info().package, import_key, local_imports[import_key]
@@ -479,7 +485,7 @@ class DAField(DAObject):
         settable_var = self.get_settable_var()
         content = ""
         if self.field_type in ["code", "skip this field"]:
-            return ''
+            return ""
         if self.has_label:
             # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
             # We want to quote words like yes, no, and also symbols like :.
@@ -1643,7 +1649,7 @@ def get_person_variables(
         return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
 
-def set_custom_people_map(people_var_names:Dict[str, str]):
+def set_custom_people_map(people_var_names: Dict[str, str]):
     """Sets the map of custom people created by the developer."""
     for var_name in people_var_names:
         custom_values.people_plurals_map[var_name] = var_name
