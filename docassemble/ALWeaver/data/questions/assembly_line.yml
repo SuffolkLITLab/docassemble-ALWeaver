@@ -936,8 +936,8 @@ code: |
     "categories": interview.categories,
     "settings": {
       'title': interview.title,
-      'short title': interview.short_title      
-    },    
+      'short title': interview.short_title
+    },
     "authors": str(interview.author).splitlines()
   }
 
