@@ -21,7 +21,6 @@ class GeneratorConstantObject(object):
     COURT_CHOICES: List[str]
 
 
-
 generator_constants = GeneratorConstantObject()
 
 # Words that are reserved exactly as they are
