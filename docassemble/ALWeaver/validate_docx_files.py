@@ -5,7 +5,12 @@ from docx2python import docx2python
 from jinja2 import Environment, BaseLoader
 import jinja2.exceptions
 from docassemble.base.util import DAFile
-from docassemble.base.parse import DAEnvironment, DAExtension, registered_jinja_filters, builtin_jinja_filters
+from docassemble.base.parse import (
+    DAEnvironment,
+    DAExtension,
+    registered_jinja_filters,
+    builtin_jinja_filters,
+)
 from typing import Optional, Iterable
 import re
 

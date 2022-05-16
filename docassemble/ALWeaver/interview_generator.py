@@ -1709,8 +1709,7 @@ def bad_name_reason(field: Union[str, Tuple]):
     else:
         log(field[0], "console")
         python_var = map_raw_to_final_display(
-            remove_multiple_appearance_indicator(varname(field[0])), 
-            document_type="pdf"
+            remove_multiple_appearance_indicator(varname(field[0])), document_type="pdf"
         )
         if len(python_var) == 0:
             return "{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters".format(
