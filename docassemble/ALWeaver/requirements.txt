@@ -4,3 +4,4 @@ more_itertools
 pyyaml
 docx2python
 boto3
+mypy
