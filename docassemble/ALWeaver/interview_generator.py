@@ -494,7 +494,7 @@ class DAField(DAObject):
             content += self._maxlength_str() + "\n"
 
         return content.rstrip("\n")
-
+      
     def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
         settable_var = self.get_settable_var()
         parent_var, _ = DAField._get_parent_variable(settable_var)
