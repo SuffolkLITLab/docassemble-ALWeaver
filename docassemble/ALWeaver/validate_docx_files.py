@@ -5,6 +5,7 @@ from docx2python import docx2python
 from jinja2 import Environment, BaseLoader
 import jinja2.exceptions
 from docassemble.base.util import DAFile
+from docassemble.base.parse import DAEnvironment, DAExtension, registered_jinja_filters, builtin_jinja_filters
 from typing import Optional, Iterable
 import re
 
@@ -29,7 +30,9 @@ def get_jinja_errors(the_file: DAFile) -> Optional[str]:
     """Just try rendering the DOCX file as a Jinja2 template and catch any errors.
     Returns a string with the errors, if any.
     """
-    env = Environment(loader=BaseLoader(), undefined=CallAndDebugUndefined)
+    env = DAEnvironment(undefined=CallAndDebugUndefined, extensions=[DAExtension])
+    env.filters.update(registered_jinja_filters)
+    env.filters.update(builtin_jinja_filters)
 
     doc = DocxTemplate(the_file.path())
     try:
