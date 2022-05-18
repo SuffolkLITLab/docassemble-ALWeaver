@@ -1362,7 +1362,7 @@ sets: questions[i].edit_question
 question: |
   Review your ${ ordinal(i) } screen
 subquestion: |    
-  <div style="text-align:right; font-style: italic">[Skip these screens anytime: ${ action_button_html(url_action('show_screen_order'),
+  <div style="text-align:right; font-style: italic">[Skip these screens anytime: ${ action_button_html(url_action('let_skip'),
                         label='Skip',
                         size='md',
                         color='primary') }]</div>
@@ -2035,3 +2035,8 @@ code: |
     questions[j].edit_question     
     questions[j].field_tbl_done 
   show_field_order = True
+---
+event: let_skip
+code: |
+  show_field_order = True
+  force_ask('show_screen_order')
