@@ -1,13 +1,27 @@
 """
 Constants for interview_generator.py
 """
+from typing import Dict, List
 
 # This is to workaround fact you can't do local import in Docassemble playground
-class Object(object):
-    pass
+class GeneratorConstantObject(object):
+    RESERVED_WHOLE_WORDS: List[str]
+    UNDEFINED_PERSON_PREFIXES: List[str]
+    ALLOW_SINGULAR_SUFFIXES: List[str]
+    RESERVED_PERSON_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_PREFIXES: List[str]
+    RESERVED_PRIMITIVE_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_PLURALIZERS_MAP: Dict[str, str]
+    RESERVED_SUFFIXES_MAP: Dict[str, str]
+    PEOPLE_SUFFIXES_MAP: Dict[str, str]
+    PEOPLE_SUFFIXES: List[str]
+    DOCX_ONLY_SUFFIXES: List[str]
+    DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX: Dict[str, str]
+    FULL_DISPLAY: Dict[str, str]
+    COURT_CHOICES: List[str]
 
 
-generator_constants = Object()
+generator_constants = GeneratorConstantObject()
 
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
@@ -47,6 +61,7 @@ generator_constants.RESERVED_PREFIXES = [
     "courts",
     "decedents",
     "interested_partys",
+    "interested_parties",
     "trial_court",
     "docket_numbers",
     "user",
@@ -69,6 +84,7 @@ generator_constants.RESERVED_PREFIXES = [
     "interested_party",
     "trial_court",
     "docket_numbers",
+    "adoptees",
     # Can't find a way to make order not matter here
     # without making everything in general more messy
     "guardians_ad_litem",
@@ -99,6 +115,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "interested_parties": "interested_parties",
     "guardians_ad_litem": "guardians_ad_litem",
     "guardians": "guardians",
+    "adoptees": "adoptees",
     # These are left in for backwards compatibility
     "user": "users",
     "plaintiff": "plaintiffs",
@@ -120,6 +137,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "witness": "witnesses",
     "decedent": "decedents",
     "interested_party": "interested_parties",
+    "adoptee": "adoptees",
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
@@ -156,8 +174,10 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_birthdate": ".birthdate.format()",
     "_age": ".age_in_years()",
     "_email": ".email",
+    "_language": ".language",
     "_phone": ".phone_number",
     "_phone_number": ".phone_number",
+    "_fax_number": ".fax_number",
     "_mobile": ".mobile_number",
     "_mobile_number": ".mobile_number",
     "_phones": ".phone_numbers()",

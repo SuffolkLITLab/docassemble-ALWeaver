@@ -26,6 +26,8 @@ attachment_scenarios = {
     "user_birthdate": "users[0].birthdate.format()",
     "user_age": "users[0].age_in_years()",
     "user_email": "users[0].email",
+    "user_fax_number": "users[0].fax_number",
+    "user_language": "users[0].language",
     "user_phone": "users[0].phone_number",
     "user_phone_number": "users[0].phone_number",
     "user_mobile": "users[0].mobile_number",
