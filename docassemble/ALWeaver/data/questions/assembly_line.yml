@@ -2075,18 +2075,12 @@ code: |
 comment: |
   This is for interviews that don't need a download screen
 code: |  
-  field_type_dict = dict()  
-  for index, field in enumerate(fields.elements):
-    field_type_dict[field.get_settable_var()] = field.field_type
-
   interview_save_data_block = interview.blocks.appendObject()
   interview_save_data_block.template_key = 'save data'
   interview_save_data_block.data = {
-    "field_type_dict": field_type_dict,
     "fields": fields, 
     "interview_label": interview_label
   }
-  del field_type_dict
   add_save_data_block = True
 ---
 code: |

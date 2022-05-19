@@ -373,17 +373,12 @@ thank-you screen: |
   progress: 100
 # Save data to a database for aggregate reports via interviewStats
 save data: |
-  code: |
-    # This block saves input data to a database for data reporting purposes.
-    # input_fields_dict's content must match all your variable names and datatypes.
-    input_fields_dict = dict()    
-    % for k, v in field_type_dict.items():    
-      % for field in fields.elements:
-        % if str(field.get_settable_var()) in k:
-    input_fields_dict['${k}'] = [${ field.get_settable_var() }, '${v}'] 
-        % endif
-      % endfor
+  variable name: input_fields_dict
+  data from code:
+    % for field in fields.elements:
+    "${ field.get_settable_var() }": showifdef("${ field.get_settable_var() }")
     % endfor
-        
-    save_input_data(title = ${interview_label}, input_dict = input_fields_dict)
+  ---
+  code: |
+    save_input_data(title = "${interview_label}", input_dict = input_fields_dict)
     saved_report_data = True
