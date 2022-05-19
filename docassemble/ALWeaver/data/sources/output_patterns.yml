@@ -368,7 +368,7 @@ thank-you screen: |
   subquestion: |
     Thank you for submitting your answers! We appreciate your time. 
     
-    <span style="font-size: 200%">&#128512</span>
+    A copy of your answers was saved in our database.
 
   progress: 100
 # Save data to a database for aggregate reports via interviewStats

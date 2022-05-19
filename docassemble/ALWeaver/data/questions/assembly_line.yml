@@ -273,9 +273,9 @@ fields:
   - 'Specify your interview type': interview_type
     input type: radio    
     choices:
-      - Regular: regular
-      - Survey type with a template file: survey_with_template  
-      - Survey type without a template file: survey_without_template
+      - Questions that fill in a template: regular
+      - Questions that fill in a database row and start with a template: survey_with_template  
+      - Questions that fill in a database row and are written from scratch: survey_without_template
     default: 'regular'
     help: |
       A **regular** interview requires a template, and it will have a download screen for your end users.<br><br>
