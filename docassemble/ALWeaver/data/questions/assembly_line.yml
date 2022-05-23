@@ -1301,7 +1301,6 @@ code: |
   objects_block.data = {
     "objects": objects
   } 
-  # log(objects_block.data)
 
   add_objects_block = True
 ---
