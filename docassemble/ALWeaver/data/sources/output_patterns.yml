@@ -133,15 +133,19 @@ main order: |
     al_intro_screen
     ${ interview_label }_intro
     interview_order_${ interview_label }
-    signature_date
+    % if generate_download:
+    signature_date    
     # Save anonymized interview statistics (customize the saved data below)
-    store_variables_snapshot(data={'zip': users[0].address.zip})
+    store_variables_snapshot(data={'zip': users[0].address.zip})    
     ${ interview_label }_preview_question
-    basic_questions_signature_flow
-    % for signature_field in signatures:
+    basic_questions_signature_flow    
+      % for signature_field in signatures:
     ${ signature_field }
-    % endfor
+      % endfor
     ${ interview_label }_download
+    % else:
+    ${ interview_label }_thank_you
+    % endif
 # Block used to control the order of interview-specific questions   
 # note we use unique_everseen() to filter duplicate items from the interview order.
 # duplicate items can come when multiple fields share the same trigger, such as address.city and address.country
@@ -241,6 +245,7 @@ al metadata: |
     % if typical_role:
     typical role: "${ escape_double_quoted_yaml(oneline(typical_role)) }"
     % endif
+    generate download screen: ${ generate_download_screen }
 # Default country and state
 default country and state: |
   code: |
@@ -362,3 +367,26 @@ revisit page: |
 # It should be possible to migrate the revisit table to a Mako template
 revisit table: |
   ${ item.table_page() }
+# For survey type interviews that don't need a download screen
+thank-you screen: |
+  id: thank you
+  event: ${ interview_label }_thank_you
+  question: |
+    Thank You!
+  subquestion: |
+    Thank you for submitting your answers! We appreciate your time. 
+    
+    A copy of your answers was saved in our database.
+
+  progress: 100
+# Save data to a database for aggregate reports via interviewStats
+save data: |
+  variable name: input_fields_dict
+  data from code:
+    % for field in fields.elements:
+    "${ field.get_settable_var() }": showifdef("${ field.get_settable_var() }")
+    % endfor
+  ---
+  code: |
+    save_input_data(title = "${interview_label}", input_dict = input_fields_dict)
+    saved_report_data = True

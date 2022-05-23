@@ -23,7 +23,7 @@ import docassemble.base.pdftk
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Tuple, Union  # , Set
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union  # , Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -164,7 +164,7 @@ class DABlock(DAObject):
     """
 
     template_key: str
-    data: Dict[str, any]
+    data: Dict[str, Any]
 
     def source(
         self,
@@ -249,6 +249,16 @@ class DAQuestionList(DAList):
         return fields
 
 
+TemplateDict = TypedDict(
+    "TemplateDict",
+    {
+        "mako template imports": List[str],
+        "mako template local imports": Dict[str, List[str]],
+    },
+    total=False,
+)
+
+
 class DAInterview(DAObject):
     """
     This class represents the final YAML output. It has a method to output
@@ -258,7 +268,7 @@ class DAInterview(DAObject):
     block type from a YAML file.
     """
 
-    templates: Dict[str, str]
+    templates: TemplateDict
     template_path: str  # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
     blocks: DABlockList
     questions: DAQuestionList  # is this used?
@@ -281,7 +291,7 @@ class DAInterview(DAObject):
         elif assembly_line_dep not in dependencies:
             dependencies.append(assembly_line_dep)
 
-        info = dict()
+        info: Dict[str, Union[str, List[str]]] = {}
         for field in [
             "interview_files",
             "template_files",
@@ -312,8 +322,10 @@ class DAInterview(DAObject):
         text = ""
         for block in self.blocks + self.questions.elements:
             text += "---\n"
-            imports = self.templates.get("mako template imports", [])
-            local_imports = self.templates.get("mako template local imports", [])
+            imports = list(self.templates.get("mako template imports", []))
+            local_imports: Dict[str, List[str]] = self.templates.get(
+                "mako template local imports", {}
+            )
             formatted_local_imports = [
                 mako_local_import_str(
                     user_info().package, import_key, local_imports[import_key]
@@ -334,9 +346,8 @@ class DAInterview(DAObject):
         path = path_and_mimetype(template_path)[0]
         with open(path) as f:
             contents = f.read()
-        self.templates = list(yaml.safe_load_all(contents))[
-            0
-        ]  # Take the first YAML "document"
+        # Take the first YAML "document"
+        self.templates = list(yaml.safe_load_all(contents))[0]
 
 
 class DAField(DAObject):
@@ -474,7 +485,7 @@ class DAField(DAObject):
         settable_var = self.get_settable_var()
         content = ""
         if self.field_type in ["code", "skip this field"]:
-            return
+            return ""
         if self.has_label:
             # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
             # We want to quote words like yes, no, and also symbols like :.
@@ -821,7 +832,7 @@ class DAField(DAObject):
         """
         var_parts = re.findall(r"([^.]+)(\.[^.]*)?", var_with_attribute)
         if not var_parts:
-            return var_with_attribute
+            return var_with_attribute, "not var"
 
         # Either indexed, or no need to be indexed
         indexed_var = var_parts[0][0]
@@ -862,9 +873,8 @@ class ParentCollection(object):
         self.fields = fields
         self.attribute_map = {}
         self.var_type = var_type
-        if (
-            self.var_type != "primitive"
-        ):  # this base var is more complex than a simple primitive type
+        # this base var is more complex than a simple primitive type
+        if self.var_type != "primitive":
             for f in self.fields:
                 plain_att, disp_att, settable_att = f._get_attributes()
                 if plain_att:
@@ -1376,20 +1386,15 @@ def map_raw_to_final_display(
             try:
                 digit = int(digit_str)
             except ValueError as ex:
-                raise ParsingException(
-                    "{} is not a digit".format(digit_str),
-                    "Full issue: {}. This is likely a developer error! "
-                    + "Please [let us know](https://github.com/SuffolkLITLab/docassemble.ALWeaver/issues/new)!".format(
-                        ex
-                    ),
-                )
+                main_issue = f"{digit_str} is not a digit"
+                err_str = f"Full issue: {ex}. This is likely a developer error! Please [let us know](https://github.com/SuffolkLITLab/docassemble.ALWeaver/issues/new)!"
+                raise ParsingException(main_issue, err_str)
 
             if digit == 0:
+                correct_label = adjusted_prefix + "1" + label_groups[3]
                 main_issue = "Cannot get the 0th item in a list"
-                err_str = 'The "{}" label refers to the 0th item in a list, when it is likely meant the 1st item. You should replace that label with "{}".'.format(
-                    label, adjusted_prefix + "1" + label_groups[3]
-                )
-                url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables#more-than-one"
+                err_str = f'The "{label}" label refers to the 0th item in a list, when it is likely meant the 1st item. You should replace that label with "{correct_label}".'
+                url = "https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables/#special-situation-for-names-of-people-in-pdfs"
                 raise ParsingException(main_issue, err_str, url)
             else:
                 index = "[" + str(digit - 1) + "]"
@@ -1527,6 +1532,7 @@ def process_custom_people(
     custom_people: list,
     fields: list,
     built_in_fields: list,
+    document_type: str = "pdf",
     people_suffixes: list = (
         generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
     ),
@@ -1543,7 +1549,7 @@ def process_custom_people(
     for field in fields:
         # Simpler case: PDF variables matching our naming rules
         new_potential_name = map_raw_to_final_display(
-            field.variable, reserved_prefixes=custom_people
+            field.variable, document_type=document_type, reserved_prefixes=custom_people
         )
         # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
         if not ("[" in field.variable) and new_potential_name != field.variable:
@@ -1644,7 +1650,7 @@ def get_person_variables(
         return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
 
-def set_custom_people_map(people_var_names):
+def set_custom_people_map(people_var_names: Dict[str, str]):
     """Sets the map of custom people created by the developer."""
     for var_name in people_var_names:
         custom_values.people_plurals_map[var_name] = var_name
@@ -1708,7 +1714,7 @@ def bad_name_reason(field: Union[str, Tuple]):
     else:
         log(field[0], "console")
         python_var = map_raw_to_final_display(
-            remove_multiple_appearance_indicator(varname(field[0]))
+            remove_multiple_appearance_indicator(varname(field[0])), document_type="pdf"
         )
         if len(python_var) == 0:
             return "{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters".format(

@@ -74,7 +74,7 @@ include:
   - docx_field_tester.yml
   - visual.yml
 ---
-objects:
+objects:  
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
   - built_in_fields_used: DAFieldList.using(gathered=True)
   - fields: DAFieldList.using(gathered=True)
@@ -98,33 +98,38 @@ code: |
       process_im_feeling_lucky
   else:   
     weaver_intro
-    template_upload
-    if template_upload[0].filename.endswith('pdf'):
-      if yes_recognize_form_fields:
-        process_field_recognition              
-      elif yes_normalize_fields:
-        process_field_normalization
-      validate_pdf
-      if no_recognized_pdf_fields:
-        warn_no_recognized_al_labels
-      fields_checkup_status
-      all_look_good
-      validation_success
-    else:
-      if no_recognized_docx_fields:
-        warn_no_recognized_al_labels
-      validate_docx
+    # skip the file validation if no template input
+    set_interview_type_vars 
+    if have_template_to_load: 
+      template_upload
+      if template_upload[0].filename.endswith('pdf'):
+        if yes_normalize_fields:
+          process_field_normalization
+        validate_pdf
+        if no_recognized_pdf_fields:
+          warn_no_recognized_al_labels
+        fields_checkup_status
+        all_look_good
+        validation_success
+      else:
+        if no_recognized_docx_fields:
+          warn_no_recognized_al_labels
+        validate_docx  
+ 
+  if have_template_to_load:  
     get_all_fields
-  
-  # Display Weaver question screens
+  # Display Weaver question screens   
   interview.jurisdiction_choices 
-  interview_intro_prompt #branding screen
-  interview.short_title #intro screen    
-  interview.typical_role #people related questions
-  
-  process_people_variables
-  ask_people_quantity_question    
-  choose_field_types  
+  if generate_download_screen:      
+    interview_intro_prompt #branding screen
+    interview.short_title #intro screen    
+    interview.typical_role #people related questions
+    process_people_variables
+    ask_people_quantity_question    
+  if have_template_to_load: 
+    choose_field_types    
+  if not generate_download_screen:    
+    no_template_default_values    
   review_fields_after_labeling
   questions.gather()
   interview.form_type
@@ -134,34 +139,39 @@ code: |
     show_field_order
     show_screen_order
     screen_tbl_done
-  
-  # Generate draft interview yaml file 
+
+  # Generate draft interview yaml file  
   add_includes
   add_metadata
   add_main_interview_key
   add_default_country_and_state
   add_github_repo_name
   add_short_title
-  add_form_type  
+  if generate_download_screen: 
+    add_form_type  
   add_objects_block
-  add_sections
+  add_sections  
   add_interview_order
   add_intro_screen
   add_question_screens
+  if generate_download_screen:  
+    add_preview_screen
+    add_signature_trigger
   add_fields_set_by_code
   if interview.court_related:
     add_addresses_to_search
-  add_preview_screen
-  add_signature_trigger
   add_review_screen  
-  # Insert comment block
+  # Insert comment block      
   add_end_question
-  add_attachment
-  if len(addendum_fields):
-    add_addendum_fields
-  
-  # Assemble output package 
-  wrote_interview
+  if generate_download_screen: 
+    add_attachment
+    if len(addendum_fields):
+      add_addendum_fields
+  else:
+    add_save_data_block 
+
+  # Assemble output package
+  wrote_interview    
   interview_source = interview.source()
 
   # Display output download screen
@@ -218,12 +228,12 @@ buttons:
   - Restart: restart
 ---
 code: |
-  set_custom_people_map( people_variables.true_values() )
-  if len(people_variables.true_values()):
+  set_custom_people_map( people_variables.true_values() )  
+  if len(people_variables.true_values()):    
     # Process regular fields
-    process_custom_people(people_variables.true_values(), fields, built_in_fields_used)
+    process_custom_people(people_variables.true_values(), fields, built_in_fields_used, document_type=document_type)
     # Process signature fields
-    process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used)
+    process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used, document_type=document_type)
   process_people_variables = True
 ---
 continue button field: weaver_intro
@@ -261,6 +271,19 @@ subquestion: |
   Line](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/) project. You can learn more about customizing your 
   interview _[here](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_.
   </div>
+
+fields: 
+  - 'Specify your interview type': interview_type
+    input type: radio    
+    choices:
+      - Questions that fill in a template: regular
+      - Questions that fill in a database row and start with a template: survey_with_template  
+      - Questions that fill in a database row and are written from scratch: survey_without_template
+    default: 'regular'
+    help: |
+      A **regular** interview requires a template, and it will have a download screen for your end users.<br><br>
+      A **survey type** interview does not require a template, and it has nothing for the end user to download. It will have a code block to save interview answers for future data reporting purposes.<br><br>
+      If you upload a template for a survey interview, it will only be used for weaving your interview, not for download.
 ---
 id: file upload screen
 question: |
@@ -400,11 +423,13 @@ code: |
   process_im_feeling_lucky = True
 ---
 code: |
-  if template_upload[0].filename.endswith('pdf'):
-    short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
+  if have_template_to_load: 
+    if template_upload[0].filename.endswith('pdf'):
+      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
+    else:
+      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
   else:
-    short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
-  
+    short_filename = ''
   short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
 ---
 id: information about court-related info
@@ -485,9 +510,8 @@ help:
     View variable debug information
   content: |
     There are ${len(all_fields)} fields total.
-
+    
     `${all_fields}`
-
 ---
 code: |
   interview.default_country_code = 'US'
@@ -957,6 +981,7 @@ code: |
     "categories": interview.categories,
     "other_categories": interview.other_categories if defined('interview.other_categories') else '',
     "typical_role": interview.typical_role,
+    "generate_download_screen": generate_download_screen,
   }
 
   add_metadata = True
@@ -1032,7 +1057,7 @@ fields:
       **Built-in questions this form triggers**[BR]
       % if len(built_in_fields_used) > 1:
       These fields are not listed above because a built-in question already handles them: ${ built_in_fields_used }.
-      % else:
+      % elif have_template_to_load: 
       This field is not listed above because a built-in question already handles
       it: ${ built_in_fields_used }.
       % endif
@@ -1056,9 +1081,27 @@ validation code: |
 ---
 id: add fields
 question: |
+  % if have_template_to_load:
   Review fields
+  % else:
+  Since you don't have a template to load, you can build your questions on this screen
+  % endif
 subquestion: |
-  Take a moment to review the fields your interview already includes:
+  % if have_template_to_load:
+  Take a moment to review the fields your interview already includes:  
+  
+  % else:
+  You will need to define pairs of question/input variable as follows:
+  
+    1. Click "Add an item".
+    1. Type a name for an input variable using 'lower_case' name convension.
+    1. Type a label for this input field.
+    1. Pick a field type from the dropdown list.
+  
+  As you so build your questions, they will be added to the table below for your review.
+  
+  Later in the Weaver you'll have a chance to edit these fields and rearrange your question order.
+  % endif
   
   ${ collapse_template(review_fields_to_add_template) }
   
@@ -1083,7 +1126,9 @@ columns:
   - On-screen label: |
       row_item.label if hasattr(row_item, 'label') else '(n/a)'
   - Field or variable name: |
-      f"`{row_item.variable}`"
+      f"`{row_item.variable}`"  
+  - Field type: |
+      showifdef(row_item.attr_name('field_type') )
 ---
 code: |
   questions[i].question_text
@@ -1319,19 +1364,23 @@ subquestion: |
   % if not hasattr(fields[i], 'final_display_var'):
   You can use this screen to add a draft of a new field that will
   be asked about in your interview.
-  
+  % endif
+
+  % if not hasattr(fields[i], 'final_display_var') and have_template_to_load:
   When you add a new field, it will not automatically be included
   in your template. You can use this feature to add fields that are used to
   calculate a value, for example.
   % endif
 fields:
   - Docassemble variable name: fields[i].final_display_var
+    hint: lower_case_format 
     show if:
       code: |
         not hasattr(fields[i], 'label')
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
   - On-screen field label: fields[i].label
+    hint: Label to go with the input variable 
   - Field type: fields[i].field_type
     choices:
       - text
@@ -1402,11 +1451,14 @@ fields:
     required: False
 ---
 code: |
-  # Build the code block that will control question flow
+  # 1. Build the code block that will control question flow
   logic_list = []
-  logic_list.append('# Set the allowed courts for this interview')
-  logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
-  # The placeholder section label just reviews all of the questions
+  # 1.1 Court related
+  if generate_download_screen: 
+    logic_list.append('# Set the allowed courts for this interview')
+    logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
+    
+  # 1.2 The placeholder section label just reviews all of the questions
   logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
   if interview.typical_role == 'unknown':
     logic_list.append("# Below sets the user_role by asking a question.")
@@ -1415,7 +1467,7 @@ code: |
   else:
     logic_list.append("user_role = '" + interview.typical_role +"'")
   
-  # Figure out how many steps the interview has
+  # 1.3. Figure out how many steps the interview has
   total_num_screens = len(screen_order)
   
   # We'll have a progress step every 5 screens, 
@@ -1451,15 +1503,18 @@ code: |
         if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
           logic_list.append("set_parts(subtitle=str(users))")
           saved_answer_name_flag = True
-      
+  
+  # 1.4. For survey/feedback type of interviews, add a code block to save data
+  if not generate_download_screen: 
+    logic_list.append("saved_report_data")
+    
   built_in_signatures = set()
   for field in built_in_fields_used:
     if field.trigger_gather().endswith('.signature'):
       built_in_signatures.add(field.trigger_gather())
-  # TODO for field in signature_fields:
-    
+  # TODO for field in signature_fields:    
   
-  # Build interview-specific question order
+  # 2. Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
   code_block.template_key = 'interview order'
   code_block.data = {
@@ -1467,13 +1522,20 @@ code: |
     "interview_label":interview_label
   }  
 
-  # Build the mandatory code block that will control overall flow
+  # 3. Build the mandatory code block that will control overall flow
   main_code = interview.blocks.appendObject() # 'main code block'
   main_code.template_key = 'main order'
-  main_code.data = {
-    "signatures": built_in_signatures,
-    "interview_label": interview_label
-  } 
+  if generate_download_screen: 
+    main_code.data = {
+      "signatures": built_in_signatures,
+      "interview_label": interview_label,
+      "generate_download": True
+    } 
+  else:
+    main_code.data = {
+      "interview_label": interview_label,
+      "generate_download": False
+    } 
 
   add_interview_order = True  
 ---
@@ -1676,8 +1738,9 @@ objects:
   - renamed_upload: DAFile.using(filename=sanitized_filename)
 ---
 code: |
-  renamed_upload.copy_into(template_upload[0])
-  renamed_upload.commit()
+  if have_template_to_load: 
+    renamed_upload.copy_into(template_upload[0])
+    renamed_upload.commit()
   inflate_renamed_upload = True
 ---
 need:
@@ -1686,15 +1749,19 @@ need:
 # Prepare content for the Weaver's download screen.
 code: |
   # 1. Commit the generated interview YAML file
-  interview_download.initialize(filename = interview_label + '.yml')
+  interview_download.initialize(filename = interview_label + '.yml')  
   interview_download.write(interview.source())
-  interview_download.commit()    
-
-  folders_and_files = {
-    "templates": [
+  interview_download.commit()
+  
+  # 2. Build data for folders_and_files and package_info
+  tempfiles = [] 
+  if generate_download_screen:
+    tempfiles = [
       next_steps_documents[interview.form_type]['attachment'].docx,
       renamed_upload,
-    ],
+    ]
+  folders_and_files = {
+    "templates": tempfiles,
     "questions": [interview_download],
     "modules":[],
     "static": [],
@@ -1719,13 +1786,15 @@ code: |
     default_vals = {
       "author name and email": "author@example.com"
     }
-  
+    
+  # 3. Generate the output package
   create_package_zip(package_title,
         package_info,
         default_vals,
         folders_and_files, 
         interview_package_download)
-
+  
+  del tempfiles
   wrote_interview = True
 ---
 need:
@@ -1753,11 +1822,17 @@ need:
   - interview_label
 code: |
   end_question = interview.blocks.appendObject()
-  end_question.template_key = 'download screen'
-  end_question.data = {
-      "interview_label": interview_label, 
-      "document_type": 'pdf' if any(map(lambda templ: templ.extension == 'pdf', template_upload)) else 'docx'
-  }
+  if generate_download_screen:
+    end_question.template_key = 'download screen'
+    end_question.data = {
+        "interview_label": interview_label, 
+        "document_type": 'pdf' if any(map(lambda templ: templ.extension == 'pdf', template_upload)) else 'docx'
+    }
+  else:   
+    end_question.template_key = 'thank-you screen'
+    end_question.data = {
+        "interview_label": interview_label,       
+    }
   add_end_question = True
 ---  
 need: # trigger these up front for idempotency
@@ -1978,6 +2053,9 @@ event: waiting_screen_uninstall
 question: |
   Package is being uninstalled, please wait here
 reload: True
+#----------------------------------------------------
+# Code blocks for Drag-and-drop table
+#----------------------------------------------------
 ---
 comment: |
   This block is called when the "screen table" is initially loaded.
@@ -2040,3 +2118,40 @@ event: let_skip
 code: |
   show_field_order = True
   force_ask('show_screen_order')
+#----------------------------------------------------
+# Code blocks for survey type interviews  
+#----------------------------------------------------
+---
+# Set default values if no template file to upload
+code: |
+  if not have_template_to_load:
+    all_fields = fields  
+  interview.original_form = 'NA'  
+  interview.typical_role = 'anonymous'
+  interview_label_draft = interview.short_title    
+  
+  no_template_default_values = 'Done'
+---
+comment: |
+  This is for interviews that don't need a download screen
+code: |  
+  interview_save_data_block = interview.blocks.appendObject()
+  interview_save_data_block.template_key = 'save data'
+  interview_save_data_block.data = {
+    "fields": fields, 
+    "interview_label": interview_label
+  }
+  add_save_data_block = True
+---
+code: |
+  if 'without_template' in interview_type:
+    have_template_to_load = False
+  else:
+    have_template_to_load = True
+    
+  if 'survey' in interview_type:
+    generate_download_screen = False
+  else:
+    generate_download_screen = True
+    
+  set_interview_type_vars = 'Done'
