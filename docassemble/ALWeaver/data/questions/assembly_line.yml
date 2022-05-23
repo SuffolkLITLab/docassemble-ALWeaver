@@ -114,7 +114,7 @@ code: |
       else:
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
-        validate_docx  
+        validate_docx
  
   if have_template_to_load:  
     get_all_fields
@@ -834,7 +834,10 @@ buttons:
   - Restart: restart
 ---
 code: |
- built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+  if have_template_to_load: 
+    built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+  else:
+    built_in_people_vars_used = []
 ---
 comment: |
   Convert the PDF fields into Docassemble fields
