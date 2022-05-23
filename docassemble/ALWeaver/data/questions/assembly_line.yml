@@ -2127,6 +2127,9 @@ code: |
 #----------------------------------------------------
 ---
 # Set default values if no template file to upload
+scan for variables: False
+sets:
+  - no_template_default_values
 code: |
   if not have_template_to_load:
     all_fields = fields  
@@ -2134,7 +2137,7 @@ code: |
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title
   
-  no_template_default_values = 'Done'
+  no_template_default_values = True
 ---
 comment: |
   This is for interviews that don't need a download screen
