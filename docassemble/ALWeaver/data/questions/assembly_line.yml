@@ -1282,6 +1282,7 @@ code: |
     new_object = objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
+    new_object.params = {}
     if person in people_quantities:
       if people_quantities[person] == 'one':
         new_object.params = {
@@ -1291,11 +1292,7 @@ code: |
       elif people_quantities[person] == 'more':
         new_object.params = {
           "there_are_any": True,
-          }
-      else:
-        new_object.params = {}
-    else:
-      new_object.params = {}        
+          }            
   objects.gathered=True
   
   objects_block.data = {
