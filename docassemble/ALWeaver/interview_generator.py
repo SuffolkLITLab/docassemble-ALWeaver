@@ -163,8 +163,8 @@ class DABlock(DAObject):
     A Block in a Docassemble interview YAML file.
     """
 
-    template_key: str
-    data: Dict[str, Any]
+    # template_key: str
+    # data: Dict[str, Any]
 
     def source(
         self,

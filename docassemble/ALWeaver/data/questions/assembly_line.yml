@@ -114,7 +114,7 @@ code: |
       else:
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
-        validate_docx  
+        validate_docx
  
   if have_template_to_load:  
     get_all_fields
@@ -127,6 +127,7 @@ code: |
     process_people_variables
     ask_people_quantity_question    
   if have_template_to_load: 
+    ask_people_quantity_question  
     choose_field_types    
   if not generate_download_screen:    
     no_template_default_values    
@@ -834,7 +835,10 @@ buttons:
   - Restart: restart
 ---
 code: |
- built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+  if have_template_to_load: 
+    built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+  else:
+    built_in_people_vars_used = []
 ---
 comment: |
   Convert the PDF fields into Docassemble fields
@@ -911,9 +915,9 @@ code: |
   form_type_block = interview.blocks.appendObject()
   form_type_block.template_key = 'code'
   form_type_block.data = {
-      "lines": ["al_form_type = '" + interview.form_type + "'"]
+      "lines": [f"""al_form_type = "{ interview.form_type }" """]
     }
-  add_form_type= True
+  add_form_type = True
 ---
 need: interview_label
 code: |
@@ -1265,17 +1269,20 @@ code: |
 ---
 need:
   - built_in_people_vars_used
+  - person_candidates
+  - people_quantities
 code: |
   # Create objects block that specifies the number of people for
   # the developer. Switches between target_number and there_are_any list gathering
   # approaches
   objects_block =  interview.blocks.appendObject()
   objects_block.template_key = "objects"
-  objects = DAList(object_type=DAObject, auto_gather=False)
+  objects = DAList("objects", object_type=DAObject, auto_gather=False)
   for person in person_candidates:
     new_object = objects.appendObject()
     new_object.name = person
     new_object.type = "ALPeopleList"
+    new_object.params = {}
     if person in people_quantities:
       if people_quantities[person] == 'one':
         new_object.params = {
@@ -1285,9 +1292,7 @@ code: |
       elif people_quantities[person] == 'more':
         new_object.params = {
           "there_are_any": True,
-          }
-      else:
-        new_object.params = {}
+          }            
   objects.gathered=True
   
   objects_block.data = {
@@ -1746,6 +1751,7 @@ code: |
 need:
   - inflate_renamed_upload
   - interview.author
+  - generate_download_screen
 # Prepare content for the Weaver's download screen.
 code: |
   # 1. Commit the generated interview YAML file
@@ -1753,21 +1759,22 @@ code: |
   interview_download.write(interview.source())
   interview_download.commit()
   
-  # 2. Build data for folders_and_files and package_info
-  tempfiles = [] 
-  if generate_download_screen:
-    tempfiles = [
-      next_steps_documents[interview.form_type]['attachment'].docx,
-      renamed_upload,
-    ]
+  # 2. Build data for folders_and_files and package_info   
   folders_and_files = {
-    "templates": tempfiles,
     "questions": [interview_download],
     "modules":[],
     "static": [],
     "sources": []
   }
   
+  if generate_download_screen:
+    folders_and_files["templates"] = [
+        next_steps_documents[interview.form_type]['attachment'].docx,
+        renamed_upload,
+      ]
+  else:    
+    folders_and_files["templates"] = []
+    
   package_info = interview.package_info(
           get_pypi_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
@@ -1794,7 +1801,6 @@ code: |
         folders_and_files, 
         interview_package_download)
   
-  del tempfiles
   wrote_interview = True
 ---
 need:
@@ -2118,14 +2124,15 @@ code: |
 #----------------------------------------------------
 ---
 # Set default values if no template file to upload
+only sets: no_template_default_values
 code: |
   if not have_template_to_load:
     all_fields = fields  
   interview.original_form = 'NA'  
   interview.typical_role = 'anonymous'
-  interview_label_draft = interview.short_title    
+  interview_label_draft = interview.short_title
   
-  no_template_default_values = 'Done'
+  no_template_default_values = True
 ---
 comment: |
   This is for interviews that don't need a download screen
