@@ -2127,9 +2127,7 @@ code: |
 #----------------------------------------------------
 ---
 # Set default values if no template file to upload
-scan for variables: False
-sets:
-  - no_template_default_values
+only sets: no_template_default_values
 code: |
   if not have_template_to_load:
     all_fields = fields  
