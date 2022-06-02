@@ -16,6 +16,7 @@ from docassemble.base.util import (
     path_and_mimetype,
     user_info,
     DAEmpty,
+    pdf_concatenate,
 )
 import docassemble.base.functions
 import docassemble.base.parse
@@ -23,13 +24,17 @@ import docassemble.base.pdftk
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict, Union  # , Set
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict, Union
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
 from pdfminer.pdftypes import PDFObjRef, resolve1
+from pdfminer.pdfparser import PDFSyntaxError
+from pdfminer.psparser import PSEOF
+from PyPDF2.utils import PdfReadError
+from zipfile import BadZipFile
 import ast
 from enum import Enum
 
@@ -68,9 +73,11 @@ __all__ = [
     "mako_indent",
     "using_string",
     "pdf_field_type_str",
-    "bad_name_reason",
     "mako_local_import_str",
     "is_valid_python",
+    "get_pdf_validation_errors",
+    "get_docx_validation_errors",
+    "get_variable_name_warnings",
 ]
 
 always_defined = set(
@@ -1691,6 +1698,10 @@ def pdf_field_type_str(field):
             return ":skull-crossbones:"
 
 
+######################################
+# Recognizing errors with PDF and DOCX files and variable names
+######################################
+
 def is_valid_python(code: str) -> bool:
     try:
         ast.parse(code)
@@ -1716,6 +1727,44 @@ def bad_name_reason(field: DAField):
             return f"{ field.variable }, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
         return None
 
+def get_pdf_validation_errors(f: DAFile):
+    try:
+        fields = DAFieldList()
+        fields.add_fields_from_file(f)        
+    except ParsingException as ex:
+        return ("parsing_exception", ex)
+    except (PDFSyntaxError, PdfReadError):
+        return ("invalid_pdf", "Invalid PDF")
+    except PSEOF:
+        return ("pseof", "File appears incomplete (PSEOF error). Is this a valid PDF file?")
+    except:
+        return ("unknown", "Unknown error reading PDF file. Is this a valid PDF?")
+    try:
+        pdf_concatenate(f, f)
+    except:
+        return ("concatenation_error", "Unknown error concatenating PDF file to itself. The file may be invalid.")
+
+def get_docx_validation_errors(f: DAFile):
+    try:
+        fields = DAFieldList()
+        fields.add_fields_from_file(f)        
+    except (BadZipFile, KeyError):
+        return ("bad_docx", "Error opening DOCX. Is this a valid DOCX file?")
+    
+    try:
+        pdf_concatenate(f)
+    except:
+        return ("unable_to_convert_to_pdf", "Unable to convert to PDF. Is this is a valid DOCX file?")
+
+
+def get_variable_name_warnings(fields):
+    return list(filter(
+        lambda elem: elem is not None,
+        map(bad_name_reason, fields)))
+
+############################
+# Create a Docassemble .zip package
+############################
 
 def create_package_zip(
     pkgname: str,

@@ -290,7 +290,7 @@ fields:
   - no label: template_upload
     datatype: files
     accept: |
-      ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
     datatype: yesno
     help: |
@@ -303,10 +303,17 @@ fields:
       Use our experimental code to automatically apply AssemblyLine naming conventions.
       If you already followed naming conventions, you might want to skip this.
 validation code: |
-  try:
-    pdf_concatenate(template_upload, template_upload)
-  except:
-    validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
+  for document in template_upload:
+    if document.mimetype == "application/pdf":
+      try:
+        document.fix_up()
+      except:
+        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
+    else:
+      try:
+        pdf_concatenate(document)
+      except:
+        validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
 ---
 code: |
   has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
@@ -752,32 +759,45 @@ comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
 code: |
-  from pdfminer.pdfparser import PDFSyntaxError
-  from pdfminer.psparser import PSEOF
-  from PyPDF2.utils import PdfReadError
-  from zipfile import BadZipFile
+  for document in template_upload:
+    if document.mimetype == "application/pdf":
+      errors = get_pdf_validation_errors(document)
+      if errors:
+        log(errors[1])
+        if errors[0] == "parsing_exception":
+          parsing_ex = errors[1]
+          force_ask('parsing_exception')
+        elif errors[0] == "invalid_pdf":
+          force_ask('exit_invalid_pdf')
+        elif errors[0] == "pseof":
+          force_ask('exit_PSEOF_error')
+        elif errors[0] == "concatenation_error":
+          force_ask("exit_invalid_pdf")
+    elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      errors = get_docx_validation_errors(document)
+      if errors:
+        force_ask('exit_invalid_docx')        
+      # Check for syntax that indicates a user error
+      validate_docx 
+    else:
+      force_ask("exit_unknown_file_type")
+
+  fields.clear()
+  fields.add_fields_from_file(template_upload)
+  fields.gathered = True
+
+  if not len(fields) > 0:
+    force_ask('empty_pdf')
   
-  try:
-    fields.clear()
-    fields.add_fields_from_file(template_upload)
-    fields.gathered = True
-    if not len(fields) > 0:
-      force_ask('empty_pdf')
-    bad_fields = list(filter(
-        lambda elem: elem is not None,
-        map(bad_name_reason, fields)))
-    if len(bad_fields) > 0:
-      force_ask('non_descriptive_field_name')
-  except ParsingException as ex:
-    parsing_ex = ex
-    force_ask('parsing_exception')
-  except (PDFSyntaxError, PdfReadError):
-    # Handle PDF read error
-    force_ask('exit_invalid_pdf')
-  except PSEOF:
-    force_ask('exit_PSEOF_error')
-  except (BadZipFile, KeyError):
-    force_ask('exit_invalid_docx')
+  bad_fields = get_variable_name_warnings(fields)
+  if len(bad_fields) > 0:
+    force_ask('non_descriptive_field_name')
+---
+event: exit_unknown_file_type
+question: |
+  Is this a valid PDF or DOCX file?
+subquestion: |
+  The file you uploaded doesn't appear to be a valid DOCX or PDF document.
 ---
 event: exit_invalid_pdf
 question: |

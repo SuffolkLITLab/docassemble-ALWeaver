@@ -11,13 +11,12 @@ images:
 ---
 code: |
   fields.gathered
-  try:
-    people_list = fields.get_person_candidates(custom_only=True)
-    possible_custom = [field.variable for field in fields
-        if is_reserved_label(field.variable, reserved_prefixes=people_list)]
-  except ParsingException as ex:
-    parsing_ex = ex
-    force_ask('parsing_exception')
+  people_list = fields.get_person_candidates(custom_only=True)
+  possible_custom = [
+    field.variable 
+    for field in fields
+    if is_reserved_label(field.variable, reserved_prefixes=people_list)
+  ]
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
