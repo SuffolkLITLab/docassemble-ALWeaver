@@ -450,11 +450,11 @@ class DAField(DAObject):
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
         elif self.variable.endswith("_value"):
-            self.field_type_guess = "currency"            
+            self.field_type_guess = "currency"
         else:
             self.field_type_guess = "text"
-        
-        if pdf_field_tuple[4] not in ['/Sig','/Btn','/Tx']:
+
+        if pdf_field_tuple[4] not in ["/Sig", "/Btn", "/Tx"]:
             self.field_type_unhandled = True
 
     def mark_as_paired_yesno(self, paired_field_names: List[str]):
@@ -1046,7 +1046,7 @@ class DAFieldList(DAList):
             for var_and_type, fields in parent_coll_map.items()
         ]
 
-    def add_fields_from_file(self, the_file:Union[DAFile, DAFileList]) -> None:
+    def add_fields_from_file(self, the_file: Union[DAFile, DAFileList]) -> None:
         """
         Given a DAFile or DAFileList, process the raw fields in each file
         and add to the current list. Deduplication happens after each additional
@@ -1063,7 +1063,9 @@ class DAFieldList(DAList):
         elif the_file.filename.lower().endswith("docx"):
             document_type = "docx"
         else:
-            raise Exception(f"{f.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension.")
+            raise Exception(
+                f"{f.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
+            )
 
         if document_type == "pdf":
             for pdf_field_tuple in all_fields:
@@ -1074,11 +1076,11 @@ class DAFieldList(DAList):
                 # Built-in fields and signatures don't get custom questions written
                 if is_reserved_label(pdf_field_name):
                     new_field.group = DAFieldGroup.BUILT_IN
-                elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == '/Sig':
+                elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == "/Sig":
                     new_field.group = DAFieldGroup.SIGNATURE
                 else:
                     new_field.group = DAFieldGroup.CUSTOM
-                
+
                 # This function determines what type of variable
                 # we're dealing with
                 new_field.fill_in_pdf_attributes(pdf_field_tuple)
@@ -1089,16 +1091,17 @@ class DAFieldList(DAList):
                 new_field.source_document_type = "docx"
                 if is_reserved_docx_label(field):
                     new_field.group = DAFieldGroup.BUILT_IN
-                elif field.endswith('.signature'):
+                elif field.endswith(".signature"):
                     new_field.group = DAFieldGroup.SIGNATURE
-                else:                
+                else:
                     new_field.group = DAFieldGroup.CUSTOM
                 new_field.fill_in_docx_attributes(field)
 
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
 
-    def get_person_candidates(self,
+    def get_person_candidates(
+        self,
         undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
         people_suffixes=generator_constants.PEOPLE_SUFFIXES,
         people_suffixes_map=generator_constants.PEOPLE_SUFFIXES_MAP,
@@ -1110,7 +1113,7 @@ class DAFieldList(DAList):
         Identify the field names that appear to represent people in the list of
         string fields pulled from docx/PDF. Exclude people we know
         are singular Persons (such as trial_court).
-        """    
+        """
         people_vars = reserved_person_pluralizers_map.values()
         people = set()
         for field in self:
@@ -1127,7 +1130,9 @@ class DAFieldList(DAList):
                 people.add(field_to_check)
             elif (field_to_check) in undefined_person_prefixes:
                 pass  # Do not ask how many there will be about a singluar person
-            elif file_type == "docx" and ("[" in field_to_check or "." in field_to_check):
+            elif file_type == "docx" and (
+                "[" in field_to_check or "." in field_to_check
+            ):
                 # Check for a valid Python identifier before brackets or .
                 match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
                 matches = re.match(match_with_brackets_or_attribute, field_to_check)
@@ -1169,26 +1174,31 @@ class DAFieldList(DAList):
         else:
             return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
-
-    def mark_people_as_builtins(self, people_list:List[str], people_suffixes: List[str] = (
-        generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
-    )) -> None:
+    def mark_people_as_builtins(
+        self,
+        people_list: List[str],
+        people_suffixes: List[str] = (
+            generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
+        ),
+    ) -> None:
         """Scan the list of fields and see if any of them should be renamed
         or marked as built-ins given the list of new, custom prefixes."""
         for field in self:
-            if field.source_document_type == "pdf":           
+            if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):
                     field.group = DAFieldGroup.BUILT_IN
                     # Try checking to see if the custom prefix + predefined suffixes
                     # result in a new variable name
                     new_potential_name = map_raw_to_final_display(
-                        field.variable, document_type=field.source_document_type, reserved_prefixes=people_list
+                        field.variable,
+                        document_type=field.source_document_type,
+                        reserved_prefixes=people_list,
                     )
                     if new_potential_name != field.variable:
                         field.final_display_var = new_potential_name
-            elif is_reserved_docx_label(field.variable,
-                    reserved_pluralizers_map = dict(enumerate(people_list))
-                ):
+            elif is_reserved_docx_label(
+                field.variable, reserved_pluralizers_map=dict(enumerate(people_list))
+            ):
                 field.group = DAFieldGroup.BUILT_IN
 
         # This treats all fields as PDF fields, which should be a reasonable
@@ -1198,16 +1208,17 @@ class DAFieldList(DAList):
     def builtins(self):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
-        return self.filter(group = DAFieldGroup.BUILT_IN)
+        return self.filter(group=DAFieldGroup.BUILT_IN)
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return self.filter(group = DAFieldGroup.SIGNATURE)
+        return self.filter(group=DAFieldGroup.SIGNATURE)
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return self.filter(group = DAFieldGroup.CUSTOM)
+        return self.filter(group=DAFieldGroup.CUSTOM)
+
 
 class DAQuestion(DABlock):
     """
@@ -1353,6 +1364,7 @@ def get_fields(the_file):
     docx_data = docx2python(the_file.path())  # Will error with invalid value
     text = docx_data.text
     return get_docx_variables(text)
+
 
 def get_docx_variables(text: str) -> set:
     """
@@ -1702,6 +1714,7 @@ def pdf_field_type_str(field):
 # Recognizing errors with PDF and DOCX files and variable names
 ######################################
 
+
 def is_valid_python(code: str) -> bool:
     try:
         ast.parse(code)
@@ -1721,50 +1734,62 @@ def bad_name_reason(field: DAField):
     else:
         # log(field[0], "console")
         python_var = map_raw_to_final_display(
-            remove_multiple_appearance_indicator(varname(field.variable)), document_type="pdf"
+            remove_multiple_appearance_indicator(varname(field.variable)),
+            document_type="pdf",
         )
         if len(python_var) == 0:
             return f"{ field.variable }, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
         return None
 
+
 def get_pdf_validation_errors(f: DAFile):
     try:
         fields = DAFieldList()
-        fields.add_fields_from_file(f)        
+        fields.add_fields_from_file(f)
     except ParsingException as ex:
         return ("parsing_exception", ex)
     except (PDFSyntaxError, PdfReadError):
         return ("invalid_pdf", "Invalid PDF")
     except PSEOF:
-        return ("pseof", "File appears incomplete (PSEOF error). Is this a valid PDF file?")
+        return (
+            "pseof",
+            "File appears incomplete (PSEOF error). Is this a valid PDF file?",
+        )
     except:
         return ("unknown", "Unknown error reading PDF file. Is this a valid PDF?")
     try:
         pdf_concatenate(f, f)
     except:
-        return ("concatenation_error", "Unknown error concatenating PDF file to itself. The file may be invalid.")
+        return (
+            "concatenation_error",
+            "Unknown error concatenating PDF file to itself. The file may be invalid.",
+        )
+
 
 def get_docx_validation_errors(f: DAFile):
     try:
         fields = DAFieldList()
-        fields.add_fields_from_file(f)        
+        fields.add_fields_from_file(f)
     except (BadZipFile, KeyError):
         return ("bad_docx", "Error opening DOCX. Is this a valid DOCX file?")
-    
+
     try:
         pdf_concatenate(f)
     except:
-        return ("unable_to_convert_to_pdf", "Unable to convert to PDF. Is this is a valid DOCX file?")
+        return (
+            "unable_to_convert_to_pdf",
+            "Unable to convert to PDF. Is this is a valid DOCX file?",
+        )
 
 
 def get_variable_name_warnings(fields):
-    return list(filter(
-        lambda elem: elem is not None,
-        map(bad_name_reason, fields)))
+    return list(filter(lambda elem: elem is not None, map(bad_name_reason, fields)))
+
 
 ############################
 # Create a Docassemble .zip package
 ############################
+
 
 def create_package_zip(
     pkgname: str,
