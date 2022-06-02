@@ -9,23 +9,11 @@ fields:
     datatype: file
 ---
 code: |
-  jinja_errors = get_jinja_errors(template_upload)
-  if jinja_errors:
-    jinja_exception
-  if contains_mako:
-    mako_syntax_in_docx  
-  verify_docx_fields
-  
+  verify_docx_fields 
   validate_docx = True
 ---
 code: |
-  mako_matches = get_mako_matches(template_upload[0])
-  contains_mako = len(mako_matches)
----
-need: 
-  - update_docx_validation_fields
-code: |
-  no_recognized_docx_fields = not (any(field for field in docx_validation_fields if field.reserved) or len(docx_custom_people))
+  no_recognized_docx_fields = not (any(field for field in validation_fields if field.reserved) or len(validation_people_list))
 ---
 id: Did you intend to use Mako syntax
 question: |
@@ -70,8 +58,6 @@ subquestion: |
   and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
 ---
 id: confirm-docx-fields
-need: 
-  - update_docx_validation_fields
 continue button field: verify_docx_fields
 question: |
   Validate your template
@@ -96,17 +82,17 @@ subquestion: |
 
   Name (bold if {reserved}) | Type
   --------------------------|------
-  % for field in docx_validation_fields.builtins():
+  % for field in validation_fields.builtins():
   ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
   % endfor
-  % for field in docx_validation_fields.custom():
+  % for field in validation_fields.custom():
   ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
   % endfor
-  % for field in docx_validation_fields.signatures():
+  % for field in validation_fields.signatures():
   ${ bold(field.variable) if field.reserved else field.variable } | signature  |
   % endfor
   
-  % if len(docx_custom_people) > 0:
+  % if len(validation_people_list) > 0:
   :question: Indicates that we think this field could be handled by 
   questions in our question library, so you don't have to write your own 
   questions for it! You can choose whether to use our default questions later.
@@ -141,7 +127,7 @@ fields:
     validation messages:
       minlength: |
         You must select all of the checkboxes to keep going.
-    none of the above: False    
+    none of the above: False
 terms:
   - reserved: |
       Means there is a built-in question for this field.
@@ -158,19 +144,17 @@ subject: |
 content: |
   ${ pdf_concatenate(template_upload) }
 ---
-objects:
-  - docx_validation_fields: DAFieldList.using(gathered=True)
-  - docx_custom_people: DAFieldList.using(gathered=True)
----
-need:
-  - docx_validation_fields
+only sets:
+  - validation_fields
+  - validation_people_list
 code: |
-  people_list = fields.get_person_candidates(custom_only=True)
-  docx_validation_fields = fields.copy_deep("docx_validation_fields")
+  validation_people_list = fields.get_person_candidates(custom_only=True)
+  validation_fields = fields.copy_deep("validation_fields")
 
-  for field in docx_validation_fields:
-    field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
+  for field in validation_fields:
+    if field.source_document_type == "docx":
+      field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
+    elif field.source_document_type == "pdf":
+      field.reserved = is_reserved_label(field.variable)
     
-  docx_validation_fields.mark_people_as_builtins(people_list)
-
-  update_docx_validation_fields = True  
+  validation_fields.mark_people_as_builtins(people_list)

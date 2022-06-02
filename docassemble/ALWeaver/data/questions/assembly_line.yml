@@ -100,7 +100,7 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       template_upload
-      if any(f for f in template_upload if f.filename.endswith('pdf') ):
+      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, template_upload)):
         if yes_normalize_fields:
           process_field_normalization
         validate_pdf
@@ -109,10 +109,12 @@ code: |
         fields_checkup_status
         all_look_good
         validation_success
-      if any(f for f in template_upload if f.filename.endswith('docx')):
+      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, template_upload)):
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
         validate_docx
+      else: # mixed PDF and DOCX templates
+        validate_mixed_documents
  
   if have_template_to_load:  
     fields.gathered
@@ -778,7 +780,12 @@ code: |
       if errors:
         force_ask('exit_invalid_docx')        
       # Check for syntax that indicates a user error
-      validate_docx 
+      jinja_errors = get_jinja_errors(document)
+      if jinja_errors:
+        jinja_exception
+      mako_matches = get_mako_matches(document)
+      if mako_matches:
+        mako_syntax_in_docx
     else:
       force_ask("exit_unknown_file_type")
 
@@ -2117,3 +2124,103 @@ code: |
     generate_download_screen = True
     
   set_interview_type_vars = 'Done'
+---
+id: confirm-mixed-document-fields
+continue button field: validate_mixed_documents
+question: |
+  Validate your templates
+subquestion: |
+  #### Your upload contains both DOCX and PDF files
+
+  #### Fields
+  
+  All of the fields in your template files are listed in the table below.
+  Confirm that the table looks right.
+  
+  A **bold** name means that this field is **reserved**.
+  Reserved fields are fields that will be handled with a question that
+  comes from the AL Question Library. For example:
+  
+  * Name fields
+  * Address fields
+  * Basic contact information and court information
+  
+  If you expect a field to be bold but it isn't, check the field's spelling.
+
+  The **type** of each field is just a guess, based on the field's name.
+  You can override the guess later.
+
+  Name (bold if {reserved}) | Type
+  --------------------------|------
+  % for field in validation_fields.builtins():
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
+  % endfor
+  % for field in validation_fields.custom():
+  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
+  % endfor
+  % for field in validation_fields.signatures():
+  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
+  % endfor
+    
+  #### Preview  
+  Look over the PDF preview of your file below. Make sure that the
+  fonts, spacing, and styles look about right. Note: the conditional logic
+  and text your user enters can change the formatting. You will also
+  see the placeholder variable names unchanged in this preview.
+  
+  For safety, we recommend that you use the standard [Microsoft Core Fonts
+  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
+  Arial and Times New Roman, as the standard fonts in Word templates.
+  
+  If spacing or other formatting looks wrong, try editing your file in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right
+  there.
+  
+  % for document in template_upload:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
+fields:
+  - no label: mixed_fields_checkup_status
+    datatype: checkboxes
+    choices:
+      - All of my fields are listed in the table above: all_fields_present
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+      - The fonts and styles in the preview look okay: fonts_okay
+        help: |
+          Note: use the Microsoft Core Fonts for the Web to be safe.
+    minlength: 4
+    validation messages:
+      minlength: |
+        You must select all of the checkboxes to keep going.
+    none of the above: False
+terms:
+  - reserved: |
+      Means there is a built-in question for this field.
+css: |
+  <style>
+  .question-confirm-docx-fields div.container {
+    max-width: 2000px;
+  }  
+  </style>
+---
+template: template_upload[i].preview_template
+subject: |
+  Preview ${ template_upload[i].filename }
+content: |
+  % if template_upload[i].mimetype == "application/pdf":
+  ${ template_upload[i].pdf_field_preview }
+  % else:
+  ${ pdf_concatenate(template_upload) }
+  % endif
+---
+attachment:
+  variable name: template_upload[i].pdf_field_preview
+  editable: False
+  pdf template file:
+    code: |
+      template_upload[i]
+  code: |
+    reflect_fields(template_upload[i].get_pdf_fields())

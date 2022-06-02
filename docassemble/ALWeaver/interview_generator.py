@@ -1477,7 +1477,7 @@ def map_raw_to_final_display(
         return label
 
     # Break up label into its parts: prefix, digit, the rest
-    all_prefixes = reserved_prefixes + list(custom_people_plurals_map.values())
+    all_prefixes = list(reserved_prefixes) + list(custom_people_plurals_map.values())
     label_groups = get_reserved_label_parts(all_prefixes, label)
 
     # If no matches to automateable labels were found,
