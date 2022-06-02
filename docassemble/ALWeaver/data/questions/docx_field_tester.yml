@@ -165,13 +165,11 @@ objects:
 need:
   - docx_validation_fields
 code: |
-  docx_validation_fields.clear()
   people_list = fields.get_person_candidates(custom_only=True)
+  docx_validation_fields = fields.copy_deep("docx_validation_fields")
 
-  for field in fields:
-    new_field = docx_validation_fields.appendObject()
-    new_field.fill_in_docx_attributes(field.variable)
-    new_field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
+  for field in docx_validation_fields:
+    field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
     
   docx_validation_fields.mark_people_as_builtins(people_list)
 

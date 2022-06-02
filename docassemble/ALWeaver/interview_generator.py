@@ -443,9 +443,12 @@ class DAField(DAObject):
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
         elif self.variable.endswith("_value"):
-            self.field_type_guess = "currency"
+            self.field_type_guess = "currency"            
         else:
             self.field_type_guess = "text"
+        
+        if pdf_field_tuple[4] not in ['/Sig','/Btn','/Tx']:
+            self.field_type_unhandled = True
 
     def mark_as_paired_yesno(self, paired_field_names: List[str]):
         """Marks this field as actually representing multiple template fields:

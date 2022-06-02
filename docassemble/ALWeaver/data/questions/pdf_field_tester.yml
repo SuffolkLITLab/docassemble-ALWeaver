@@ -68,7 +68,7 @@ code: |
   for field in fields:
     if ' ' in field.variable:
       warnings_temp.add('space')
-    if field[4] not in ['/Sig','/Btn','/Tx']:
+    if hasattr(field, "field_type_not_handled") and field.field_type_not_handled:
       warnings_temp.add('not handled')
   warnings = warnings_temp
   del warnings_temp
