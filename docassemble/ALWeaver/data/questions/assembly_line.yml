@@ -2213,7 +2213,7 @@ content: |
   % if template_upload[i].mimetype == "application/pdf":
   ${ template_upload[i].pdf_field_preview }
   % else:
-  ${ pdf_concatenate(template_upload) }
+  ${ pdf_concatenate(template_upload[i]) }
   % endif
 ---
 attachment:
