@@ -10,12 +10,11 @@ images:
   green_light: green_light.png
 ---
 code: |
+  fields.gathered
   try:
-    checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
-    signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
-    possible_base = get_person_variables(all_fields, custom_only=True)
-    possible_custom = [field[0] for field in all_fields
-        if any([field[0].startswith(base) for base in possible_base])]
+    people_list = fields.get_person_candidates(custom_only=True)
+    possible_custom = [field.variable for field in fields
+        if is_reserved_label(field.variable, reserved_prefixes=people_list)]
   except ParsingException as ex:
     parsing_ex = ex
     force_ask('parsing_exception')
@@ -66,8 +65,8 @@ buttons:
 ---
 code: |
   warnings_temp = set()
-  for field in all_fields:
-    if ' ' in field[0]:
+  for field in fields:
+    if ' ' in field.variable:
       warnings_temp.add('space')
     if field[4] not in ['/Sig','/Btn','/Tx']:
       warnings_temp.add('not handled')
@@ -75,7 +74,7 @@ code: |
   del warnings_temp
 ---
 code: |
-  no_recognized_pdf_fields = not (any(field for field in all_fields if is_reserved_label(field[0])) or len(possible_custom) > 0)
+  no_recognized_pdf_fields = not (any(field for field in fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
 ---
 id: confirm-pdf-fields
 question: |
@@ -96,25 +95,9 @@ subquestion: |
 
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
-  % for field in all_fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) or field[0] in possible_custom else field[0]} ${ ':question:' if field[0] in possible_custom else ''} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  % for field in fields:
+  ${":exclamation-triangle: " if ' ' in field.variables else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
   % endfor
-
-  % if len(signature_fields_test) > 0:
-  The following are signature fields: 
-  
-  % for sig in signature_fields_test:
-  * ${ sig }
-  % endfor
-  % endif  
-
-  % if len(checkbox_fields) > 0:
-  The following are checkbox fields: 
-  
-  % for chk in checkbox_fields:
-  * ${ chk }
-  % endfor
-  % endif
   
   % if 'space' in warnings:
   :exclamation-triangle: Indicates that the field name has a space in it.
@@ -170,7 +153,7 @@ validation code: |
 help:
   label: Debug Info
   content: |
-    % for field in all_fields:
+    % for field in fields:
     * ${field}
     % endfor
 terms:
@@ -194,13 +177,10 @@ right: |
   _Limitations_: we do not have a way to show you the labels for
   checkbox fields yet.
   
-  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["fields", "field_preview_pdf"]} ]), label="Rename fields") }
 ---
 code: |
-  signatures = [{field: placeholder_signature} for field in signature_fields_test]
-  checkboxes = [{field: 'Yes'} for field in checkbox_fields]
-  other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in all_fields if not field[0] in signatures and not field[0] in checkbox_fields]
-  pdf_fields = other_fields + checkboxes + signatures
+  pdf_fields = [{field.variable: map_raw_to_final_display(field.variable)} for field in fields]
 ---
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')

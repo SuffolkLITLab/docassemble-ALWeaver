@@ -23,7 +23,7 @@ import docassemble.base.pdftk
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union  # , Set
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict, Union  # , Set
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 import ruamel.yaml as yaml
@@ -31,6 +31,7 @@ import mako.template
 import mako.runtime
 from pdfminer.pdftypes import PDFObjRef, resolve1
 import ast
+from enum import Enum
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -41,6 +42,7 @@ __all__ = [
     "ParsingException",
     "indent_by",
     "varname",
+    "DAFieldGroup",
     "DAField",
     "DAFieldList",
     "DAQuestion",
@@ -54,14 +56,11 @@ __all__ = [
     "is_reserved_label",
     "attachment_download_html",
     "get_fields",
-    "get_pdf_fields",
     "is_reserved_docx_label",
     "get_character_limit",
     "create_package_zip",
     "remove_multiple_appearance_indicator",
-    "get_person_variables",
     "get_court_choices",
-    "process_custom_people",
     "set_custom_people_map",
     "fix_id",
     "DABlock",
@@ -348,6 +347,12 @@ class DAInterview(DAObject):
             contents = f.read()
         # Take the first YAML "document"
         self.templates = list(yaml.safe_load_all(contents))[0]
+
+
+class DAFieldGroup(Enum):
+    BUILT_IN = "built in"
+    SIGNATURE = "signature"
+    CUSTOM = "custom"
 
 
 class DAField(DAObject):
@@ -1031,13 +1036,167 @@ class DAFieldList(DAList):
             for var_and_type, fields in parent_coll_map.items()
         ]
 
-    def delitem(self, *pargs):
-        """TODO(brycew): remove when all of our servers are on 1.2.35, it's duplicating
-        https://github.com/jhpyle/docassemble/blob/8e7e4f5ee90803022779bac57308b73b41f92da8/docassemble_base/docassemble/base/core.py#L1127-L1131"""
-        for item in reversed([item for item in pargs if item < len(self.elements)]):
-            self.elements.__delitem__(item)
-        self._reset_instance_names()
+    def add_fields_from_file(self, the_file:Union[DAFile, DAFileList]) -> None:
+        """
+        Given a DAFile or DAFileList, process the raw fields in each file
+        and add to the current list. Deduplication happens after each additional
+        field is added.
+        """
+        if isinstance(the_file, DAFileList):
+            for f in the_file:
+                self.add_fields_from_file(f)
 
+        all_fields = get_fields(the_file)
+        if the_file.filename.lower().endswith("pdf"):
+            document_type = "pdf"
+        elif the_file.filename.lower().endswith("docx"):
+            document_type = "docx"
+        else:
+            raise Exception(f"{f.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension.")
+
+        if document_type == "pdf":
+            for pdf_field_tuple in all_fields:
+                pdf_field_name = pdf_field_tuple[0]
+                new_field = self.appendObject()
+                new_field.source_document_type = "pdf"
+
+                # Built-in fields and signatures don't get custom questions written
+                if is_reserved_label(pdf_field_name):
+                    new_field.group = DAFieldGroup.BUILT_IN
+                elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == '/Sig':
+                    new_field.group = DAFieldGroup.SIGNATURE
+                else:
+                    new_field.group = DAFieldGroup.CUSTOM
+                
+                # This function determines what type of variable
+                # we're dealing with
+                new_field.fill_in_pdf_attributes(pdf_field_tuple)
+        else:
+            # if this is a docx, fields are a list of strings, not a list of tuples
+            for field in all_fields:
+                new_field = self.appendObject()
+                new_field.source_document_type = "docx"
+                if is_reserved_docx_label(field):
+                    new_field.group = DAFieldGroup.BUILT_IN
+                elif field.endswith('.signature'):
+                    new_field.group = DAFieldGroup.SIGNATURE
+                else:                
+                    new_field.group = DAFieldGroup.CUSTOM
+                new_field.fill_in_docx_attributes(field)
+
+        self.consolidate_duplicate_fields(document_type)
+        self.consolidate_yesnos()
+
+    def get_person_candidates(self,
+        undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
+        people_suffixes=generator_constants.PEOPLE_SUFFIXES,
+        people_suffixes_map=generator_constants.PEOPLE_SUFFIXES_MAP,
+        reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
+        reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+        custom_only=False,
+    ) -> Set[str]:
+        """
+        Identify the field names that appear to represent people in the list of
+        string fields pulled from docx/PDF. Exclude people we know
+        are singular Persons (such as trial_court).
+        """    
+        people_vars = reserved_person_pluralizers_map.values()
+        people = set()
+        for field in self:
+            # fields are currently tuples for PDF and strings for docx
+            if field.source_document_type == "pdf":
+                file_type = "pdf"
+                # map_raw_to_final_display will only transform names that are built-in to the constants
+                field_to_check = map_raw_to_final_display(field.variable)
+            else:
+                file_type = "docx"
+                field_to_check = field.variable
+            # Exact match
+            if (field_to_check) in people_vars:
+                people.add(field_to_check)
+            elif (field_to_check) in undefined_person_prefixes:
+                pass  # Do not ask how many there will be about a singluar person
+            elif file_type == "docx" and ("[" in field_to_check or "." in field_to_check):
+                # Check for a valid Python identifier before brackets or .
+                match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
+                matches = re.match(match_with_brackets_or_attribute, field_to_check)
+                if matches:
+                    if matches.groups()[0] in undefined_person_prefixes:
+                        # Ignore singular objects like trial_court
+                        pass
+                    # Is the name before attribute/index a predetermined person?
+                    elif matches.groups()[0] in people_vars:
+                        people.add(matches.groups()[0])
+                    # Maybe this is the singular version of a person's name?
+                    elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
+                        people.add(reserved_person_pluralizers_map[matches.groups()[0]])
+                    else:
+                        # This will be reached only for a DOCX and we decided to make
+                        # custom people all be plural. So we ALWAYS strip off the leading
+                        # index, like [0].name.first
+                        possible_suffix = re.sub("^\[\d+\]", "", matches.groups()[1])
+                        # Look for suffixes normally associated with people like .name.first for a DOCX
+                        if possible_suffix in people_suffixes:
+                            people.add(matches.groups()[0])
+            elif file_type == "pdf":
+                # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
+                # In this branch and all subbranches strip trailing numbers
+                # regex to check for matching suffixes, and catch things like mailing_address_address
+                # instead of just _address_address, if the longer one matches
+                match_pdf_person_suffixes = (
+                    r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
+                )
+                matches = re.match(match_pdf_person_suffixes, field_to_check)
+                if matches:
+                    if not matches.groups()[0] in undefined_person_prefixes:
+                        # Skip pre-defined but singular objects since they are not "people" that
+                        # need to turn into lists.
+                        # currently this is only trial_court
+                        people.add(re.sub(r"\d+$", "", matches.groups()[0]))
+        if custom_only:
+            return people - set(reserved_pluralizers_map.values())
+        else:
+            return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
+
+
+    def mark_people_as_builtins(self, people_list:List[str], people_suffixes: List[str] = (
+        generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
+    )) -> None:
+        """Scan the list of fields and see if any of them should be renamed
+        or marked as built-ins given the list of new, custom prefixes."""
+        for field in self:
+            if field.source_document_type == "pdf":           
+                if is_reserved_label(field.variable, reserved_prefixes=people_list):
+                    field.group = DAFieldGroup.BUILT_IN
+                    # Try checking to see if the custom prefix + predefined suffixes
+                    # result in a new variable name
+                    new_potential_name = map_raw_to_final_display(
+                        field.variable, document_type=field.source_document_type, reserved_prefixes=people_list
+                    )
+                    if new_potential_name != field.variable:
+                        field.final_display_var = new_potential_name
+            elif is_reserved_docx_label(field.variable,
+                    reserved_pluralizers_map = dict(enumerate(people_list))
+                ):
+                field.group = DAFieldGroup.BUILT_IN
+
+        # This treats all fields as PDF fields, which should be a reasonable
+        # restriction on how people write DOCX variable names
+        self.consolidate_duplicate_fields()
+
+    def builtins(self):
+        """Returns "built-in" fields, including ones the user indicated contain
+        custom person-prefixes"""
+        return self.filter(group = DAFieldGroup.BUILT_IN)
+
+    def signatures(self):
+        """Returns all signature fields in list"""
+        return self.filter(group = DAFieldGroup.SIGNATURE)
+
+    def custom(self):
+        """Returns the fields that can be assigned to screens and which will require
+        custom labels"""
+        return self.filter(group = DAFieldGroup.CUSTOM)
 
 class DAQuestion(DABlock):
     """
@@ -1168,74 +1327,21 @@ def docx_variable_fix(variable: str) -> str:
     return variable
 
 
-def get_pdf_fields(the_file):
-    """Patch over https://github.com/jhpyle/docassemble/blob/10507a53d293c30ff05efcca6fa25f6d0ded0c93/docassemble_base/docassemble/base/core.py#L4098"""
-    results = list()
-    import docassemble.base.pdftk
-
-    all_fields = docassemble.base.pdftk.read_fields(the_file.path())
-    if all_fields is None:
-        return None
-    for field in all_fields:
-        the_type = re.sub(r"[^/A-Za-z]", "", str(field[4]))
-        if the_type == "None":
-            the_type = None
-        result = (
-            field[0],
-            "" if field[1] == "something" else field[1],
-            field[2],
-            field[3],
-            the_type,
-            field[5],
-        )
-        results.append(tuple(map(shim_remove_pdf_obj_refs, result)))
-    return results
-
-
 def get_fields(the_file):
     """Get the list of fields needed inside a template file (PDF or Docx Jinja
     tags). This will include attributes referenced. Assumes a file that
     has a valid and exiting filepath."""
+    # TODO(qs): refactor to use DAField object at this stage
     if isinstance(the_file, DAFileList):
         if the_file[0].mimetype == "application/pdf":
-            return [
-                shim_remove_pdf_obj_refs(field[0])
-                for field in the_file[0].get_pdf_fields()
-            ]
+            return the_file[0].get_pdf_fields()
     else:
         if the_file.mimetype == "application/pdf":
-            return [
-                shim_remove_pdf_obj_refs(field[0])
-                for field in the_file.get_pdf_fields()
-            ]
+            return the_file.get_pdf_fields()
 
     docx_data = docx2python(the_file.path())  # Will error with invalid value
     text = docx_data.text
     return get_docx_variables(text)
-
-
-def shim_remove_pdf_obj_refs(value):
-    """
-    Recursively process PDF fields with unresolved PDFObjRefs so that they can be pickled and also
-    so that we can determine max char length.
-
-    TODO: unneeded if https://github.com/jhpyle/docassemble/pull/413 is merged.
-    """
-    if isinstance(value, PDFObjRef):
-        temp_val = resolve1(value)
-        if isinstance(
-            temp_val, list
-        ):  # I think only options are lists, PDFObjRefs, or base types
-            temp_list = []
-            for val in temp_val:
-                if isinstance(val, PDFObjRef):
-                    temp_list.append(shim_remove_pdf_obj_refs(val))
-                else:
-                    temp_list.append(val)
-            return temp_list
-        return temp_val
-    return value
-
 
 def get_docx_variables(text: str) -> set:
     """
@@ -1528,128 +1634,8 @@ def get_reserved_label_parts(prefixes: list, label: str):
     return re.search(r"^(" + "|".join(prefixes) + ")(\d*)(.*)", label)
 
 
-def process_custom_people(
-    custom_people: list,
-    fields: list,
-    built_in_fields: list,
-    document_type: str = "pdf",
-    people_suffixes: list = (
-        generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
-    ),
-) -> None:
-    """
-    Move fields from `fields` to `built_in_fields` list if the user
-    indicated they are going to be treated as ALPeopleLists
-    """
-    # Iterate over DAFieldList
-    # If any fields match a custom person with a pre-handled suffix, remove them
-    # from the list and add them to the list of built_in_fields_used
-    delete_list = []
-    fields_to_add = set()
-    for field in fields:
-        # Simpler case: PDF variables matching our naming rules
-        new_potential_name = map_raw_to_final_display(
-            field.variable, document_type=document_type, reserved_prefixes=custom_people
-        )
-        # If it's not already a DOCX-like variable and the new mapped name doesn't match old name
-        if not ("[" in field.variable) and new_potential_name != field.variable:
-            field.final_display_var = new_potential_name
-            fields_to_add.add(field)
-            delete_list.append(field)  # Cannot mutate in place
-        else:
-            # check for possible DOCX match of prefix + suffix, w/ [index] removed
-            matching_docx_test = (
-                r"^("
-                + "|".join(custom_people)
-                + ")\[\d+\]("
-                + ("|".join([suffix.replace(".", "\.") for suffix in people_suffixes]))
-                + ")$"
-            )
-            log(matching_docx_test)
-            if re.match(matching_docx_test, field.variable):
-                delete_list.append(field)
-                fields_to_add.add(field)
-
-    for field in delete_list:
-        fields.remove(field)
-
-    for field in fields_to_add:
-        built_in_fields.append(field)
-
-
-def get_person_variables(
-    fieldslist,
-    undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
-    people_suffixes=generator_constants.PEOPLE_SUFFIXES,
-    people_suffixes_map=generator_constants.PEOPLE_SUFFIXES_MAP,
-    reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
-    reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
-    custom_only=False,
-):
-    """
-    Identify the field names that appear to represent people in the list of
-    string fields pulled from docx/PDF. Exclude people we know
-    are singular Persons (such as trial_court).
-    """
-    people_vars = reserved_person_pluralizers_map.values()
-    people = set()
-    for field in fieldslist:
-        # fields are currently tuples for PDF and strings for docx
-        if isinstance(field, tuple):
-            file_type = "pdf"
-            # map_raw_to_final_display will only transform names that are built-in to the constants
-            field_to_check = map_raw_to_final_display(field[0])
-        else:
-            file_type = "docx"
-            field_to_check = field
-        # Exact match
-        if (field_to_check) in people_vars:
-            people.add(field_to_check)
-        elif (field_to_check) in undefined_person_prefixes:
-            pass  # Do not ask how many there will be about a singluar person
-        elif file_type == "docx" and ("[" in field_to_check or "." in field_to_check):
-            # Check for a valid Python identifier before brackets or .
-            match_with_brackets_or_attribute = r"([A-Za-z_]\w*)((\[.*)|(\..*))"
-            matches = re.match(match_with_brackets_or_attribute, field_to_check)
-            if matches:
-                if matches.groups()[0] in undefined_person_prefixes:
-                    # Ignore singular objects like trial_court
-                    pass
-                # Is the name before attribute/index a predetermined person?
-                elif matches.groups()[0] in people_vars:
-                    people.add(matches.groups()[0])
-                # Maybe this is the singular version of a person's name?
-                elif matches.groups()[0] in reserved_person_pluralizers_map.keys():
-                    people.add(reserved_person_pluralizers_map[matches.groups()[0]])
-                else:
-                    # This will be reached only for a DOCX and we decided to make
-                    # custom people all be plural. So we ALWAYS strip off the leading
-                    # index, like [0].name.first
-                    possible_suffix = re.sub("^\[\d+\]", "", matches.groups()[1])
-                    # Look for suffixes normally associated with people like .name.first for a DOCX
-                    if possible_suffix in people_suffixes:
-                        people.add(matches.groups()[0])
-        elif file_type == "pdf":
-            # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
-            # In this branch and all subbranches strip trailing numbers
-            # regex to check for matching suffixes, and catch things like mailing_address_address
-            # instead of just _address_address, if the longer one matches
-            match_pdf_person_suffixes = (
-                r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
-            )
-            matches = re.match(match_pdf_person_suffixes, field_to_check)
-            if matches:
-                if not matches.groups()[0] in undefined_person_prefixes:
-                    # Skip pre-defined but singular objects since they are not "people" that
-                    # need to turn into lists.
-                    # currently this is only trial_court
-                    people.add(re.sub(r"\d+$", "", matches.groups()[0]))
-    if custom_only:
-        return people - set(reserved_pluralizers_map.values())
-    else:
-        return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
-
-
+# TODO: this doesn't have a purpose yet. Need to refactor to
+# use the new config system
 def set_custom_people_map(people_var_names: Dict[str, str]):
     """Sets the map of custom people created by the developer."""
     for var_name in people_var_names:
@@ -1701,34 +1687,30 @@ def pdf_field_type_str(field):
             return ":skull-crossbones:"
 
 
-def bad_name_reason(field: Union[str, Tuple]):
-    """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
-    if isinstance(field, str):
-        # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
-        # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
-        try:
-            ast.parse(field)
-        except SyntaxError as ex:
-            return "{} isn't a valid python expression: {}".format(field, ex)
-        return None
-    else:
-        log(field[0], "console")
-        python_var = map_raw_to_final_display(
-            remove_multiple_appearance_indicator(varname(field[0])), document_type="pdf"
-        )
-        if len(python_var) == 0:
-            return "{}, the {}, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters".format(
-                field[0], pdf_field_type_str(field)
-            )
-        return None
-
-
 def is_valid_python(code: str) -> bool:
     try:
         ast.parse(code)
     except SyntaxError:
         return False
     return True
+
+
+def bad_name_reason(field: DAField):
+    """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
+    if field.source_document_type == "docx":
+        # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
+        # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
+        if not is_valid_python(field.variable):
+            return f"{ field.variable } is not a valid python expression"
+        return None
+    else:
+        # log(field[0], "console")
+        python_var = map_raw_to_final_display(
+            remove_multiple_appearance_indicator(varname(field.variable)), document_type="pdf"
+        )
+        if len(python_var) == 0:
+            return f"{ field.variable }, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
+        return None
 
 
 def create_package_zip(

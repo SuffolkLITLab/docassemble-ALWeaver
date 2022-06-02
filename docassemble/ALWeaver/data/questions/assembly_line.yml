@@ -76,9 +76,7 @@ include:
 ---
 objects:  
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  - built_in_fields_used: DAFieldList.using(gathered=True)
-  - fields: DAFieldList.using(gathered=True)
-  - signature_fields: DAFieldList.using(gathered=True)
+  - fields: DAFieldList.using(auto_gather=False)
   - questions: DAQuestionList.using(complete_attribute='complete')
   - interview_download: DAFile
   - interview_package_download: DAFile
@@ -102,7 +100,7 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       template_upload
-      if template_upload[0].filename.endswith('pdf'):
+      if any(f for f in template_upload if f.filename.endswith('pdf') ):
         if yes_normalize_fields:
           process_field_normalization
         validate_pdf
@@ -111,13 +109,13 @@ code: |
         fields_checkup_status
         all_look_good
         validation_success
-      else:
+      if any(f for f in template_upload if f.filename.endswith('docx')):
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
         validate_docx
  
   if have_template_to_load:  
-    get_all_fields
+    fields.gathered
   # Display Weaver question screens   
   interview.jurisdiction_choices 
   if generate_download_screen:      
@@ -201,15 +199,9 @@ id: no recognized fields
 question: |
   You do not have any labels that match the Assembly Line labels
 subquestion: |
-  % if template_upload[0].filename.endswith('pdf'):
   It is a good idea to use labels that match the Assembly Line documentation.
-  Most forms at least should use labels like `users1_name`, `petitioners`,
-  or `defendants`.
-  % else:
-  It is a good idea to use labels that match the Assembly Line documentation.
-  Most forms at least should use labels like `users[0].name.first`, `petitioners`,
-  or `defendants`.
-  % endif
+  Almost every form has a user and most forms also have an opposing party.
+  You should use the Assembly Line labels for these concepts.
   
   You can also add labels for:
   
@@ -218,7 +210,7 @@ subquestion: |
   * addresses
   * court information
 
-  [Read the labeling documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
+  ${ action_button_html("https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables", label="Read the labeling documentation", color="info") }
 sets: warn_no_recognized_al_labels
 buttons: 
   - I know what I'm doing, let me continue:    
@@ -229,12 +221,11 @@ buttons:
   - Restart: restart
 ---
 code: |
+  # TODO: refactor to use the new config system
   set_custom_people_map( people_variables.true_values() )  
-  if len(people_variables.true_values()):    
-    # Process regular fields
-    process_custom_people(people_variables.true_values(), fields, built_in_fields_used, document_type=document_type)
-    # Process signature fields
-    process_custom_people(people_variables.true_values(), signature_fields, built_in_fields_used, document_type=document_type)
+
+  if len(people_variables.true_values()):
+    fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True
 ---
 continue button field: weaver_intro
@@ -297,7 +288,7 @@ subquestion: |
   Select a PDF or Word template: 
 fields:   
   - no label: template_upload
-    datatype: file
+    datatype: files
     accept: |
       ".pdf, application/pdf, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
@@ -315,7 +306,7 @@ validation code: |
   try:
     pdf_concatenate(template_upload, template_upload)
   except:
-    validation_error("Your PDF file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
+    validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
 ---
 code: |
   has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
@@ -349,23 +340,27 @@ imports:
   - os
 ---
 code: |
-  formfyxer.parse_form(template_upload[0].path(), title=os.path.basename(template_upload[0].path()), jur="MA", normalize=1,rewrite=1)
-  template_upload[0].commit()
+  for template in template_upload:
+    if template.filename.endswith("pdf"):
+      formfyxer.parse_form(template.path(), title=os.path.basename(template.path()), jur="MA", normalize=1,rewrite=1)
+      template.commit()
   process_field_normalization = True
 ---
 objects:
   - temp_new_pdf: DAFile.using(filename=os.path.basename(template_upload[0].path()))
 ---
 code: |
-  temp_new_pdf.initialize()
-  formfyxer.auto_add_fields(template_upload[0].path(), temp_new_pdf.path())
+  for template in template_upload:
+    if template.filename.endswith("pdf"):
+      temp_new_pdf.initialize()
+      formfyxer.auto_add_fields(template.path(), temp_new_pdf.path())
   
-  # also normalize field names after newly recognizing them
-  formfyxer.parse_form(temp_new_pdf.path(), title=template_upload[0].filename, jur="MA", normalize=1, rewrite=1)
+      # also normalize field names after newly recognizing them
+      formfyxer.parse_form(temp_new_pdf.path(), title=template.filename, jur="MA", normalize=1, rewrite=1)
   
-  temp_new_pdf.commit()
-  template_upload[0].copy_into(temp_new_pdf)
-  process_field_recognition = True  
+      temp_new_pdf.commit()
+      template.copy_into(temp_new_pdf)
+  process_field_recognition = True
 ---
 modules:
   - .field_grouping
@@ -387,20 +382,17 @@ code: |
     interview.getting_started = "Before you get started, you need to..."
 
     interview.typical_role = "unknown"
-    tmp_people_variables = get_person_variables(all_fields, custom_only=True)
-    people_variables = DADict("people_variables", auto_gather=False, gathered=True)
-    for person in tmp_people_variables:
-      people_variables[person] = True
 
-    process_people_variables
+    fields.gathered
+    fields.mark_people_as_builtins(fields.get_person_candidates())
+
     for person in person_candidates:
-      people_quantities[person] = "any"    
-    get_all_fields
+      people_quantities[person] = "any"
     
     for index, field in enumerate(fields.elements):
       field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
-      field.label = field.variable_name_guess                
-    # choose_field_types  
+      field.label = field.variable_name_guess
+    # choose_field_types
     # review_fields_after_labeling
     
     questions.auto_gather = False
@@ -424,7 +416,9 @@ code: |
   process_im_feeling_lucky = True
 ---
 code: |
-  if have_template_to_load: 
+  # Note: we just use the first document to create the placeholder name even if multiple forms are uploaded.
+  # That's fine as it is a placeholder
+  if have_template_to_load:
     if template_upload[0].filename.endswith('pdf'):
       short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
     else:
@@ -506,13 +500,6 @@ fields:
   - Link to original form: interview.original_form
     hint: http://masslegalhelp.org/my_form
     required: False
-help:
-  label: |
-    View variable debug information
-  content: |
-    There are ${len(all_fields)} fields total.
-    
-    `${all_fields}`
 ---
 code: |
   interview.default_country_code = 'US'
@@ -674,12 +661,12 @@ fields:
       The list of names below look like names for people, based on
       how you use them in your document.
     show if:
-      code: |
-        len(get_person_variables(all_fields, custom_only=True)) > 0
+      code: |        
+        len(fields.get_person_candidates(custom_only=True)) > 0
   - Which variable names represent people?: people_variables
     datatype: checkboxes
     code: |
-      get_person_variables(all_fields, custom_only=True)
+      fields.get_person_candidates(custom_only=True)
     help: |
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
@@ -771,17 +758,14 @@ code: |
   from zipfile import BadZipFile
   
   try:
-    if template_upload[0].extension == 'pdf':
-      all_fields = get_pdf_fields(template_upload)
-    else:
-      all_fields = get_fields(template_upload)
-      
-    if not all_fields:
+    fields.clear()
+    fields.add_fields_from_file(template_upload)
+    fields.gathered = True
+    if not len(fields) > 0:
       force_ask('empty_pdf')
-
     bad_fields = list(filter(
-        lambda elem: elem is not None, 
-        map(bad_name_reason, all_fields)))
+        lambda elem: elem is not None,
+        map(bad_name_reason, fields)))
     if len(bad_fields) > 0:
       force_ask('non_descriptive_field_name')
   except ParsingException as ex:
@@ -836,57 +820,9 @@ buttons:
 ---
 code: |
   if have_template_to_load: 
-    built_in_people_vars_used = get_person_variables(all_fields, custom_only=False) - get_person_variables(all_fields, custom_only=True)
+    built_in_people_vars_used = fields.get_person_candidates(custom_only=False) - fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
----
-comment: |
-  Convert the PDF fields into Docassemble fields
-code: |
-  # These all must be defined in advance to avoid duplicates
-  people_variables.true_values()
-  all_fields
-  fields
-  signature_fields
-  built_in_fields_used  
-  
-  yesno_map = defaultdict(list)
-  document_type = 'pdf' if template_upload[0].extension == 'pdf' else 'docx'
-
-  if document_type == 'pdf':
-    # Probably all of this should move into a class
-    for pdf_field_tuple in all_fields:
-      pdf_field_name = pdf_field_tuple[0]
-      # Check to see if we think this field is built-in (handled in
-      # basic-questions.yml), a signature, or an arbitrary field.
-      #is_reserved_name = 
-      if is_reserved_label(pdf_field_name) or pdf_field_name in people_variables.true_values():
-        new_field = built_in_fields_used.appendObject()
-      elif len(pdf_field_tuple) > 4 and pdf_field_tuple[4] == '/Sig':
-        new_field = signature_fields.appendObject()
-      else:
-        new_field = fields.appendObject()
-      
-      # This function determines what type of variable
-      # we're dealing with
-      new_field.fill_in_pdf_attributes(pdf_field_tuple)
-
-  else:
-    # if this is a docx, fields are a list of strings, not a list of tuples
-    for field in all_fields:
-      if is_reserved_docx_label(field) or field in people_variables.true_values():
-        new_field = built_in_fields_used.appendObject()
-      elif field.endswith('.signature'):
-        new_field = signature_fields.appendObject()
-      else:                
-        new_field = fields.appendObject()
-      new_field.fill_in_docx_attributes(field)
-
-  built_in_fields_used.consolidate_duplicate_fields(document_type)
-  signature_fields.consolidate_duplicate_fields(document_type)
-  fields.consolidate_duplicate_fields(document_type)
-  fields.consolidate_yesnos()
-  get_all_fields = True
 ---
 code: |
   # Build the list of includes
@@ -1059,23 +995,23 @@ fields:
   - code: field_question
   - note: |
       **Built-in questions this form triggers**[BR]
-      % if len(built_in_fields_used) > 1:
-      These fields are not listed above because a built-in question already handles them: ${ built_in_fields_used }.
+      % if len(fields.builtins()) > 1:
+      These fields are not listed above because a built-in question already handles them: ${ fields.builtins() }.
       % elif have_template_to_load: 
       This field is not listed above because a built-in question already handles
-      it: ${ built_in_fields_used }.
+      it: ${ fields.builtins() }.
       % endif
-      % if len(signature_fields):
+      % if len(fields.signatures()):
       
       These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: ${ signature_fields }
+      on the same screen as any other variable: ${ fields.signatures() }
       % endif      
       
       You will have a chance to change the order of these fields later in
       this interview.
     show if:
       code: |
-        len(built_in_fields_used) or len(signature_fields)
+        len(fields.builtins()) or len(fields.signatures())
 validation code: |
   for field in fields:
     if field.field_type == "code":
@@ -1125,7 +1061,7 @@ code: |
   fields.there_is_another = False
 ---
 table: fields.review_table
-rows: fields + built_in_fields_used
+rows: fields + fields.builtins()
 columns:
   - On-screen label: |
       row_item.label if hasattr(row_item, 'label') else '(n/a)'
@@ -1161,7 +1097,7 @@ code: |
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used(all_fields=fields)) < len(fields)
+  questions.there_is_another = len(questions.all_fields_used(all_fields=fields.custom())) < len(fields.custom())
 ---
 id: create a draft of screen i
 question: |
@@ -1185,7 +1121,7 @@ fields:
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used(all_fields=fields)
+    exclude: questions.all_fields_used(all_fields=fields.custom())
     none of the above: False
     choices: fields      
     object labeler: labeller_bold_plus_label
@@ -1218,12 +1154,12 @@ code: |
   # Used for adding a new field
   fields[i].field_type_guess = fields[i].field_type
   fields[i].raw_field_names = [fields[i].variable]
-  
+  fields[i].source_document_type = "docx" # don't process the variable name
 ---
 code: |
   # Use screen_reordered to reflect the user adjusted table order  
   for question in screen_reordered:    
-    if question not in built_in_fields_used and question not in signature_fields:
+    if question not in fields.builtins() and question not in fields.signatures():
 		  question.type = "question"
 		  interview.blocks.append(question)
   add_question_screens = True
@@ -1317,14 +1253,14 @@ code: |
   # Note that some built-in fields are not unique screens. This could
   # mess up the count
   unique_fields = set()
-  for field in built_in_fields_used:
+  for field in fields.builtins():
     # Don't add the users[0].signature field to this list
     if field.final_display_var == "users[0].signature":
       continue
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
-  for field in signature_fields:
+  for field in fields.signatures():
     screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
@@ -1501,7 +1437,7 @@ code: |
         logic_list.append(question.field_list[0].trigger_gather())
     else:
       # it's a built-in field OR a signature, not a question block
-      if not (question in built_in_fields_used and question.trigger_gather().endswith('.signature')):
+      if not (question in fields.builtins() and question.trigger_gather().endswith('.signature')):
         logic_list.append(question.trigger_gather())      
         # set the saved answer name so it includes the user's name in saved
         # answer list
@@ -1514,10 +1450,10 @@ code: |
     logic_list.append("saved_report_data")
     
   built_in_signatures = set()
-  for field in built_in_fields_used:
+  for field in fields.builtins():
     if field.trigger_gather().endswith('.signature'):
       built_in_signatures.add(field.trigger_gather())
-  # TODO for field in signature_fields:    
+  # TODO for field in fields.signatures():    
   
   # 2. Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
@@ -1548,19 +1484,18 @@ code: |
   signature_fields_block = interview.blocks.appendObject()
   signature_fields_block.template_key = 'signature fields'
   signature_fields_block.data = {
-    "signature_fields": signature_fields,
+    "signature_fields": fields.signatures(),
     "built_in_signatures": built_in_signatures
   }
   add_signature_trigger = True
 ---
 need:
   - fields
-  - built_in_fields_used
   - interview_label
 code: |
   review_block = interview.blocks.appendObject()
   review_block.template_key = "review"  
-  field_list = fields + built_in_fields_used + signature_fields
+  field_list = fields
   parent_collections = field_list.find_parent_collections()
   review_block.data = {
     "field_list": field_list,
@@ -1869,7 +1804,7 @@ code: |
   file1.attachment_varname = attachment_variable_name    
   file1.type = template_upload[0].extension  
   file1.description = interview.title
-  file1.fields = built_in_fields_used + fields + signature_fields
+  file1.fields = fields
   file1.has_addendum = bool(len(addendum_fields))
 
   # TODO: it would be possible to merge the "bundles" list with the
@@ -2132,7 +2067,7 @@ code: |
 only sets: no_template_default_values
 code: |
   if not have_template_to_load:
-    all_fields = fields  
+    fields.gathered = True
   interview.original_form = 'NA'  
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title

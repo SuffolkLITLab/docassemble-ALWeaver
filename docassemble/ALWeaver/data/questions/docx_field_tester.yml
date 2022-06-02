@@ -96,11 +96,14 @@ subquestion: |
 
   Name (bold if {reserved}) | Type
   --------------------------|------
-  % for field in docx_validation_fields:
-  ${ bold(field.variable) if field.reserved else field.variable} |  ${ field.field_type_guess }| 
+  % for field in docx_validation_fields.builtins():
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
   % endfor
-  % for field in docx_custom_people:
-  ${ bold(field.variable) } :question: | ${ field.field_type_guess }
+  % for field in docx_validation_fields.custom():
+  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
+  % endfor
+  % for field in docx_validation_fields.signatures():
+  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
   % endfor
   
   % if len(docx_custom_people) > 0:
@@ -163,12 +166,13 @@ need:
   - docx_validation_fields
 code: |
   docx_validation_fields.clear()
-  for field in all_fields:
+  people_list = fields.get_person_candidates(custom_only=True)
+
+  for field in fields:
     new_field = docx_validation_fields.appendObject()
-    new_field.fill_in_docx_attributes(field)
-    new_field.reserved = is_reserved_docx_label(field) or field in possible_base
+    new_field.fill_in_docx_attributes(field.variable)
+    new_field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
     
-  possible_base = list(get_person_variables(all_fields, custom_only=True))
-  process_custom_people(possible_base, docx_validation_fields, docx_custom_people)  
+  docx_validation_fields.mark_people_as_builtins(people_list)
 
   update_docx_validation_fields = True  
