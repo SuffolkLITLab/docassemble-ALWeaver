@@ -96,7 +96,7 @@ subquestion: |
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
   % for field in fields:
-  ${":exclamation-triangle: " if ' ' in field.variables else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
+  ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
   % endfor
   
   % if 'space' in warnings:

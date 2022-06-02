@@ -1045,6 +1045,7 @@ class DAFieldList(DAList):
         if isinstance(the_file, DAFileList):
             for f in the_file:
                 self.add_fields_from_file(f)
+            return None
 
         all_fields = get_fields(the_file)
         if the_file.filename.lower().endswith("pdf"):
