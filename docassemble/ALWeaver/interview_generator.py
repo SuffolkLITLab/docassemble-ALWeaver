@@ -660,19 +660,15 @@ class DAField(DAObject):
 
         return content.rstrip("\n")
 
-    def user_ask_about_field(self, index):
+    def user_ask_about_field(self):
         field_questions = []
         settable_var = self.get_settable_var()
         if hasattr(self, "paired_yesno") and self.paired_yesno:
-            field_title = "{} (will be expanded to include _yes and _no)".format(
-                self.final_display_var
-            )
+            field_title = f"{ self.final_display_var } (will be expanded to include _yes and _no)"
         elif len(self.raw_field_names) > 1:
-            field_title = "{} (will be expanded to all instances)".format(settable_var)
+            field_title = f"{ settable_var } (will be expanded to all instances)"
         elif self.raw_field_names[0] != settable_var:
-            field_title = "{} (will be renamed to {})".format(
-                settable_var, self.raw_field_names[0]
-            )
+            field_title = f"{ settable_var } (will be renamed to { self.raw_field_names[0] })"
         else:
             field_title = self.final_display_var
 
@@ -680,14 +676,14 @@ class DAField(DAObject):
         field_questions.append(
             {
                 "label": "On-screen label",
-                "field": "fields[" + str(index) + "].label",
+                "field": self.attr_name("label"),
                 "default": self.variable_name_guess,
             }
         )
         field_questions.append(
             {
                 "label": "Field Type",
-                "field": f"fields[{index}].field_type",
+                "field": self.attr_name("field_type"),
                 "choices": [
                     "text",
                     "area",
@@ -717,17 +713,17 @@ class DAField(DAObject):
         field_questions.append(
             {
                 "label": f"Complete the expression, `{self.final_display_var} = `",
-                "field": f"fields[{index}].code",
-                "show if": {"variable": f"fields[{index}].field_type", "is": "code"},
+                "field": self.attr_name("code"),
+                "show if": {"variable": self.attr_name("field_type"), "is": "code"},
                 "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[0].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
             }
         )
         field_questions.append(
             {
                 "label": "Options (one per line)",
-                "field": f"fields[{index}].choices",
+                "field": self.attr_name("choices"),
                 "datatype": "area",
-                "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('fields[{index}].field_type'))",
+                "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('{ self.attr_name('field_type') }'))",
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
@@ -735,9 +731,9 @@ class DAField(DAObject):
             field_questions.append(
                 {
                     "label": "Send overflow text to addendum",
-                    "field": f"fields[{index}].send_to_addendum",
+                    "field": self.attr_name("send_to_addendum"),
                     "datatype": "yesno",
-                    "js show if": f"val('fields[{index}].field_type') === 'area' ",
+                    "js show if": f"val('{ self.attr_name('field_type') }') === 'area' ",
                     "help": "Check the box to send text that doesn't fit in the PDF to an additional page, instead of limiting the input length.",
                 }
             )
@@ -1208,16 +1204,29 @@ class DAFieldList(DAList):
     def builtins(self):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
-        return self.filter(group=DAFieldGroup.BUILT_IN)
+        # Can't use .filter() because that would create new intrinsicNames
+        return [
+            item
+            for item in self.elements
+            if item.group == DAFieldGroup.BUILT_IN
+        ]
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return self.filter(group=DAFieldGroup.SIGNATURE)
+        return [
+            item
+            for item in self.elements
+            if item.group == DAFieldGroup.SIGNATURE
+        ]
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return self.filter(group=DAFieldGroup.CUSTOM)
+        return [
+            item
+            for item in self.elements
+            if item.group == DAFieldGroup.CUSTOM
+        ]
 
 
 class DAQuestion(DABlock):

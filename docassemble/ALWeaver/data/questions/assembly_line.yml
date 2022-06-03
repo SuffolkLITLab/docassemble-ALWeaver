@@ -810,7 +810,7 @@ event: exit_invalid_pdf
 question: |
   Is this a valid PDF?
 subquestion: |
-  ${ template_upload[0].filename } does not seem to be a PDF file. Usually
+  ${ document.filename } does not seem to be a PDF file. Usually
   this error happens because the file is corrupt or has the wrong extension.
 
   Docassemble was not able to read the file you uploaded. Make sure it is a
@@ -825,7 +825,7 @@ event: exit_PSEOF_error
 question: |
   Something is wrong with the internals of this PDF
 subquestion: |
-  Docassemble was not able to read ${ template_upload[0].filename }.
+  Docassemble was not able to read ${ document.filename }.
   
   You can try using [qpdf](http://qpdf.sourceforge.net/) or
   [documate.org/pdf](https://www.documate.org/pdf) to fix it, but some of your
@@ -837,7 +837,7 @@ event: exit_invalid_docx
 question: |
   Is this a valid DOCX file?
 subquestion: |
-  ${ template_upload[0].filename } does not seem to be a DOCX file. Usually
+  ${ document.filename } does not seem to be a DOCX file. Usually
   this error happens because the file is corrupt or has the wrong extension.
 
   Docassemble was not able to read the file you uploaded. Make sure it is a
@@ -989,12 +989,16 @@ code: |
 code: |
   # Create code for the question that we use to label
   # each field.
-  
-  temp_field_question = []
-  for index, field in enumerate(fields.elements):
-    temp_field_question.extend(field.user_ask_about_field(index))
+  from itertools import chain
 
-  field_question = temp_field_question
+  field_question_tmp = [ 
+    field.user_ask_about_field()
+    for field in fields.custom()
+  ]
+  field_question = [item for item in chain.from_iterable(field_question_tmp)]
+
+  del field_question_tmp
+  del chain
 ---
 id: choose field types
 continue button field: choose_field_types
@@ -1040,7 +1044,7 @@ fields:
       code: |
         len(fields.builtins()) or len(fields.signatures())
 validation code: |
-  for field in fields:
+  for field in fields.custom():
     if field.field_type == "code":
         expression = f"{field.final_display_var} = {field.code}"
         if not is_valid_python(expression):
@@ -1705,9 +1709,10 @@ objects:
   - renamed_upload: DAFile.using(filename=sanitized_filename)
 ---
 code: |
-  if have_template_to_load: 
-    renamed_upload.copy_into(template_upload[0])
-    renamed_upload.commit()
+  # Unfortunately, there's no good "new" name for the file
+  # when someone uploads multiple templates at once
+  if have_template_to_load and len(template_upload) == 1:
+    template_upload[0].set_attributes(filename=sanitized_filename)
   inflate_renamed_upload = True
 ---
 need:
@@ -1732,8 +1737,8 @@ code: |
   if generate_download_screen:
     folders_and_files["templates"] = [
         next_steps_documents[interview.form_type]['attachment'].docx,
-        renamed_upload,
-      ]
+    ]      
+    folders_and_files["templates"].extend(template_upload)
   else:    
     folders_and_files["templates"] = []
     
@@ -1824,22 +1829,33 @@ code: |
   file2.fields = 'na'
   file2.has_addendum = False
 
-  # Set attributes for the uploaded template file     
-  file1 = labels_lists.appendObject()    
-  file1.input_filename = sanitized_filename  
-  file1.output_filename = sanitized_filename
-  file1.attachment_varname = attachment_variable_name    
-  file1.type = template_upload[0].extension  
-  file1.description = interview.title
-  file1.fields = fields
-  file1.has_addendum = bool(len(addendum_fields))
+  if len(template_upload) == 1:
+    # Set attributes for the uploaded template file     
+    file1 = labels_lists.appendObject()    
+    file1.input_filename = sanitized_filename  
+    file1.output_filename = sanitized_filename
+    file1.attachment_varname = attachment_variable_name    
+    file1.type = template_upload[0].extension  
+    file1.description = interview.title
+    file1.fields = fields
+    file1.has_addendum = bool(len(addendum_fields))
+  else:
+    for document in template_upload:
+      temp_file = labels_lists.appendObject()    
+      temp_file.input_filename = document.filename
+      temp_file.output_filename = document.filename
+      temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
+      temp_file.type = document.extension
+      temp_file.description = document.filename.replace("_", " ")
+      temp_file.fields = fields
+      temp_file.has_addendum = bool(len(addendum_fields))
 
   # TODO: it would be possible to merge the "bundles" list with the
   # attachments/labels_list.
   bundles.clear()
   user_bundle = bundles.appendObject()
   user_bundle.name = 'al_user_bundle'
-  user_bundle.elements = [file2, file1]
+  user_bundle.elements = labels_lists
   
   court_bundle = bundles.appendObject()
   if interview.court_related:
@@ -1847,15 +1863,16 @@ code: |
   else:
     court_bundle.name = 'al_recipient_bundle'
   # Court does not get the user next steps instructions
-  court_bundle.elements = [file1]
+  # Skip instructions TODO: remove if instructions become optional  
+  court_bundle.elements = labels_lists[1:] 
   bundles.gathered = True
   
   
   # Bundl-name is a single value
   if len(labels_lists) > 1:
-    bundle_name = file1.output_filename + '_package.pdf'
+    bundle_name =  sanitized_filename + '_package.pdf'
   else:
-    bundle_name = file1.output_filename + '.pdf'
+    bundle_name = sanitized_filename + '.pdf'
     
   #-----------------------------------------------------------------
   # Use the above data to generate blocks related to attachment files.
