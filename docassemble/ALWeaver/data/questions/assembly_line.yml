@@ -1027,15 +1027,15 @@ fields:
   - note: |
       **Built-in questions this form triggers**[BR]
       % if len(fields.builtins()) > 1:
-      These fields are not listed above because a built-in question already handles them: ${ fields.builtins() }.
-      % elif have_template_to_load: 
+      These fields are not listed above because a built-in question already handles them: ${ comma_and_list(fields.builtins()) }.
+      % elif have_template_to_load:
       This field is not listed above because a built-in question already handles
-      it: ${ fields.builtins() }.
+      it: ${ comma_and_list(fields.builtins()) }.
       % endif
       % if len(fields.signatures()):
       
       These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: ${ fields.signatures() }
+      on the same screen as any other variable: ${ comma_and_list(fields.signatures()) }
       % endif      
       
       You will have a chance to change the order of these fields later in
@@ -1154,7 +1154,7 @@ fields:
     # anywhere in the list of questions we already drafted
     exclude: questions.all_fields_used(all_fields=fields.custom())
     none of the above: False
-    choices: fields      
+    choices: fields.custom()
     object labeler: labeller_bold_plus_label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
@@ -1196,7 +1196,7 @@ code: |
   add_question_screens = True
 ---
 code: |
-  for field in fields:
+  for field in fields.custom():
     if field.field_type == "code":
       code_block = interview.blocks.appendObject()
       code_block.template_key = "code"
@@ -1843,7 +1843,7 @@ code: |
     for document in template_upload:
       temp_file = labels_lists.appendObject()    
       temp_file.input_filename = document.filename
-      temp_file.output_filename = document.filename
+      temp_file.output_filename = base_name(document.filename)
       temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
       temp_file.type = document.extension
       temp_file.description = document.filename.replace("_", " ")

@@ -164,6 +164,12 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
     return max_chars
 
 
+class DAFieldGroup(Enum):
+    BUILT_IN = "built in"
+    SIGNATURE = "signature"
+    CUSTOM = "custom"
+
+
 class DABlock(DAObject):
     """
     A Block in a Docassemble interview YAML file.
@@ -203,21 +209,25 @@ class DABlockList(DAList):
         super().init(*pargs, **kwargs)
         self.object_type = DABlock
 
-    def all_fields_used(self, all_fields: List = None):
-        """This method is used to help us iteratively build a list of fields that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to the wizard user on multiple screens.
-        It prevents the formatter of the wizard from putting the same fields on two different screens."""
+    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
+        """This method is used to help us iteratively build a list of fields
+        that have already been assigned to a screen/question
+        in our wizarding process. It makes sure the fields aren't displayed to
+        the wizard user on multiple screens. It prevents the formatter of the
+        wizard from putting the same fields on two different screens."""
         fields = set()
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
-                    fields.add(field)
+                    if field.group == group:
+                        fields.add(field)
         if all_fields:
             fields.update(
                 [
                     field
                     for field in all_fields
                     if field.field_type in ["code", "skip this field"]
+                    and field.group == group
                 ]
             )
         return fields
@@ -233,7 +243,7 @@ class DAQuestionList(DAList):
         # self.gathered = True
         # self.is_mandatory = False
 
-    def all_fields_used(self, all_fields: List = None):
+    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
         screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
         It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
@@ -243,13 +253,15 @@ class DAQuestionList(DAList):
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
-                    fields.add(field)
+                    if field.group == group:
+                        fields.add(field)
         if all_fields:
             fields.update(
                 [
                     field
                     for field in all_fields
                     if field.field_type in ["code", "skip this field"]
+                    and field.group == group
                 ]
             )
         return fields
@@ -354,12 +366,6 @@ class DAInterview(DAObject):
             contents = f.read()
         # Take the first YAML "document"
         self.templates = list(yaml.safe_load_all(contents))[0]
-
-
-class DAFieldGroup(Enum):
-    BUILT_IN = "built in"
-    SIGNATURE = "signature"
-    CUSTOM = "custom"
 
 
 class DAField(DAObject):
@@ -664,11 +670,15 @@ class DAField(DAObject):
         field_questions = []
         settable_var = self.get_settable_var()
         if hasattr(self, "paired_yesno") and self.paired_yesno:
-            field_title = f"{ self.final_display_var } (will be expanded to include _yes and _no)"
+            field_title = (
+                f"{ self.final_display_var } (will be expanded to include _yes and _no)"
+            )
         elif len(self.raw_field_names) > 1:
             field_title = f"{ settable_var } (will be expanded to all instances)"
         elif self.raw_field_names[0] != settable_var:
-            field_title = f"{ settable_var } (will be renamed to { self.raw_field_names[0] })"
+            field_title = (
+                f"{ settable_var } (will be renamed to { self.raw_field_names[0] })"
+            )
         else:
             field_title = self.final_display_var
 
@@ -1080,6 +1090,8 @@ class DAFieldList(DAList):
                 # This function determines what type of variable
                 # we're dealing with
                 new_field.fill_in_pdf_attributes(pdf_field_tuple)
+                if new_field.group == DAFieldGroup.BUILT_IN:
+                    new_field.label = new_field.variable_name_guess
         else:
             # if this is a docx, fields are a list of strings, not a list of tuples
             for field in all_fields:
@@ -1092,6 +1104,8 @@ class DAFieldList(DAList):
                 else:
                     new_field.group = DAFieldGroup.CUSTOM
                 new_field.fill_in_docx_attributes(field)
+                if new_field.group == DAFieldGroup.BUILT_IN:
+                    new_field.label = new_field.variable_name_guess
 
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
@@ -1183,6 +1197,7 @@ class DAFieldList(DAList):
             if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):
                     field.group = DAFieldGroup.BUILT_IN
+                    field.label = field.variable_name_guess
                     # Try checking to see if the custom prefix + predefined suffixes
                     # result in a new variable name
                     new_potential_name = map_raw_to_final_display(
@@ -1196,6 +1211,7 @@ class DAFieldList(DAList):
                 field.variable, reserved_pluralizers_map=dict(enumerate(people_list))
             ):
                 field.group = DAFieldGroup.BUILT_IN
+                field.label = field.variable_name_guess
 
         # This treats all fields as PDF fields, which should be a reasonable
         # restriction on how people write DOCX variable names
@@ -1205,28 +1221,16 @@ class DAFieldList(DAList):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
         # Can't use .filter() because that would create new intrinsicNames
-        return [
-            item
-            for item in self.elements
-            if item.group == DAFieldGroup.BUILT_IN
-        ]
+        return [item for item in self.elements if item.group == DAFieldGroup.BUILT_IN]
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return [
-            item
-            for item in self.elements
-            if item.group == DAFieldGroup.SIGNATURE
-        ]
+        return [item for item in self.elements if item.group == DAFieldGroup.SIGNATURE]
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return [
-            item
-            for item in self.elements
-            if item.group == DAFieldGroup.CUSTOM
-        ]
+        return [item for item in self.elements if item.group == DAFieldGroup.CUSTOM]
 
 
 class DAQuestion(DABlock):
