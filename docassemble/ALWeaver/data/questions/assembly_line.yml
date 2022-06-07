@@ -382,11 +382,12 @@ code: |
 modules:
   - .field_grouping
 ---
-scan for variables: False
-sets: process_im_feeling_lucky
+only sets: 
+  - process_im_feeling_lucky
 code: |
   yes_normalize_fields = False
   yes_recognize_form_fields = False
+  interview_type = "regular"
   if has_safe_pdf_in_url: # limit when this block can run
     # Set interview defaults based on the PDF passed in the URL args
     interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
@@ -401,10 +402,13 @@ code: |
     interview.typical_role = "unknown"
 
     all_fields.gathered
+    person_candidates = all_fields.get_person_candidates()
     all_fields.mark_people_as_builtins(all_fields.get_person_candidates())
 
     for person in person_candidates:
       people_quantities[person] = "any"
+
+    process_people_variables = True      
     
     for index, field in enumerate(all_fields.elements):
       field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
