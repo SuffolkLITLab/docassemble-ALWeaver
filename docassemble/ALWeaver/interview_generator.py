@@ -1116,7 +1116,7 @@ class DAFieldList(DAList):
         file.
         
         Provided a DAFile, will return either the intersection of fields that
-        are contained in both the DAFile and the DAFieldList. If the file is a
+        are contained in both the DAFile and the DAFieldList, or if the file is a
         DOCX, immediately returns an empty list.
         """
         matches:list = []
