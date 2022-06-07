@@ -64,8 +64,8 @@ question: |
 subquestion: |
   #### Fields
   
-  All of the fields in your DOCX file are listed in the table below.
-  Confirm that the table looks right.
+  All of the fields in your DOCX ${ template_upload.as_noun("file") } are listed
+  in the table below. Confirm that the table looks right.
   
   A **bold** name means that this field is **reserved**.
   Reserved fields are fields that will be handled with a question that
@@ -99,20 +99,25 @@ subquestion: |
   % endif
   
   #### Preview  
-  Look over the PDF preview of your file below. Make sure that the
-  fonts, spacing, and styles look about right. Note: the conditional logic
-  and text your user enters can change the formatting. You will also
-  see the placeholder variable names unchanged in this preview.
+  Look over the PDF preview of your file below. Make sure that the fonts,
+  spacing, and styles look about right. Note: the conditional logic and text
+  your user enters can change the formatting by moving text to a new line. You
+  will also see the placeholder variable names unchanged in this preview.
   
-  For safety, we recommend that you use the standard [Microsoft Core Fonts
-  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
-  Arial and Times New Roman, as the standard fonts in Word templates.
+  In DOCX templates, for safety, we recommend that you use the standard
+  [Microsoft Core Fonts for the
+  Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including Arial
+  and Times New Roman, as the standard fonts. It is possible to install additional
+  fonts but it may be complex.
   
-  If spacing or other formatting looks wrong, try editing your file in
-  [LibreOffice](https://www.libreoffice.org/) and get it looking right
-  there.
+  If spacing or other formatting looks wrong, try editing your DOCX files in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right there.
   
-  ${ collapse_template(preview_docx_file) }
+  % for document in template_upload:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
 fields:
   - no label: docx_fields_checkup_status
     datatype: checkboxes

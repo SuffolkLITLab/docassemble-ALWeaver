@@ -2224,7 +2224,7 @@ subject: |
   Preview ${ template_upload[i].filename }
 content: |
   % if template_upload[i].mimetype == "application/pdf":
-  ${ template_upload[i].pdf_field_preview }
+  ${ pdf_concatenate(overlay_pdf(template_upload[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf") }  
   % else:
   ${ pdf_concatenate(template_upload[i]) }
   % endif

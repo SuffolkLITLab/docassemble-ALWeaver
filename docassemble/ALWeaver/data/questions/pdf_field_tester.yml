@@ -178,9 +178,6 @@ right: |
   
   ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
 ---
-code: |
-  pdf_fields = [{field.variable: map_raw_to_final_display(field.variable)} for field in all_fields]
----
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
@@ -192,7 +189,10 @@ subquestion: |
   
   All signature fields should be filled in with this image: ${placeholder_signature}
 
-  ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }  
+  % for document in template_upload:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
   
 fields:
   - note: |
@@ -255,14 +255,6 @@ code: |
   rename_pdf_fields(template_upload[0].path(), rename_fields)
   
   renamed_fields = True
----
-attachment:
-  variable name: my_pdf
-  pdf template file:
-    code: |
-      template_upload
-  code: |
-    pdf_fields
 ---
 attachment:
   variable name: field_preview_pdf

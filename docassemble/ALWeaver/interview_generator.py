@@ -1117,12 +1117,12 @@ class DAFieldList(DAList):
         """
         Helper function for generating an attachment block in Docassemble YAML
         file.
-        
+
         Provided a DAFile, will return either the intersection of fields that
         are contained in both the DAFile and the DAFieldList, or if the file is a
         DOCX, immediately returns an empty list.
         """
-        matches:list = []
+        matches: list = []
         if not document.mimetype == "application/pdf":
             return matches
         document_fields = get_fields(document)
@@ -1131,7 +1131,6 @@ class DAFieldList(DAList):
             if set(field.raw_field_names).intersection(document_fields):
                 matches.append(field)
         return matches
-
 
     def get_person_candidates(
         self,
