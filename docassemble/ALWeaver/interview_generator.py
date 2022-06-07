@@ -362,8 +362,8 @@ class DAInterview(DAObject):
         Overwrites any existing templates.
         """
         path = path_and_mimetype(template_path)[0]
-        with open(path) as f:
-            contents = f.read()
+        with open(path) as document:
+            contents = document.read()
         # Take the first YAML "document"
         self.templates = list(yaml.safe_load_all(contents))[0]
 
@@ -1055,25 +1055,25 @@ class DAFieldList(DAList):
             for var_and_type, fields in parent_coll_map.items()
         ]
 
-    def add_fields_from_file(self, the_file: Union[DAFile, DAFileList]) -> None:
+    def add_fields_from_file(self, document: Union[DAFile, DAFileList]) -> None:
         """
         Given a DAFile or DAFileList, process the raw fields in each file and
         add to the current list. Deduplication happens after every field is
         added.
         """
-        if isinstance(the_file, DAFileList):
-            for document in the_file:
+        if isinstance(document, DAFileList):
+            for document in document:
                 self.add_fields_from_file(document)
             return None
 
-        all_fields = get_fields(the_file)
-        if the_file.filename.lower().endswith("pdf"):
+        all_fields = get_fields(document)
+        if document.filename.lower().endswith("pdf"):
             document_type = "pdf"
-        elif the_file.filename.lower().endswith("docx"):
+        elif document.filename.lower().endswith("docx"):
             document_type = "docx"
         else:
             raise Exception(
-                f"{the_file.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
+                f"{document.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
             )
 
         if document_type == "pdf":
@@ -1384,19 +1384,19 @@ def docx_variable_fix(variable: str) -> str:
     return variable
 
 
-def get_fields(the_file: Union[DAFile, DAFileList]):
+def get_fields(document: Union[DAFile, DAFileList]):
     """Get the list of fields needed inside a template file (PDF or Docx Jinja
     tags). This will include attributes referenced. Assumes a file that
     has a valid and exiting filepath."""
     # TODO(qs): refactor to use DAField object at this stage
-    if isinstance(the_file, DAFileList):
-        if the_file[0].mimetype == "application/pdf":
-            return the_file[0].get_pdf_fields()
+    if isinstance(document, DAFileList):
+        if document[0].mimetype == "application/pdf":
+            return document[0].get_pdf_fields()
     else:
-        if the_file.mimetype == "application/pdf":
-            return the_file.get_pdf_fields()
+        if document.mimetype == "application/pdf":
+            return document.get_pdf_fields()
 
-    docx_data = docx2python(the_file.path())  # Will error with invalid value
+    docx_data = docx2python(document.path())  # Will error with invalid value
     text = docx_data.text
     return get_docx_variables(text)
 
@@ -1777,10 +1777,10 @@ def bad_name_reason(field: DAField):
         return None
 
 
-def get_pdf_validation_errors(f: DAFile):
+def get_pdf_validation_errors(document: DAFile):
     try:
         fields = DAFieldList()
-        fields.add_fields_from_file(f)
+        fields.add_fields_from_file(document)
     except ParsingException as ex:
         return ("parsing_exception", ex)
     except (PDFSyntaxError, PdfReadError):
@@ -1793,7 +1793,7 @@ def get_pdf_validation_errors(f: DAFile):
     except:
         return ("unknown", "Unknown error reading PDF file. Is this a valid PDF?")
     try:
-        pdf_concatenate(f, f)
+        pdf_concatenate(document, document)
     except:
         return (
             "concatenation_error",
@@ -1801,15 +1801,15 @@ def get_pdf_validation_errors(f: DAFile):
         )
 
 
-def get_docx_validation_errors(f: DAFile):
+def get_docx_validation_errors(document: DAFile):
     try:
         fields = DAFieldList()
-        fields.add_fields_from_file(f)
+        fields.add_fields_from_file(document)
     except (BadZipFile, KeyError):
         return ("bad_docx", "Error opening DOCX. Is this a valid DOCX file?")
 
     try:
-        pdf_concatenate(f)
+        pdf_concatenate(document)
     except:
         return (
             "unable_to_convert_to_pdf",
