@@ -1799,7 +1799,7 @@ code: |
     end_question.template_key = 'download screen'
     end_question.data = {
         "interview_label": interview_label, 
-        "document_type": 'pdf' if any(map(lambda templ: templ.extension == 'pdf', template_upload)) else 'docx'
+        "document_type": "pdf" if any(map(lambda templ: templ.mimetype == "application/pdf", template_upload)) else "docx"
     }
   else:   
     end_question.template_key = 'thank-you screen'
@@ -1835,7 +1835,7 @@ code: |
     file1.input_filename = sanitized_filename  
     file1.output_filename = sanitized_filename
     file1.attachment_varname = attachment_variable_name    
-    file1.type = template_upload[0].extension  
+    file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
     file1.description = interview.title
     file1.fields = fields
     file1.has_addendum = bool(len(addendum_fields))
@@ -1845,7 +1845,7 @@ code: |
       temp_file.input_filename = document.filename
       temp_file.output_filename = base_name(document.filename)
       temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
-      temp_file.type = document.extension
+      temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
       temp_file.description = document.filename.replace("_", " ")
       temp_file.fields = fields.matching_pdf_fields_from_file(document)
       temp_file.has_addendum = bool(len(addendum_fields))
