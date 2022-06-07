@@ -12,7 +12,9 @@ from docassemble.base.util import DAFile
 __all__ = ["reflect_fields", "reCase", "cluster_screens", "rename_pdf_fields"]
 
 
-def reflect_fields(pdf_field_tuples: List[Tuple], image_placeholder: DAFile = None) -> List[Dict[str, str]]:
+def reflect_fields(
+    pdf_field_tuples: List[Tuple], image_placeholder: DAFile = None
+) -> List[Dict[str, str]]:
     """Return a mapping between the field names and either the same name, or "yes"
     if the field is a checkbox value, in order to visually capture the location of
     labeled fields on the PDF."""
@@ -20,7 +22,7 @@ def reflect_fields(pdf_field_tuples: List[Tuple], image_placeholder: DAFile = No
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
             mapping.append({field[0]: "Yes"})
-        if field[4] == '/Sig' and image_placeholder:
+        elif field[4] == "/Sig" and image_placeholder:
             mapping.append({field[0]: image_placeholder})
         else:
             mapping.append({field[0]: field[0]})
