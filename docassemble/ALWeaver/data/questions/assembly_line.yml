@@ -49,7 +49,6 @@ imports:
 ---
 features:
   question help button: True
-  # labels above fields: True
   question back button: True
   css: 
     - styles.css  
@@ -76,7 +75,7 @@ include:
 ---
 objects:  
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  - fields: DAFieldList.using(auto_gather=False)
+  - all_fields: DAFieldList.using(auto_gather=False)
   - questions: DAQuestionList.using(complete_attribute='complete')
   - interview_download: DAFile
   - interview_package_download: DAFile
@@ -117,7 +116,7 @@ code: |
         validate_mixed_documents
  
   if have_template_to_load:  
-    fields.gathered
+    all_fields.gathered
   # Display Weaver question screens   
   interview.jurisdiction_choices 
   if generate_download_screen:      
@@ -227,7 +226,7 @@ code: |
   set_custom_people_map( people_variables.true_values() )  
 
   if len(people_variables.true_values()):
-    fields.mark_people_as_builtins(people_variables.true_values())
+    all_fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True
 ---
 continue button field: weaver_intro
@@ -349,26 +348,26 @@ imports:
   - os
 ---
 code: |
-  for template in template_upload:
-    if template.filename.endswith("pdf"):
-      formfyxer.parse_form(template.path(), title=os.path.basename(template.path()), jur="MA", normalize=1,rewrite=1)
-      template.commit()
+  for document in template_upload:
+    if document.filename.endswith("pdf"):
+      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1)
+      document.commit()
   process_field_normalization = True
 ---
 objects:
   - temp_new_pdf: DAFile.using(filename=os.path.basename(template_upload[0].path()))
 ---
 code: |
-  for template in template_upload:
-    if template.filename.endswith("pdf"):
+  for document in template_upload:
+    if document.filename.endswith("pdf"):
       temp_new_pdf.initialize()
-      formfyxer.auto_add_fields(template.path(), temp_new_pdf.path())
+      formfyxer.auto_add_fields(document.path(), temp_new_pdf.path())
   
       # also normalize field names after newly recognizing them
-      formfyxer.parse_form(temp_new_pdf.path(), title=template.filename, jur="MA", normalize=1, rewrite=1)
+      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1)
   
       temp_new_pdf.commit()
-      template.copy_into(temp_new_pdf)
+      document.copy_into(temp_new_pdf)
   process_field_recognition = True
 ---
 modules:
@@ -392,26 +391,26 @@ code: |
 
     interview.typical_role = "unknown"
 
-    fields.gathered
-    fields.mark_people_as_builtins(fields.get_person_candidates())
+    all_fields.gathered
+    all_fields.mark_people_as_builtins(all_fields.get_person_candidates())
 
     for person in person_candidates:
       people_quantities[person] = "any"
     
-    for index, field in enumerate(fields.elements):
+    for index, field in enumerate(all_fields.elements):
       field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
       field.label = field.variable_name_guess
     # choose_field_types
     # review_fields_after_labeling
     
     questions.auto_gather = False
-    field_grouping = cluster_screens( [field.variable for field in fields] )
+    field_grouping = cluster_screens( [field.variable for field in all_fields] )
     for group in field_grouping:
       new_screen = questions.appendObject()
       new_screen.is_informational_screen = new_screen.has_mandatory_field = False
       new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
       new_screen.subquestion_text = ''
-      new_screen.field_list = [field for field in fields if field.variable in field_grouping[group]]          
+      new_screen.field_list = [field for field in all_fields if field.variable in field_grouping[group]]          
     
     questions.gathered = True
     interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
@@ -671,11 +670,11 @@ fields:
       how you use them in your document.
     show if:
       code: |        
-        len(fields.get_person_candidates(custom_only=True)) > 0
+        len(all_fields.get_person_candidates(custom_only=True)) > 0
   - Which variable names represent people?: people_variables
     datatype: checkboxes
     code: |
-      fields.get_person_candidates(custom_only=True)
+      all_fields.get_person_candidates(custom_only=True)
     help: |
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
@@ -789,14 +788,14 @@ code: |
     else:
       force_ask("exit_unknown_file_type")
 
-  fields.clear()
-  fields.add_fields_from_file(template_upload)
-  fields.gathered = True
+  all_fields.clear()
+  all_fields.add_fields_from_file(template_upload)
+  all_fields.gathered = True
 
-  if not len(fields) > 0:
+  if not len(all_fields) > 0:
     force_ask('empty_pdf')
   
-  bad_fields = get_variable_name_warnings(fields)
+  bad_fields = get_variable_name_warnings(all_fields)
   if len(bad_fields) > 0:
     force_ask('non_descriptive_field_name')
 ---
@@ -847,7 +846,7 @@ buttons:
 ---
 code: |
   if have_template_to_load: 
-    built_in_people_vars_used = fields.get_person_candidates(custom_only=False) - fields.get_person_candidates(custom_only=True)
+    built_in_people_vars_used = all_fields.get_person_candidates(custom_only=False) - all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
 ---
@@ -993,7 +992,7 @@ code: |
 
   field_question_tmp = [ 
     field.user_ask_about_field()
-    for field in fields.custom()
+    for field in all_fields.custom()
   ]
   field_question = [item for item in chain.from_iterable(field_question_tmp)]
 
@@ -1026,25 +1025,22 @@ fields:
   - code: field_question
   - note: |
       **Built-in questions this form triggers**[BR]
-      % if len(fields.builtins()) > 1:
-      These fields are not listed above because a built-in question already handles them: ${ comma_and_list(fields.builtins()) }.
-      % elif have_template_to_load:
-      This field is not listed above because a built-in question already handles
-      it: ${ comma_and_list(fields.builtins()) }.
+      % if len(all_fields.builtins()) > 0:
+      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(all_fields.builtins()) }`.
       % endif
-      % if len(fields.signatures()):
+      % if len(all_fields.signatures()):
       
       These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: ${ comma_and_list(fields.signatures()) }
+      on the same screen as any other variable: `${ comma_and_list(all_fields.signatures()) }`
       % endif      
       
       You will have a chance to change the order of these fields later in
       this interview.
     show if:
       code: |
-        len(fields.builtins()) or len(fields.signatures())
+        len(all_fields.builtins()) or len(all_fields.signatures())
 validation code: |
-  for field in fields.custom():
+  for field in all_fields.custom():
     if field.field_type == "code":
         expression = f"{field.final_display_var} = {field.code}"
         if not is_valid_python(expression):
@@ -1079,20 +1075,20 @@ subquestion: |
   Click the button below if you want to add an extra field to your
   interview. This will not add it to your template file.
 
-  ${ fields.add_action() }
+  ${ all_fields.add_action() }
 continue button field: review_fields_after_labeling  
 ---
 template: review_fields_to_add_template
 subject: |
   Review fields
 content: |
-  ${ fields.review_table }
+  ${ all_fields.review_table }
 ---
 code: |
-  fields.there_is_another = False
+  all_fields.there_is_another = False
 ---
-table: fields.review_table
-rows: fields + fields.builtins()
+table: all_fields.review_table
+rows: all_fields + all_fields.builtins()
 columns:
   - On-screen label: |
       row_item.label if hasattr(row_item, 'label') else '(n/a)'
@@ -1123,12 +1119,12 @@ code: |
   x.needs_continue_button_field = False
 ---
 code: |
-  questions.there_are_any = len(fields) > 0
+  questions.there_are_any = len(all_fields) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used(all_fields=fields.custom())) < len(fields.custom())
+  questions.there_is_another = len(questions.all_fields_used(all_fields=all_fields.custom())) < len(all_fields.custom())
 ---
 id: create a draft of screen i
 question: |
@@ -1152,9 +1148,9 @@ fields:
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used(all_fields=fields.custom())
+    exclude: questions.all_fields_used(all_fields=all_fields.custom())
     none of the above: False
-    choices: fields.custom()
+    choices: all_fields.custom()
     object labeler: labeller_bold_plus_label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
@@ -1179,24 +1175,24 @@ code: |
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  fields[i].has_label = True
+  all_fields[i].has_label = True
 ---
 code: |
   # Used for adding a new field
-  fields[i].field_type_guess = fields[i].field_type
-  fields[i].raw_field_names = [fields[i].variable]
-  fields[i].source_document_type = "docx" # don't process the variable name
+  all_fields[i].field_type_guess = all_fields[i].field_type
+  all_fields[i].raw_field_names = [all_fields[i].variable]
+  all_fields[i].source_document_type = "docx" # don't process the variable name
 ---
 code: |
   # Use screen_reordered to reflect the user adjusted table order  
   for question in screen_reordered:    
-    if question not in fields.builtins() and question not in fields.signatures():
+    if question not in all_fields.builtins() and question not in all_fields.signatures():
 		  question.type = "question"
 		  interview.blocks.append(question)
   add_question_screens = True
 ---
 code: |
-  for field in fields.custom():
+  for field in all_fields.custom():
     if field.field_type == "code":
       code_block = interview.blocks.appendObject()
       code_block.template_key = "code"
@@ -1284,14 +1280,14 @@ code: |
   # Note that some built-in fields are not unique screens. This could
   # mess up the count
   unique_fields = set()
-  for field in fields.builtins():
+  for field in all_fields.builtins():
     # Don't add the users[0].signature field to this list
     if field.final_display_var == "users[0].signature":
       continue
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
-  for field in fields.signatures():
+  for field in all_fields.signatures():
     screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
@@ -1325,35 +1321,35 @@ code: |
   # editing lists created with object_checkboxes
   questions[i].field_list.there_is_another = False
 ---
-continue button field: fields[i].edit_field
+continue button field: all_fields[i].edit_field
 question: |
-  % if hasattr(fields[i], 'final_display_var'):
-  Edit field ${ bold(fields[i].final_display_var) }
+  % if hasattr(all_fields[i], 'final_display_var'):
+  Edit field ${ bold(all_fields[i].final_display_var) }
   % else:
   Add new field
   % endif
 subquestion: |
-  % if not hasattr(fields[i], 'final_display_var'):
+  % if not hasattr(all_fields[i], 'final_display_var'):
   You can use this screen to add a draft of a new field that will
   be asked about in your interview.
   % endif
 
-  % if not hasattr(fields[i], 'final_display_var') and have_template_to_load:
+  % if not hasattr(all_fields[i], 'final_display_var') and have_template_to_load:
   When you add a new field, it will not automatically be included
   in your template. You can use this feature to add fields that are used to
   calculate a value, for example.
   % endif
 fields:
-  - Docassemble variable name: fields[i].final_display_var
+  - Docassemble variable name: all_fields[i].final_display_var
     hint: lower_case_format 
     show if:
       code: |
-        not hasattr(fields[i], 'label')
+        not hasattr(all_fields[i], 'label')
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
-  - On-screen field label: fields[i].label
+  - On-screen field label: all_fields[i].label
     hint: Label to go with the input variable 
-  - Field type: fields[i].field_type
+  - Field type: all_fields[i].field_type
     choices:
       - text
       - area
@@ -1365,15 +1361,15 @@ fields:
       - email
       - multiple choice radio
       - multiple choice checkboxes
-  - Options (one per line): fields[i].choices
+  - Options (one per line): all_fields[i].choices
     datatype: area
     js show if: |
-      val('fields[i].field_type') === 'multiple choice radio' || val('fields[i].field_type') === 'multiple choice checkboxes'
+      val('all_fields[i].field_type') === 'multiple choice radio' || val('all_fields[i].field_type') === 'multiple choice checkboxes'
     hint: |
       Like 'Descriptive name: key_name', or just 'Descriptive name'
 validation code: |
-  if not hasattr(fields[i], 'variable'):
-    fields[i].variable = fields[i].final_display_var
+  if not hasattr(all_fields[i], 'variable'):
+    all_fields[i].variable = all_fields[i].final_display_var
 continue button label: Save
 back button label: Cancel
 ---
@@ -1468,7 +1464,7 @@ code: |
         logic_list.append(question.field_list[0].trigger_gather())
     else:
       # it's a built-in field OR a signature, not a question block
-      if not (question in fields.builtins() and question.trigger_gather().endswith('.signature')):
+      if not (question in all_fields.builtins() and question.trigger_gather().endswith('.signature')):
         logic_list.append(question.trigger_gather())      
         # set the saved answer name so it includes the user's name in saved
         # answer list
@@ -1481,10 +1477,10 @@ code: |
     logic_list.append("saved_report_data")
     
   built_in_signatures = set()
-  for field in fields.builtins():
+  for field in all_fields.builtins():
     if field.trigger_gather().endswith('.signature'):
       built_in_signatures.add(field.trigger_gather())
-  # TODO for field in fields.signatures():    
+  # TODO for field in all_fields.signatures():    
   
   # 2. Build interview-specific question order
   code_block =  interview.blocks.appendObject() # 'interview order code block'
@@ -1515,18 +1511,18 @@ code: |
   signature_fields_block = interview.blocks.appendObject()
   signature_fields_block.template_key = 'signature fields'
   signature_fields_block.data = {
-    "signature_fields": fields.signatures(),
+    "signature_fields": all_fields.signatures(),
     "built_in_signatures": built_in_signatures
   }
   add_signature_trigger = True
 ---
 need:
-  - fields
+  - all_fields
   - interview_label
 code: |
   review_block = interview.blocks.appendObject()
   review_block.template_key = "review"  
-  field_list = fields
+  field_list = all_fields
   parent_collections = field_list.find_parent_collections()
   review_block.data = {
     "field_list": field_list,
@@ -1837,7 +1833,7 @@ code: |
     file1.attachment_varname = attachment_variable_name    
     file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
     file1.description = interview.title
-    file1.fields = fields
+    file1.fields = all_fields
     file1.has_addendum = bool(len(addendum_fields))
   else:
     for document in template_upload:
@@ -1846,8 +1842,8 @@ code: |
       temp_file.output_filename = base_name(document.filename)
       temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
       temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
-      temp_file.description = document.filename.replace("_", " ")
-      temp_file.fields = fields.matching_pdf_fields_from_file(document)
+      temp_file.description = base_name(document.filename).capitalize().replace("_", " ")
+      temp_file.fields = all_fields.matching_pdf_fields_from_file(document)
       temp_file.has_addendum = bool(len(addendum_fields))
 
   # TODO: it would be possible to merge the "bundles" list with the
@@ -1900,7 +1896,7 @@ code: |
   add_attachment = True
 ---
 code: |
-  addendum_fields = [field for field in fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
+  addendum_fields = [field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
 ---
 code: |
   addendum_block = interview.blocks.appendObject()
@@ -2111,7 +2107,7 @@ code: |
 only sets: no_template_default_values
 code: |
   if not have_template_to_load:
-    fields.gathered = True
+    all_fields.gathered = True
   interview.original_form = 'NA'  
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title
@@ -2124,7 +2120,7 @@ code: |
   interview_save_data_block = interview.blocks.appendObject()
   interview_save_data_block.template_key = 'save data'
   interview_save_data_block.data = {
-    "fields": fields, 
+    "fields": all_fields, 
     "interview_label": interview_label
   }
   add_save_data_block = True

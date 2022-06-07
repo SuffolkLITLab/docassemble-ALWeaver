@@ -872,6 +872,9 @@ class DAField(DAObject):
             return prefix, "object"
         return var_with_attribute, "primitive"
 
+    def __str__(self) -> str:
+        return self.variable
+
 
 class ParentCollection(object):
     """A ParentCollection is "highest" level of data structure containing some DAField.
@@ -896,8 +899,8 @@ class ParentCollection(object):
         self.var_type = var_type
         # this base var is more complex than a simple primitive type
         if self.var_type != "primitive":
-            for f in self.fields:
-                plain_att, disp_att, settable_att = f._get_attributes()
+            for field in self.fields:
+                plain_att, disp_att, settable_att = field._get_attributes()
                 if plain_att:
                     self.attribute_map[plain_att] = (disp_att, settable_att)
 
@@ -1054,13 +1057,13 @@ class DAFieldList(DAList):
 
     def add_fields_from_file(self, the_file: Union[DAFile, DAFileList]) -> None:
         """
-        Given a DAFile or DAFileList, process the raw fields in each file
-        and add to the current list. Deduplication happens after each additional
-        field is added.
+        Given a DAFile or DAFileList, process the raw fields in each file and
+        add to the current list. Deduplication happens after every field is
+        added.
         """
         if isinstance(the_file, DAFileList):
-            for f in the_file:
-                self.add_fields_from_file(f)
+            for document in the_file:
+                self.add_fields_from_file(document)
             return None
 
         all_fields = get_fields(the_file)
@@ -1070,7 +1073,7 @@ class DAFieldList(DAList):
             document_type = "docx"
         else:
             raise Exception(
-                f"{f.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
+                f"{the_file.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
             )
 
         if document_type == "pdf":
@@ -1382,7 +1385,7 @@ def docx_variable_fix(variable: str) -> str:
     return variable
 
 
-def get_fields(the_file):
+def get_fields(the_file: Union[DAFile, DAFileList]):
     """Get the list of fields needed inside a template file (PDF or Docx Jinja
     tags). This will include attributes referenced. Assumes a file that
     has a valid and exiting filepath."""

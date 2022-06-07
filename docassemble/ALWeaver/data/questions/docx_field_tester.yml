@@ -148,8 +148,8 @@ only sets:
   - validation_fields
   - validation_people_list
 code: |
-  validation_people_list = fields.get_person_candidates(custom_only=True)
-  validation_fields = fields.copy_deep("validation_fields")
+  validation_people_list = all_fields.get_person_candidates(custom_only=True)
+  validation_fields = all_fields.copy_deep("validation_fields")
 
   for field in validation_fields:
     if field.source_document_type == "docx":

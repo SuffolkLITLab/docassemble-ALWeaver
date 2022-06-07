@@ -10,11 +10,11 @@ images:
   green_light: green_light.png
 ---
 code: |
-  fields.gathered
-  people_list = fields.get_person_candidates(custom_only=True)
+  all_fields.gathered
+  people_list = all_fields.get_person_candidates(custom_only=True)
   possible_custom = [
     field.variable 
-    for field in fields
+    for field in all_fields
     if is_reserved_label(field.variable, reserved_prefixes=people_list)
   ]
 ---
@@ -22,8 +22,8 @@ event: empty_pdf
 question: You uploaded an empty PDF
 subquestion: |
   The PDF you uploaded (${ template_upload[0].filename }) does not have any 
-  fillable fields. To make a new interview with the Weaver, we need to have a 
-  document that has fillable fields.
+  fillable all_fields. To make a new interview with the Weaver, we need to have a 
+  document that has fillable all_fields.
   
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
   tool like [Adobe Acrobat](https://acrobat.adobe.com). 
@@ -64,7 +64,7 @@ buttons:
 ---
 code: |
   warnings_temp = set()
-  for field in fields:
+  for field in all_fields:
     if ' ' in field.variable:
       warnings_temp.add('space')
     if hasattr(field, "field_type_not_handled") and field.field_type_not_handled:
@@ -73,7 +73,7 @@ code: |
   del warnings_temp
 ---
 code: |
-  no_recognized_pdf_fields = not (any(field for field in fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
+  no_recognized_pdf_fields = not (any(field for field in all_fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
 ---
 id: confirm-pdf-fields
 question: |
@@ -94,7 +94,7 @@ subquestion: |
 
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
-  % for field in fields:
+  % for field in all_fields:
   ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
   % endfor
   
@@ -152,7 +152,7 @@ validation code: |
 help:
   label: Debug Info
   content: |
-    % for field in fields:
+    % for field in all_fields:
     * ${field}
     % endfor
 terms:
@@ -176,10 +176,10 @@ right: |
   _Limitations_: we do not have a way to show you the labels for
   checkbox fields yet.
   
-  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["fields", "field_preview_pdf"]} ]), label="Rename fields") }
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
 ---
 code: |
-  pdf_fields = [{field.variable: map_raw_to_final_display(field.variable)} for field in fields]
+  pdf_fields = [{field.variable: map_raw_to_final_display(field.variable)} for field in all_fields]
 ---
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
@@ -213,7 +213,7 @@ validation code: |
   if not all_look_good['no_unusual_size_text']:
     text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
   if not all_look_good['signature_filled_in']:
-    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature fields.</li></ul>"  
+    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature all_fields.</li></ul>"  
   msg = checkboxes_msg + text_mst + signature_msg
   if len(msg) > 0:
     validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
