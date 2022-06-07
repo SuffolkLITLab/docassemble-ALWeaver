@@ -201,8 +201,11 @@ fields:
     datatype: checkboxes
     choices:
       - All the checkboxes are checked: all_checkboxes_checked
-      - No unusually sized text: no_unusual_size_text
-      - All signature fields are filled in with the signature image: signature_filled_in    
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
+        help: |
+          While you may prefer to fix font size now, it will not change your experience
+          with the Weaver. You can upload the fixed template to the Playground later.
+      - All signature fields are filled in with the signature image: signature_filled_in
     none of the above: False    
 validation code: |
   checkboxes_msg = ''
@@ -263,7 +266,7 @@ attachment:
     code: |
       template_upload
   code: |
-    reflect_fields(template_upload[0].get_pdf_fields())
+    reflect_fields(template_upload[0].get_pdf_fields(), placeholder_signature)
 ---
 code: |
   from pdfminer.pdfparser import PDFSyntaxError

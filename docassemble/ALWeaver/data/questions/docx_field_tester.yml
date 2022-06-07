@@ -125,7 +125,7 @@ fields:
       - All of my fields are listed in the table above: all_fields_present
       - There are no unexpected fields in the table: no_unexpected_fields
       - All the reserved fields are bolded as I expected: correct_reserved_fields    
-      - The fonts and styles in the preview look okay: fonts_okay
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: fonts_okay
         help: |
           Note: use the Microsoft Core Fonts for the Web to be safe.
     minlength: 4
