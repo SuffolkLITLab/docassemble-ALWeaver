@@ -1847,7 +1847,7 @@ code: |
       temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
       temp_file.type = document.extension
       temp_file.description = document.filename.replace("_", " ")
-      temp_file.fields = fields
+      temp_file.fields = fields.matching_pdf_fields_from_file(document)
       temp_file.has_addendum = bool(len(addendum_fields))
 
   # TODO: it would be possible to merge the "bundles" list with the

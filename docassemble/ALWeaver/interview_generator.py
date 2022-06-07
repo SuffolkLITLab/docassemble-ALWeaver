@@ -1110,6 +1110,26 @@ class DAFieldList(DAList):
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
 
+    def matching_pdf_fields_from_file(self, document: DAFile) -> List[str]:
+        """
+        Helper function for generating an attachment block in Docassemble YAML
+        file.
+        
+        Provided a DAFile, will return either the intersection of fields that
+        are contained in both the DAFile and the DAFieldList. If the file is a
+        DOCX, immediately returns an empty list.
+        """
+        matches:list = []
+        if not document.mimetype == "application/pdf":
+            return matches
+        document_fields = get_fields(document)
+        document_fields = [item[0] for item in document_fields]
+        for field in self:
+            if set(field.raw_field_names).intersection(document_fields):
+                matches.append(field)
+        return matches
+
+
     def get_person_candidates(
         self,
         undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
