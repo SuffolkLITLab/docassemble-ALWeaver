@@ -1746,7 +1746,7 @@ code: |
   if generate_download_screen:
     folders_and_files["templates"] = [
         next_steps_documents[interview.form_type]['attachment'].docx,
-    ]      
+    ]
     folders_and_files["templates"].extend(template_upload)
   else:    
     folders_and_files["templates"] = []
