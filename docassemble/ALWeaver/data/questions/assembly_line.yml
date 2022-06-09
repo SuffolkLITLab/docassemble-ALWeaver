@@ -682,7 +682,7 @@ fields:
       The list of names below look like names for people, based on
       how you use them in your document.
     show if:
-      code: |        
+      code: |
         len(all_fields.get_person_candidates(custom_only=True)) > 0
   - Which variable names represent people?: people_variables
     datatype: checkboxes
