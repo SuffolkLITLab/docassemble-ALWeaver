@@ -1535,10 +1535,9 @@ need:
 code: |
   review_block = interview.blocks.appendObject()
   review_block.template_key = "review"  
-  field_list = all_fields
-  parent_collections = field_list.find_parent_collections()
+  parent_collections = all_fields.find_parent_collections()
   review_block.data = {
-    "field_list": field_list,
+    "field_list": all_fields,
     "parent_collections": parent_collections,
     "block_id": interview_label + ' review screen',
     "event": "review_" + interview_label
