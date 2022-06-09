@@ -1132,7 +1132,7 @@ code: |
   x.needs_continue_button_field = False
 ---
 code: |
-  questions.there_are_any = len(all_fields) > 0
+  questions.there_are_any = len(all_fields.custom()) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
