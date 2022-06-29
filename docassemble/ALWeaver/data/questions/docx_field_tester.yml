@@ -9,23 +9,11 @@ fields:
     datatype: file
 ---
 code: |
-  jinja_errors = get_jinja_errors(template_upload)
-  if jinja_errors:
-    jinja_exception
-  if contains_mako:
-    mako_syntax_in_docx  
-  verify_docx_fields
-  
+  verify_docx_fields 
   validate_docx = True
 ---
 code: |
-  mako_matches = get_mako_matches(template_upload[0])
-  contains_mako = len(mako_matches)
----
-need: 
-  - update_docx_validation_fields
-code: |
-  no_recognized_docx_fields = not (any(field for field in docx_validation_fields if field.reserved) or len(docx_custom_people))
+  no_recognized_docx_fields = not (any(field for field in validation_fields if field.reserved) or len(validation_people_list))
 ---
 id: Did you intend to use Mako syntax
 question: |
@@ -70,16 +58,14 @@ subquestion: |
   and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
 ---
 id: confirm-docx-fields
-need: 
-  - update_docx_validation_fields
 continue button field: verify_docx_fields
 question: |
   Validate your template
 subquestion: |
   #### Fields
   
-  All of the fields in your DOCX file are listed in the table below.
-  Confirm that the table looks right.
+  All of the fields in your DOCX ${ template_upload.as_noun("file") } are listed
+  in the table below. Confirm that the table looks right.
   
   A **bold** name means that this field is **reserved**.
   Reserved fields are fields that will be handled with a question that
@@ -96,34 +82,42 @@ subquestion: |
 
   Name (bold if {reserved}) | Type
   --------------------------|------
-  % for field in docx_validation_fields:
-  ${ bold(field.variable) if field.reserved else field.variable} |  ${ field.field_type_guess }| 
+  % for field in validation_fields.builtins():
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
   % endfor
-  % for field in docx_custom_people:
-  ${ bold(field.variable) } :question: | ${ field.field_type_guess }
+  % for field in validation_fields.custom():
+  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
+  % endfor
+  % for field in validation_fields.signatures():
+  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
   % endfor
   
-  % if len(docx_custom_people) > 0:
+  % if len(validation_people_list) > 0:
   :question: Indicates that we think this field could be handled by 
   questions in our question library, so you don't have to write your own 
   questions for it! You can choose whether to use our default questions later.
   % endif
   
   #### Preview  
-  Look over the PDF preview of your file below. Make sure that the
-  fonts, spacing, and styles look about right. Note: the conditional logic
-  and text your user enters can change the formatting. You will also
-  see the placeholder variable names unchanged in this preview.
+  Look over the PDF preview of your file below. Make sure that the fonts,
+  spacing, and styles look about right. Note: the conditional logic and text
+  your user enters can change the formatting by moving text to a new line. You
+  will also see the placeholder variable names unchanged in this preview.
   
-  For safety, we recommend that you use the standard [Microsoft Core Fonts
-  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
-  Arial and Times New Roman, as the standard fonts in Word templates.
+  In DOCX templates, for safety, we recommend that you use the standard
+  [Microsoft Core Fonts for the
+  Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including Arial
+  and Times New Roman, as the standard fonts. It is possible to install additional
+  fonts but it may be complex.
   
-  If spacing or other formatting looks wrong, try editing your file in
-  [LibreOffice](https://www.libreoffice.org/) and get it looking right
-  there.
+  If spacing or other formatting looks wrong, try editing your DOCX files in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right there.
   
-  ${ collapse_template(preview_docx_file) }
+  % for document in template_upload:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
 fields:
   - no label: docx_fields_checkup_status
     datatype: checkboxes
@@ -131,14 +125,14 @@ fields:
       - All of my fields are listed in the table above: all_fields_present
       - There are no unexpected fields in the table: no_unexpected_fields
       - All the reserved fields are bolded as I expected: correct_reserved_fields    
-      - The fonts and styles in the preview look okay: fonts_okay
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: fonts_okay
         help: |
           Note: use the Microsoft Core Fonts for the Web to be safe.
     minlength: 4
     validation messages:
       minlength: |
         You must select all of the checkboxes to keep going.
-    none of the above: False    
+    none of the above: False
 terms:
   - reserved: |
       Means there is a built-in question for this field.
@@ -155,20 +149,17 @@ subject: |
 content: |
   ${ pdf_concatenate(template_upload) }
 ---
-objects:
-  - docx_validation_fields: DAFieldList.using(gathered=True)
-  - docx_custom_people: DAFieldList.using(gathered=True)
----
-need:
-  - docx_validation_fields
+only sets:
+  - validation_fields
+  - validation_people_list
 code: |
-  docx_validation_fields.clear()
-  for field in all_fields:
-    new_field = docx_validation_fields.appendObject()
-    new_field.fill_in_docx_attributes(field)
-    new_field.reserved = is_reserved_docx_label(field) or field in possible_base
-    
-  possible_base = list(get_person_variables(all_fields, custom_only=True))
-  process_custom_people(possible_base, docx_validation_fields, docx_custom_people)  
+  validation_people_list = all_fields.get_person_candidates(custom_only=True)
+  validation_fields = all_fields.copy_deep("validation_fields")
 
-  update_docx_validation_fields = True  
+  for field in validation_fields:
+    if field.source_document_type == "docx":
+      field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
+    elif field.source_document_type == "pdf":
+      field.reserved = is_reserved_label(field.variable)
+    
+  validation_fields.mark_people_as_builtins(people_list)

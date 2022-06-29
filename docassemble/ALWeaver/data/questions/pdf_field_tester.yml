@@ -10,22 +10,20 @@ images:
   green_light: green_light.png
 ---
 code: |
-  try:
-    checkbox_fields = [field[0] for field in all_fields if len(field) > 4 and field[4] == '/Btn']
-    signature_fields_test = [field[0] for field in all_fields if len(field) >4 and field[4] == '/Sig']
-    possible_base = get_person_variables(all_fields, custom_only=True)
-    possible_custom = [field[0] for field in all_fields
-        if any([field[0].startswith(base) for base in possible_base])]
-  except ParsingException as ex:
-    parsing_ex = ex
-    force_ask('parsing_exception')
+  all_fields.gathered
+  people_list = all_fields.get_person_candidates(custom_only=True)
+  possible_custom = [
+    field.variable 
+    for field in all_fields
+    if is_reserved_label(field.variable, reserved_prefixes=people_list)
+  ]
 ---
 event: empty_pdf
 question: You uploaded an empty PDF
 subquestion: |
   The PDF you uploaded (${ template_upload[0].filename }) does not have any 
-  fillable fields. To make a new interview with the Weaver, we need to have a 
-  document that has fillable fields.
+  fillable all_fields. To make a new interview with the Weaver, we need to have a 
+  document that has fillable all_fields.
   
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
   tool like [Adobe Acrobat](https://acrobat.adobe.com). 
@@ -67,15 +65,15 @@ buttons:
 code: |
   warnings_temp = set()
   for field in all_fields:
-    if ' ' in field[0]:
+    if ' ' in field.variable:
       warnings_temp.add('space')
-    if field[4] not in ['/Sig','/Btn','/Tx']:
+    if hasattr(field, "field_type_not_handled") and field.field_type_not_handled:
       warnings_temp.add('not handled')
   warnings = warnings_temp
   del warnings_temp
 ---
 code: |
-  no_recognized_pdf_fields = not (any(field for field in all_fields if is_reserved_label(field[0])) or len(possible_custom) > 0)
+  no_recognized_pdf_fields = not (any(field for field in all_fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
 ---
 id: confirm-pdf-fields
 question: |
@@ -97,24 +95,8 @@ subquestion: |
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
   % for field in all_fields:
-  ${":exclamation-triangle: " if ' ' in field[0] else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field[0]))) == 0 else ''} ${'**' + str(field[0]) + '**' if is_reserved_label(field[0]) or field[0] in possible_custom else field[0]} ${ ':question:' if field[0] in possible_custom else ''} | ${ pdf_field_type_str(field) } (${field[4]}) | ${map_raw_to_final_display(field[0]) if not (map_raw_to_final_display(field[0]) == field[0]) else ''} | ${ get_character_limit(field) if get_character_limit(field) else 'n/a' }
+  ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
   % endfor
-
-  % if len(signature_fields_test) > 0:
-  The following are signature fields: 
-  
-  % for sig in signature_fields_test:
-  * ${ sig }
-  % endfor
-  % endif  
-
-  % if len(checkbox_fields) > 0:
-  The following are checkbox fields: 
-  
-  % for chk in checkbox_fields:
-  * ${ chk }
-  % endfor
-  % endif
   
   % if 'space' in warnings:
   :exclamation-triangle: Indicates that the field name has a space in it.
@@ -196,12 +178,6 @@ right: |
   
   ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
 ---
-code: |
-  signatures = [{field: placeholder_signature} for field in signature_fields_test]
-  checkboxes = [{field: 'Yes'} for field in checkbox_fields]
-  other_fields = [{field[0]: map_raw_to_final_display(field[0])} for field in all_fields if not field[0] in signatures and not field[0] in checkbox_fields]
-  pdf_fields = other_fields + checkboxes + signatures
----
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
@@ -213,7 +189,10 @@ subquestion: |
   
   All signature fields should be filled in with this image: ${placeholder_signature}
 
-  ${ pdf_concatenate(overlay_pdf(my_pdf, quality_check_overlay.path()), filename="do_not_use.pdf") }  
+  % for document in template_upload:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
   
 fields:
   - note: |
@@ -222,8 +201,11 @@ fields:
     datatype: checkboxes
     choices:
       - All the checkboxes are checked: all_checkboxes_checked
-      - No unusually sized text: no_unusual_size_text
-      - All signature fields are filled in with the signature image: signature_filled_in    
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
+        help: |
+          While you may prefer to fix font size now, it will not change your experience
+          with the Weaver. You can upload the fixed template to the Playground later.
+      - All signature fields are filled in with the signature image: signature_filled_in
     none of the above: False    
 validation code: |
   checkboxes_msg = ''
@@ -234,7 +216,7 @@ validation code: |
   if not all_look_good['no_unusual_size_text']:
     text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
   if not all_look_good['signature_filled_in']:
-    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature fields.</li></ul>"  
+    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature all_fields.</li></ul>"  
   msg = checkboxes_msg + text_mst + signature_msg
   if len(msg) > 0:
     validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
@@ -278,21 +260,13 @@ code: |
   renamed_fields = True
 ---
 attachment:
-  variable name: my_pdf
-  pdf template file:
-    code: |
-      template_upload
-  code: |
-    pdf_fields
----
-attachment:
   variable name: field_preview_pdf
   editable: False
   pdf template file:
     code: |
       template_upload
   code: |
-    reflect_fields(template_upload[0].get_pdf_fields())
+    reflect_fields(template_upload[0].get_pdf_fields(), placeholder_signature)
 ---
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
