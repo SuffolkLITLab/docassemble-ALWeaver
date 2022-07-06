@@ -4,7 +4,7 @@ metadata:
   short title: Weaver
   logo: |
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
-  exit url: https://courtformsonline.org  
+  exit url: https://courtformsonline.org
 ---
 imports:
   - formfyxer
@@ -72,6 +72,14 @@ include:
   - pdf_field_tester.yml
   - docx_field_tester.yml
   - visual.yml
+---
+# Remove red playground warnings by setting default value for some variables
+# defined in events or exceptions
+objects:
+  - install_step1_status: DAEmpty
+  - task_complete: DAEmpty
+  - task_status: DAEmpty
+  - task_succeeded: DAEmpty
 ---
 objects:  
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
