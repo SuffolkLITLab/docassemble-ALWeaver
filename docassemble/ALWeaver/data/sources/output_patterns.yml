@@ -134,9 +134,15 @@ main order: |
     ${ interview_label }_intro
     interview_order_${ interview_label }
     % if generate_download:
-    signature_date    
-    # Save anonymized interview statistics (customize the saved data below)
-    store_variables_snapshot(data={'zip': users[0].address.zip})    
+    signature_date
+    # Store anonymous data for analytics / statistics
+    store_variables_snapshot(
+        persistent=True,
+        data={
+            "zip": showifdef("users[0].address.zip"),
+            "reached_interview_end": True,
+        },
+    )
     ${ interview_label }_preview_question
     basic_questions_signature_flow    
       % for signature_field in signatures:
