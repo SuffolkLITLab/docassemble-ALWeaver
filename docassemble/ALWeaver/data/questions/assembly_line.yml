@@ -866,7 +866,7 @@ code: |
 code: |
   # Build the list of includes
   include_data = {
-    "includes": ['docassemble.AssemblyLine:al_package.yml'] + \
+    "includes": ['docassemble.AssemblyLine:assembly_line.yml'] + \
         get_yml_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
             interview.org_choices.true_values())
