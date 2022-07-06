@@ -15,8 +15,8 @@ Scenario: I weave the civil docketing statement
     | all_look_good['signature_filled_in'] | True |  |
     | ask_people_quantity_question | True |  |
     | choose_field_types | True |  |
-    | fields[10].send_to_addendum | True |  |
-    | fields[27].send_to_addendum | True |  |
+    | all_fields[10].send_to_addendum | True |  |
+    | all_fields[27].send_to_addendum | True |  |
     | fields_checkup_status['all_fields_present'] | True |  |
     | fields_checkup_status['correct_reserved_fields'] | True |  |
     | fields_checkup_status['no_unexpected_fields'] | True |  |
@@ -108,6 +108,26 @@ Scenario: I weave the civil docketing statement
     | questions[i].field_list['all_fields[8]'] | True | questions[2].question_text |
     | questions[i].field_list['all_fields[9]'] | True | questions[2].question_text |
     | questions[i].field_list['all_fields[9]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[35]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[35]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[36]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[36]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[37]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[37]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[38]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[38]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[39]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[39]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[40]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[40]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[41]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[41]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[42]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[42]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[43]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[43]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
     | questions[i].has_mandatory_field | True | questions[2].question_text |
     | questions[i].has_mandatory_field | True | questions[2].question_text |
     | questions[i].question_text | Screen 1 custom title | questions[0].question_text |
