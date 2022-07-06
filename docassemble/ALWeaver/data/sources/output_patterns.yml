@@ -134,6 +134,7 @@ main order: |
     ${ interview_label }_intro
     interview_order_${ interview_label }
     % if generate_download:
+    # Store anonymous data for analytics / statistics
     store_variables_snapshot(
         persistent=True,
         data={
