@@ -15,8 +15,8 @@ Scenario: I weave the civil docketing statement
     | all_look_good['signature_filled_in'] | True |  |
     | ask_people_quantity_question | True |  |
     | choose_field_types | True |  |
-    | fields[10].send_to_addendum | True |  |
-    | fields[27].send_to_addendum | True |  |
+    | all_fields[10].send_to_addendum | True |  |
+    | all_fields[27].send_to_addendum | True |  |
     | fields_checkup_status['all_fields_present'] | True |  |
     | fields_checkup_status['correct_reserved_fields'] | True |  |
     | fields_checkup_status['no_unexpected_fields'] | True |  |
@@ -38,76 +38,96 @@ Scenario: I weave the civil docketing statement
     | people_quantities['users'] | more |  |
     | people_variables['decision_maker'] | True |  |
     | people_variables['have_served_other_party'] | False |  |
-    | questions[i].field_list['fields[0]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[0]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[10]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[10]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[11]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[11]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[12]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[12]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[13]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[13]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[14]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[14]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[15]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[15]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[16]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[16]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[17]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[17]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[18]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[18]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[19]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[19]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[1]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[1]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[20]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[20]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[21]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[21]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[22]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[22]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[23]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[23]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[24]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[24]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[25]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[25]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[26]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[26]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[27]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[27]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[28]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[28]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[29]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[29]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[2]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[2]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[30]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[30]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[31]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[31]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[32]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[32]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[33]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[33]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[34]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[34]'] | True | questions[3].question_text |
-    | questions[i].field_list['fields[3]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[3]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[4]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[4]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[5]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[5]'] | True | questions[0].question_text |
-    | questions[i].field_list['fields[6]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[6]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[7]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[7]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[8]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[8]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[9]'] | True | questions[2].question_text |
-    | questions[i].field_list['fields[9]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[0]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[0]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[10]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[10]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[11]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[11]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[12]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[12]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[13]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[13]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[14]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[14]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[15]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[15]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[16]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[16]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[17]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[17]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[18]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[18]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[19]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[19]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[1]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[1]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[20]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[20]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[21]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[21]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[22]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[22]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[23]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[23]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[24]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[24]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[25]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[25]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[26]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[26]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[27]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[27]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[28]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[28]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[29]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[29]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[2]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[2]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[30]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[30]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[31]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[31]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[32]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[32]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[33]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[33]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[34]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[34]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[3]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[3]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[4]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[4]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[5]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[5]'] | True | questions[0].question_text |
+    | questions[i].field_list['all_fields[6]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[6]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[7]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[7]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[8]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[8]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[9]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[9]'] | True | questions[2].question_text |
+    | questions[i].field_list['all_fields[35]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[35]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[36]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[36]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[37]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[37]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[38]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[38]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[39]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[39]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[40]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[40]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[41]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[41]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[42]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[42]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[43]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[43]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
+    | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
     | questions[i].has_mandatory_field | True | questions[2].question_text |
     | questions[i].has_mandatory_field | True | questions[2].question_text |
     | questions[i].question_text | Screen 1 custom title | questions[0].question_text |
