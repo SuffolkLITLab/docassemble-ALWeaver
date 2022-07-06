@@ -111,7 +111,8 @@ fields:
     js show if: |
       val("how_to_share") === "email_or_sms" && val("sharing_type") === "share_session"      
   - Your name: share_form_from_name
-    default: ${ str(users[0]) if defined('users[0].name.first') else '' } 
+    default: |
+      ${ user_info().first_name if user_logged_in() else '' }
     show if:
       variable: how_to_share
       is: email_or_sms    
