@@ -143,11 +143,13 @@ main order: |
             "reached_interview_end": True,
         },
     )
+    % if len(signatures) > 0:
     ${ interview_label }_preview_question
     basic_questions_signature_flow    
-      % for signature_field in signatures:
+    % for signature_field in signatures:
     ${ signature_field }
-      % endfor
+    % endfor
+    % endif
     ${ interview_label }_download
     % else:
     ${ interview_label }_thank_you
