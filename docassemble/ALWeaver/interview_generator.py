@@ -1762,7 +1762,7 @@ def is_valid_python(code: str) -> bool:
 def bad_name_reason(field: DAField):
     """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
     if matching_reserved_names({field.variable}):
-        return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package" 
+        return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package"
     if field.source_document_type == "docx":
         # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
         # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
