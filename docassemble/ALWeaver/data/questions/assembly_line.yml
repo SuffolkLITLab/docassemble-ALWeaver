@@ -428,7 +428,8 @@ code: |
     field_grouping = cluster_screens( [field.variable for field in all_fields] )
     for group in field_grouping:
       new_screen = questions.appendObject()
-      new_screen.is_informational_screen = new_screen.has_mandatory_field = False
+      new_screen.is_informational_screen = False
+      new_screen.has_mandatory_field = True
       new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
       new_screen.subquestion_text = ''
       new_screen.field_list = [field for field in all_fields if field.variable in field_grouping[group]]          
