@@ -55,7 +55,7 @@ subquestion: |
   These are the lines that look like they contain PDF variable names:
 
   % for match in pdf_variable_name_in_docx_matches:
-  * ${ match }
+  * `${ match[0] }`, did you mean `${ match[1] }`?
   % endfor
 
   Check out [the labeling

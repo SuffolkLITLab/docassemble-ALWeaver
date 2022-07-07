@@ -1822,12 +1822,13 @@ def get_variable_name_warnings(fields):
     return list(filter(lambda elem: elem is not None, map(bad_name_reason, fields)))
 
 
-def get_pdf_variable_name_matches(document: DAFile) -> Set[str]:
+def get_pdf_variable_name_matches(document: DAFile) -> Set[Tuple[str, str]]:
     fields = document.get_docx_variables()
     res = set()
     for field in fields:
-        if map_raw_to_final_display(field) != field:
-            res.add(field)
+        possible_new_field = map_raw_to_final_display(field)
+        if possible_new_field != field:
+            res.add((field, possible_new_field))
     return res
 
 ############################
