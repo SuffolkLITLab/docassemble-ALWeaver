@@ -42,7 +42,31 @@ buttons:
   - I understand, let me continue: 
       code: |
         mako_syntax_in_docx = True
-  - Restart: exit
+  - Restart: restart
+---
+id: did you intend to use PDF variable names
+question: |
+  Did you intend to use variables that match a PDF variable name?
+subquestion: |
+  Your DOCX template looks like it is using a variable name that is 
+  normally only used in a PDF. You may want to stop here and fix your template 
+  by replacing the PDF variable name with the DOCX equivalent.
+
+  These are the lines that look like they contain PDF variable names:
+
+  % for match in pdf_variable_name_in_docx_matches:
+  * ${ match }
+  % endfor
+
+  Check out [the labeling
+  documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
+  and pay attention to the columns labeled `Docassemble / DOCX form`.
+sets: warn_pdf_variable_names_in_docx
+buttons: 
+  - I understand, let me continue: 
+      code: |
+        warn_pdf_variable_names_in_docx = True
+  - Restart: restart
 ---
 id: jinja_exception
 event: jinja_exception

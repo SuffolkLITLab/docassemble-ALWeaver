@@ -78,6 +78,7 @@ __all__ = [
     "get_pdf_validation_errors",
     "get_docx_validation_errors",
     "get_variable_name_warnings",
+    "get_pdf_variable_name_matches",
 ]
 
 always_defined = set(
@@ -1820,6 +1821,14 @@ def get_docx_validation_errors(document: DAFile):
 def get_variable_name_warnings(fields):
     return list(filter(lambda elem: elem is not None, map(bad_name_reason, fields)))
 
+
+def get_pdf_variable_name_matches(document: DAFile) -> Set[str]:
+    fields = document.get_docx_variables()
+    res = set()
+    for field in fields:
+        if map_raw_to_final_display(field) != field:
+            res.add(field)
+    return res
 
 ############################
 # Create a Docassemble .zip package

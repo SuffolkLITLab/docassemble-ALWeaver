@@ -806,6 +806,9 @@ code: |
       mako_matches = get_mako_matches(document)
       if mako_matches:
         mako_syntax_in_docx
+      pdf_variable_name_in_docx_matches = get_pdf_variable_name_matches(document)
+      if pdf_variable_name_in_docx_matches:
+        warn_pdf_variable_names_in_docx
     else:
       force_ask("exit_unknown_file_type")
 
