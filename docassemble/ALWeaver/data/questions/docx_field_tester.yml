@@ -1,7 +1,4 @@
 ---
-modules:
-  - .validate_docx_files
----
 question: |
   File
 fields:

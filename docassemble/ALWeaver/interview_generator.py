@@ -27,6 +27,7 @@ import json
 from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict, Union
 from .generator_constants import generator_constants
 from .custom_values import custom_values
+from .validate_template_files import matching_reserved_names
 import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
@@ -1760,11 +1761,13 @@ def is_valid_python(code: str) -> bool:
 
 def bad_name_reason(field: DAField):
     """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
+    if matching_reserved_names({field.variable}):
+        return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package" 
     if field.source_document_type == "docx":
         # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
         # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
         if not is_valid_python(field.variable):
-            return f"{ field.variable } is not a valid python expression"
+            return f"`{ field.variable }` is not a valid python expression"
         return None
     else:
         # log(field[0], "console")
@@ -1773,7 +1776,7 @@ def bad_name_reason(field: DAField):
             document_type="pdf",
         )
         if len(python_var) == 0:
-            return f"{ field.variable }, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
+            return f"`{ field.variable }`, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
         return None
 
 
