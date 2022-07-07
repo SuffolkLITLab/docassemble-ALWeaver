@@ -1828,13 +1828,14 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     else:
         docx_data = docx2python(document)
     text = docx_data.text
-    fields = get_docx_variables(text)    
+    fields = get_docx_variables(text)
     res = set()
     for field in fields:
         possible_new_field = map_raw_to_final_display(field)
         if possible_new_field != field:
             res.add((field, possible_new_field))
     return res
+
 
 ############################
 # Create a Docassemble .zip package
