@@ -16,7 +16,7 @@ import keyword
 import docassemble.AssemblyLine.al_general
 import docassemble.AssemblyLine.al_document
 import docassemble.AssemblyLine.language
-import docassemble.AssemblyLine.sessions
+# import docassemble.AssemblyLine.sessions
 import docassemble.ALToolbox.misc
 from typing import Optional, Iterable, Set
 import re
