@@ -63,7 +63,8 @@ modules:
   - .interview_generator
   - .custom_values
   - .draggable_table
-  - docassemble.ALToolbox.misc #collapse_template()  
+  - docassemble.ALToolbox.misc #collapse_template()
+  - .validate_template_files
 ---
 images:
   branding_extra: branding_extra.png
@@ -122,6 +123,7 @@ code: |
         validate_docx
       else: # mixed PDF and DOCX templates
         validate_mixed_documents
+        
  
   if have_template_to_load:  
     all_fields.gathered
