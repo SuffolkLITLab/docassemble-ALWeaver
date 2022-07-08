@@ -35,7 +35,7 @@ all_reserved_names = set(
     + docassemble.AssemblyLine.al_general.__all__
     + docassemble.AssemblyLine.al_document.__all__
     + docassemble.AssemblyLine.language.__all__
-    + docassemble.AssemblyLine.sessions.__all__
+    # + docassemble.AssemblyLine.sessions.__all__
     + docassemble.ALToolbox.misc.__all__
     + keyword.kwlist
     + list(dir(__builtins__))
