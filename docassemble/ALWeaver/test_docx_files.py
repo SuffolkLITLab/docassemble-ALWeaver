@@ -1,5 +1,11 @@
 import unittest
-from .interview_generator import DAField, get_docx_variables, is_reserved_docx_label
+from .interview_generator import (
+    DAField,
+    get_docx_variables,
+    is_reserved_docx_label,
+    get_pdf_variable_name_matches,
+)
+from docassemble.base.util import DAFile
 from docx2python import docx2python
 from pathlib import Path
 
@@ -37,3 +43,14 @@ class test_docxs(unittest.TestCase):
         self.assertIn("trial_court.address.county", reserved_labels)
         self.assertIn("users[0].address.address", reserved_labels)
         self.assertNotIn("users.address.zip", reserved_labels)
+
+    def test_pdf_variables_in_docx(self):
+        pdf_variables_file = Path(__file__).parent / "test/pdf_variables_in_docx.docx"
+
+        matching_fields = get_pdf_variable_name_matches(pdf_variables_file)
+        self.assertIn(("petitioner_email", "petitioners[0].email"), matching_fields)
+        self.assertIn(
+            ("users1_mailing_address", "users[0].mailing_address"), matching_fields
+        )
+        self.assertNotIn(("users", "users"), matching_fields)
+        self.assertNotIn(("other_parties", "other_parties"), matching_fields)
