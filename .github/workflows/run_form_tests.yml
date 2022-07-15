@@ -1,0 +1,41 @@
+name: Use ALKiln testing framework v4 to run tests
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Optional. Use a "tag expression" specify which tagged tests to run. See https://cucumber.io/docs/cucumber/api/#tag-expressions for syntax.'
+        default: ''
+  # To run your tests on a schedule, delete the first "#" symbol at the beginning of each line below.
+  ## Also see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule
+  ## Also see https://crontab.guru/examples.html
+  #schedule:
+  #  - cron: '0 1 * * TUE'
+
+jobs:
+
+  interview-testing:
+    runs-on: ubuntu-latest
+    name: Run interview tests
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use ALKiln to run tests
+        uses: SuffolkLITLab/ALKiln@releases/v4
+        with:
+          SERVER_URL: "${{ secrets.SERVER_URL }}"
+          DOCASSEMBLE_DEVELOPER_API_KEY: "${{ secrets.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+      - run: echo "Finished running ALKiln tests"
+      
+      ## To make a new issue in your repository when a test fails,
+      ## simply delete the first "#" symbol in each line below
+      #- name: If any tests failed create an issue
+      #  if: ${{ failure() }}
+      #  uses: actions-ecosystem/action-create-issue@v1
+      #  with:
+      #    github_token: "${{ secrets.github_token }}"
+      #    title: ALKiln tests failed
+      #    body: |
+      #      An ALKiln test failed. See the action at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.
+      #    labels: |
+      #      bug
