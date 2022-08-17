@@ -15,6 +15,10 @@ code: |
 ---
 objects:
   - weaverdata: DAStore.using(base="docassemble.ALWeaver")
+  - upload_template_image: DAStaticFile.using(filename="undraw_upload_re_pasx.svg")
+  - start_from_scratch_image: DAStaticFile.using(filename="undraw_start_building_re_xani.svg")
+  - browse_library_image: DAStaticFile.using(filename="undraw_collecting_re_lp6p.svg")
+  - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
 ---
 event: configure_weaver
 question: |
@@ -65,6 +69,7 @@ modules:
   - .draggable_table
   - docassemble.ALToolbox.misc #collapse_template()
   - .validate_template_files
+  - docassemble.AssemblyLine.sessions
 ---
 images:
   branding_extra: branding_extra.png
@@ -105,6 +110,7 @@ code: |
   else:   
     weaver_intro
     # skip the file validation if no template input
+    interview_type
     set_interview_type_vars 
     if have_template_to_load: 
       template_upload
@@ -239,54 +245,103 @@ code: |
     all_fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True
 ---
-continue button field: weaver_intro
 id: opening screen
+event: weaver_intro
 question: |
-  <div class="attention">Interview Weaver</div>
-subquestion: |  
+  Get started with the Weaver
+subquestion: |
+  Use the Weaver to rapidly build a draft automation for your court or other legal form.
   
-  <div class="panel_yellow" markdown="1">
-  ##### &#11093; What the Weaver does
-  
-  1. Creates a draft Docassemble interview, as a package you can install and
-     continue customizing. The interview is supported at runtime by other [_**Assembly
-     Line**_ 
-     tools](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/).
-  1. Builds all of the standard interview elements for you, including
-     introduction, preview, download, and user instructions, with standardized
-     variable names.
-  1. Catches common errors with PDF forms.
+  <div class="row row-cols-1 row-cols-md-2 g-2">
+    <div class="col">
+      <div class="card h-100">
+        <img src="${ upload_template_image.url_for() }" class="card-img-top p-2" style="max-height: 15rem;" alt="...">
+        <div class="card-body">
+          <h5 class="card-title" >Upload a form to automate</h5>
+          <p class="card-text">Upload an existing form and answer simple questions to build a draft automation.</p>
+          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="upload") }" role="button">Upload and start building</a>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <img src="${ start_from_scratch_image.url_for() }" class="card-img-top p-2" style="max-height: 15rem;" alt="...">
+        <div class="card-body">
+          <h5 class="card-title">Build from scratch</h5>
+          <p class="card-text">Follow our guided process to build a custom automation <em>without</em> an existing form.</p>
+          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="build_from_scratch") }" role="button">Start building</a>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <img src="${ browse_library_image.url_for() }" class="card-img-top p-2" style="max-height: 15rem;" alt="...">
+        <div class="card-body">
+          <h5 class="card-title">Start with a form from the library</h5>
+          <p class="card-text">Start your project with our library of 18,000 official state court forms.</p>
+          <a class="btn btn-primary stretched-link align-self-end" href="https://suffolklitlab.org/form-explorer/list/" role="button">Find my form</a>
+          <!-- TODO: replace with dynamic list of forms directly in the Weaver -->
+        </div>      
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <img src="${ keep_editing_image.url_for() }" class="card-img-top p-2" style="max-height: 12rem;" alt="...">
+        <div class="card-body">
+          <h5 class="card-title">Load a previous project</h5>
+          <p class="card-text">Already started a project? Open it and keep working on it here.</p>
+          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("browse_weaver_sessions") }" role="button">Continue automating</a>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="panel_yellow" markdown="1">
-  ##### &#11093; What you need to do
-  
+css: |
+  <style>
+  .question-landing-page div.container {
+    max-width: 100rem;
+  }
+  </style>
+right: |
+  <br/>
+  <br/>
+  ${ collapse_template(learn_more) }
+---  
+template: learn_more
+subject: |
+  How does it work?
+content: |
   1. Start with the template first. Add [standardized 
      labels](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
      to take advantage of built-in questions.
   1. Upload your template and answer all the questions on the screens.
      Smart defaults save you time along the way.
-  2. Download your completed interview. It should run out of the box as a rough prototype.
-  </div>  
-
-  <div class="panel_silver" markdown="1">
-  ##### &#128204; Learn more
-  The Interview Weaver is part of the [Assembly
-  Line](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/) project. You can learn more about customizing your 
-  interview _[here](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_.
-  </div>
-
+  2. Download your completed interview and get started [customizing](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview) it. 
+---
+event: choose_first_action
+code: |
+  if action_argument("selected_action") == "build_from_scratch":
+    interview_type = "survey_without_template"
+  weaver_intro = True
+---
+id: choose an output screen
+question: |
+  What kind of output will your interview have?
 fields: 
-  - 'Specify your interview type': interview_type
+  - What kind of output do you want?: interview_type
     input type: radio    
     choices:
-      - Questions that fill in a template: regular
-      - Questions that fill in a database row and start with a template: survey_with_template  
-      - Questions that fill in a database row and are written from scratch: survey_without_template
-    default: 'regular'
-    help: |
-      A **regular** interview requires a template, and it will have a download screen for your end users.<br><br>
-      A **survey type** interview does not require a template, and it has nothing for the end user to download. It will have a code block to save interview answers for future data reporting purposes.<br><br>
-      If you upload a template for a survey interview, it will only be used for weaving your interview, not for download.
+      - Assemble and download a completed form: regular
+      - Just save the answers to a database: survey_with_template
+        help: |
+          Select this only if your user does not need to download a completed
+          form at the end. You can still save answers to a database either way.
+---
+id: browse weaver sessions
+event: browse_weaver_sessions
+question: |
+  Existing Weaver sessions
+subquestion: |
+  ${ session_list_html(filename=user_info().filename, exclude_current_filename=False) }
 ---
 id: file upload screen
 question: |
