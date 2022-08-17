@@ -11,6 +11,7 @@ Scenario: I weave the civil docketing statement
   Then I tap the "#upload" element and wait for 5 seconds
   And I get to the question id "download-your-interview" with this data:
     | var | value | trigger |
+    | interview_type | regular | |
     | all_look_good['all_checkboxes_checked'] | True |  |
     | all_look_good['no_unusual_size_text'] | True |  |
     | all_look_good['signature_filled_in'] | True |  |
