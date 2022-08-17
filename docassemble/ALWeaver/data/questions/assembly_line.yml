@@ -259,7 +259,7 @@ subquestion: |
         <div class="card-body">
           <h5 class="card-title" >Upload a form to automate</h5>
           <p class="card-text">Upload an existing form and answer simple questions to build a draft automation.</p>
-          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="upload") }" role="button">Upload and start building</a>
+          <a id="upload" class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="upload") }" role="button">Upload and start building</a>
         </div>
       </div>
     </div>
@@ -269,7 +269,7 @@ subquestion: |
         <div class="card-body">
           <h5 class="card-title">Build from scratch</h5>
           <p class="card-text">Follow our guided process to build a custom automation <em>without</em> an existing form.</p>
-          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="build_from_scratch") }" role="button">Start building</a>
+          <a id="build_from_scratch" class="btn btn-primary stretched-link align-self-end" href="${ url_action("choose_first_action", selected_action="build_from_scratch") }" role="button">Start building</a>
         </div>
       </div>
     </div>
@@ -279,7 +279,7 @@ subquestion: |
         <div class="card-body">
           <h5 class="card-title">Start with a form from the library</h5>
           <p class="card-text">Start your project with our library of 18,000 official state court forms.</p>
-          <a class="btn btn-primary stretched-link align-self-end" href="https://suffolklitlab.org/form-explorer/list/" role="button">Find my form</a>
+          <a id="explore_forms" class="btn btn-primary stretched-link align-self-end" href="https://suffolklitlab.org/form-explorer/list/" role="button">Find my form</a>
           <!-- TODO: replace with dynamic list of forms directly in the Weaver -->
         </div>      
       </div>
@@ -290,7 +290,7 @@ subquestion: |
         <div class="card-body">
           <h5 class="card-title">Load a previous project</h5>
           <p class="card-text">Already started a project? Open it and keep working on it here.</p>
-          <a class="btn btn-primary stretched-link align-self-end" href="${ url_action("browse_weaver_sessions") }" role="button">Continue automating</a>
+          <a id="load_answer" class="btn btn-primary stretched-link align-self-end" href="${ url_action("browse_weaver_sessions") }" role="button">Continue automating</a>
         </div>
       </div>
     </div>

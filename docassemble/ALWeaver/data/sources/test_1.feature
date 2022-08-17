@@ -8,6 +8,7 @@ Notes:
 Scenario: I weave the civil docketing statement
   Given I start the interview at "assembly_line.yml"
   And the max seconds for each Step is 90
+  When I tap the "#upload" element
   And I get to the question id "download-your-interview" with this data:
     | var | value | trigger |
     | all_look_good['all_checkboxes_checked'] | True |  |
