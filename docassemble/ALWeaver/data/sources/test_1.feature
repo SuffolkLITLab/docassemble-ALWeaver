@@ -8,7 +8,7 @@ Notes:
 Scenario: I weave the civil docketing statement
   Given I start the interview at "assembly_line.yml"
   And the max seconds for each Step is 90
-  When I tap the "#upload" element
+  Then I tap the "#upload" element and wait for 5 seconds
   And I get to the question id "download-your-interview" with this data:
     | var | value | trigger |
     | all_look_good['all_checkboxes_checked'] | True |  |
@@ -129,8 +129,8 @@ Scenario: I weave the civil docketing statement
     | questions[i].field_list['all_fields[43]'] | True | questions[3].question_text |
     | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
     | questions[i].field_list['all_fields[44]'] | True | questions[3].question_text |
-    | questions[i].has_mandatory_field | True | questions[2].question_text |
-    | questions[i].has_mandatory_field | True | questions[2].question_text |
+    | questions[i].has_mandatory_field | True | questions[2].question_text |
+    | questions[i].has_mandatory_field | True | questions[2].question_text |
     | questions[i].question_text | Screen 1 custom title | questions[0].question_text |
     | questions[i].question_text | Screen 1 custom title | questions[0].question_text |
     | questions[i].question_text | Screen 3 custom title | questions[2].question_text |
@@ -143,12 +143,12 @@ Scenario: I weave the civil docketing statement
     | questions[i].subquestion_text | Screen 3 body | questions[2].question_text |
     | questions[i].subquestion_text | Screen 4 body text | questions[3].question_text |
     | questions[i].subquestion_text | Screen 4 body text | questions[3].question_text |
-    | questions[i].is_informational_screen | True | questions[1].question_text |
-    | questions[i].is_informational_screen | True | questions[1].question_text |
-    | questions[i].question_text | Screen 2 (informational) title | questions[1].question_text |
-    | questions[i].question_text | Screen 2 (informational) title | questions[1].question_text |
-    | questions[i].subquestion_text | Screen 2 informational only | questions[1].question_text |
-    | questions[i].subquestion_text | Screen 2 informational only | questions[1].question_text |
+    | questions[i].is_informational_screen | True | questions[1].question_text |
+    | questions[i].is_informational_screen | True | questions[1].question_text |
+    | questions[i].question_text | Screen 2 (informational) title | questions[1].question_text |
+    | questions[i].question_text | Screen 2 (informational) title | questions[1].question_text |
+    | questions[i].subquestion_text | Screen 2 informational only | questions[1].question_text |
+    | questions[i].subquestion_text | Screen 2 informational only | questions[1].question_text |
     | review_fields_after_labeling | True |  |
     | show_screen_order | True |  |
     | template_upload | test_civil_docketing_statement.pdf |  |
