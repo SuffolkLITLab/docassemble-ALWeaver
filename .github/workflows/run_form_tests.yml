@@ -1,4 +1,4 @@
-name: Use ALKiln testing framework v4 to run tests
+name: Use ALKiln testing framework v4 to run end-to-end tests
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
 
   interview-testing:
     runs-on: ubuntu-latest
-    name: Run interview tests
+    name: Run ALKiln end-to-end tests
     steps:
       - uses: actions/checkout@v2
-      - name: Use ALKiln to run tests
+      - name: Use ALKiln to run end-to-end tests
         uses: SuffolkLITLab/ALKiln@releases/v4
         with:
           SERVER_URL: "${{ secrets.SERVER_URL }}"

@@ -1,4 +1,4 @@
-name: Run weaver tests
+name: Run weaver unit tests
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 jobs:
   test-weaver:
     runs-on: ubuntu-latest
-    name: Run weaver tests
+    name: Run weaver unit tests
     env:
       ISUNITTEST: true
     steps:
