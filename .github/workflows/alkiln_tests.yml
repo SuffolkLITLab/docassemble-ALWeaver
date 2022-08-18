@@ -1,4 +1,4 @@
-name: Use ALKiln testing framework v4 to run tests
+name: ALKiln v4 Tests
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       tags:
         description: 'Optional. Use a "tag expression" specify which tagged tests to run. See https://cucumber.io/docs/cucumber/api/#tag-expressions for syntax.'
         default: ''
+        required: false
   # To run your tests on a schedule, delete the first "#" symbol at the beginning of each line below.
   ## Also see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule
   ## Also see https://crontab.guru/examples.html
@@ -14,18 +15,17 @@ on:
   #  - cron: '0 1 * * TUE'
 
 jobs:
-
   interview-testing:
     runs-on: ubuntu-latest
-    name: Run interview tests
+    name: Run end-to-end tests
     steps:
       - uses: actions/checkout@v2
-      - name: Use ALKiln to run tests
+      - name: Use ALKiln to run end-to-end tests
         uses: SuffolkLITLab/ALKiln@releases/v4
         with:
           SERVER_URL: "${{ secrets.SERVER_URL }}"
           DOCASSEMBLE_DEVELOPER_API_KEY: "${{ secrets.DOCASSEMBLE_DEVELOPER_API_KEY }}"
-      - run: echo "Finished running ALKiln tests"
+      - run: echo "Finished running ALKiln end-to-end tests"
       
       ## To make a new issue in your repository when a test fails,
       ## simply delete the first "#" symbol in each line below
