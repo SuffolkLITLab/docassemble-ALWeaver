@@ -6,8 +6,8 @@ Notes:
   published to test questions loop and informational screen
 
 Scenario: I weave the civil docketing statement
-  Given I start the interview at "assembly_line.yml"
-  And the max seconds for each Step is 90
+  Given the max seconds for each Step is 90
+  And I start the interview at "assembly_line.yml"
   Then I tap the "#upload" element and wait 5 seconds
   And I get to the question id "download-your-interview" with this data:
     | var | value | trigger |
