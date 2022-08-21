@@ -1717,6 +1717,13 @@ subquestion: |
   ```
   % endif  
   </div>
+attachment:
+  name: YAML output
+  filename: interview.yml
+  raw: True
+  content file:
+    - output_defs.mako
+    - output.mako
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)

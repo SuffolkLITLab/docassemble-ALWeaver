@@ -38,6 +38,7 @@ from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
+from more_itertools import unique_everseen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -56,6 +57,7 @@ __all__ = [
     "to_yaml_file",
     "base_name",
     "escape_quotes",
+    "escape_double_quoted_yaml",
     "oneline",
     "DAQuestionList",
     "map_raw_to_final_display",
@@ -80,6 +82,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_variable_name_warnings",
     "get_pdf_variable_name_matches",
+    "unique_everseen",
 ]
 
 always_defined = set(
