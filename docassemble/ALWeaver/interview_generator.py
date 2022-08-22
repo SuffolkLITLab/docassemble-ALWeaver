@@ -497,6 +497,19 @@ class DAField(DAObject):
         else:
             return ""
 
+    def need_maxlength(self):
+        if hasattr(self, "field_type") and self.field_type not in [
+            "email",
+            "area",
+            "text",
+        ]:
+            return False
+        return (
+            hasattr(self, "maxlength")
+            and self.maxlength
+            and not (hasattr(self, "send_to_addendum") and self.send_to_addendum)
+        )   
+
     def _maxlength_str(self) -> str:
         if (
             hasattr(self, "maxlength")

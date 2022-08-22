@@ -1,6 +1,6 @@
 <%doc>
     Initial metadata and includes
-</%doc>\
+</%doc>
 ---
 include:
   - docassemble.AssemblyLine:assembly_line.yml
@@ -83,9 +83,6 @@ code: |
 code: |
   interview_short_title = "${ escape_quotes(interview_intro_prompt) }"
 % endif
-<%doc>
-    TODO(qs): why does this depend on generate download screen?
-</%doc>\
 % if generate_download_screen:
 ---
 code: |
@@ -174,7 +171,7 @@ ${ indent(subquestion_text,2) }
 % if len(question.field_list) > 0:
 fields:
   % for field in question.field_list:
-${ field.field_entry_yaml() }
+${ field_entry_yaml(field) }\
   % endfor
 % endif
 % if question.needs_continue_button_field:
