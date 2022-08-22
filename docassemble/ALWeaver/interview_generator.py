@@ -82,7 +82,9 @@ __all__ = [
     "get_docx_validation_errors",
     "get_variable_name_warnings",
     "get_pdf_variable_name_matches",
-    "unique_everseen",
+    "unique_everseen", # Needed for output.mako
+    "generator_constants", # needed for output_defs.mako
+    "substitute_suffix", # needed for output_defs.mako
 ]
 
 always_defined = set(
@@ -1690,7 +1692,7 @@ def remove_multiple_appearance_indicator(label: str) -> str:
     return re.sub(r"_{2,}\d+", "", label)
 
 
-def substitute_suffix(label: str, display_suffixes: Dict[str, str]) -> str:
+def substitute_suffix(label: str, display_suffixes: Dict[str, str] = generator_constants.FULL_DISPLAY) -> str:
     """Map attachment/displayable attributes or methods into interview order
     attributes. For example, `.address()` will become `.address.address`"""
     for suffix in display_suffixes:

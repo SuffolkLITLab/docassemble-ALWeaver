@@ -231,7 +231,7 @@ question: |
   Review your answers
 review:
   % for coll in parent_collections:
-${ coll.review_yaml() }
+${ review_yaml(coll) }
   % endfor
 % for coll in parent_collections:
   % if coll.var_type == 'list':
