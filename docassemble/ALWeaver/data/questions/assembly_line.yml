@@ -1696,6 +1696,8 @@ subquestion: |
   #### &#11093; Advanced  
   ###### Review code on the screen
   ${ collapse_template(yaml_source) } 
+
+  ${ collapse_template(alternative_yaml_source) }
   
   ###### Run interview before download
   If you want to test your interview before you leave this screen, click
@@ -1717,7 +1719,17 @@ subquestion: |
   ```
   % endif  
   </div>
+---
+template: alternative_yaml_source
+subject: |
+  New YAML source
+content: |
+  <pre>
+  ${ indent_by(new_interview_output.raw.content, 4) }
+  </pre>
+---
 attachment:
+  variable name: new_interview_output
   name: YAML output
   filename: interview.yml
   raw: True
