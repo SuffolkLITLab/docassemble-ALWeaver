@@ -166,7 +166,7 @@ question: |
 ${ indent(question.question_text,2) }
 % if question.subquestion_text:
 subquestion: |
-${ indent(subquestion_text,2) }
+${ indent(question.subquestion_text,2) }
 % endif
 % if len(question.field_list) > 0:
 fields:
