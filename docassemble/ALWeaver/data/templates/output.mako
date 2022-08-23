@@ -253,7 +253,8 @@ subquestion: |
   ${ "${ " + coll.var_name + ".table }" }
 
   ${ "${ " + coll.var_name + ".add_action() }" }
-${ table_page(coll) }\
+${ table_page(coll) }
+
   % endif
 % endfor
 <%doc>
@@ -344,7 +345,7 @@ attachments:
     pdf template file: ${ v.input_filename }
     fields:
     % for field in v.fields:
-${ attachment_yaml(field, attachment_name=v.attachment_varname) }
+${ attachment_yaml(field, attachment_name=v.attachment_varname) }\
     % endfor
   % else: 
     skip undefined: True
