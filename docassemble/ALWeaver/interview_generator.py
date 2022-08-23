@@ -82,9 +82,9 @@ __all__ = [
     "get_docx_validation_errors",
     "get_variable_name_warnings",
     "get_pdf_variable_name_matches",
-    "unique_everseen", # Needed for output.mako
-    "generator_constants", # needed for output_defs.mako
-    "substitute_suffix", # needed for output_defs.mako
+    "unique_everseen",  # Needed for output.mako
+    "generator_constants",  # needed for output_defs.mako
+    "substitute_suffix",  # needed for output_defs.mako
 ]
 
 always_defined = set(
@@ -510,7 +510,7 @@ class DAField(DAObject):
             hasattr(self, "maxlength")
             and self.maxlength
             and not (hasattr(self, "send_to_addendum") and self.send_to_addendum)
-        )   
+        )
 
     def _maxlength_str(self) -> str:
         if (
@@ -988,13 +988,12 @@ confirm: True
             return content.rstrip("\n")
 
         return content + self.fields[0].review_viewing().rstrip("\n")
-    
+
     def full_display(self):
         settable_var = self.fields[0].get_settable_var()
         parent_var = DAField._get_parent_variable(settable_var)[0]
         # NOTE: we rely on the "stock" full_display map here
         return substitute_suffix(parent_var)
-        
 
 
 class DAFieldList(DAList):
@@ -1282,10 +1281,18 @@ class DAFieldList(DAList):
         return [item for item in self.elements if item.group == DAFieldGroup.CUSTOM]
 
     def skip_fields(self):
-        return [item for item in self.elements if hasattr(item, "field_type") and item.field_type == "skip this field"]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "field_type") and item.field_type == "skip this field"
+        ]
 
     def code_fields(self):
-        return [item for item in self.elements if hasattr(item, "field_type") and item.field_type == "code"]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "field_type") and item.field_type == "code"
+        ]
 
 
 class DAQuestion(DABlock):
@@ -1705,7 +1712,9 @@ def remove_multiple_appearance_indicator(label: str) -> str:
     return re.sub(r"_{2,}\d+", "", label)
 
 
-def substitute_suffix(label: str, display_suffixes: Dict[str, str] = generator_constants.FULL_DISPLAY) -> str:
+def substitute_suffix(
+    label: str, display_suffixes: Dict[str, str] = generator_constants.FULL_DISPLAY
+) -> str:
     """Map attachment/displayable attributes or methods into interview order
     attributes. For example, `.address()` will become `.address.address`"""
     for suffix in display_suffixes:
