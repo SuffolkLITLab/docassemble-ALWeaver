@@ -4,7 +4,7 @@
     TODO:
     Make defs for the following methods, so we can keep closer to the output file:
         - attachment_yaml
-        - table_page
+        - table_page (done)
         - field_entry_yaml (done)
         - review_yaml (done)
 
@@ -101,4 +101,27 @@
       <%text>${</%text> ${ collection.fields[0].final_display_var } }
       % endif # has field type
       % endif # collection.var_type
+</%def>\
+<%def name="table_page(collection)">\
+---
+table: ${ collection.var_name }.table
+rows: ${ collection.var_name }
+columns:
+  % for att, disp_and_set in collection.attribute_map.items():
+  - ${ att.capitalize().replace("_", " ") }: |
+      row_item.${ disp_and_set[0] } if defined("row_item.${ disp_and_set[1] }") else ""
+  % endfor
+  % if len(collection.attribute_map) == 0:
+  - Name: |
+      row_item
+  % endif
+% if len(collection.attribute_map) == 0:
+edit: True
+% else:
+edit:
+  % for disp_and_set in collection.attribute_map.values():
+  - ${ disp_and_set[1] }
+  % endfor
+% endif
+confirm: True
 </%def>

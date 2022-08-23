@@ -253,8 +253,7 @@ subquestion: |
   ${ "${ " + coll.var_name + ".table }" }
 
   ${ "${ " + coll.var_name + ".add_action() }" }
----
-${ coll.table_page() }
+${ table_page(coll) }\
   % endif
 % endfor
 <%doc>
