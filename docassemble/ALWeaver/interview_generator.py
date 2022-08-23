@@ -988,6 +988,13 @@ confirm: True
             return content.rstrip("\n")
 
         return content + self.fields[0].review_viewing().rstrip("\n")
+    
+    def full_display(self):
+        settable_var = self.fields[0].get_settable_var()
+        parent_var = DAField._get_parent_variable(settable_var)[0]
+        # NOTE: we rely on the "stock" full_display map here
+        return substitute_suffix(parent_var)
+        
 
 
 class DAFieldList(DAList):
@@ -1273,6 +1280,12 @@ class DAFieldList(DAList):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
         return [item for item in self.elements if item.group == DAFieldGroup.CUSTOM]
+
+    def skip_fields(self):
+        return [item for item in self.elements if hasattr(item, "field_type") and item.field_type == "skip this field"]
+
+    def code_fields(self):
+        return [item for item in self.elements if hasattr(item, "field_type") and item.field_type == "code"]
 
 
 class DAQuestion(DABlock):

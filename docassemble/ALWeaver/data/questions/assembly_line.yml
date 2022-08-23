@@ -79,6 +79,7 @@ include:
   - pdf_field_tester.yml
   - docx_field_tester.yml
   - visual.yml
+  - docassemble.ALToolbox:display_template.yml
 ---
 # Remove red playground warnings by setting default value for some variables
 # defined in events or exceptions
@@ -1660,14 +1661,6 @@ content: |
   3. Customize the wording, reorder questions, and make the interview your
      own! 
 ---
-template: yaml_source
-subject: |
-  Review your interview yml code
-content: |  
-  <pre>
-  ${indent_by(interview.source(),4)}
-  </pre>
----
 id: download your interview
 comment: | 
 event: show_interview
@@ -1696,9 +1689,9 @@ subquestion: |
   <div class="panel_lavender" markdown="1">
   #### &#11093; Advanced  
   ###### Review code on the screen
-  ${ collapse_template(yaml_source) } 
+  ${ display_template(yaml_source, copy=True, collapse=True, scrollable=False) } 
 
-  ${ collapse_template(alternative_yaml_source) }
+  ${ display_template(alternative_yaml_source, copy=True, collapse=True, scrollable=False) }
   
   ###### Run interview before download
   If you want to test your interview before you leave this screen, click
@@ -1725,9 +1718,13 @@ template: alternative_yaml_source
 subject: |
   New YAML source
 content: |
-  <pre>
   ${ indent_by(new_interview_output.raw.content, 4) }
-  </pre>
+---
+template: yaml_source
+subject: |
+  Original YAML source
+content: |
+  ${indent_by(interview.source(),4)}
 ---
 attachment:
   variable name: new_interview_output

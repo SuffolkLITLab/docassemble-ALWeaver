@@ -211,6 +211,16 @@ continue button field: ${ interview_label }_preview_question
 code: |
   signature_fields = ${ str(list(built_in_signatures) + [field.trigger_gather() for field in all_fields.signatures()] ) }
 % endif
+% for field in all_fields.skip_fields():
+---
+code: |
+  ${ field.variable } = DAEmpty()
+% endfor
+% for field in all_fields.code_fields():
+---
+code: |
+  ${ field.variable } = ${ field.code }
+% endfor
 % if interview.court_related:
 ---
 code: |
@@ -231,7 +241,7 @@ question: |
   Review your answers
 review:
   % for coll in parent_collections:
-${ review_yaml(coll) }
+${ review_yaml(coll) | trim }\
   % endfor
 % for coll in parent_collections:
   % if coll.var_type == 'list':
