@@ -124,4 +124,38 @@ edit:
   % endfor
 % endif
 confirm: True
+</%def>\
+<%def name="attachment_yaml(field, attachment_name)">\
+% if hasattr(field, "paired_yesno") and field.paired_yesno:
+      % for raw_name in field.raw_field_names:
+        % if remove_multiple_appearance_indicator(varname(raw_name)).endswith("_yes"):
+      - "${ raw_name }": <%text>${</%text>${ field.final_display_var } }
+        % else:
+      - "${ raw_name }": <%text>${</%text> not ${ field.final_display_var } }
+        % endif # ends with yes
+      % endfor
+% else:
+  % for raw_name in field.raw_field_names: # handle multiple appearance indicators
+    % if hasattr(field, "field_type") and field.field_type=="date":
+  - "${ raw_name }": <%text>${</%text> ${ field.variable }.format() }
+    % elif hasattr(field, "field_type") and field.field_type=="currency":
+  - "${ raw_name }": <%text>${</%text> currency(${ field.variable }) }
+    % elif hasattr(field, "field_type") and field.field_type=="number":
+  - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable })" }
+    % elif field.field_type_guess == "signature":
+      % if field.final_display_var.endswith("].signature"): # signature of ALIndividual
+  - "${ raw_name }": <%text>${</%text> ${ field.final_display_var}_if_final(i) }
+      % else: # standalone signature field
+  # It's a signature: test which file version this is; leave empty unless it's the final version)
+  - "${ raw_name }": <%text>${</%text> ${ field.final_display_var} if i == "final" else '' }
+      % endif 
+    % else: # all other variable types including text
+      % if hasattr(field, "send_to_addendum") and field.send_to_addendum and attachment_name:
+  - "${ raw_name }": <%text>${</%text> attachment_name.safe_value("${ field.final_display_var }") }
+      % else:
+  - "${ raw_name }": <%text>${</%text> ${ field.variable } }
+      % endif
+    % endif
+  % endfor
+% endif
 </%def>

@@ -344,7 +344,7 @@ attachments:
     pdf template file: ${ v.input_filename }
     fields:
     % for field in v.fields:
-${ field.attachment_yaml(attachment_name=v.attachment_varname) }
+${ attachment_yaml(field, attachment_name=v.attachment_varname) }
     % endfor
   % else: 
     skip undefined: True
