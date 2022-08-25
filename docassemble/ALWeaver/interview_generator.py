@@ -73,10 +73,8 @@ __all__ = [
     "fix_id",
     "DABlock",
     "DABlockList",
-    "mako_indent",
     "using_string",
     "pdf_field_type_str",
-    "mako_local_import_str",
     "is_valid_python",
     "get_pdf_validation_errors",
     "get_docx_validation_errors",
@@ -182,28 +180,7 @@ class DABlock(DAObject):
     A Block in a Docassemble interview YAML file.
     """
 
-    # template_key: str
-    # data: Dict[str, Any]
-
-    def source(
-        self,
-        template_string: str,
-        imports: list = [
-            "from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"
-        ],
-    ) -> str:
-        """
-        Return a string representing a YAML "document" (block), provided a string
-        representing a Mako template. Optional: provide list of imports.
-        """
-        mako.runtime.UNDEFINED = DAEmpty()
-        # Ensure we weren't passed an empty list of imports NOTE: is this important?
-        if not imports:
-            imports = [
-                "from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent, using_string"
-            ]
-        template = mako.template.Template(template_string, imports=imports)
-        return template.render(**self.data)
+    pass
 
 
 class DABlockList(DAList):
@@ -286,11 +263,8 @@ TemplateDict = TypedDict(
 
 class DAInterview(DAObject):
     """
-    This class represents the final YAML output. It has a method to output
-    to a string.
-
-    It is designed to load and store a list of Mako templates representing each
-    block type from a YAML file.
+    This class is a container for the various questions and metadata
+    associated with an interview.
     """
 
     templates: TemplateDict
@@ -333,46 +307,6 @@ class DAInterview(DAObject):
         info["license"] = "The MIT License"
         info["url"] = "https://courtformsonline.org"
         return info
-
-    def source(self) -> str:
-        """
-        Render and return the source of all blocks in the interview as a YAML string.
-        """
-        if getattr(self, "template_path"):
-            self._load_templates(self.template_path)
-        else:
-            self._load_templates(
-                "docassemble.ALWeaver:data/sources/interview_structure.yml"
-            )
-        text = ""
-        for block in self.blocks + self.questions.elements:
-            text += "---\n"
-            imports = list(self.templates.get("mako template imports", []))
-            local_imports: Dict[str, List[str]] = self.templates.get(
-                "mako template local imports", {}
-            )
-            formatted_local_imports = [
-                mako_local_import_str(
-                    user_info().package, import_key, local_imports[import_key]
-                )
-                for import_key in local_imports
-            ]
-            imports = imports + formatted_local_imports
-            text += block.source(
-                self.templates.get(block.template_key), imports=imports
-            )
-        return text
-
-    def _load_templates(self, template_path: str) -> None:
-        """
-        Load YAML file with Mako templates into the templates attribute.
-        Overwrites any existing templates.
-        """
-        path = path_and_mimetype(template_path)[0]
-        with open(path) as document:
-            contents = document.read()
-        # Take the first YAML "document"
-        self.templates = list(yaml.safe_load_all(contents))[0]
 
 
 class DAField(DAObject):
@@ -521,170 +455,6 @@ class DAField(DAObject):
             return "    maxlength: {}".format(self.maxlength)
         else:
             return ""
-
-    def field_entry_yaml(self) -> str:
-        settable_var = self.get_settable_var()
-        content = ""
-        if self.field_type in ["code", "skip this field"]:
-            return ""
-        if self.has_label:
-            # See: https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
-            # We want to quote words like yes, no, and also symbols like :.
-            content += '  - "{}": {}\n'.format(
-                escape_double_quoted_yaml(self.label), settable_var
-            )
-        else:
-            content += "  - no label: {}\n".format(settable_var)
-        # Use all of these fields plainly. No restrictions/validation yet
-        if self.field_type in [
-            "yesno",
-            "yesnomaybe",
-            "file",
-            "yesnoradio",
-            "noyes",
-            "noyesradio",
-        ]:
-            content += "    datatype: {}\n".format(self.field_type)
-        elif self.field_type == "multiple choice radio":
-            content += "    input type: radio\n"
-            content += "    choices:\n"
-            for choice in self.choices.splitlines():
-                content += f"      - {choice}\n"
-        elif self.field_type == "multiple choice checkboxes":
-            content += "    datatype: checkboxes\n"
-            content += "    choices:\n"
-            for choice in self.choices.splitlines():
-                content += f"      - {choice}\n"
-        elif self.field_type == "multiple choice combobox":
-            content += "    datatype: combobox\n"
-            content += "    choices:\n"
-            for choice in self.choices.splitlines():
-                content += f"      - {choice}\n"
-        elif self.field_type == "multiple choice dropdown":
-            content += "    input type: dropdown\n"
-            content += "    choices:\n"
-            for choice in self.choices.splitlines():
-                content += f"      - {choice}\n"
-        elif self.field_type == "multiselect":
-            content += "    datatype: multiselect\n"
-            content += "    choices:\n"
-            for choice in self.choices.splitlines():
-                content += f"      - {choice}\n"
-        elif self.field_type == "area":
-            content += "    input type: area\n"
-            content += self._maxlength_str() + "\n"
-        elif self.field_type in [
-            "integer",
-            "currency",
-            "email",
-            "range",
-            "number",
-            "date",
-        ]:
-            content += "    datatype: {}\n".format(self.field_type)
-            if self.field_type in ["integer", "currency"]:
-                content += "    min: 0\n"
-            elif self.field_type == "email":
-                content += self._maxlength_str() + "\n"
-            elif self.field_type == "range":
-                content += "    min: {}\n".format(self.range_min)
-                content += "    max: {}\n".format(self.range_max)
-                content += "    step: {}\n".format(self.range_step)
-        else:  # a standard text field
-            content += self._maxlength_str() + "\n"
-
-        return content.rstrip("\n")
-
-    def review_viewing(self, full_display_map=generator_constants.FULL_DISPLAY):
-        settable_var = self.get_settable_var()
-        parent_var, _ = DAField._get_parent_variable(settable_var)
-
-        full_display = substitute_suffix(parent_var, full_display_map)
-
-        edit_display_name = self.label if hasattr(self, "label") else settable_var
-        content = indent_by(escape_quotes(bold(edit_display_name)) + ": ", 6)
-        if hasattr(self, "field_type"):
-            if self.field_type in ["yesno", "yesnomaybe"]:
-                content += indent_by("${ word(yesno(" + full_display + ")) }", 6)
-            elif self.field_type in ["integer", "number", "range"]:
-                content += indent_by("${ " + full_display + " }", 6)
-            elif self.field_type == "area":
-                content += indent_by("> ${ single_paragraph(" + full_display + ") }", 6)
-            elif self.field_type == "file":
-                content += "      \n"
-                content += indent_by("${ " + full_display + " }", 6)
-            elif self.field_type == "currency":
-                content += indent_by("${ currency(" + full_display + ") }", 6)
-            elif self.field_type == "date":
-                content += indent_by("${ " + full_display + " }", 6)
-            # elif field.field_type == 'email':
-            else:  # Text
-                content += indent_by("${ " + full_display + " }", 6)
-        else:
-            content += indent_by("${ " + self.final_display_var + " }", 6)
-        return content
-
-    def attachment_yaml(self, attachment_name=None):
-        # Lets use the list-style, not dictionary style fields statement
-        # To avoid duplicate key error
-        if hasattr(self, "paired_yesno") and self.paired_yesno:
-            content = ""
-            for raw_name in self.raw_field_names:
-                var_name = remove_multiple_appearance_indicator(varname(raw_name))
-                if var_name.endswith("_yes"):
-                    content += '      - "{}": ${{ {} }}\n'.format(
-                        raw_name, self.final_display_var
-                    )
-                elif var_name.endswith("_no"):
-                    content += '      - "{}": ${{ not {} }}\n'.format(
-                        raw_name, self.final_display_var
-                    )
-            return content.rstrip("\n")
-
-        # Handle multiple indicators
-        format_str = '      - "{}": '
-        if hasattr(self, "field_type") and self.field_type == "date":
-            format_str += "${{ " + self.variable.format() + " }}\n"
-        elif hasattr(self, "field_type") and self.field_type == "currency":
-            format_str += "${{ currency(" + self.variable + ") }}\n"
-        elif hasattr(self, "field_type") and self.field_type == "number":
-            format_str += r'${{ "{{:,.2f}}".format(' + self.variable + ") }}\n"
-        elif self.field_type_guess == "signature":
-            if self.final_display_var.endswith(
-                "].signature"
-            ):  # This is an ALIndividual
-                # We don't need a comment with this more explanatory method name
-                format_str += "${{ " + self.final_display_var + "_if_final(i) }}\n"
-            else:  # this is less common, but not something we should break
-                comment = "      # It's a signature: test which file version this is; leave empty unless it's the final version)\n"
-                format_str = (
-                    comment
-                    + format_str
-                    + "${{ "
-                    + self.final_display_var
-                    + " if i == 'final' else '' }}\n"
-                )
-        else:  # normal text field
-            if (
-                hasattr(self, "send_to_addendum")
-                and self.send_to_addendum
-                and attachment_name
-            ):
-                format_str += (
-                    "${{"
-                    + attachment_name
-                    + '.safe_value("'
-                    + self.final_display_var
-                    + '")}}\n'
-                )
-            else:
-                format_str += "${{ " + self.final_display_var + " }}\n"
-
-        content = ""
-        for raw_name in self.raw_field_names:
-            content += format_str.format(raw_name)
-
-        return content.rstrip("\n")
 
     def user_ask_about_field(self):
         field_questions = []
@@ -955,39 +725,6 @@ confirm: True
             all_columns=all_columns.rstrip("\n"),
             settable_list=settable_list.rstrip("\n"),
         )
-
-    def review_yaml(self):
-        """Generate the yaml entry for this object in the review screen list"""
-        if self.var_type == "list":
-            edit_attribute = self.var_name + ".revisit"
-        else:
-            edit_attribute = self.var_name
-
-        content = "  - Edit: " + edit_attribute + "\n"
-        content += "    button: |\n"
-
-        if self.var_type == "list":
-            content += (
-                indent_by(bold(self.var_name.capitalize().replace("_", " ")), 6) + "\n"
-            )
-            content += indent_by("% for item in {}:".format(self.var_name), 6)
-            content += indent_by("* ${ item }", 8)
-            content += indent_by("% endfor", 6)
-            return content.rstrip("\n")
-
-        if self.var_type == "object":
-            content += indent_by(bold(self.var_name), 6) + "\n"
-            for att, disp_set in self.attribute_map.items():
-                content += indent_by(
-                    '% if defined("{}.{}"):'.format(self.var_name, disp_set[1]), 6
-                )
-                content += indent_by(
-                    "* {}: ${{ {}.{} }}".format(att, self.var_name, disp_set[0]), 6
-                )
-                content += indent_by("% endif", 6)
-            return content.rstrip("\n")
-
-        return content + self.fields[0].review_viewing().rstrip("\n")
 
     def full_display(self):
         settable_var = self.fields[0].get_settable_var()
@@ -1297,43 +1034,11 @@ class DAFieldList(DAList):
 
 class DAQuestion(DABlock):
     """
-    Special DABlock that you can iteratively build in Assembly Line Weaver.
-
-    Defaults to using the 'question' template and adds "field_list" attribute.
+    DABlock that also contains a list of fields
     """
-
-    field_list: DAFieldList
-
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
-        self.template_key = "question"
         self.field_list = DAFieldList()
-
-    def source(
-        self,
-        template_string: str,
-        imports: list = [
-            "from docassemble.ALWeaver.interview_generator import fix_id, varname, indent_by, mako_indent"
-        ],
-    ) -> str:
-        """
-        Return a string representing a YAML "document" (block), provided a string
-        representing a Mako template. Optional: provide list of imports.
-        """
-        mako.runtime.UNDEFINED = DAEmpty()
-        template = mako.template.Template(template_string, imports=imports)
-        data = {
-            "block_id": self.id if hasattr(self, "id") else None,
-            "event": self.event if hasattr(self, "event") else None,
-            "continue_button_field": varname(self.question_text)
-            if self.needs_continue_button_field
-            else None,
-            "question_text": self.question_text,
-            "subquestion_text": self.subquestion_text,
-            "field_list": self.field_list,
-        }
-        return template.render(**data)
-
 
 def fix_id(string: str) -> str:
     if string and isinstance(string, str):
@@ -1357,23 +1062,6 @@ def indent_by(text: str, num: int) -> str:
     if not text:
         return ""
     return (" " * num) + re.sub(r"\r*\n", "\n" + (" " * num), text).rstrip() + "\n"
-
-
-def mako_indent(text: str, num: int) -> str:
-    """
-    Like indent_by but removes extra newline
-    """
-    if not text:
-        return ""
-    return (" " * num) + re.sub(r"\r*\n", "\n" + (" " * num), text).rstrip()
-
-
-def mako_local_import_str(package_name: str, key: str, imports: List[str]) -> str:
-    """
-    Create an import string for mako template from the output_patterns.yml file, like
-    `from docassemble.playground1.interview_generator import mako_indent, varname`
-    """
-    return "from " + package_name + "." + key + " import " + ",".join(imports)
 
 
 def varname(var_name: str) -> str:
