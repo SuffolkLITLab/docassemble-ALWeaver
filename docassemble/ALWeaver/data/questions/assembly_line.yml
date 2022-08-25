@@ -622,6 +622,25 @@ fields:
     required: False
     code: |
       get_possible_deps_as_choices('organization')
+  - note: |
+      ---
+  - Interview YAML template: interview.output_mako_choice
+    input type: radio
+    code: |
+      get_output_mako_choices().keys()
+    default: |
+      Default configuration:standard AssemblyLine
+    help: |
+      The generated interview YAML file is controlled by
+      a template.
+
+      This setting allows you to change the template that is
+      used to create the generated interview. Some organizations
+      may want to generate the YAML with blocks in a different
+      order or with other changes that aren't possible through settings
+      in the Weaver.
+
+      Most authors do not need to customize this value.
 check in: update_state_list      
 help:
   label: What is this?
@@ -1499,8 +1518,8 @@ attachment:
   filename: interview.yml # Docassemble appends .mako to the filename, so we copy this into the interview_download variable later
   raw: True
   content file:
-    - output_defs.mako
-    - output.mako
+    code: |
+      ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)

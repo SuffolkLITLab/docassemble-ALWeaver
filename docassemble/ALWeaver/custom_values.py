@@ -26,6 +26,8 @@ __all__ = [
     "_package_name",
     "get_full_dep_details",
     "get_matching_deps",
+    "get_output_mako_choices",
+    "get_output_mako_package_and_path",
 ]
 
 
@@ -232,6 +234,40 @@ def get_matching_deps(dep_category: str = None, state: str = None) -> DADict:
         )
 
     return get_matching_deps(dep_category=dep_category, state="ANY")
+
+
+def get_output_mako_choices() -> Dict[str, str]:
+    """
+    Get a dictionary with all available templates for generating
+    the interview YAML file. It will be one deep.
+    """
+    choices = {}
+    for key, capability in _al_weaver_capabilities.items():
+        if capability.get("output_mako"):
+            if isinstance(capability["output_mako"], str):
+                choices[key] = capability["output_mako"]
+            elif isinstance(capability["output_mako"], dict):
+                # Flatten the dictionary for easier selection
+                for sub in capability["output_mako"]:
+                    choices[f"{key}:{sub}"] = capability["output_mako"][sub]
+    return choices
+
+
+def get_output_mako_package_and_path(key:str) -> str:
+    """
+    Convert a key like Default configuration:standard AssemblyLine or
+    docassemble.ILAO:ILAO_output.mako into the canonical path
+    for the specified output.mako file on the server, based on the
+    published server capabilities.
+    """
+    choice = get_output_mako_choices().get(key)
+    if not choice:
+        return "output.mako" # if lookup fails use the stock template
+
+    if key.startswith("Default configuration:"):
+        return choice # Use the current package
+    
+    return f"{key.split(':')[0]}:data/templates/{choice}"
 
 
 def advertise_capabilities(

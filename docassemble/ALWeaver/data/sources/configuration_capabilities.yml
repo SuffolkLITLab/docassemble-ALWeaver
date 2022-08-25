@@ -28,9 +28,13 @@ organization_choices:
     state: LA
     country: US
     default: False
+
 # The paths below will be prefixed with the name of this package: 
-# in the data/templates folder for templates and output_pattern
+# in the data/templates folder for templates and output.mako
 # and data/sources folder for variable_names
+# output_mako can be either a dictionary or a string
+output_mako: 
+  standard AssemblyLine: output.mako
 # Below are not yet implemented
 # next steps template files:
 #   starts_case: next_steps_starts_case.docx
@@ -39,5 +43,4 @@ organization_choices:
 #   other_form: next_steps_other_form.docx
 #   letter: next_steps_letter.docx
 #   other: next_steps_other.docx
-# output_pattern: output_pattern.md
 # variable_names: variable_names.yml
