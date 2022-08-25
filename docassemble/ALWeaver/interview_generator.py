@@ -1031,6 +1031,12 @@ class DAFieldList(DAList):
             if hasattr(item, "field_type") and item.field_type == "code"
         ]
 
+    def has_addendum_fields(self) -> bool:
+        return any(field for field in self if hasattr(field, 'send_to_addendum') and field.send_to_addendum)
+
+    def addendum_fields(self):
+        return [field for field in self if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
+
 
 class DAQuestion(DABlock):
     """

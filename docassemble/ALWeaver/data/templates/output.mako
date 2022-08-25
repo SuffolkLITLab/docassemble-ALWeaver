@@ -352,10 +352,10 @@ ${ attachment_yaml(field, attachment_name=v.attachment_varname) }\
     docx template file: ${ v.input_filename }
   % endif	    
   % endfor
-% if len([field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]):
+% if all_fields.has_addendum_fields():
 ---
 code: |
-  % for field in [field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]:
+  % for field in all_fields.addendum_fields():
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].label = "${ field.label }"
   % endfor

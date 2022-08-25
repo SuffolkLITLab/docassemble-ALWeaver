@@ -1638,8 +1638,9 @@ need: # trigger these up front for idempotency
   - interview_intro_prompt
   - interview.court_related
 code: |
+  # TODO(qs): this can be cleaned up further
   #-----------------------------------------------------------------
-  # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
+  # Prepare data for output.mako, each attachment file must provide those 6 attributes.
   #-----------------------------------------------------------------
 
   labels_lists.clear()
@@ -1663,7 +1664,7 @@ code: |
     file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
     file1.description = interview.title
     file1.fields = all_fields
-    file1.has_addendum = any(field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum)
+    file1.has_addendum = all_fields.has_addendum_fields()
   else:
     for document in template_upload:
       temp_file = labels_lists.appendObject()    
@@ -1673,7 +1674,7 @@ code: |
       temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
       temp_file.description = base_name(document.filename).capitalize().replace("_", " ")
       temp_file.fields = all_fields.matching_pdf_fields_from_file(document)
-      temp_file.has_addendum = any(field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum)
+      temp_file.has_addendum = all_fields.has_addendum_fields()
 
   # TODO: it would be possible to merge the "bundles" list with the
   # attachments/labels_list.
