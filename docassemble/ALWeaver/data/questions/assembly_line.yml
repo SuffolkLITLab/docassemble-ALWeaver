@@ -8,7 +8,6 @@ metadata:
 ---
 imports:
   - formfyxer
-  - .generator_constants
 ---
 mandatory: True
 code: |

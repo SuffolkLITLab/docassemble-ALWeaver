@@ -38,7 +38,6 @@ from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
-from more_itertools import unique_everseen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -80,9 +79,6 @@ __all__ = [
     "get_docx_validation_errors",
     "get_variable_name_warnings",
     "get_pdf_variable_name_matches",
-    "unique_everseen",  # Needed for output.mako
-    "generator_constants",  # needed for output_defs.mako
-    "substitute_suffix",  # needed for output_defs.mako
 ]
 
 always_defined = set(
