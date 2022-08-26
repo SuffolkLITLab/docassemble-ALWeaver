@@ -3,6 +3,9 @@
     Reusable macros (mako defs) for generating Docassemble YAML files.
 
 </%doc>\
+<%
+    from more_itertools import unique_everseen
+%>\
 <%def name="field_entry_yaml(field)">\
   - "${ escape_double_quoted_yaml(field.label) if field.has_label else "no label" }": ${ field.get_settable_var() }
   % if hasattr(field, "field_type"):

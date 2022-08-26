@@ -8,7 +8,6 @@ metadata:
 ---
 imports:
   - formfyxer
-  - .generator_constants
 ---
 mandatory: True
 code: |
@@ -131,7 +130,6 @@ code: |
         validate_docx
       else: # mixed PDF and DOCX templates
         validate_mixed_documents
-        
  
   if have_template_to_load:  
     all_fields.gathered
@@ -158,39 +156,16 @@ code: |
     show_screen_order
     screen_tbl_done
 
-  # Generate draft interview yaml file  
-  add_includes
-  add_metadata
-  add_main_interview_key
-  add_default_country_and_state
-  add_github_repo_name
-  add_short_title
+  # Generate draft interview yaml file
+  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako
+
+  process_interview_order
+  
   if generate_download_screen: 
-    add_form_type  
-  add_objects_block
-  add_sections  
-  add_interview_order
-  add_intro_screen
-  add_question_screens
-  if generate_download_screen:  
-    add_preview_screen
-    add_signature_trigger
-  add_fields_set_by_code
-  if interview.court_related:
-    add_addresses_to_search
-  add_review_screen  
-  # Insert comment block      
-  add_end_question
-  if generate_download_screen: 
-    add_attachment
-    if len(addendum_fields):
-      add_addendum_fields
-  else:
-    add_save_data_block 
+    process_attachments
 
   # Assemble output package
   wrote_interview    
-  interview_source = interview.source()
 
   # Display output download screen
   show_interview
@@ -647,6 +622,25 @@ fields:
     required: False
     code: |
       get_possible_deps_as_choices('organization')
+  - note: |
+      ---
+  - Interview YAML template: interview.output_mako_choice
+    input type: radio
+    code: |
+      get_output_mako_choices().keys()
+    default: |
+      Default configuration:standard AssemblyLine
+    help: |
+      The generated interview YAML file is controlled by
+      a template.
+
+      This setting allows you to change the template that is
+      used to create the generated interview. Some organizations
+      may want to generate the YAML with blocks in a different
+      order or with other changes that aren't possible through settings
+      in the Weaver.
+
+      Most authors do not need to customize this value.
 check in: update_state_list      
 help:
   label: What is this?
@@ -933,61 +927,7 @@ code: |
     built_in_people_vars_used = all_fields.get_person_candidates(custom_only=False) - all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
----
-code: |
-  # Build the list of includes
-  include_data = {
-    "includes": ['docassemble.AssemblyLine:assembly_line.yml'] + \
-        get_yml_deps_from_choices(
-            interview.jurisdiction_choices.true_values() +
-            interview.org_choices.true_values())
-  }
-  include_question = interview.blocks.appendObject()
-  include_question.template_key = 'include'
-  include_question.data = include_data
-  del include_data
-  add_includes = True
----
-code: |
-  if defined('interview_intro_prompt'):    
-    short_title_block = interview.blocks.appendObject()
-    short_title_block.template_key = 'code'
-    short_title_block.data = {
-      "lines": ['interview_short_title = "' + escape_quotes(interview_intro_prompt) + '"']
-      }
-  add_short_title = True
----
-code: |
-  form_type_block = interview.blocks.appendObject()
-  form_type_block.template_key = 'code'
-  form_type_block.data = {
-      "lines": [f"""al_form_type = "{ interview.form_type }" """]
-    }
-  add_form_type = True
----
-need: interview_label
-code: |
-  # Build list of section headings
-  # Our current interview only uses one
-  sections = interview.blocks.appendObject()
-  sections.template_key = "sections"
-  sections.data = {
-    "sections": [("review_" + interview_label, "Review your answers")]  
-  }
-  add_sections = True
----
-code: |
-  # Create an introduction question
-  intro_question = interview.blocks.appendObject()
-  intro_question.template_key = 'interstitial'
-  # TODO: separate the "description" and title from the text of an intro screen
-  intro_question.data = {
-    "comment": "This question is used to introduce your interview. Please customize",
-    "continue_button_field": interview_label + '_intro',
-    "question_text": interview.title,
-    "subquestion_text": interview.getting_started, # this is the metadata description
-  }
-  add_intro_screen = True
+
 ---
 need:
   - interview.categories
@@ -997,77 +937,16 @@ need:
   - interview.description
   - interview.typical_role
 code: |
+  # TODO(qs): move this into output.mako
   # HACK(brycew): could be a better place to put it, but can't find one :/
   if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
     # 'Other' had to marked true, but is itself useless
     interview.allowed_courts['Other'] = False
     for allowed_court in interview.allowed_courts_text.split(','):
       interview.allowed_courts[allowed_court.strip()] = True
-      
-  # Build the dictionary of info we want the interview
-  # to know about itself.
-  metadata = interview.blocks.appendObject()
-  metadata.template_key = "metadata"
-  metadata.data = {
-    "categories": interview.categories,
-    "settings": {
-      'title': interview.title,
-      'short title': interview.short_title
-    },
-    "authors": str(interview.author).splitlines()
-  }
-
-  metadata_code = interview.blocks.appendObject()
-  metadata_code.template_key = "al metadata"
-  metadata_code.data = {
-    "al_weaver_version": package_version_number,
-    "interview_label": interview_label,
-    "title": interview.title,
-    "short_title": interview.short_title,
-    "description": interview.description,
-    "original_form": interview.original_form,
-    "court_related": interview.court_related,
-    "allowed_courts": interview.allowed_courts,
-    "categories": interview.categories,
-    "other_categories": interview.other_categories if defined('interview.other_categories') else '',
-    "typical_role": interview.typical_role,
-    "generate_download_screen": generate_download_screen,
-  }
 
   add_metadata = True
----
-need:
-  - interview.default_country_code
-code: |
-  interview_default_country_and_state_block = interview.blocks.appendObject()
-  interview_default_country_and_state_block.template_key = 'default country and state'
-  interview_default_country_and_state_block.data = {
-    "interview": interview
-    }
 
-  add_default_country_and_state = True
----
-code: |
-  interview_main_metadata_key_block = interview.blocks.appendObject()
-  interview_main_metadata_key_block.template_key = 'code'
-  interview_main_metadata_key_block.data = {
-    "lines": [
-        f"interview_metadata['main_interview_key'] =  '{interview_label}'"
-      ]
-    }  
-  add_main_interview_key = True
----
-need:
-  - package_title
-code: |
-  github_repo_name_block = interview.blocks.appendObject()
-  github_repo_name_block.template_key = 'code'
-  github_repo_name_block.data = {
-    "lines": [
-        f"github_repo_name =  'docassemble-{package_title}'"
-      ]
-    }  
-  add_github_repo_name = True
 ---
 code: |
   # Create code for the question that we use to label
@@ -1267,28 +1146,14 @@ code: |
   all_fields[i].raw_field_names = [all_fields[i].variable]
   all_fields[i].source_document_type = "docx" # don't process the variable name
 ---
-code: |
-  # Use screen_reordered to reflect the user adjusted table order  
-  for question in screen_reordered:    
-    if question not in all_fields.builtins() and question not in all_fields.signatures():
-		  question.type = "question"
-		  interview.blocks.append(question)
-  add_question_screens = True
----
-code: |
-  for field in all_fields.custom():
-    if field.field_type == "code":
-      code_block = interview.blocks.appendObject()
-      code_block.template_key = "code"
-      code_block.data = {
-        "lines": [
-          f"{field.final_display_var} = {field.code}"
-        ]}
-    elif field.field_type == "skip this field":
-      code_block = interview.blocks.appendObject()
-      code_block.template_key = "code"
-      code_block.data = {"lines": [f"{field.final_display_var} = DAEmpty()"]}
-  add_fields_set_by_code = True
+#code: |
+#  # TODO(qs): do we need to account for this in output.mako?
+#  # Use screen_reordered to reflect the user adjusted table order  
+#  for question in screen_reordered:    
+#    if question not in all_fields.builtins() and question not in all_fields.signatures():
+#		  question.type = "question"
+#		  interview.blocks.append(question)
+#  add_question_screens = True
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
@@ -1322,8 +1187,6 @@ code: |
   # Create objects block that specifies the number of people for
   # the developer. Switches between target_number and there_are_any list gathering
   # approaches
-  objects_block =  interview.blocks.appendObject()
-  objects_block.template_key = "objects"
   objects = DAList("objects", object_type=DAObject, auto_gather=False)
   for person in person_candidates:
     new_object = objects.appendObject()
@@ -1341,12 +1204,6 @@ code: |
           "there_are_any": True,
           }            
   objects.gathered=True
-  
-  objects_block.data = {
-    "objects": objects
-  } 
-
-  add_objects_block = True
 ---
 continue button field: using_string_debug
 question: |
@@ -1564,72 +1421,9 @@ code: |
   for field in all_fields.builtins():
     if field.trigger_gather().endswith('.signature'):
       built_in_signatures.add(field.trigger_gather())
-  # TODO for field in all_fields.signatures():    
   
-  # 2. Build interview-specific question order
-  code_block =  interview.blocks.appendObject() # 'interview order code block'
-  code_block.template_key = 'interview order'
-  code_block.data = {
-    "logic_list": logic_list,
-    "interview_label":interview_label
-  }  
+  process_interview_order = True
 
-  # 3. Build the mandatory code block that will control overall flow
-  main_code = interview.blocks.appendObject() # 'main code block'
-  main_code.template_key = 'main order'
-  if generate_download_screen: 
-    main_code.data = {
-      "signatures": built_in_signatures,
-      "interview_label": interview_label,
-      "generate_download": True
-    } 
-  else:
-    main_code.data = {
-      "interview_label": interview_label,
-      "generate_download": False
-    } 
-
-  add_interview_order = True  
----
-code: |
-  signature_fields_block = interview.blocks.appendObject()
-  signature_fields_block.template_key = 'signature fields'
-  signature_fields_block.data = {
-    "signature_fields": all_fields.signatures(),
-    "built_in_signatures": built_in_signatures
-  }
-  add_signature_trigger = True
----
-need:
-  - all_fields
-  - interview_label
-code: |
-  review_block = interview.blocks.appendObject()
-  review_block.template_key = "review"  
-  parent_collections = all_fields.find_parent_collections()
-  review_block.data = {
-    "field_list": all_fields,
-    "parent_collections": parent_collections,
-    "block_id": interview_label + ' review screen',
-    "event": "review_" + interview_label
-  }
-  
-  for coll in parent_collections:
-    if coll.var_type == 'list':
-      revisit_page = interview.blocks.appendObject()
-      revisit_page.template_key = "revisit page"
-      revisit_page.data = {
-        "var_name": coll.var_name
-      }
-      revisit_table = interview.blocks.appendObject()
-      revisit_table.template_key = "revisit table"
-      revisit_table.data = {
-        "item": coll
-      }
-        
-  # TODO: create the table and revisit blocks
-
-  add_review_screen = True
 ---
 code: |
   # This interview_label field is used throughout the 
@@ -1690,8 +1484,6 @@ subquestion: |
   #### &#11093; Advanced  
   ###### Review code on the screen
   ${ display_template(yaml_source, copy=True, collapse=True, scrollable=False) } 
-
-  ${ display_template(alternative_yaml_source, copy=True, collapse=True, scrollable=False) }
   
   ###### Run interview before download
   If you want to test your interview before you leave this screen, click
@@ -1714,26 +1506,20 @@ subquestion: |
   % endif  
   </div>
 ---
-template: alternative_yaml_source
-subject: |
-  New YAML source
-content: |
-  ${ indent_by(new_interview_output.raw.content, 4) }
----
 template: yaml_source
 subject: |
-  Original YAML source
+  Preview interview YAML
 content: |
-  ${indent_by(interview.source(),4)}
+  ${ indent_by(interview_mako_output.raw.content, 4) }
 ---
 attachment:
-  variable name: new_interview_output
+  variable name: interview_mako_output
   name: YAML output
-  filename: interview.yml
+  filename: interview.yml # Docassemble appends .mako to the filename, so we copy this into the interview_download variable later
   raw: True
   content file:
-    - output_defs.mako
-    - output.mako
+    code: |
+      ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
 objects: 
   - labels_lists: DAList.using(auto_gather=False, gathered=True)
@@ -1817,7 +1603,7 @@ need:
 code: |
   # 1. Commit the generated interview YAML file
   interview_download.initialize(filename = interview_label + '.yml')  
-  interview_download.write(interview.source())
+  interview_download.write(interview_mako_output.raw.content)
   interview_download.commit()
   
   # 2. Build data for folders_and_files and package_info   
@@ -1863,52 +1649,16 @@ code: |
         interview_package_download)
   
   wrote_interview = True
----
-need:
-  - interview_label
-  - attachment_variable_name
-code: |
-  preview_question = interview.blocks.appendObject()
-  preview_question.template_key = 'preview screen'
-  preview_question.data = {
-    "interview_label": interview_label,
-  }
-  if interview.court_related:
-    preview_question.data['bundle_name'] = 'al_court_bundle'
-  else:
-    preview_question.data['bundle_name'] = 'al_recipient_bundle'
-  add_preview_screen = True
----
-code: |
-  addresses_to_search_screen = interview.blocks.appendObject()
-  addresses_to_search_screen.template_key = "addresses to search"
-  addresses_to_search_screen.data = {}
-  add_addresses_to_search = True
----
-need:
-  - interview_label
-code: |
-  end_question = interview.blocks.appendObject()
-  if generate_download_screen:
-    end_question.template_key = 'download screen'
-    end_question.data = {
-        "interview_label": interview_label, 
-        "document_type": "pdf" if any(map(lambda templ: templ.mimetype == "application/pdf", template_upload)) else "docx"
-    }
-  else:   
-    end_question.template_key = 'thank-you screen'
-    end_question.data = {
-        "interview_label": interview_label,       
-    }
-  add_end_question = True
+
 ---  
 need: # trigger these up front for idempotency
   - interview.title
   - interview_intro_prompt
   - interview.court_related
 code: |
+  # TODO(qs): this can be cleaned up further
   #-----------------------------------------------------------------
-  # Prepare data for output_patterns.yml, each attachment file must provide those 6 attributes.
+  # Prepare data for output.mako, each attachment file must provide those 6 attributes.
   #-----------------------------------------------------------------
 
   labels_lists.clear()
@@ -1932,7 +1682,7 @@ code: |
     file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
     file1.description = interview.title
     file1.fields = all_fields
-    file1.has_addendum = bool(len(addendum_fields))
+    file1.has_addendum = all_fields.has_addendum_fields()
   else:
     for document in template_upload:
       temp_file = labels_lists.appendObject()    
@@ -1942,7 +1692,7 @@ code: |
       temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
       temp_file.description = base_name(document.filename).capitalize().replace("_", " ")
       temp_file.fields = all_fields.matching_pdf_fields_from_file(document)
-      temp_file.has_addendum = bool(len(addendum_fields))
+      temp_file.has_addendum = all_fields.has_addendum_fields()
 
   # TODO: it would be possible to merge the "bundles" list with the
   # attachments/labels_list.
@@ -1961,49 +1711,13 @@ code: |
   court_bundle.elements = labels_lists[1:] 
   bundles.gathered = True
   
-  
-  # Bundl-name is a single value
+  # Bundle-name is a single value
   if len(labels_lists) > 1:
     bundle_name =  sanitized_filename + '_package.pdf'
   else:
     bundle_name = sanitized_filename + '.pdf'
-    
-  #-----------------------------------------------------------------
-  # Use the above data to generate blocks related to attachment files.
-  #-----------------------------------------------------------------
-  # ALDocument objects. 
-  attachment_objects  = interview.blocks.appendObject()
-  attachment_objects.template_key = "al-document objects"
-  attachment_objects.data = {
-    "attachment_attributes": labels_lists,    
-  }
-  # ALDocumentBundle objects.  
-  attachment_bundles = interview.blocks.appendObject()
-  attachment_bundles.template_key = "al-document-bundle objects"
-  attachment_bundles.data = {
-    "bundles": bundles,
-    "bundle_filename": bundle_name,        
-  }
-  # Regular DA attachments block.   
-  attachment_block = interview.blocks.appendObject()
-  attachment_block.template_key = 'da attachments block'
-  attachment_block.data = {
-    "attachment_attributes": labels_lists,    
-  }
   
-  add_attachment = True
----
-code: |
-  addendum_fields = [field for field in all_fields if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
----
-code: |
-  addendum_block = interview.blocks.appendObject()
-  addendum_block.template_key = "addendum fields"
-  addendum_block.data = {
-    "attachment_varname": attachment_variable_name,
-    "addendum_fields": addendum_fields
-  }
-  add_addendum_fields = True
+  process_attachments = True
 ---
 #######################################
 # Code to support github feedback form
@@ -2211,17 +1925,6 @@ code: |
   interview_label_draft = interview.short_title
   
   no_template_default_values = True
----
-comment: |
-  This is for interviews that don't need a download screen
-code: |  
-  interview_save_data_block = interview.blocks.appendObject()
-  interview_save_data_block.template_key = 'save data'
-  interview_save_data_block.data = {
-    "fields": all_fields, 
-    "interview_label": interview_label
-  }
-  add_save_data_block = True
 ---
 code: |
   if 'without_template' in interview_type:

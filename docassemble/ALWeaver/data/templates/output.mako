@@ -240,10 +240,10 @@ event: review_${ interview_label }
 question: |
   Review your answers
 review:
-  % for coll in parent_collections:
+  % for coll in all_fields.find_parent_collections():
 ${ review_yaml(coll) | trim }\
   % endfor
-% for coll in parent_collections:
+% for coll in all_fields.find_parent_collections():
   % if coll.var_type == 'list':
 ---
 continue button field: ${ coll.var_name }.revisit
@@ -339,7 +339,7 @@ attachments:
     variable name: ${ v.attachment_varname }[i]        
   % if v.type == 'md':
     content: |
-  ${ mako_indent(content, 6) }
+  ${ indent(content, 6) }
   % elif v.type == 'pdf':
     skip undefined: True
     pdf template file: ${ v.input_filename }
@@ -352,10 +352,10 @@ ${ attachment_yaml(field, attachment_name=v.attachment_varname) }\
     docx template file: ${ v.input_filename }
   % endif	    
   % endfor
-% if len(addendum_fields):
+% if all_fields.has_addendum_fields():
 ---
 code: |
-  % for field in addendum_fields:
+  % for field in all_fields.addendum_fields():
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].label = "${ field.label }"
   % endfor
