@@ -123,7 +123,7 @@ confirm: True\
 % if hasattr(field, "paired_yesno") and field.paired_yesno:
       % for raw_name in field.raw_field_names:
         % if remove_multiple_appearance_indicator(varname(raw_name)).endswith("_yes"):
-      - "${ raw_name }": <%text>${</%text>${ field.final_display_var } }
+      - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } }
         % else:
       - "${ raw_name }": <%text>${</%text> not ${ field.final_display_var } }
         % endif # ends with yes
