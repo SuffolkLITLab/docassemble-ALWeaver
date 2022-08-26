@@ -253,7 +253,7 @@ def get_output_mako_choices() -> Dict[str, str]:
     return choices
 
 
-def get_output_mako_package_and_path(key:str) -> str:
+def get_output_mako_package_and_path(key: str) -> str:
     """
     Convert a key like Default configuration:standard AssemblyLine or
     docassemble.ILAO:ILAO_output.mako into the canonical path
@@ -262,11 +262,11 @@ def get_output_mako_package_and_path(key:str) -> str:
     """
     choice = get_output_mako_choices().get(key)
     if not choice:
-        return "output.mako" # if lookup fails use the stock template
+        return "output.mako"  # if lookup fails use the stock template
 
     if key.startswith("Default configuration:"):
-        return choice # Use the current package
-    
+        return choice  # Use the current package
+
     return f"{key.split(':')[0]}:data/templates/{choice}"
 
 
