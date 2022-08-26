@@ -1028,19 +1028,29 @@ class DAFieldList(DAList):
         ]
 
     def has_addendum_fields(self) -> bool:
-        return any(field for field in self if hasattr(field, 'send_to_addendum') and field.send_to_addendum)
+        return any(
+            field
+            for field in self
+            if hasattr(field, "send_to_addendum") and field.send_to_addendum
+        )
 
     def addendum_fields(self):
-        return [field for field in self if hasattr(field, 'send_to_addendum') and field.send_to_addendum]
+        return [
+            field
+            for field in self
+            if hasattr(field, "send_to_addendum") and field.send_to_addendum
+        ]
 
 
 class DAQuestion(DABlock):
     """
     DABlock that also contains a list of fields
     """
+
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.field_list = DAFieldList()
+
 
 def fix_id(string: str) -> str:
     if string and isinstance(string, str):
