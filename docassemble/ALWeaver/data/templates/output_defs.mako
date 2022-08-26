@@ -67,7 +67,7 @@
   
       % for att, disp_set in collection.attribute_map.items():
       <%text>%</%text> if defined("${ collection.var_name }.${ disp_set[1] }"):
-      * ${ att }: <%text>${</%text>${ collection.var_name }.${ disp_set[0] } <%text>}</%text>
+      * ${ att }: <%text>${</%text> ${ collection.var_name }.${ disp_set[0] } <%text>}</%text>
       <%text>%</%text> endif
       % endfor
       % else:
