@@ -74,7 +74,7 @@
       % if hasattr(collection.fields[0], "label"):
       **${ collection.fields[0].label }**:
       % else:
-      **${ collection.fields[0].get_settable_var() }**
+      **${ collection.fields[0].get_settable_var() }**:
       % endif # has a label
       % if hasattr(collection.fields[0], "field_type"):
       % if collection.fields[0].field_type in ["yesno", "yesnomaybe"]:
