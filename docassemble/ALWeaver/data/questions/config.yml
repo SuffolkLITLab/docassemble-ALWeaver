@@ -14,6 +14,12 @@ metadata:
   required privileges:
     - admin
 ---
+id: interview order
+mandatory: True
+code: |
+  load_values
+  intro    
+---
 objects:
   - weaverdata: DAStore.using(base="docassemble.ALWeaver")
 ---
@@ -27,20 +33,6 @@ code: |
     jurisdiction_choices = weaverdata.get("jurisdiction_choices")
       
   load_values = True
----
-code: |
-  #published_configuration_capabilities["my_fake_key"] = ("some_yaml", "1.5")
-  
-  #weaverdata.set("published_configuration_capabilities", published_configuration_capabilities)
-  
-  add_fake_key = True
----
-id: interview order
-mandatory: True
-code: |
-  load_values
-  add_fake_key
-  intro
 ---
 imports:
   - os
