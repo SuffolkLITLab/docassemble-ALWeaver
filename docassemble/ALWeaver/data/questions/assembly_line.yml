@@ -71,7 +71,7 @@ code: |
     screen_tbl_done
 
   # Generate draft interview yaml file
-  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako
+  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
 
   process_interview_order
   
@@ -562,7 +562,7 @@ subquestion: |
   You will need to define pairs of question/input variable as follows:
   
     1. Click "Add an item".
-    1. Type a name for an input variable using 'lower_case' name convension.
+    1. Type a name for an input variable using the 'snake_case' name convention.
     1. Type a label for this input field.
     1. Pick a field type from the dropdown list.
   
@@ -700,7 +700,7 @@ question: |
 subquestion: |  
   Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
   
-  % if len(field_question) > 0:
+  % if len(all_fields.ask_about_fields()) > 0:
   1. Look at each field below. It represents a blank space on your template.
   1. If the field is handled as a "basic question", it will not be shown
   below. Instead, we will use a pre-written label for it.
@@ -716,7 +716,7 @@ subquestion: |
   % endif
     
 fields:
-  - code: field_question
+  - code: all_fields.ask_about_fields()
   - note: |
       **Built-in questions this form triggers**[BR]
       % if len(all_fields.builtins()) > 0:
@@ -810,21 +810,6 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
 
   add_metadata = True
-
----
-code: |
-  # Create code for the question that we use to label
-  # each field.
-  from itertools import chain
-
-  field_question_tmp = [ 
-    field.user_ask_about_field()
-    for field in all_fields.custom()
-  ]
-  field_question = [item for item in chain.from_iterable(field_question_tmp)]
-
-  del field_question_tmp
-  del chain
 ---
 code: |
   questions[i].question_text
