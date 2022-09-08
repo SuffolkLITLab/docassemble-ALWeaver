@@ -38,6 +38,7 @@ from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
+import itertools
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -871,6 +872,21 @@ class DAFieldList(DAList):
 
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
+
+    def ask_about_fields(self) -> List[dict]:
+        """
+        Return a list of Docassemble fields that ask the user to verify type and
+        label each "custom" field in the field list
+        """
+        return [
+            item for item in itertools.chain.from_iterable(
+                [ 
+                    field.user_ask_about_field()
+                    for field in self.custom()
+                ]
+            )
+        ]
+
 
     def matching_pdf_fields_from_file(self, document: DAFile) -> List[str]:
         """
