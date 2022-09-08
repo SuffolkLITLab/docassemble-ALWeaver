@@ -39,6 +39,8 @@ from zipfile import BadZipFile
 import ast
 from enum import Enum
 import itertools
+import more_itertools
+
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -165,146 +167,19 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
     max_chars = num_rows * num_cols
     return max_chars
 
+def varname(var_name: str) -> str:
+    if var_name:
+        var_name = var_name.strip()
+        var_name = spaces.sub(r"_", var_name)
+        var_name = invalid_var_characters.sub(r"", var_name)
+        var_name = digit_start.sub(r"", var_name)
+        return var_name
+    return var_name
 
 class DAFieldGroup(Enum):
     BUILT_IN = "built in"
     SIGNATURE = "signature"
     CUSTOM = "custom"
-
-
-class DABlock(DAObject):
-    """
-    A Block in a Docassemble interview YAML file.
-    """
-
-    pass
-
-
-class DABlockList(DAList):
-    """
-    This represents a list of DABlocks representing seperate YAML "documents"
-    (blocks) in a Docassemble interview file
-    """
-
-    def init(self, *pargs, **kwargs):
-        super().init(*pargs, **kwargs)
-        self.object_type = DABlock
-
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
-        """This method is used to help us iteratively build a list of fields
-        that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to
-        the wizard user on multiple screens. It prevents the formatter of the
-        wizard from putting the same fields on two different screens."""
-        fields = set()
-        for question in self.elements:
-            if hasattr(question, "field_list"):
-                for field in question.field_list.elements:
-                    if field.group == group:
-                        fields.add(field)
-        if all_fields:
-            fields.update(
-                [
-                    field
-                    for field in all_fields
-                    if field.field_type in ["code", "skip this field"]
-                    and field.group == group
-                ]
-            )
-        return fields
-
-
-class DAQuestionList(DAList):
-    """This represents a list of DAQuestions."""
-
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DAQuestion
-        # self.auto_gather = False
-        # self.gathered = True
-        # self.is_mandatory = False
-
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
-        """This method is used to help us iteratively build a list of fields that have already been assigned to a
-        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
-        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
-        parameter "all_fields" is provided.
-        """
-        fields = set()
-        for question in self.elements:
-            if hasattr(question, "field_list"):
-                for field in question.field_list.elements:
-                    if field.group == group:
-                        fields.add(field)
-        if all_fields:
-            fields.update(
-                [
-                    field
-                    for field in all_fields
-                    if field.field_type in ["code", "skip this field"]
-                    and field.group == group
-                ]
-            )
-        return fields
-
-
-TemplateDict = TypedDict(
-    "TemplateDict",
-    {
-        "mako template imports": List[str],
-        "mako template local imports": Dict[str, List[str]],
-    },
-    total=False,
-)
-
-
-class DAInterview(DAObject):
-    """
-    This class is a container for the various questions and metadata
-    associated with an interview.
-    """
-
-    templates: TemplateDict
-    template_path: str  # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
-    blocks: DABlockList
-    questions: DAQuestionList  # is this used?
-
-    def init(self, *pargs, **kwargs):
-        super().init(*pargs, **kwargs)
-        self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
-        self.questions = DAQuestionList(
-            auto_gather=False, gathered=True, is_mandatory=False
-        )
-
-    def package_info(self, dependencies: List[str] = None) -> Dict[str, Any]:
-        assembly_line_dep = "docassemble.AssemblyLine"
-        if dependencies is None:
-            dependencies = [
-                assembly_line_dep,
-                "docassemble.ALMassachusetts",
-                "docassemble.MassAccess",
-            ]
-        elif assembly_line_dep not in dependencies:
-            dependencies.append(assembly_line_dep)
-
-        info: Dict[str, Union[str, List[str]]] = {}
-        for field in [
-            "interview_files",
-            "template_files",
-            "module_files",
-            "static_files",
-        ]:
-            if field not in info:
-                info[field] = list()
-        info["dependencies"] = dependencies
-        info["author_name"] = ""
-        info["readme"] = ""
-        info["description"] = self.title
-        info["version"] = "1.0"
-        info["license"] = "The MIT License"
-        info["url"] = "https://courtformsonline.org"
-        return info
-
 
 class DAField(DAObject):
     """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
@@ -1057,6 +932,46 @@ class DAFieldList(DAList):
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         ]
 
+class DABlock(DAObject):
+    """
+    A Block in a Docassemble interview YAML file.
+    """
+
+    pass
+
+
+class DABlockList(DAList):
+    """
+    This represents a list of DABlocks representing seperate YAML "documents"
+    (blocks) in a Docassemble interview file
+    """
+
+    def init(self, *pargs, **kwargs):
+        super().init(*pargs, **kwargs)
+        self.object_type = DABlock
+
+    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
+        """This method is used to help us iteratively build a list of fields
+        that have already been assigned to a screen/question
+        in our wizarding process. It makes sure the fields aren't displayed to
+        the wizard user on multiple screens. It prevents the formatter of the
+        wizard from putting the same fields on two different screens."""
+        fields = set()
+        for question in self.elements:
+            if hasattr(question, "field_list"):
+                for field in question.field_list.elements:
+                    if field.group == group:
+                        fields.add(field)
+        if all_fields:
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                    and field.group == group
+                ]
+            )
+        return fields
 
 class DAQuestion(DABlock):
     """
@@ -1066,6 +981,147 @@ class DAQuestion(DABlock):
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.field_list = DAFieldList()
+class DAQuestionList(DAList):
+    """This represents a list of DAQuestions."""
+
+    def init(self, **kwargs):
+        super().init(**kwargs)
+        self.object_type = DAQuestion
+        # self.auto_gather = False
+        # self.gathered = True
+        # self.is_mandatory = False
+
+    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
+        """This method is used to help us iteratively build a list of fields that have already been assigned to a
+        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
+        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
+        parameter "all_fields" is provided.
+        """
+        fields = set()
+        for question in self.elements:
+            if hasattr(question, "field_list"):
+                for field in question.field_list.elements:
+                    if field.group == group:
+                        fields.add(field)
+        if all_fields:
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                    and field.group == group
+                ]
+            )
+        return fields
+
+    def interview_order_list(self, all_fields, screens:List["DAQuestion"]=None, sections:Optional[List]=None, set_progress=True) -> List[str]:
+        """
+        Creates a list of fields for use in creating an interview order block.
+        Fairly opinionated/tied to current expectations of AssemblyLine:
+
+        1. 
+        """
+        if not screens:
+            screens = self
+
+        logic_list = []
+
+        total_num_screens = len(screens)
+        
+        # We'll have a progress step every 5 screens, 
+        # unless it's very short
+        if total_num_screens > 20:
+            screen_divisor = 5
+        else:
+            screen_divisor = 3
+        
+        total_steps = round(total_num_screens / screen_divisor) + 2 # signature screen adds two steps
+        increment = 100/total_steps
+        progress = 0
+        
+        saved_answer_name_flag = False
+        for index, question in enumerate(screens):
+            if index and index % screen_divisor == 0:
+                progress += increment
+                logic_list.append(f"set_progress({int(progress)})")
+            if isinstance(question, DAQuestion) and question.type == 'question':
+                # TODO(bryce): make OOP: don't refer to question.type
+                # Add the first field in every question to our logic tree
+                # This can be customized to control the order of questions later      
+                if question.needs_continue_button_field:
+                    logic_list.append(varname(question.question_text))
+                else:
+                    logic_list.append(question.field_list[0].trigger_gather())
+            else:
+            # it's a built-in field OR a signature, not a question block
+                if not (question in all_fields.builtins() and question.trigger_gather().endswith('.signature')):
+                    logic_list.append(question.trigger_gather())      
+                    # set the saved answer name so it includes the user's name in saved
+                    # answer list
+                    # NOTE: this is redundant now that we have a custom interview list, but leaving for now
+                    if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
+                        logic_list.append("set_parts(subtitle=str(users))")
+                        saved_answer_name_flag = True
+
+        return list(more_itertools.unique_everseen(logic_list))
+
+
+TemplateDict = TypedDict(
+    "TemplateDict",
+    {
+        "mako template imports": List[str],
+        "mako template local imports": Dict[str, List[str]],
+    },
+    total=False,
+)
+
+
+class DAInterview(DAObject):
+    """
+    This class is a container for the various questions and metadata
+    associated with an interview.
+    """
+
+    templates: TemplateDict
+    template_path: str  # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
+    blocks: DABlockList
+    questions: DAQuestionList  # is this used?
+
+    def init(self, *pargs, **kwargs):
+        super().init(*pargs, **kwargs)
+        self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
+        self.questions = DAQuestionList(
+            auto_gather=False, gathered=True, is_mandatory=False
+        )
+
+    def package_info(self, dependencies: List[str] = None) -> Dict[str, Any]:
+        assembly_line_dep = "docassemble.AssemblyLine"
+        if dependencies is None:
+            dependencies = [
+                assembly_line_dep,
+                "docassemble.ALMassachusetts",
+                "docassemble.MassAccess",
+            ]
+        elif assembly_line_dep not in dependencies:
+            dependencies.append(assembly_line_dep)
+
+        info: Dict[str, Union[str, List[str]]] = {}
+        for field in [
+            "interview_files",
+            "template_files",
+            "module_files",
+            "static_files",
+        ]:
+            if field not in info:
+                info[field] = list()
+        info["dependencies"] = dependencies
+        info["author_name"] = ""
+        info["readme"] = ""
+        info["description"] = self.title
+        info["version"] = "1.0"
+        info["license"] = "The MIT License"
+        info["url"] = "https://courtformsonline.org"
+        return info
 
 
 def fix_id(string: str) -> str:
@@ -1090,16 +1146,6 @@ def indent_by(text: str, num: int) -> str:
     if not text:
         return ""
     return (" " * num) + re.sub(r"\r*\n", "\n" + (" " * num), text).rstrip() + "\n"
-
-
-def varname(var_name: str) -> str:
-    if var_name:
-        var_name = var_name.strip()
-        var_name = spaces.sub(r"_", var_name)
-        var_name = invalid_var_characters.sub(r"", var_name)
-        var_name = digit_start.sub(r"", var_name)
-        return var_name
-    return var_name
 
 
 def oneline(text: str) -> str:

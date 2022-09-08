@@ -72,8 +72,6 @@ code: |
 
   # Generate draft interview yaml file
   add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
-
-  process_interview_order
   
   if generate_download_screen: 
     process_attachments
@@ -865,7 +863,8 @@ fields:
     exclude: questions.all_fields_used(all_fields=all_fields.custom())
     none of the above: False
     choices: all_fields.custom()
-    object labeler: labeller_bold_plus_label
+    object labeler: |
+      lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
   - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
     datatype: noyes
     hide if: questions[i].is_informational_screen
@@ -936,10 +935,6 @@ subject: |
 content: |
   ${ indent_by(interview_mako_output.raw.content, 4) }
 
----
-code: |
-  def labeller_bold_plus_label(y):
-    return bold(str(y.final_display_var)) + "[BR]" + y.label
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
@@ -1168,72 +1163,6 @@ fields:
     required: False
 ---
 ##################################### Controlling generated interview contents ################
----
-code: |
-  # 1. Build the code block that will control question flow
-  logic_list = []
-  # 1.1 Court related
-  if generate_download_screen: 
-    logic_list.append('# Set the allowed courts for this interview')
-    logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
-    
-  # 1.2 The placeholder section label just reviews all of the questions
-  logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
-  if interview.typical_role == 'unknown':
-    logic_list.append("# Below sets the user_role by asking a question.")
-    logic_list.append("# You can set user_role directly instead to either 'plaintiff' or 'defendant'")
-    logic_list.append("user_ask_role")
-  else:
-    logic_list.append("user_role = '" + interview.typical_role +"'")
-  
-  # 1.3. Figure out how many steps the interview has
-  total_num_screens = len(screen_order)
-  
-  # We'll have a progress step every 5 screens, 
-  # unless it's very short
-  if total_num_screens > 20:
-    screen_divisor = 5
-  else:
-    screen_divisor = 3
-  
-  total_steps = round(total_num_screens / screen_divisor) + 2 # signature screen adds two steps
-  increment = 100/total_steps
-  progress = 0
-  
-  saved_answer_name_flag = False
-  for index, question in enumerate(screen_reordered):
-    if index and index % screen_divisor == 0:
-      progress += increment
-      logic_list.append(f"set_progress({int(progress)})")
-    if isinstance(question, DAQuestion) and question.type == 'question':
-      # TODO(bryce): make OOP: don't refer to question.type
-      # Add the first field in every question to our logic tree
-      # This can be customized to control the order of questions later      
-      if question.needs_continue_button_field:
-        logic_list.append(varname(question.question_text))
-      else:
-        logic_list.append(question.field_list[0].trigger_gather())
-    else:
-      # it's a built-in field OR a signature, not a question block
-      if not (question in all_fields.builtins() and question.trigger_gather().endswith('.signature')):
-        logic_list.append(question.trigger_gather())      
-        # set the saved answer name so it includes the user's name in saved
-        # answer list
-        if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
-          logic_list.append("set_parts(subtitle=str(users))")
-          saved_answer_name_flag = True
-  
-  # 1.4. For survey/feedback type of interviews, add a code block to save data
-  if not generate_download_screen: 
-    logic_list.append("saved_report_data")
-    
-  built_in_signatures = set()
-  for field in all_fields.builtins():
-    if field.trigger_gather().endswith('.signature'):
-      built_in_signatures.add(field.trigger_gather())
-  
-  process_interview_order = True
-
 ---
 code: |
   # This interview_label field is used throughout the 

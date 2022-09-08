@@ -104,9 +104,24 @@ comment: |
   Controls order and branching logic for questions specific to this form
 id: interview_order_${ interview_label }
 code: |
-  % for field in list(unique_everseen(logic_list)):
+  % if generate_download_screen:
+  # Set the allowed courts for this interview
+  allowed_courts = interview_metadata["${ interview_label }"]["allowed courts"]
+  % endif
+  nav.set_section("review_${ interview_label }")
+  % if interview.typical_role == 'unknown':
+  # Below sets the user_role by asking a question.
+  # You can set user_role directly instead to either 'plaintiff' or 'defendant'
+  user_ask_role
+  % else:
+  user_role = "${ interview.typical_role }"
+  % endif
+  % for field in questions.interview_order_list(all_fields, screen_reordered):
   ${ field }
   % endfor
+  % if not generate_download_screen:
+  saved_report_data
+  % endif
   interview_order_${ interview_label } = True
 ---
 ###################### Main order ######################
@@ -128,11 +143,11 @@ code: |
           "reached_interview_end": True,
       },
   )
-  % if len(built_in_signatures) > 0:
+  % if len(all_fields.signatures()) > 0:
   ${ interview_label }_preview_question
   basic_questions_signature_flow    
-  % for signature_field in built_in_signatures:
-  ${ signature_field }
+  % for signature_field in all_fields.signatures():
+  ${ signature_field.trigger_gather() }
   % endfor
   % endif
   ${ interview_label }_download
