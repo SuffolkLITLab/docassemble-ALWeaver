@@ -1,4 +1,5 @@
 import ast
+from dataclasses import field
 import keyword
 import os
 import re
@@ -12,6 +13,7 @@ from docassemble.base.util import (
     DAObject,
     DAList,
     DAFile,
+    DAFileCollection,
     DAFileList,
     path_and_mimetype,
     user_info,
@@ -895,6 +897,13 @@ class DAFieldList(DAList):
         # Can't use .filter() because that would create new intrinsicNames
         return [item for item in self.elements if item.group == DAFieldGroup.BUILT_IN]
 
+    def built_in_signature_triggers(self):
+        return [
+            field.trigger_gather()
+            for field in self.builtins()
+            if field.trigger_gather().endswith(".signature")
+        ]
+
     def signatures(self):
         """Returns all signature fields in list"""
         return [item for item in self.elements if item.group == DAFieldGroup.SIGNATURE]
@@ -1094,13 +1103,13 @@ class DAInterview(DAObject):
             auto_gather=False, gathered=True, is_mandatory=False
         )
 
-    def package_info(self, dependencies: List[str] = None) -> Dict[str, Any]:
+    def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
-        if dependencies is None:
+        if not hasattr(self, "dependencies"):
+            self.dependencies = []
+        if not self.dependencies:
             dependencies = [
-                assembly_line_dep,
-                "docassemble.ALMassachusetts",
-                "docassemble.MassAccess",
+                assembly_line_dep
             ]
         elif assembly_line_dep not in dependencies:
             dependencies.append(assembly_line_dep)
@@ -1123,6 +1132,44 @@ class DAInterview(DAObject):
         info["url"] = "https://courtformsonline.org"
         return info
 
+    @property
+    def package_title(self):
+        return re.sub("\W|_","", self.interview_label.title())
+        
+
+    def create_package(self, interview_mako_output:DAFileCollection, templates:Union[List[DAFile], DAFileCollection], output_file:Optional[DAFile]=None) -> DAFile:
+        interview_mako_output.raw.set_attributes(filename = f"{ self.interview_label }.yml")
+
+        # 2. Build data for folders_and_files and package_info   
+        folders_and_files = {
+            "questions": [interview_mako_output],
+            "modules":[],
+            "static": [],
+            "sources": []
+        }
+
+        folders_and_files["templates"] = templates        
+            
+        package_info = self.package_info()
+
+        if self.author and str(self.author).splitlines():
+            # TODO(qs): is it worth ever adding email here?
+            # It would conflict with listing multiple authors
+            default_vals = {
+            "author name and email": str(self.author).splitlines()[0]
+            }
+            package_info['author_name'] = default_vals['author name and email']
+        else:
+            default_vals = {
+            "author name and email": "author@example.com"
+            }
+            
+        # 3. Generate the output package
+        return create_package_zip(self.package_title,
+                package_info,
+                default_vals,
+                folders_and_files, 
+                output_file)
 
 def fix_id(string: str) -> str:
     if string and isinstance(string, str):
@@ -1678,7 +1725,7 @@ def create_package_zip(
       static
       sources
 
-    Strucure of a docassemble package:
+    Structure of a docassemble package:
     + docassemble-PKGNAME/
         LICENSE
         MANIFEST.in
