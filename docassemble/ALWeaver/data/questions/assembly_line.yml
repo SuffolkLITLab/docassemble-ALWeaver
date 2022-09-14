@@ -945,15 +945,6 @@ code: |
   all_fields[i].raw_field_names = [all_fields[i].variable]
   all_fields[i].source_document_type = "docx" # don't process the variable name
 ---
-#code: |
-#  # TODO(qs): do we need to account for this in output.mako?
-#  # Use screen_reordered to reflect the user adjusted table order  
-#  for question in screen_reordered:    
-#    if question not in all_fields.builtins() and question not in all_fields.signatures():
-#		  question.type = "question"
-#		  interview.blocks.append(question)
-#  add_question_screens = True
----
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
   # We need to do special processing of the list of people used to build

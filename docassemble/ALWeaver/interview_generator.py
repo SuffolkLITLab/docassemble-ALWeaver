@@ -943,51 +943,9 @@ class DAFieldList(DAList):
         ]
 
 
-class DABlock(DAObject):
+class DAQuestion(DAObject):
     """
-    A Block in a Docassemble interview YAML file.
-    """
-
-    pass
-
-
-class DABlockList(DAList):
-    """
-    This represents a list of DABlocks representing seperate YAML "documents"
-    (blocks) in a Docassemble interview file
-    """
-
-    def init(self, *pargs, **kwargs):
-        super().init(*pargs, **kwargs)
-        self.object_type = DABlock
-
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
-        """This method is used to help us iteratively build a list of fields
-        that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to
-        the wizard user on multiple screens. It prevents the formatter of the
-        wizard from putting the same fields on two different screens."""
-        fields = set()
-        for question in self.elements:
-            if hasattr(question, "field_list"):
-                for field in question.field_list.elements:
-                    if field.group == group:
-                        fields.add(field)
-        if all_fields:
-            fields.update(
-                [
-                    field
-                    for field in all_fields
-                    if field.field_type in ["code", "skip this field"]
-                    and field.group == group
-                ]
-            )
-        return fields
-
-
-class DAQuestion(DABlock):
-    """
-    DABlock that also contains a list of fields
+    A block in a Docassemble interview YAML file that represents a question screen
     """
 
     def init(self, *pargs, **kwargs):
@@ -1001,9 +959,6 @@ class DAQuestionList(DAList):
     def init(self, **kwargs):
         super().init(**kwargs)
         self.object_type = DAQuestion
-        # self.auto_gather = False
-        # self.gathered = True
-        # self.is_mandatory = False
 
     def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
@@ -1063,7 +1018,7 @@ class DAQuestionList(DAList):
 
         saved_answer_name_flag = False
         for index, question in enumerate(screens):
-            if index and index % screen_divisor == 0:
+            if set_progress and index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
             if isinstance(question, DAQuestion) and question.type == "question":
@@ -1094,33 +1049,16 @@ class DAQuestionList(DAList):
         return list(more_itertools.unique_everseen(logic_list))
 
 
-TemplateDict = TypedDict(
-    "TemplateDict",
-    {
-        "mako template imports": List[str],
-        "mako template local imports": Dict[str, List[str]],
-    },
-    total=False,
-)
-
-
 class DAInterview(DAObject):
     """
     This class is a container for the various questions and metadata
     associated with an interview.
     """
 
-    templates: TemplateDict
-    template_path: str  # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
-    blocks: DABlockList
-    questions: DAQuestionList  # is this used?
-
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
-        self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
-        self.questions = DAQuestionList(
-            auto_gather=False, gathered=True, is_mandatory=False
-        )
+        self.initializeAttribute("questions", DAQuestionList)
+        self.initializeAttribute("all_fields", DAFieldList)
 
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
