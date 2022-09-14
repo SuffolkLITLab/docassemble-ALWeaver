@@ -152,5 +152,5 @@ Scenario: I weave the civil docketing statement
     | questions[i].subquestion_text | Screen 2 informational only | questions[1].question_text |
     | review_fields_after_labeling | True |  |
     | show_screen_order | True |  |
-    | template_upload | test_civil_docketing_statement.pdf |  |
+    | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | weaver_intro | True |  |

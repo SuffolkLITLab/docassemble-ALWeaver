@@ -293,7 +293,7 @@ subquestion: |
   ${ al_user_bundle.download_list_html() }
   </%text>
 
-  <%text>${</%text> al_user_bundle.send_button_html(show_editable_checkbox=${False if any(map(lambda templ: templ.mimetype == "application/pdf", template_upload)) else True}) <%text>}</%text>
+  <%text>${</%text> al_user_bundle.send_button_html(show_editable_checkbox=${False if any(map(lambda templ: templ.mimetype == "application/pdf", interview.uploaded_templates)) else True}) <%text>}</%text>
 
 progress: 100
 <%doc>
