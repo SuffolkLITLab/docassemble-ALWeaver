@@ -46,7 +46,7 @@ code: |
         validate_mixed_documents
  
   if have_template_to_load:  
-    all_fields.gathered
+    interview.all_fields.gathered
   # Display Weaver question screens   
   interview.jurisdiction_choices 
   if generate_download_screen:      
@@ -120,14 +120,11 @@ objects:
   - browse_library_image: DAStaticFile.using(filename="undraw_collecting_re_lp6p.svg")
   - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  - all_fields: DAFieldList.using(auto_gather=False)
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
-  - bundles: DAList.using(object_type=DAObject, auto_gather=False)
   - people_quantities: DADict.using(auto_gather=False, gathered=True)
-  - labels_lists: DAList.using(auto_gather=False, gathered=True)
   - next_steps_documents: DADict.using(object_type=DADict)
 ---
 images:
@@ -283,7 +280,7 @@ code: |
   set_custom_people_map( people_variables.true_values() )  
 
   if len(people_variables.true_values()):
-    all_fields.mark_people_as_builtins(people_variables.true_values())
+    interview.all_fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True
 ---
 code: |
@@ -569,20 +566,20 @@ subquestion: |
   Click the button below if you want to add an extra field to your
   interview. This will not add it to your template file.
 
-  ${ all_fields.add_action() }
+  ${ interview.all_fields.add_action() }
 continue button field: review_fields_after_labeling  
 ---
 template: review_fields_to_add_template
 subject: |
   Review fields
 content: |
-  ${ all_fields.review_table }
+  ${ interview.all_fields.review_table }
 ---
 code: |
-  all_fields.there_is_another = False
+  interview.all_fields.there_is_another = False
 ---
-table: all_fields.review_table
-rows: all_fields + all_fields.builtins()
+table: interview.all_fields.review_table
+rows: interview.all_fields + interview.all_fields.builtins()
 columns:
   - On-screen label: |
       row_item.label if hasattr(row_item, 'label') else '(n/a)'
@@ -603,11 +600,11 @@ fields:
       how you use them in your document.
     show if:
       code: |
-        len(all_fields.get_person_candidates(custom_only=True)) > 0
+        len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
   - Which variable names represent people?: people_variables
     datatype: checkboxes
     code: |
-      all_fields.get_person_candidates(custom_only=True)
+      interview.all_fields.get_person_candidates(custom_only=True)
     help: |
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
@@ -693,7 +690,7 @@ question: |
 subquestion: |  
   Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
   
-  % if len(all_fields.ask_about_fields()) > 0:
+  % if len(interview.all_fields.ask_about_fields()) > 0:
   1. Look at each field below. It represents a blank space on your template.
   1. If the field is handled as a "basic question", it will not be shown
   below. Instead, we will use a pre-written label for it.
@@ -709,25 +706,25 @@ subquestion: |
   % endif
     
 fields:
-  - code: all_fields.ask_about_fields()
+  - code: interview.all_fields.ask_about_fields()
   - note: |
       **Built-in questions this form triggers**[BR]
-      % if len(all_fields.builtins()) > 0:
-      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(all_fields.builtins()) }`.
+      % if len(interview.all_fields.builtins()) > 0:
+      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(interview.all_fields.builtins()) }`.
       % endif
-      % if len(all_fields.signatures()):
+      % if len(interview.all_fields.signatures()):
       
       These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: `${ comma_and_list(all_fields.signatures()) }`
+      on the same screen as any other variable: `${ comma_and_list(interview.all_fields.signatures()) }`
       % endif      
       
       You will have a chance to change the order of these fields later in
       this interview.
     show if:
       code: |
-        len(all_fields.builtins()) or len(all_fields.signatures())
+        len(interview.all_fields.builtins()) or len(interview.all_fields.signatures())
 validation code: |
-  for field in all_fields.custom():
+  for field in interview.all_fields.custom():
     if field.field_type == "code":
         expression = f"{field.final_display_var} = {field.code}"
         if not is_valid_python(expression):
@@ -768,20 +765,20 @@ code: |
     else:
       force_ask("exit_unknown_file_type")
 
-  all_fields.clear()
-  all_fields.add_fields_from_file(interview.uploaded_templates)
-  all_fields.gathered = True
+  interview.all_fields.clear()
+  interview.all_fields.add_fields_from_file(interview.uploaded_templates)
+  interview.all_fields.gathered = True
 
-  if not len(all_fields) > 0:
+  if not len(interview.all_fields) > 0:
     force_ask('empty_pdf')
   
-  bad_fields = get_variable_name_warnings(all_fields)
+  bad_fields = get_variable_name_warnings(interview.all_fields)
   if len(bad_fields) > 0:
     force_ask('non_descriptive_field_name')
 ---
 code: |
   if have_template_to_load: 
-    built_in_people_vars_used = all_fields.get_person_candidates(custom_only=False) - all_fields.get_person_candidates(custom_only=True)
+    built_in_people_vars_used = interview.all_fields.get_person_candidates(custom_only=False) - interview.all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
 
@@ -826,12 +823,12 @@ code: |
   x.needs_continue_button_field = False
 ---
 code: |
-  interview.questions.there_are_any = len(all_fields.custom()) > 0
+  interview.questions.there_are_any = len(interview.all_fields.custom()) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  interview.questions.there_is_another = len(interview.questions.all_fields_used(all_fields=all_fields.custom())) < len(all_fields.custom())
+  interview.questions.there_is_another = interview.has_unassigned_fields()
 ---
 id: create a draft of screen i
 question: |
@@ -855,9 +852,9 @@ fields:
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: interview.questions.all_fields_used(all_fields=all_fields.custom())
+    exclude: interview.questions.all_fields_used(all_fields=interview.all_fields.custom())
     none of the above: False
-    choices: all_fields.custom()
+    choices: interview.all_fields.custom()
     object labeler: |
       lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
   - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
@@ -937,13 +934,13 @@ code: |
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  all_fields[i].has_label = True
+  interview.all_fields[i].has_label = True
 ---
 code: |
   # Used for adding a new field
-  all_fields[i].field_type_guess = all_fields[i].field_type
-  all_fields[i].raw_field_names = [all_fields[i].variable]
-  all_fields[i].source_document_type = "docx" # don't process the variable name
+  interview.all_fields[i].field_type_guess = interview.all_fields[i].field_type
+  interview.all_fields[i].raw_field_names = [interview.all_fields[i].variable]
+  interview.all_fields[i].source_document_type = "docx" # don't process the variable name
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
@@ -1009,14 +1006,14 @@ code: |
   # Note that some built-in fields are not unique screens. This could
   # mess up the count
   unique_fields = set()
-  for field in all_fields.builtins():
+  for field in interview.all_fields.builtins():
     # Don't add the users[0].signature field to this list
     if field.final_display_var == "users[0].signature":
       continue
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
-  for field in all_fields.signatures():
+  for field in interview.all_fields.signatures():
     screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
@@ -1050,35 +1047,35 @@ code: |
   # editing lists created with object_checkboxes
   interview.questions[i].field_list.there_is_another = False
 ---
-continue button field: all_fields[i].edit_field
+continue button field: interview.all_fields[i].edit_field
 question: |
-  % if hasattr(all_fields[i], 'final_display_var'):
-  Edit field ${ bold(all_fields[i].final_display_var) }
+  % if hasattr(interview.all_fields[i], 'final_display_var'):
+  Edit field ${ bold(interview.all_fields[i].final_display_var) }
   % else:
   Add new field
   % endif
 subquestion: |
-  % if not hasattr(all_fields[i], 'final_display_var'):
+  % if not hasattr(interview.all_fields[i], 'final_display_var'):
   You can use this screen to add a draft of a new field that will
   be asked about in your interview.
   % endif
 
-  % if not hasattr(all_fields[i], 'final_display_var') and have_template_to_load:
+  % if not hasattr(interview.all_fields[i], 'final_display_var') and have_template_to_load:
   When you add a new field, it will not automatically be included
   in your template. You can use this feature to add fields that are used to
   calculate a value, for example.
   % endif
 fields:
-  - Docassemble variable name: all_fields[i].final_display_var
+  - Docassemble variable name: interview.all_fields[i].final_display_var
     hint: lower_case_format 
     show if:
       code: |
-        not hasattr(all_fields[i], 'label')
+        not hasattr(interview.all_fields[i], 'label')
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
-  - On-screen field label: all_fields[i].label
+  - On-screen field label: interview.all_fields[i].label
     hint: Label to go with the input variable 
-  - Field type: all_fields[i].field_type
+  - Field type: interview.all_fields[i].field_type
     choices:
       - text
       - area
@@ -1090,15 +1087,15 @@ fields:
       - email
       - multiple choice radio
       - multiple choice checkboxes
-  - Options (one per line): all_fields[i].choices
+  - Options (one per line): interview.all_fields[i].choices
     datatype: area
     js show if: |
-      val('all_fields[i].field_type') === 'multiple choice radio' || val('all_fields[i].field_type') === 'multiple choice checkboxes'
+      val('interview.all_fields[i].field_type') === 'multiple choice radio' || val('interview.all_fields[i].field_type') === 'multiple choice checkboxes'
     hint: |
       Like 'Descriptive name: key_name', or just 'Descriptive name'
 validation code: |
-  if not hasattr(all_fields[i], 'variable'):
-    all_fields[i].variable = all_fields[i].final_display_var
+  if not hasattr(interview.all_fields[i], 'variable'):
+    interview.all_fields[i].variable = interview.all_fields[i].final_display_var
 continue button label: Save
 back button label: Cancel
 ---
@@ -1474,7 +1471,7 @@ code: |
 only sets: no_template_default_values
 code: |
   if not have_template_to_load:
-    all_fields.gathered = True
+    interview.all_fields.gathered = True
   interview.original_form = 'NA'  
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title
@@ -1556,30 +1553,30 @@ code: |
 
     interview.typical_role = "unknown"
 
-    all_fields.gathered
-    person_candidates = all_fields.get_person_candidates()
-    all_fields.mark_people_as_builtins(all_fields.get_person_candidates())
+    interview.all_fields.gathered
+    person_candidates = interview.all_fields.get_person_candidates()
+    interview.all_fields.mark_people_as_builtins(interview.all_fields.get_person_candidates())
 
     for person in person_candidates:
       people_quantities[person] = "any"
 
     process_people_variables = True      
     
-    for index, field in enumerate(all_fields.elements):
+    for index, field in enumerate(interview.all_fields.elements):
       field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
       field.label = field.variable_name_guess
     # choose_field_types
     # review_fields_after_labeling
     
     interview.questions.auto_gather = False
-    field_grouping = cluster_screens( [field.variable for field in all_fields] )
+    field_grouping = cluster_screens( [field.variable for field in interview.all_fields] )
     for group in field_grouping:
       new_screen = interview.questions.appendObject()
       new_screen.is_informational_screen = False
       new_screen.has_mandatory_field = True
       new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
       new_screen.subquestion_text = ''
-      new_screen.field_list = [field for field in all_fields if field.variable in field_grouping[group]]          
+      new_screen.field_list = [field for field in interview.all_fields if field.variable in field_grouping[group]]          
     
     interview.questions.gathered = True
     interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True

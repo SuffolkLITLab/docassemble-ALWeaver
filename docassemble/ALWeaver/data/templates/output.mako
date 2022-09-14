@@ -116,7 +116,7 @@ code: |
   % else:
   user_role = "${ interview.typical_role }"
   % endif
-  % for field in interview.questions.interview_order_list(all_fields, screen_reordered):
+  % for field in interview.questions.interview_order_list(interview.all_fields, screen_reordered):
   ${ field }
   % endfor
   % if not generate_download_screen:
@@ -143,10 +143,10 @@ code: |
           "reached_interview_end": True,
       },
   )
-  % if len(all_fields.signatures()) > 0:
+  % if len(interview.all_fields.signatures()) > 0:
   ${ interview.interview_label }_preview_question
   basic_questions_signature_flow    
-  % for signature_field in all_fields.signatures():
+  % for signature_field in interview.all_fields.signatures():
   ${ signature_field.trigger_gather() }
   % endfor
   % endif
@@ -224,14 +224,14 @@ continue button field: ${ interview.interview_label }_preview_question
 % if generate_download_screen:
 ---
 code: |
-  signature_fields = ${ str(list(all_fields.built_in_signature_triggers()) + [field.trigger_gather() for field in all_fields.signatures()] ) }
+  signature_fields = ${ str(list(interview.all_fields.built_in_signature_triggers()) + [field.trigger_gather() for field in interview.all_fields.signatures()] ) }
 % endif
-% for field in all_fields.skip_fields():
+% for field in interview.all_fields.skip_fields():
 ---
 code: |
   ${ field.variable } = DAEmpty()
 % endfor
-% for field in all_fields.code_fields():
+% for field in interview.all_fields.code_fields():
 ---
 code: |
   ${ field.variable } = ${ field.code }
@@ -255,10 +255,10 @@ event: review_${ interview.interview_label }
 question: |
   Review your answers
 review:
-  % for coll in all_fields.find_parent_collections():
+  % for coll in interview.all_fields.find_parent_collections():
 ${ review_yaml(coll) | trim }\
   % endfor
-% for coll in all_fields.find_parent_collections():
+% for coll in interview.all_fields.find_parent_collections():
   % if coll.var_type == 'list':
 ---
 continue button field: ${ coll.var_name }.revisit
@@ -315,7 +315,7 @@ progress: 100
 ---
 variable name: input_fields_dict
 data from code:
-  % for field in all_fields.elements:
+  % for field in interview.all_fields.elements:
   "${ field.get_settable_var() }": showifdef("${ field.get_settable_var() }")
   % endfor
 ---
@@ -341,10 +341,10 @@ code: |
 objects:
   - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
   % endfor
   % endif
 ---
@@ -379,7 +379,7 @@ attachments:
     skip undefined: True
     pdf template file: ${ document.filename }
     fields:
-      % for field in all_fields.matching_pdf_fields_from_file(document):
+      % for field in interview.all_fields.matching_pdf_fields_from_file(document):
 ${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
       % endfor
     % else:
@@ -387,10 +387,10 @@ ${ attachment_yaml(field, attachment_name=varname(base_name(document.filename)))
     docx template file: ${ document.filename }
     % endif
   % endfor
-% if all_fields.has_addendum_fields():
+% if interview.all_fields.has_addendum_fields():
 ---
 code: |
-  % for field in all_fields.addendum_fields():
+  % for field in interview.all_fields.addendum_fields():
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].label = "${ field.label }"
   % endfor
