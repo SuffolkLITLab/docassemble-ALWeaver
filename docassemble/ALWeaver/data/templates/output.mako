@@ -27,7 +27,7 @@ metadata:
 mandatory: True
 comment: |
   Global interview metadata
-variable name: interview_metadata["${ interview_label }"]
+variable name: interview_metadata["${ interview.interview_label }"]
 data:
   al_weaver_version: "${ package_version_number }"
   generated on: "${ today().format("yyyy-MM-dd") }"
@@ -66,7 +66,7 @@ ${ indent(interview.original_form, by=4) }
   generate download screen: ${ generate_download_screen }
 ---
 code: |
-  interview_metadata['main_interview_key'] =  '${ interview_label }'
+  interview_metadata['main_interview_key'] =  '${ interview.interview_label }'
 ---
 code: |
   # This controls the default country and list of states in address field questions
@@ -77,7 +77,7 @@ code: |
   AL_DEFAULT_STATE = "${ interview.state }"
 ---
 code: |
-  github_repo_name =  'docassemble-${ package_title }'
+  github_repo_name =  'docassemble-${ interview.package_title }'
 % if defined('interview_intro_prompt'):
 ---
 code: |
@@ -97,18 +97,18 @@ objects:
 % endif
 ---
 sections:
-  - review_${ interview_label }: Review your answers
+  - review_${ interview.interview_label }: Review your answers
 ---
 #################### Interview order #####################
 comment: |
   Controls order and branching logic for questions specific to this form
-id: interview_order_${ interview_label }
+id: interview_order_${ interview.interview_label }
 code: |
   % if generate_download_screen:
   # Set the allowed courts for this interview
-  allowed_courts = interview_metadata["${ interview_label }"]["allowed courts"]
+  allowed_courts = interview_metadata["${ interview.interview_label }"]["allowed courts"]
   % endif
-  nav.set_section("review_${ interview_label }")
+  nav.set_section("review_${ interview.interview_label }")
   % if interview.typical_role == 'unknown':
   # Below sets the user_role by asking a question.
   # You can set user_role directly instead to either 'plaintiff' or 'defendant'
@@ -122,7 +122,7 @@ code: |
   % if not generate_download_screen:
   saved_report_data
   % endif
-  interview_order_${ interview_label } = True
+  interview_order_${ interview.interview_label } = True
 ---
 ###################### Main order ######################
 comment: |
@@ -131,8 +131,8 @@ comment: |
 mandatory: True
 code: |
   al_intro_screen
-  ${ interview_label }_intro
-  interview_order_${ interview_label }
+  ${ interview.interview_label }_intro
+  interview_order_${ interview.interview_label }
   % if generate_download_screen:
   signature_date
   # Store anonymous data for analytics / statistics
@@ -144,15 +144,15 @@ code: |
       },
   )
   % if len(all_fields.signatures()) > 0:
-  ${ interview_label }_preview_question
+  ${ interview.interview_label }_preview_question
   basic_questions_signature_flow    
   % for signature_field in all_fields.signatures():
   ${ signature_field.trigger_gather() }
   % endfor
   % endif
-  ${ interview_label }_download
+  ${ interview.interview_label }_download
   % else:
-  ${ interview_label }_thank_you
+  ${ interview.interview_label }_thank_you
   % endif
 <%doc>
     Question blocks
@@ -166,7 +166,7 @@ code: |
 comment: |
   This question is used to introduce your interview. Please customize
 id: ${ varname(interview.title) }
-continue button field: ${ interview_label }_intro
+continue button field: ${ interview.interview_label }_intro
 question: |
   ${ interview.title }
 subquestion: |
@@ -198,7 +198,7 @@ continue button field: ${ varname(question.question_text) }
 </%doc>\
 % if generate_download_screen:
 ---
-id: preview ${interview_label }
+id: preview ${ interview.interview_label }
 question: |
   Preview your form before you sign it
 subquestion: |
@@ -213,10 +213,10 @@ subquestion: |
   Click the image to open it in a new tab. Click the "Edit answers" button
   to edit your answers.
 
-  <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Edit answers', color='info') <%text>}</%text>
+  <%text>${</%text> action_button_html(url_action('review_${ interview.interview_label }'), label='Edit answers', color='info') <%text>}</%text>
   
   Remember to come back to this window to continue and sign your form.
-continue button field: ${ interview_label }_preview_question    
+continue button field: ${ interview.interview_label }_preview_question    
 % endif
 <%doc>
     TODO(qs): signature fields shouldn't depend on whether we have a download screen
@@ -224,7 +224,7 @@ continue button field: ${ interview_label }_preview_question
 % if generate_download_screen:
 ---
 code: |
-  signature_fields = ${ str(list(built_in_signatures) + [field.trigger_gather() for field in all_fields.signatures()] ) }
+  signature_fields = ${ str(list(all_fields.built_in_signature_triggers()) + [field.trigger_gather() for field in all_fields.signatures()] ) }
 % endif
 % for field in all_fields.skip_fields():
 ---
@@ -251,7 +251,7 @@ code: |
 </%doc>\
 ---
 id: ${ fix_id(interview_label) } review screen
-event: review_${ interview_label }
+event: review_${ interview.interview_label }
 question: |
   Review your answers
 review:
@@ -278,8 +278,8 @@ ${ table_page(coll) }
 </%doc>\
 % if generate_download_screen:
 ---
-id: download ${ interview_label }
-event: ${ interview_label }_download
+id: download ${ interview.interview_label }
+event: ${ interview.interview_label }_download
 question: |
   All done
 subquestion: |
@@ -287,7 +287,7 @@ subquestion: |
   
   View, download and send your form below. Click the "Edit answers" button to fix any mistakes.
 
-  <%text>${</%text> action_button_html(url_action('review_${ interview_label }'), label='Edit answers', color='info') <%text>}</%text>
+  <%text>${</%text> action_button_html(url_action('review_${ interview.interview_label }'), label='Edit answers', color='info') <%text>}</%text>
   
   <%text>
   ${ al_user_bundle.download_list_html() }
@@ -303,7 +303,7 @@ progress: 100
 % else:
 ---
 id: thank you
-event: ${ interview_label }_thank_you
+event: ${ interview.interview_label }_thank_you
 question: |
   Thank You!
 subquestion: |
@@ -320,7 +320,7 @@ data from code:
   % endfor
 ---
 code: |
-  save_input_data(title = "${ interview_label }", input_dict = input_fields_dict)
+  save_input_data(title = "${ interview.interview_label }", input_dict = input_fields_dict)
   saved_report_data = True
 % endif
 <%doc>

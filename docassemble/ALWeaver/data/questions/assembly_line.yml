@@ -125,7 +125,6 @@ objects:
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
   - all_fields: DAFieldList.using(auto_gather=False)
   - questions: DAQuestionList.using(complete_attribute='complete')
-  - interview_download: DAFile
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
@@ -296,12 +295,12 @@ code: |
   # That's fine as it is a placeholder
   if have_template_to_load:
     if template_upload[0].filename.endswith('pdf'):
-      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
+      interview.short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
     else:
-      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
+      interview.short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
   else:
-    short_filename = ''
-  short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
+    interview.short_filename = ''
+  interview.short_filename_with_spaces = interview.short_filename.replace('_',' ').capitalize()
 ---
 id: information about court-related info
 question: |
@@ -367,7 +366,7 @@ fields:
     js show if: |
       val("interview.categories['Other']") && val("interview.court_related")
   - Unique label for this interview: interview_label_draft
-    default: ${short_filename}
+    default: ${interview.short_filename}
     maxlength: 35
     help: |
       This label should be short but unique. It will be used to name your
@@ -498,13 +497,13 @@ fields:
 ---
 code: |
   if interview.form_type == 'starts_case':
-    interview_intro_prompt_default = "Ask the court for a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Ask the court for a " + interview.short_filename_with_spaces 
   elif interview.form_type == 'existing_case':
-    interview_intro_prompt_default = "File a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "File a " + interview.short_filename_with_spaces 
   elif interview.form_type == 'letter':
-    interview_intro_prompt_default = "Write a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Write a " + interview.short_filename_with_spaces 
   else:
-    interview_intro_prompt_default = "Get a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Get a " + interview.short_filename_with_spaces 
 ---
 id: form-specific intro page
 question: |
@@ -526,17 +525,17 @@ subquestion: |
   a rough draft.
 fields:
   - Title: interview.title
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
   - Short title that will show up on small screens: interview.short_title
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
   - Short description of your form: interview.description
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
     datatype: area
     rows: 2
   - label: |
       "Getting started" page
     field: interview.getting_started
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
     datatype: area
     help: |
       Tell your user what they need to know before they start the form.
@@ -795,7 +794,7 @@ need:
   - interview.categories
   - interview.title
   - interview.short_title
-  - interview_label
+  - interview.interview_label
   - interview.description
   - interview.typical_role
 code: |
@@ -900,7 +899,7 @@ subquestion: |
   #### &#11093; Download the generated interview yml file
   **If you rerun the Weaver and only want the yml file**, you can just download it below:  
      
-  ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download your yaml file') }
+  ${ action_button_html(interview_mako_output.url_for(attachment=True), color='info', label='Download your yaml file') }
   </div>
   
   <div class="panel_lavender" markdown="1">
@@ -1165,15 +1164,15 @@ fields:
 ##################################### Controlling generated interview contents ################
 ---
 code: |
-  # This interview_label field is used throughout the 
+  # This interview.interview_label field is used throughout the 
   # generated interview to let us store interview-specific
   # metadata
   # We removed random ID, so make sure the file names are unique
   # varname will strip leading numbers--but they may be valid at the end of the label
-  interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
+  interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
 ---
 code: |
-  attachment_variable_name = interview_label + '_attachment'
+  attachment_variable_name = interview.interview_label + '_attachment'
 ---
 template: start_your_project
 subject: |
@@ -1197,18 +1196,14 @@ content: |
 attachment:
   variable name: interview_mako_output
   name: YAML output
-  filename: interview.yml # Docassemble appends .mako to the filename, so we copy this into the interview_download variable later
+  filename: interview.yml
   raw: True
   content file:
     code: |
       ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
 code: |
-  # Package title is PascalCase, per our AssemblyLine convention
-  package_title = re.sub("\W|_","", interview_label.title())
----
-code: |
-  sanitized_filename = f"{interview_label}.{template_upload[0].extension}"
+  sanitized_filename = f"{interview.interview_label}.{template_upload[0].extension}"
 ---
 code: |
   # Unfortunately, there's no good "new" name for the file
@@ -1223,53 +1218,21 @@ need:
   - generate_download_screen
 # Prepare content for the Weaver's download screen.
 code: |
-  # 1. Commit the generated interview YAML file
-  interview_download.initialize(filename = interview_label + '.yml')  
-  interview_download.write(interview_mako_output.raw.content)
-  interview_download.commit()
-  
-  # 2. Build data for folders_and_files and package_info   
-  folders_and_files = {
-    "questions": [interview_download],
-    "modules":[],
-    "static": [],
-    "sources": []
-  }
-  
-  if generate_download_screen:
-    folders_and_files["templates"] = [
-        next_steps_documents[interview.form_type]['attachment'].docx,
-    ]
-    folders_and_files["templates"].extend(template_upload)
-  else:    
-    folders_and_files["templates"] = []
-    
-  package_info = interview.package_info(
-          get_pypi_deps_from_choices(
+  interview.dependencies = get_pypi_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
             interview.org_choices.true_values()
-          )
-        )    
-  
-  if interview.author and str(interview.author).splitlines():
-    # TODO(qs): is it worth ever adding email here?
-    # It would conflict with listing multiple authors
-    default_vals = {
-      "author name and email": str(interview.author).splitlines()[0]
-    }
-    package_info['author_name'] = default_vals['author name and email']
+  )
+
+  # TODO: there might be cleaner way to handle w/o this flag
+  if generate_download_screen:
+    templates = [
+      next_steps_documents[self.form_type]['attachment'].docx,
+    ]
+    templates.extend(template_upload)
   else:
-    default_vals = {
-      "author name and email": "author@example.com"
-    }
-    
-  # 3. Generate the output package
-  create_package_zip(package_title,
-        package_info,
-        default_vals,
-        folders_and_files, 
-        interview_package_download)
-  
+    templates = []
+  interview.create_package(interview_mako_output, templates, output_file=interview_package_download)
+
   wrote_interview = True
 ---
 ############ Next Steps documents generation ################
@@ -1296,32 +1259,32 @@ code: |
 attachments:
   - variable name: next_steps_starts_case
     docx template file: next_steps_starts_case.docx
-    filename: ${ interview_label + '_next_steps' }
+    filename: ${ interview.interview_label + '_next_steps' }
 ---
 attachments:
   - variable name: next_steps_existing_case
     docx template file: next_steps_existing_case.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_appeal
     docx template file: next_steps_appeal.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_letter
     docx template file: next_steps_letter.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_other_form
     docx template file:  next_steps_other_form.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_other
     docx template file:  next_steps_other.docx
-    filename: ${ interview_label + '_next_steps' }
+    filename: ${ interview.interview_label + '_next_steps' }
 ---  
 need: # trigger these up front for idempotency
   - interview.title
@@ -1337,9 +1300,9 @@ code: |
   # Set attributes for the "next_steps" docx. 
   # To add any additional attachment files, follow this example.
   file2 = labels_lists.appendObject()
-  file2.input_filename = interview_label + '_next_steps.docx'
+  file2.input_filename = interview.interview_label + '_next_steps.docx'
   file2.output_filename = 'Post-interview-instructions'
-  file2.attachment_varname = f'{interview_label}_{file2.output_filename.replace("-", "_").lower()}'
+  file2.attachment_varname = f'{interview.interview_label}_{file2.output_filename.replace("-", "_").lower()}'
   file2.type = 'docx'
   file2.description = 'Instructions'
   file2.fields = 'na'
@@ -1438,7 +1401,7 @@ subquestion: |
   
   <i class="fas fa-spinner fa-pulse"></i> 
   % else:  
-  ${ action_button_html(interview_url(reset=1, i="docassemble." + package_title + ":data/questions/" + interview_label + '.yml'), label = "Run interview", new_window=True ) }
+  ${ action_button_html(interview_url(reset=1, i="docassemble." + interview.package_title + ":data/questions/" + interview.interview_label + '.yml'), label = "Run interview", new_window=True ) }
   % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
@@ -1446,7 +1409,7 @@ subquestion: |
   ${ collapse_template(yaml_source) }
   
   Download the YAML file only:  
-  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  [:download: Download YAML](${interview_mako_output.yml.url_for(attachment=True)})
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})
@@ -1464,7 +1427,7 @@ code: |
 event: uninstall_package_event
 code: |
   data = {"key": install_packages_api_key,
-          "package": "docassemble." + package_title
+          "package": "docassemble." + interview.package_title
           }
   status = installer.delete("package", data=data)
   background_response()            
@@ -1616,7 +1579,7 @@ question: |
   Are you feeling lucky?
 subquestion: |
   You can go straight to a runnable prototype of
-  "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
+  "${ interview.short_filename_with_spaces }" for ${ state_name(interview.state) },
   or you can customize this prototype. 
 
 field: im_feeling_lucky
@@ -1638,10 +1601,10 @@ code: |
     template_upload[0].from_url(url_args.get('form_to_use'))
     template_upload[0].created = True    
   if url_args.get('title'):
-    short_filename_with_spaces = url_args.get('title')
-    interview.title = short_filename_with_spaces
-    short_filename = space_to_underscore(varname(short_filename_with_spaces))
-    interview_label_draft = short_filename
+    interview.short_filename_with_spaces = url_args.get('title')
+    interview.title = interview.short_filename_with_spaces
+    interview.short_filename = space_to_underscore(varname(interview.short_filename_with_spaces))
+    interview_label_draft = interview.short_filename
   if url_args.get('jur'):
     interview.state = url_args.get('jur')
   if url_args.get('nsmi'):
@@ -1664,9 +1627,9 @@ code: |
     interview.org_choices = get_matching_deps("organization",interview.state)
     interview.form_type = "starts_case"
     interview_intro_prompt = interview_intro_prompt_default
-    interview.title = short_filename_with_spaces
-    interview.short_title = short_filename_with_spaces
-    interview.description = short_filename_with_spaces
+    interview.title = interview.short_filename_with_spaces
+    interview.short_title = interview.short_filename_with_spaces
+    interview.description = interview.short_filename_with_spaces
     interview.getting_started = "Before you get started, you need to..."
 
     interview.typical_role = "unknown"
