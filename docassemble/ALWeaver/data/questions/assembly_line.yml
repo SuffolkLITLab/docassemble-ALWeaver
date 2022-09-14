@@ -61,7 +61,7 @@ code: |
   if not generate_download_screen:    
     no_template_default_values    
   review_fields_after_labeling
-  questions.gather()
+  interview.questions.gather()
   interview.form_type
   
   # Review field order and screen order
@@ -121,7 +121,6 @@ objects:
   - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
   - all_fields: DAFieldList.using(auto_gather=False)
-  - questions: DAQuestionList.using(complete_attribute='complete')
   - interview_package_download: DAFile
   - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
@@ -806,33 +805,33 @@ code: |
   add_metadata = True
 ---
 code: |
-  questions[i].question_text
+  interview.questions[i].question_text
   
-  if questions[i].is_informational_screen:
-    questions[i].field_list.clear()
+  if interview.questions[i].is_informational_screen:
+    interview.questions[i].field_list.clear()
     # The info screen gives it a mandatory field
-    questions[i].has_mandatory_field = True
+    interview.questions[i].has_mandatory_field = True
   
   # Simplify the abstraction
-  if not questions[i].has_mandatory_field or questions[i].is_informational_screen:
+  if not interview.questions[i].has_mandatory_field or interview.questions[i].is_informational_screen:
     # assigning continue button field name here is messy
-    questions[i].needs_continue_button_field = True
+    interview.questions[i].needs_continue_button_field = True
   else:
-    questions[i].needs_continue_button_field = False
+    interview.questions[i].needs_continue_button_field = False
     
-  questions[i].complete = True
+  interview.questions[i].complete = True
 ---
 generic object: DAObject
 code: |
   x.needs_continue_button_field = False
 ---
 code: |
-  questions.there_are_any = len(all_fields.custom()) > 0
+  interview.questions.there_are_any = len(all_fields.custom()) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used(all_fields=all_fields.custom())) < len(all_fields.custom())
+  interview.questions.there_is_another = len(interview.questions.all_fields_used(all_fields=all_fields.custom())) < len(all_fields.custom())
 ---
 id: create a draft of screen i
 question: |
@@ -842,28 +841,28 @@ subquestion: |
   a title, some context for the screen, and decide which fields are
   shown on this screen.
 fields:
-  - Make this a purely informational screen: questions[i].is_informational_screen
+  - Make this a purely informational screen: interview.questions[i].is_informational_screen
     datatype: yesno
     help: A screen with no fields, just text.
-  - What should the title of this screen be? : questions[i].question_text
+  - What should the title of this screen be? : interview.questions[i].question_text
     default: Screen ${nice_number(i+1)}
-  - What is the text that appears under the title? : questions[i].subquestion_text
+  - What is the text that appears under the title? : interview.questions[i].subquestion_text
     input type: area
     required: False
-  - Select the fields that will appear on this screen: questions[i].field_list
-    hide if: questions[i].is_informational_screen
+  - Select the fields that will appear on this screen: interview.questions[i].field_list
+    hide if: interview.questions[i].is_informational_screen
     # Can we turn this into an object?
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used(all_fields=all_fields.custom())
+    exclude: interview.questions.all_fields_used(all_fields=all_fields.custom())
     none of the above: False
     choices: all_fields.custom()
     object labeler: |
       lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
-  - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
+  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
     datatype: noyes
-    hide if: questions[i].is_informational_screen
+    hide if: interview.questions[i].is_informational_screen
     help: |
       If you are not sure, leave this unchecked.
       You might do this if all of the fields on this
@@ -871,7 +870,7 @@ fields:
       if you want to add show/hide logic on this screen
       which could otherwise break the interview flow.
 validation code: |
-  if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
+  if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
 ---
 id: download your interview
@@ -934,7 +933,7 @@ content: |
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  questions[i].type = 'question'
+  interview.questions[i].type = 'question'
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
@@ -1013,7 +1012,7 @@ code: |
   # to restart the interview
   # TODO: do we want to use this to nudge a recommended question order?
   screen_order.clear()
-  for question in questions:
+  for question in interview.questions:
     screen_order.append(question)
   
   # Note that some built-in fields are not unique screens. This could
@@ -1041,11 +1040,11 @@ columns:
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
 ---
-table: questions[i].edit_table
-rows: questions[i].field_list
+table: interview.questions[i].edit_table
+rows: interview.questions[i].field_list
 columns:
   - Order: |
-      int(questions[i].field_list.index(row_item)) + 1  
+      int(interview.questions[i].field_list.index(row_item)) + 1  
   - Field name: |
       row_item.final_display_var
 edit:
@@ -1053,12 +1052,12 @@ edit:
 delete buttons: False  
 ---
 code: |
-  questions[i].field_list.there_are_any = questions[i].field_list.number() > 0
+  interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
 ---
 code: |
   # not quite sure why we need this--problem w/ how docassemble handles
   # editing lists created with object_checkboxes
-  questions[i].field_list.there_is_another = False
+  interview.questions[i].field_list.there_is_another = False
 ---
 continue button field: all_fields[i].edit_field
 question: |
@@ -1112,9 +1111,9 @@ validation code: |
 continue button label: Save
 back button label: Cancel
 ---
-continue button field: questions[i].edit_question
+continue button field: interview.questions[i].edit_question
 scan for variables: False
-sets: questions[i].edit_question
+sets: interview.questions[i].edit_question
 question: |
   Review your ${ ordinal(i) } screen
 subquestion: |    
@@ -1125,18 +1124,18 @@ subquestion: |
                         
   1. You can modify **Screen title** and **Text on your question screen** here and they will be reflected in the generated draft interview.   
 fields:
-  - Screen title: questions[i].question_text
-  - Text on your question screen: questions[i].subquestion_text
+  - Screen title: interview.questions[i].question_text
+  - Text on your question screen: interview.questions[i].subquestion_text
     datatype: area
     required: False
   - note: |
       2. Click **Edit** below to modify individual field's label and type if needed.
       3. After all the edits are done, you can **reorder** the fields in the table by **grabbing anywhere in a row and dragging it to the desired position.** _If you reorder fields before clicking Edit, you'll need to readjust field order after editing._   
-      ${ questions[i].draggable_fld_table }   
-  - no label: questions[i].fld_order_list 
+      ${ interview.questions[i].draggable_fld_table }   
+  - no label: interview.questions[i].fld_order_list 
     datatype: draggable_tbl_order_list    
     required: False
-  - no label: questions[i].table_data 
+  - no label: interview.questions[i].table_data 
     datatype: draggable_tbl_json_string
     required: False
 
@@ -1445,31 +1444,31 @@ comment: |
   This block is called when the "field table" is initially loaded.
 code: |
   # Initialize the hidden fields. 
-  questions[i].fld_order_list = '' # Will be updated in js
-  questions[i].table_data = ''     # Will be updated in the next code block
+  interview.questions[i].fld_order_list = '' # Will be updated in js
+  interview.questions[i].table_data = ''     # Will be updated in the next code block
   
   # Make the field table draggable  
-  questions[i].html_fld_table = make_it_draggable(questions[i].edit_table) 
-  questions[i].original_fld_order = questions[i].html_fld_table[0] #list
-  questions[i].draggable_fld_table = questions[i].html_fld_table[1] #soup table
+  interview.questions[i].html_fld_table = make_it_draggable(interview.questions[i].edit_table) 
+  interview.questions[i].original_fld_order = interview.questions[i].html_fld_table[0] #list
+  interview.questions[i].draggable_fld_table = interview.questions[i].html_fld_table[1] #soup table
 ---
 comment: |
   This block is called after the "field table" is reordered by the user.
 code: |     
-  if len(questions[i].fld_order_list) > 0:    
+  if len(interview.questions[i].fld_order_list) > 0:    
     # Update existing fld table order var - will affect output interview layout
-    questions[i].field_list = update_table_order_var(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
+    interview.questions[i].field_list = update_table_order_var(interview.questions[i].original_fld_order, interview.questions[i].fld_order_list, interview.questions[i].field_list)
     
     # Save new table data to the hidden field for JS to access    
-    questions[i].table_data = make_json(questions[i].fld_order_list, questions[i].draggable_fld_table)    
+    interview.questions[i].table_data = make_json(interview.questions[i].fld_order_list, interview.questions[i].draggable_fld_table)    
     
-  questions[i].field_tbl_done = True  
+  interview.questions[i].field_tbl_done = True  
 ---
 # Loop thru all the field tables and display them on the screen
 code: |  
-  for j in range(0, len(questions)):      
-    questions[j].edit_question     
-    questions[j].field_tbl_done 
+  for index in range(0, len(interview.questions)):      
+    interview.questions[index].edit_question     
+    interview.questions[index].field_tbl_done 
   show_field_order = True
 ---
 event: let_skip
@@ -1581,17 +1580,17 @@ code: |
     # choose_field_types
     # review_fields_after_labeling
     
-    questions.auto_gather = False
+    interview.questions.auto_gather = False
     field_grouping = cluster_screens( [field.variable for field in all_fields] )
     for group in field_grouping:
-      new_screen = questions.appendObject()
+      new_screen = interview.questions.appendObject()
       new_screen.is_informational_screen = False
       new_screen.has_mandatory_field = True
       new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
       new_screen.subquestion_text = ''
       new_screen.field_list = [field for field in all_fields if field.variable in field_grouping[group]]          
     
-    questions.gathered = True
+    interview.questions.gathered = True
     interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
     if user_logged_in():
       interview.author = f"{user_info().first_name} {user_info().last_name}"

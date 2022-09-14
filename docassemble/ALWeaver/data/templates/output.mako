@@ -116,7 +116,7 @@ code: |
   % else:
   user_role = "${ interview.typical_role }"
   % endif
-  % for field in questions.interview_order_list(all_fields, screen_reordered):
+  % for field in interview.questions.interview_order_list(all_fields, screen_reordered):
   ${ field }
   % endfor
   % if not generate_download_screen:
@@ -174,7 +174,7 @@ ${ indent(interview.getting_started, 2) }
 <%doc>
     Main question loop
 </%doc>\
-% for question in questions:
+% for question in interview.questions:
 ---
 id: ${ fix_id(question.question_text) }
 question: |
