@@ -250,7 +250,7 @@ code: |
     TODO(qs): why use fix_id here?
 </%doc>\
 ---
-id: ${ fix_id(interview_label) } review screen
+id: ${ fix_id(interview.interview_label) } review screen
 event: review_${ interview.interview_label }
 question: |
   Review your answers
@@ -337,35 +337,55 @@ code: |
     Attachment variables
 </%doc>\
 ---
+# ALDocument objects specify the metadata for each template
 objects:
-  % for v in labels_lists:
-  - ${ v.attachment_varname }: ALDocument.using(title="${ v.description }", filename="${ v.input_filename }", enabled=True, has_addendum=${ v.has_addendum }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  % if len(interview.uploaded_templates) == 1:
+  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  % else:
+  % for document in interview.uploaded_templates:
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
   % endfor
+  % endif
 ---
+# Bundles group the ALDocuments into separate downloads, such as for court and for the user
 objects:
-  % for bundle in bundles:
-  - ${ bundle.name }: ALDocumentBundle.using(elements=[${ ",".join([item.attachment_varname for item in bundle.elements]) }], filename="${ bundle_name }", title="All forms to download for your records", enabled=True)
-  % endfor
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", title="All forms to download for your records", enabled=True)
+  % if interview.court_related:
+  - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }],  filename="${interview.interview_label}", title="All forms to deliver to court", enabled=True)
+  % else:
+  - al_recipient_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }],  filename="${interview.interview_label}", title="All forms to file", enabled=True)
+  % endif
 ---
+# Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
+# used for "preview" and "final" keys, and logic in the template checks the value of 
+# `i` to show or hide the user's signature
 attachments:
-  % for v in labels_lists:  
-  - name: ${ v.attachment_varname.replace('_',' ') }
-    filename: ${ v.output_filename }     
-    variable name: ${ v.attachment_varname }[i]        
-  % if v.type == 'md':
-    content: |
-  ${ indent(content, 6) }
-  % elif v.type == 'pdf':
+  - name: Post-interview-Instructions
+    filename: ${ interview.interview_label }_next_steps
+    docx template file: ${ interview.interview_label }_next_steps.docx
+    variable name: ${ interview.interview_label }_Post_interview_instructions[i]
+  % for document in interview.uploaded_templates:
+    % if len(interview.uploaded_templates) == 1:
+  - name: ${ interview.interview_label.replace('_',' ') }
+    filename: ${ interview.interview_label }
+    variable name: ${ interview.interview_label }_attachment[i]
+    % else:
+  - name: ${ base_name(document.filename).replace('_',' ') }
+    filename: ${ base_name(document.filename) }
+    variable name: ${ varname(base_name(document.filename)) }[i]
+    % endif
+    % if document.mimetype == "application/pdf":
     skip undefined: True
-    pdf template file: ${ v.input_filename }
+    pdf template file: ${ document.filename }
     fields:
-    % for field in v.fields:
-${ attachment_yaml(field, attachment_name=v.attachment_varname) }\
-    % endfor
-  % else: 
+      % for field in all_fields.matching_pdf_fields_from_file(document):
+${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
+      % endfor
+    % else:
     skip undefined: True
-    docx template file: ${ v.input_filename }
-  % endif	    
+    docx template file: ${ document.filename }
+    % endif
   % endfor
 % if all_fields.has_addendum_fields():
 ---

@@ -18,7 +18,7 @@ custom_values.org_specific_config = None
 
 __all__ = [
     "get_possible_deps_as_choices",
-    "_from_choices",
+    "get_pypi_deps_from_choices",
     "get_yml_deps_from_choices",
     "SettingsList",
     "load_capabilities",

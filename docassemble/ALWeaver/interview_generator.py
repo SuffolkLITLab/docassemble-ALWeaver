@@ -19,6 +19,7 @@ from docassemble.base.util import (
     user_info,
     DAEmpty,
     pdf_concatenate,
+    comma_list,
 )
 import docassemble.base.functions
 import docassemble.base.parse
@@ -1108,11 +1109,11 @@ class DAInterview(DAObject):
         if not hasattr(self, "dependencies"):
             self.dependencies = []
         if not self.dependencies:
-            dependencies = [
+            self.dependencies = [
                 assembly_line_dep
             ]
-        elif assembly_line_dep not in dependencies:
-            dependencies.append(assembly_line_dep)
+        elif assembly_line_dep not in self.dependencies:
+            self.dependencies.append(assembly_line_dep)
 
         info: Dict[str, Union[str, List[str]]] = {}
         for field in [
@@ -1123,7 +1124,7 @@ class DAInterview(DAObject):
         ]:
             if field not in info:
                 info[field] = list()
-        info["dependencies"] = dependencies
+        info["dependencies"] = self.dependencies
         info["author_name"] = ""
         info["readme"] = ""
         info["description"] = self.title
@@ -1137,8 +1138,7 @@ class DAInterview(DAObject):
         return re.sub("\W|_","", self.interview_label.title())
         
 
-    def create_package(self, interview_mako_output:DAFileCollection, templates:Union[List[DAFile], DAFileCollection], output_file:Optional[DAFile]=None) -> DAFile:
-        interview_mako_output.raw.set_attributes(filename = f"{ self.interview_label }.yml")
+    def create_package(self, interview_mako_output:DAFileCollection, generate_download_screen:bool=True, output_file:Optional[DAFile]=None) -> DAFile:
 
         # 2. Build data for folders_and_files and package_info   
         folders_and_files = {
@@ -1148,7 +1148,10 @@ class DAInterview(DAObject):
             "sources": []
         }
 
-        folders_and_files["templates"] = templates        
+        if generate_download_screen:
+            folders_and_files["templates"] = [self.instructions] + self.uploaded_templates
+        else:
+            folders_and_files["templates"] = []
             
         package_info = self.package_info()
 
@@ -1170,6 +1173,16 @@ class DAInterview(DAObject):
                 default_vals,
                 folders_and_files, 
                 output_file)
+
+    def attachment_varnames(self)->str:
+        if len(self.uploaded_templates) == 1:
+            return f"{self.interview_label }_attachment"
+        else:
+            return comma_list([
+                varname(base_name(document.filename))
+                for document in self.uploaded_templates
+            ])
+
 
 def fix_id(string: str) -> str:
     if string and isinstance(string, str):

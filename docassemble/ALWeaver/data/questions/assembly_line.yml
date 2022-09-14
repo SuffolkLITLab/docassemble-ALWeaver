@@ -28,8 +28,8 @@ code: |
     interview_type
     set_interview_type_vars 
     if have_template_to_load: 
-      template_upload
-      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, template_upload)):
+      interview.uploaded_templates
+      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
         if yes_normalize_fields:
           process_field_normalization
         validate_pdf
@@ -38,7 +38,7 @@ code: |
         fields_checkup_status
         all_look_good
         validation_success
-      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, template_upload)):
+      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
         validate_docx
@@ -73,9 +73,6 @@ code: |
   # Generate draft interview yaml file
   add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
   
-  if generate_download_screen: 
-    process_attachments
-
   # Assemble output package
   wrote_interview    
 
@@ -253,7 +250,7 @@ subquestion: |
   * [Working with DOCX files](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/docx)
   
 fields:   
-  - Select your PDF or DOCX files: template_upload
+  - Select your PDF or DOCX files: interview.uploaded_templates
     label above field: True
     datatype: files
     accept: |
@@ -270,12 +267,12 @@ fields:
       Use our experimental code to automatically apply AssemblyLine naming conventions.
       If you already followed naming conventions, you might want to skip this.
 validation code: |
-  for document in template_upload:
+  for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:
         document.fix_up()
       except:
-        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
+        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="interview.uploaded_templates")
     else:
       try:
         pdf_concatenate(document)
@@ -294,10 +291,10 @@ code: |
   # Note: we just use the first document to create the placeholder name even if multiple forms are uploaded.
   # That's fine as it is a placeholder
   if have_template_to_load:
-    if template_upload[0].filename.endswith('pdf'):
-      interview.short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
+    if interview.uploaded_templates[0].filename.endswith('pdf'):
+      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".pdf")]))
     else:
-      interview.short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
+      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".docx")]))
   else:
     interview.short_filename = ''
   interview.short_filename_with_spaces = interview.short_filename.replace('_',' ').capitalize()
@@ -741,7 +738,7 @@ comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
 code: |
-  for document in template_upload:
+  for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       errors = get_pdf_validation_errors(document)
       if errors:
@@ -773,7 +770,7 @@ code: |
       force_ask("exit_unknown_file_type")
 
   all_fields.clear()
-  all_fields.add_fields_from_file(template_upload)
+  all_fields.add_fields_from_file(interview.uploaded_templates)
   all_fields.gathered = True
 
   if not len(all_fields) > 0:
@@ -899,7 +896,7 @@ subquestion: |
   #### &#11093; Download the generated interview yml file
   **If you rerun the Weaver and only want the yml file**, you can just download it below:  
      
-  ${ action_button_html(interview_mako_output.url_for(attachment=True), color='info', label='Download your yaml file') }
+  ${ action_button_html(temp_interview.url_for(attachment=True), color='info', label='Download your yaml file') }
   </div>
   
   <div class="panel_lavender" markdown="1">
@@ -1203,13 +1200,13 @@ attachment:
       ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
 code: |
-  sanitized_filename = f"{interview.interview_label}.{template_upload[0].extension}"
+  sanitized_filename = f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
 ---
 code: |
   # Unfortunately, there's no good "new" name for the file
   # when someone uploads multiple templates at once
-  if have_template_to_load and len(template_upload) == 1:
-    template_upload[0].set_attributes(filename=sanitized_filename)
+  if have_template_to_load and len(interview.uploaded_templates) == 1:
+    interview.uploaded_templates[0].set_attributes(filename=sanitized_filename)
   inflate_renamed_upload = True
 ---
 need:
@@ -1223,15 +1220,15 @@ code: |
             interview.org_choices.true_values()
   )
 
-  # TODO: there might be cleaner way to handle w/o this flag
-  if generate_download_screen:
-    templates = [
-      next_steps_documents[self.form_type]['attachment'].docx,
-    ]
-    templates.extend(template_upload)
-  else:
-    templates = []
-  interview.create_package(interview_mako_output, templates, output_file=interview_package_download)
+  #HACK: Docassemble bug:
+  # - stops us from using interview_label.yml as the original filename, and
+  # - stops us from just renaming the file instead of making a copy.
+  temp_interview = DAFile(filename = f"{ interview.interview_label }.yml")
+  temp_interview.initialize()
+  temp_interview.copy_into(interview_mako_output.raw)
+  temp_interview.commit()
+
+  interview.create_package(temp_interview, generate_download_screen, output_file=interview_package_download)
 
   wrote_interview = True
 ---
@@ -1285,74 +1282,9 @@ attachments:
   - variable name: next_steps_other
     docx template file:  next_steps_other.docx
     filename: ${ interview.interview_label + '_next_steps' }
----  
-need: # trigger these up front for idempotency
-  - interview.title
-  - interview_intro_prompt
-  - interview.court_related
+---
 code: |
-  # TODO(qs): this can be cleaned up further
-  #-----------------------------------------------------------------
-  # Prepare data for output.mako, each attachment file must provide those 6 attributes.
-  #-----------------------------------------------------------------
-
-  labels_lists.clear()
-  # Set attributes for the "next_steps" docx. 
-  # To add any additional attachment files, follow this example.
-  file2 = labels_lists.appendObject()
-  file2.input_filename = interview.interview_label + '_next_steps.docx'
-  file2.output_filename = 'Post-interview-instructions'
-  file2.attachment_varname = f'{interview.interview_label}_{file2.output_filename.replace("-", "_").lower()}'
-  file2.type = 'docx'
-  file2.description = 'Instructions'
-  file2.fields = 'na'
-  file2.has_addendum = False
-
-  if len(template_upload) == 1:
-    # Set attributes for the uploaded template file     
-    file1 = labels_lists.appendObject()    
-    file1.input_filename = sanitized_filename  
-    file1.output_filename = sanitized_filename
-    file1.attachment_varname = attachment_variable_name    
-    file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
-    file1.description = interview.title
-    file1.fields = all_fields
-    file1.has_addendum = all_fields.has_addendum_fields()
-  else:
-    for document in template_upload:
-      temp_file = labels_lists.appendObject()    
-      temp_file.input_filename = document.filename
-      temp_file.output_filename = base_name(document.filename)
-      temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
-      temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
-      temp_file.description = base_name(document.filename).capitalize().replace("_", " ")
-      temp_file.fields = all_fields.matching_pdf_fields_from_file(document)
-      temp_file.has_addendum = all_fields.has_addendum_fields()
-
-  # TODO: it would be possible to merge the "bundles" list with the
-  # attachments/labels_list.
-  bundles.clear()
-  user_bundle = bundles.appendObject()
-  user_bundle.name = 'al_user_bundle'
-  user_bundle.elements = labels_lists
-  
-  court_bundle = bundles.appendObject()
-  if interview.court_related:
-    court_bundle.name = 'al_court_bundle'
-  else:
-    court_bundle.name = 'al_recipient_bundle'
-  # Court does not get the user next steps instructions
-  # Skip instructions TODO: remove if instructions become optional  
-  court_bundle.elements = labels_lists[1:] 
-  bundles.gathered = True
-  
-  # Bundle-name is a single value
-  if len(labels_lists) > 1:
-    bundle_name =  sanitized_filename + '_package.pdf'
-  else:
-    bundle_name = sanitized_filename + '.pdf'
-  
-  process_attachments = True
+  interview.instructions = next_steps_documents[interview.form_type]['attachment'].docx  
 ---
 #######################################
 # Code to support github feedback form
@@ -1409,7 +1341,7 @@ subquestion: |
   ${ collapse_template(yaml_source) }
   
   Download the YAML file only:  
-  [:download: Download YAML](${interview_mako_output.yml.url_for(attachment=True)})
+  [:download: Download YAML](${interview_mako_output.raw.url_for(attachment=True)})
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})
@@ -1595,11 +1527,11 @@ code: |
   # Let someone bootstrap an interview from the form explorer
   interview.original_form = url_args.get('form_to_use')
   if has_safe_pdf_in_url:
-    template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
-    template_upload[0] = DAFile('template_upload[0]')
-    template_upload[0].initialize(extension="pdf")
-    template_upload[0].from_url(url_args.get('form_to_use'))
-    template_upload[0].created = True    
+    interview.uploaded_templates = DAFileList('interview.uploaded_templates', auto_gather=False, gathered=True)
+    interview.uploaded_templates[0] = DAFile('interview.uploaded_templates[0]')
+    interview.uploaded_templates[0].initialize(extension="pdf")
+    interview.uploaded_templates[0].from_url(url_args.get('form_to_use'))
+    interview.uploaded_templates[0].created = True    
   if url_args.get('title'):
     interview.short_filename_with_spaces = url_args.get('title')
     interview.title = interview.short_filename_with_spaces
