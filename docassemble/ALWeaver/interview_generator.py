@@ -170,6 +170,7 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
     max_chars = num_rows * num_cols
     return max_chars
 
+
 def varname(var_name: str) -> str:
     if var_name:
         var_name = var_name.strip()
@@ -179,10 +180,12 @@ def varname(var_name: str) -> str:
         return var_name
     return var_name
 
+
 class DAFieldGroup(Enum):
     BUILT_IN = "built in"
     SIGNATURE = "signature"
     CUSTOM = "custom"
+
 
 class DAField(DAObject):
     """A field represents a Docassemble field/variable. I.e., a single piece of input we are gathering from the user.
@@ -757,14 +760,11 @@ class DAFieldList(DAList):
         label each "custom" field in the field list
         """
         return [
-            item for item in itertools.chain.from_iterable(
-                [ 
-                    field.user_ask_about_field()
-                    for field in self.custom()
-                ]
+            item
+            for item in itertools.chain.from_iterable(
+                [field.user_ask_about_field() for field in self.custom()]
             )
         ]
-
 
     def matching_pdf_fields_from_file(self, document: DAFile) -> List[str]:
         """
@@ -942,6 +942,7 @@ class DAFieldList(DAList):
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         ]
 
+
 class DABlock(DAObject):
     """
     A Block in a Docassemble interview YAML file.
@@ -983,6 +984,7 @@ class DABlockList(DAList):
             )
         return fields
 
+
 class DAQuestion(DABlock):
     """
     DABlock that also contains a list of fields
@@ -991,6 +993,8 @@ class DAQuestion(DABlock):
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.field_list = DAFieldList()
+
+
 class DAQuestionList(DAList):
     """This represents a list of DAQuestions."""
 
@@ -1024,12 +1028,18 @@ class DAQuestionList(DAList):
             )
         return fields
 
-    def interview_order_list(self, all_fields, screens:List["DAQuestion"]=None, sections:Optional[List]=None, set_progress=True) -> List[str]:
+    def interview_order_list(
+        self,
+        all_fields,
+        screens: List["DAQuestion"] = None,
+        sections: Optional[List] = None,
+        set_progress=True,
+    ) -> List[str]:
         """
         Creates a list of fields for use in creating an interview order block.
         Fairly opinionated/tied to current expectations of AssemblyLine:
 
-        1. 
+        1.
         """
         if not screens:
             screens = self
@@ -1037,39 +1047,47 @@ class DAQuestionList(DAList):
         logic_list = []
 
         total_num_screens = len(screens)
-        
-        # We'll have a progress step every 5 screens, 
+
+        # We'll have a progress step every 5 screens,
         # unless it's very short
         if total_num_screens > 20:
             screen_divisor = 5
         else:
             screen_divisor = 3
-        
-        total_steps = round(total_num_screens / screen_divisor) + 2 # signature screen adds two steps
-        increment = 100/total_steps
+
+        total_steps = (
+            round(total_num_screens / screen_divisor) + 2
+        )  # signature screen adds two steps
+        increment = int(100 / total_steps)
         progress = 0
-        
+
         saved_answer_name_flag = False
         for index, question in enumerate(screens):
             if index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
-            if isinstance(question, DAQuestion) and question.type == 'question':
+            if isinstance(question, DAQuestion) and question.type == "question":
                 # TODO(bryce): make OOP: don't refer to question.type
                 # Add the first field in every question to our logic tree
-                # This can be customized to control the order of questions later      
+                # This can be customized to control the order of questions later
                 if question.needs_continue_button_field:
                     logic_list.append(varname(question.question_text))
                 else:
                     logic_list.append(question.field_list[0].trigger_gather())
             else:
-            # it's a built-in field OR a signature, not a question block
-                if not (question in all_fields.builtins() and question.trigger_gather().endswith('.signature')):
-                    logic_list.append(question.trigger_gather())      
+                # it's a built-in field OR a signature, not a question block
+                if not (
+                    question in all_fields.builtins()
+                    and question.trigger_gather().endswith(".signature")
+                ):
+                    logic_list.append(question.trigger_gather())
                     # set the saved answer name so it includes the user's name in saved
                     # answer list
                     # NOTE: this is redundant now that we have a custom interview list, but leaving for now
-                    if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
+                    if (
+                        question.trigger_gather() == "users.gather()"
+                        and not saved_answer_name_flag
+                    ):
                         logic_list.append("set_parts(subtitle=str(users))")
                         saved_answer_name_flag = True
 
@@ -1107,11 +1125,9 @@ class DAInterview(DAObject):
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
         if not hasattr(self, "dependencies"):
-            self.dependencies = []
+            self.dependencies:List[str] = []
         if not self.dependencies:
-            self.dependencies = [
-                assembly_line_dep
-            ]
+            self.dependencies = [assembly_line_dep]
         elif assembly_line_dep not in self.dependencies:
             self.dependencies.append(assembly_line_dep)
 
@@ -1135,53 +1151,59 @@ class DAInterview(DAObject):
 
     @property
     def package_title(self):
-        return re.sub("\W|_","", self.interview_label.title())
-        
+        return re.sub("\W|_", "", self.interview_label.title())
 
-    def create_package(self, interview_mako_output:DAFileCollection, generate_download_screen:bool=True, output_file:Optional[DAFile]=None) -> DAFile:
+    def create_package(
+        self,
+        interview_mako_output: DAFileCollection,
+        generate_download_screen: bool = True,
+        output_file: Optional[DAFile] = None,
+    ) -> DAFile:
 
-        # 2. Build data for folders_and_files and package_info   
+        # 2. Build data for folders_and_files and package_info
         folders_and_files = {
             "questions": [interview_mako_output],
-            "modules":[],
+            "modules": [],
             "static": [],
-            "sources": []
+            "sources": [],
         }
 
         if generate_download_screen:
-            folders_and_files["templates"] = [self.instructions] + self.uploaded_templates
+            folders_and_files["templates"] = [
+                self.instructions
+            ] + self.uploaded_templates
         else:
             folders_and_files["templates"] = []
-            
+
         package_info = self.package_info()
 
         if self.author and str(self.author).splitlines():
             # TODO(qs): is it worth ever adding email here?
             # It would conflict with listing multiple authors
-            default_vals = {
-            "author name and email": str(self.author).splitlines()[0]
-            }
-            package_info['author_name'] = default_vals['author name and email']
+            default_vals = {"author name and email": str(self.author).splitlines()[0]}
+            package_info["author_name"] = default_vals["author name and email"]
         else:
-            default_vals = {
-            "author name and email": "author@example.com"
-            }
-            
-        # 3. Generate the output package
-        return create_package_zip(self.package_title,
-                package_info,
-                default_vals,
-                folders_and_files, 
-                output_file)
+            default_vals = {"author name and email": "author@example.com"}
 
-    def attachment_varnames(self)->str:
+        # 3. Generate the output package
+        return create_package_zip(
+            self.package_title,
+            package_info,
+            default_vals,
+            folders_and_files,
+            output_file,
+        )
+
+    def attachment_varnames(self) -> str:
         if len(self.uploaded_templates) == 1:
             return f"{self.interview_label }_attachment"
         else:
-            return comma_list([
-                varname(base_name(document.filename))
-                for document in self.uploaded_templates
-            ])
+            return comma_list(
+                [
+                    varname(base_name(document.filename))
+                    for document in self.uploaded_templates
+                ]
+            )
 
 
 def fix_id(string: str) -> str:
