@@ -189,7 +189,7 @@ class DAField(DAObject):
       In the case of PDFs, there could be multiple, i.e. `child__0` and `child__1`
     * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
       non identifier characters
-    * `final_display_var`: the docassamble python code that computes exactly what the author wants in their PDF
+    * `final_display_var`: the docassemble python code that computes exactly what the author wants in their PDF
 
     In many of the methods, you'll also find two other common versions of the field, computed on the fly:
     * `trigger_gather`: returns the statement that causes docassemble to correctly ask the question for this variable,
@@ -201,6 +201,12 @@ class DAField(DAObject):
 
     def init(self, **kwargs):
         return super().init(**kwargs)
+
+    @property
+    def complete(self):
+        self.variable
+        self.label
+        return True
 
     def fill_in_docx_attributes(
         self,
@@ -610,31 +616,15 @@ class DAFieldList(DAList):
     """A DAFieldList contains multiple DAFields."""
 
     def init(self, **kwargs):
+        super().init(**kwargs)
         self.object_type = DAField
         self.auto_gather = False
-        # self.gathered = True
-        return super().init(**kwargs)
-
+        self.complete_attribute = "complete"
+        
     def __str__(self):
         return docassemble.base.functions.comma_and_list(
-            map(lambda x: "`" + x.variable + "`", self.elements)
+            map(lambda x: "`" + x.variable + "`", self.complete_elements())
         )
-
-    def __add__(self, other):
-        """Needed to make sure that DAFieldLists stay DAFieldLists when adding them"""
-        self._trigger_gather()
-        if isinstance(other, DAEmpty):
-            return self
-        if isinstance(other, DAFieldList):
-            other._trigger_gather()
-            the_list = DAFieldList(
-                elements=self.elements + other.elements,
-                gathered=True,
-                auto_gather=False,
-            )
-            the_list.set_random_instance_name()
-            return the_list
-        return self.elements + other
 
     def consolidate_yesnos(self):
         """Combines separate yes/no questions into a single variable, and writes back out to the yes
@@ -891,7 +881,7 @@ class DAFieldList(DAList):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
         # Can't use .filter() because that would create new intrinsicNames
-        return [item for item in self.elements if item.group == DAFieldGroup.BUILT_IN]
+        return [item for item in self.elements if hasattr(item, "group") and item.group == DAFieldGroup.BUILT_IN]
 
     def built_in_signature_triggers(self):
         return [
@@ -902,12 +892,12 @@ class DAFieldList(DAList):
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return [item for item in self.elements if item.group == DAFieldGroup.SIGNATURE]
+        return [item for item in self.elements if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE]
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return [item for item in self.elements if item.group == DAFieldGroup.CUSTOM]
+        return [item for item in self.elements if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM]
 
     def skip_fields(self):
         return [

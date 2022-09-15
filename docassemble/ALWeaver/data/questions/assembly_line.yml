@@ -32,6 +32,8 @@ code: |
       if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
         if yes_normalize_fields:
           process_field_normalization
+        initial_get_fields
+        validate_field_names
         validate_pdf
         if no_recognized_pdf_fields:
           warn_no_recognized_al_labels
@@ -39,6 +41,8 @@ code: |
         all_look_good
         validation_success
       elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
+        initial_get_fields
+        validate_field_names
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
         validate_docx
@@ -575,8 +579,8 @@ subject: |
 content: |
   ${ interview.all_fields.review_table }
 ---
-code: |
-  interview.all_fields.there_is_another = False
+#code: |
+#  interview.all_fields.there_is_another = False
 ---
 table: interview.all_fields.review_table
 rows: interview.all_fields + interview.all_fields.builtins()
@@ -733,6 +737,7 @@ validation code: |
 comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
+only sets: initial_get_fields
 code: |
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
@@ -768,13 +773,19 @@ code: |
   interview.all_fields.clear()
   interview.all_fields.add_fields_from_file(interview.uploaded_templates)
   interview.all_fields.gathered = True
-
+  initial_get_fields = True
+---
+code: |
+  interview.all_fields.gathered = True
+---
+code: |
   if not len(interview.all_fields) > 0:
     force_ask('empty_pdf')
   
   bad_fields = get_variable_name_warnings(interview.all_fields)
   if len(bad_fields) > 0:
     force_ask('non_descriptive_field_name')
+  validate_field_names = True
 ---
 code: |
   if have_template_to_load: 
@@ -800,23 +811,6 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
 
   add_metadata = True
----
-code: |
-  interview.questions[i].question_text
-  
-  if interview.questions[i].is_informational_screen:
-    interview.questions[i].field_list.clear()
-    # The info screen gives it a mandatory field
-    interview.questions[i].has_mandatory_field = True
-  
-  # Simplify the abstraction
-  if not interview.questions[i].has_mandatory_field or interview.questions[i].is_informational_screen:
-    # assigning continue button field name here is messy
-    interview.questions[i].needs_continue_button_field = True
-  else:
-    interview.questions[i].needs_continue_button_field = False
-    
-  interview.questions[i].complete = True
 ---
 generic object: DAObject
 code: |
@@ -1066,15 +1060,13 @@ subquestion: |
   calculate a value, for example.
   % endif
 fields:
-  - Docassemble variable name: interview.all_fields[i].final_display_var
-    hint: lower_case_format 
+  - Docassemble variable name, in `snake_case`: interview.all_fields[i].variable
     show if:
       code: |
         not hasattr(interview.all_fields[i], 'label')
     validate: |
-      lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
-  - On-screen field label: interview.all_fields[i].label
-    hint: Label to go with the input variable 
+      lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")
+  - On-screen label or prompt: interview.all_fields[i].label
   - Field type: interview.all_fields[i].field_type
     choices:
       - text
@@ -1094,8 +1086,9 @@ fields:
     hint: |
       Like 'Descriptive name: key_name', or just 'Descriptive name'
 validation code: |
-  if not hasattr(interview.all_fields[i], 'variable'):
-    interview.all_fields[i].variable = interview.all_fields[i].final_display_var
+  for field in interview.all_fields:
+    if not hasattr(field, 'final_display_var'):
+      field.final_display_var = field.variable
 continue button label: Save
 back button label: Cancel
 ---
