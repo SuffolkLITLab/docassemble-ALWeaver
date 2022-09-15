@@ -206,6 +206,8 @@ class DAField(DAObject):
     def complete(self):
         self.variable
         self.label
+        if not hasattr(self, "group"):
+            self.group = DAFieldGroup.CUSTOM
         return True
 
     def fill_in_docx_attributes(
@@ -620,7 +622,7 @@ class DAFieldList(DAList):
         self.object_type = DAField
         self.auto_gather = False
         self.complete_attribute = "complete"
-        
+
     def __str__(self):
         return docassemble.base.functions.comma_and_list(
             map(lambda x: "`" + x.variable + "`", self.complete_elements())
@@ -881,7 +883,11 @@ class DAFieldList(DAList):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
         # Can't use .filter() because that would create new intrinsicNames
-        return [item for item in self.elements if hasattr(item, "group") and item.group == DAFieldGroup.BUILT_IN]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "group") and item.group == DAFieldGroup.BUILT_IN
+        ]
 
     def built_in_signature_triggers(self):
         return [
@@ -892,12 +898,20 @@ class DAFieldList(DAList):
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return [item for item in self.elements if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE
+        ]
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return [item for item in self.elements if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM]
+        return [
+            item
+            for item in self.elements
+            if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM
+        ]
 
     def skip_fields(self):
         return [
@@ -926,6 +940,11 @@ class DAFieldList(DAList):
             for field in self
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         ]
+    
+    def hook_after_gather(self):
+        for field in self.elements:
+            if not hasattr(field, "group"):
+                field.group = DAFieldGroup.CUSTOM
 
 
 class DAQuestion(DAObject):
@@ -944,7 +963,7 @@ class DAQuestion(DAObject):
             self.field_list.clear()
             # The info screen gives it a mandatory field
             self.has_mandatory_field = True
-        
+
         # Simplify the abstraction
         if not self.has_mandatory_field or self.is_informational_screen:
             # assigning continue button field name here is messy
@@ -972,7 +991,10 @@ class DAQuestionList(DAList):
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
-                    if not hasattr(field, "group") or field.group == DAFieldGroup.CUSTOM:
+                    if (
+                        not hasattr(field, "group")
+                        or field.group == DAFieldGroup.CUSTOM
+                    ):
                         fields.add(field)
         if all_fields:
             fields.update(
@@ -980,7 +1002,6 @@ class DAQuestionList(DAList):
                     field
                     for field in all_fields
                     if field.field_type in ["code", "skip this field"]
-                    and not hasattr(field, "group") or field.group == DAFieldGroup.CUSTOM
                 ]
             )
         return fields
@@ -1062,13 +1083,15 @@ class DAInterview(DAObject):
         self.initializeAttribute("questions", DAQuestionList)
         self.initializeAttribute("all_fields", DAFieldList.using(auto_gather=False))
 
-    def has_unassigned_fields(self):        
-        return len(self.questions.all_fields_used(all_fields=self.all_fields.custom())) < len(self.all_fields.custom())
+    def has_unassigned_fields(self):
+        return len(
+            self.questions.all_fields_used(all_fields=self.all_fields.custom())
+        ) < len(self.all_fields.custom())
 
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
         if not hasattr(self, "dependencies"):
-            self.dependencies:List[str] = []
+            self.dependencies: List[str] = []
         if not self.dependencies:
             self.dependencies = [assembly_line_dep]
         elif assembly_line_dep not in self.dependencies:
