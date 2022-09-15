@@ -962,7 +962,7 @@ class DAQuestionList(DAList):
         self.object_type = DAQuestion
         self.complete_attribute = "complete"
 
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
+    def all_fields_used(self, all_fields: List = None):
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
         screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
         It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
@@ -972,7 +972,7 @@ class DAQuestionList(DAList):
         for question in self.elements:
             if hasattr(question, "field_list"):
                 for field in question.field_list.elements:
-                    if field.group == group:
+                    if not hasattr(field, "group") or field.group == DAFieldGroup.CUSTOM:
                         fields.add(field)
         if all_fields:
             fields.update(
@@ -980,7 +980,7 @@ class DAQuestionList(DAList):
                     field
                     for field in all_fields
                     if field.field_type in ["code", "skip this field"]
-                    and field.group == group
+                    and not hasattr(field, "group") or field.group == DAFieldGroup.CUSTOM
                 ]
             )
         return fields

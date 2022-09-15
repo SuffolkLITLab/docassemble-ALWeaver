@@ -1203,6 +1203,7 @@ code: |
   #HACK: Docassemble bug:
   # - stops us from using interview_label.yml as the original filename, and
   # - stops us from just renaming the file instead of making a copy.
+  #TODO(#689) should fix this
   temp_interview = DAFile(filename = f"{ interview.interview_label }.yml")
   temp_interview.initialize()
   temp_interview.copy_into(interview_mako_output.raw)
