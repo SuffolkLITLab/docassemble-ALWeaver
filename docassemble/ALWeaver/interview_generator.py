@@ -940,7 +940,7 @@ class DAFieldList(DAList):
             for field in self
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         ]
-    
+
     def hook_after_gather(self):
         for field in self.elements:
             if not hasattr(field, "group"):
