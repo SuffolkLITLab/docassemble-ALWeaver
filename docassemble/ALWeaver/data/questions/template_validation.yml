@@ -1,0 +1,684 @@
+---
+modules:
+ - .interview_generator
+---
+############################### General validation stuff ##############
+---
+id: confirm-mixed-document-fields
+continue button field: validate_mixed_documents
+question: |
+  Validate your templates
+subquestion: |
+  #### Your upload contains both DOCX and PDF files
+
+  #### Fields
+  
+  All of the fields in your template files are listed in the table below.
+  Confirm that the table looks right.
+  
+  A **bold** name means that this field is **reserved**.
+  Reserved fields are fields that will be handled with a question that
+  comes from the AL Question Library. For example:
+  
+  * Name fields
+  * Address fields
+  * Basic contact information and court information
+  
+  If you expect a field to be bold but it isn't, check the field's spelling.
+
+  The **type** of each field is just a guess, based on the field's name.
+  You can override the guess later.
+
+  Name (bold if {reserved}) | Type
+  --------------------------|------
+  % for field in validation_fields.builtins():
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
+  % endfor
+  % for field in validation_fields.custom():
+  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
+  % endfor
+  % for field in validation_fields.signatures():
+  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
+  % endfor
+    
+  #### Preview  
+  Look over the PDF preview of your file below. Make sure that the
+  fonts, spacing, and styles look about right. Note: the conditional logic
+  and text your user enters can change the formatting. You will also
+  see the placeholder variable names unchanged in this preview.
+  
+  For safety, we recommend that you use the standard [Microsoft Core Fonts
+  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
+  Arial and Times New Roman, as the standard fonts in Word templates.
+  
+  If spacing or other formatting looks wrong, try editing your file in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right
+  there.
+  
+  % for document in interview.uploaded_templates:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
+fields:
+  - no label: mixed_fields_checkup_status
+    datatype: checkboxes
+    choices:
+      - All of my fields are listed in the table above: interview.all_fields_present
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: fonts_okay
+        help: |
+          Note: use the Microsoft Core Fonts for the Web to be safe.
+    minlength: 4
+    validation messages:
+      minlength: |
+        You must select all of the checkboxes to keep going.
+    none of the above: False
+terms:
+  - reserved: |
+      Means there is a built-in question for this field.
+css: |
+  <style>
+  .question-confirm-docx-fields div.container {
+    max-width: 2000px;
+  }  
+  </style>
+---
+template: interview.uploaded_templates[i].preview_template
+subject: |
+  Preview ${ interview.uploaded_templates[i].filename }
+content: |
+  % if interview.uploaded_templates[i].mimetype == "application/pdf":
+  ${ pdf_concatenate(overlay_pdf(interview.uploaded_templates[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf") }  
+  % else:
+  ${ pdf_concatenate(interview.uploaded_templates[i]) }
+  % endif
+---
+attachment:
+  variable name: interview.uploaded_templates[i].pdf_field_preview
+  editable: False
+  pdf template file:
+    code: |
+      interview.uploaded_templates[i]
+  code: |
+    reflect_fields(interview.uploaded_templates[i].get_pdf_fields(), placeholder_signature)
+
+---
+template: template_preview
+subject: |
+  Preview
+content: |
+  ${ interview.uploaded_templates }
+---
+id: no recognized fields
+question: |
+  You do not have any labels that match the Assembly Line labels
+subquestion: |
+  It is a good idea to use labels that match the Assembly Line documentation.
+  Almost every form has a user and most forms also have an opposing party.
+  You should use the Assembly Line labels for these concepts.
+  
+  You can also add labels for:
+  
+  * names for different kinds of people
+  * signatures
+  * addresses
+  * court information
+
+  ${ action_button_html("https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables", label="Read the labeling documentation", color="info") }
+sets: warn_no_recognized_al_labels
+buttons: 
+  - I know what I'm doing, let me continue:    
+      code: |
+        warn_no_recognized_al_labels = True
+  - Exit: exit
+    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables
+  - Restart: restart
+---
+event: exit_unknown_file_type
+question: |
+  Is this a valid PDF or DOCX file?
+subquestion: |
+  The file you uploaded doesn't appear to be a valid DOCX or PDF document.
+---
+event: exit_invalid_pdf
+question: |
+  Is this a valid PDF?
+subquestion: |
+  ${ document.filename } does not seem to be a PDF file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
+  
+  If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
+  or [qpdf](http://qpdf.sourceforge.net/) to fix it.
+buttons:
+  - Restart: restart
+---
+event: exit_PSEOF_error
+question: |
+  Something is wrong with the internals of this PDF
+subquestion: |
+  Docassemble was not able to read ${ document.filename }.
+  
+  You can try using [qpdf](http://qpdf.sourceforge.net/) or
+  [documate.org/pdf](https://www.documate.org/pdf) to fix it, but some of your
+  interactive elements may stop working.
+buttons:
+  - Restart: restart
+---
+event: exit_invalid_docx
+question: |
+  Is this a valid DOCX file?
+subquestion: |
+  ${ document.filename } does not seem to be a DOCX file. Usually
+  this error happens because the file is corrupt or has the wrong extension.
+
+  Docassemble was not able to read the file you uploaded. Make sure it is a
+  valid document.
+buttons:
+  - Restart: restart
+
+---
+############################### PDF validation ########################
+---
+code: |
+  for document in interview.uploaded_templates:
+    if document.filename.endswith("pdf"):
+      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1)
+      document.commit()
+  process_field_normalization = True
+---
+code: |
+  temp_new_pdf = DAFile("temp_new_pdf", filename=os.path.basename(interview.uploaded_templates[0].path()))
+  for document in interview.uploaded_templates:
+    if document.filename.endswith("pdf"):
+      temp_new_pdf.initialize()
+      formfyxer.auto_add_fields(document.path(), temp_new_pdf.path())
+  
+      # also normalize field names after newly recognizing them
+      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1)
+  
+      temp_new_pdf.commit()
+      document.copy_into(temp_new_pdf)
+  process_field_recognition = True
+---
+objects:
+  - placeholder_signature: DAStaticFile.using(filename='placeholder_signature.png')
+---
+images:
+  stop_sign: stop_sign.png  
+  green_light: green_light.png
+---
+code: |
+  interview.all_fields.gathered
+  people_list = interview.all_fields.get_person_candidates(custom_only=True)
+  possible_custom = [
+    field.variable 
+    for field in interview.all_fields
+    if is_reserved_label(field.variable, reserved_prefixes=people_list)
+  ]
+---
+event: empty_pdf
+question: You uploaded an empty PDF
+subquestion: |
+  The PDF you uploaded (${ interview.uploaded_templates[0].filename }) does not have any 
+  fillable interview.all_fields. To make a new interview with the Weaver, we need to have a 
+  document that has fillable interview.all_fields.
+  
+  If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
+  tool like [Adobe Acrobat](https://acrobat.adobe.com). 
+  For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+
+  If you uploaded a form that can only be opened in Adobe Acrobat (a LiveCycle
+  or XFA form), you may need to flatten it first. You can flatten an XFA form
+  using [iText PDF's free 
+  tool](https://itextpdf.com/en/demos/flatten-dynamic-xfa-pdf-free-online).
+buttons:
+  - Restart: restart
+---
+event: non_descriptive_field_name
+question: Some of the fields in your PDF are not descriptive
+subquestion: |
+  There are fields that can't be turned into descriptive variable names in the given PDF. You should make sure all field names abide by the rules in the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
+  
+  The fields that have issues are:
+
+  % for bad_field in bad_fields:
+    * ${ bad_field }
+  % endfor
+
+buttons:
+  - Restart: restart
+---
+event: parsing_exception
+question: ${ parsing_ex.main_issue }
+subquestion: |
+  ${ parsing_ex.description }
+
+  % if parsing_ex.url is not None:  
+  Check out the [documentation](${ parsing_ex.url }) to learn more.
+  % endif
+  
+buttons:
+  - Restart: restart
+---
+code: |
+  warnings_temp = set()
+  for field in interview.all_fields:
+    if ' ' in field.variable:
+      warnings_temp.add('space')
+    if hasattr(field, "field_type_not_handled") and field.field_type_not_handled:
+      warnings_temp.add('not handled')
+  warnings = warnings_temp
+  del warnings_temp
+---
+code: |
+  no_recognized_pdf_fields = not (any(field for field in interview.all_fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
+---
+id: confirm-pdf-fields
+question: |
+  % if len(warnings) > 0:
+  Correct warnings in field labels
+  % else:
+  Check for expected fields
+  % endif
+subquestion: |
+  The table below shows all of the fields present in your PDF. Read through 
+  it to make sure that everything is as you expect it to be.      
+  
+  A **bold** name means that this field is **reserved**, because input for this 
+  field will be asked by a built-in question from the AL Question Library later 
+  in your playground. Common reserved-field examples are: fields associated 
+  with signature or representing someone's name. If you expect a field to be 
+  bold but it isn't, check the field's spelling.
+
+  Name (bold if {reserved}) | Type | {Internal DA name} | Max length
+  -----------|------------|-------------------|-----------
+  % for field in interview.all_fields:
+  ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${map_raw_to_final_display(field.variable) if not (map_raw_to_final_display(field.variable) == field.variable) else ''} | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
+  % endfor
+  
+  % if 'space' in warnings:
+  :exclamation-triangle: Indicates that the field name has a space in it.
+  Replace any spaces with underscores in the PDF field name before continuing.
+  % endif
+  
+  % if 'not handled' in warnings:
+  :skull-crossbones: Indicates it's a field type that our interview generator
+  does not currently handle. 
+  If you can, make the field into a checkbox, text input, 
+  or digital signature field.
+  % endif
+  
+  % if len(possible_custom) > 0:
+  :question: Indicates that we think this field could be handled by 
+  questions in our question library, so you don't have to write your own questions for it! You can choose whether to use our default questions later.
+  % endif
+  ------------------------------------------------------------
+fields:
+  - note: |
+      Confirm your field-checkup status. All the boxes must be checked, otherwise you'll get an error message for each unchecked box along with instructions to correct the issues.
+      
+      If more of the :question: fields are listed as reserved than you expected: that's okay! You'll get to chose which ones are actually reserved later when you build your interview.
+  - no label: fields_checkup_status
+    datatype: checkboxes
+    choices:
+      - All my fields are listed in the table above: interview.all_fields_present
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+    none of the above: False    
+  - Are you okay with fixing the shown warnings yourself?: will_handle_errors
+    datatype: yesnoradio
+    required: True
+    validate: |
+      lambda y: True if y else validation_error("You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">edit your PDF</a> to address these warnings")
+    show if:
+      code: |
+        len(warnings) > 0
+validation code: |
+  all_present_msg = ''
+  all_expected_msg = '' 
+  correct_reserved_msg = ''
+  if not fields_checkup_status['interview.all_fields_present']:    
+    all_present_msg = "<ul><li>You didn't confirm 'All my fields are listed in the table above'. Double check your PDF to make sure you <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">created the field correctly</a> for details!</li></ul>"    
+  if not fields_checkup_status['no_unexpected_fields']:
+    all_expected_msg = "<ul><li>You didn't confirm 'There are no unexpected fields in the table'. You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">remove fields</a> that you won't be asking for or showing in the form.</li></ul>"
+  if not fields_checkup_status['correct_reserved_fields']:
+    correct_reserved_msg = "<ul><li>You didn't confirm 'All the reserved fields are bolded as I expected'. Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are spelled correctly.</li></ul>"
+  pdf_preview_msg = all_present_msg + all_expected_msg + correct_reserved_msg
+  if len(pdf_preview_msg) > 0:
+    validation_error(pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']")   
+#continue button field: field_list_display
+help:
+  label: Debug Info
+  content: |
+    % for field in interview.all_fields:
+    * ${field}
+    % endfor
+terms:
+  - reserved: |
+      Means there is a built-in question for this field.
+  - Internal DA name: |
+      Means that the variable name will be changed for Docassemble. 
+      We change names that have built-in questions, as well as those starting
+      with the name of a person/group of people, which we turn into "attributes" of that person.
+css: |
+  <style>
+  .question-confirm-pdf-fields div.container {
+    max-width: 2000px;
+  }
+  </style>
+right: |
+  #### Preview of PDF label placement
+  
+  <iframe src="${ field_preview_pdf.url_for() }" height="400"></iframe>
+  
+  _Limitations_: we do not have a way to show you the labels for
+  checkbox fields yet.
+  
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview.all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
+---
+objects:
+  - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
+---
+id: Confirm filled in PDF
+question: |
+  Here is the filled-in PDF
+subquestion: |
+  The fields are filled in with the names listed in the table on the previous screen.  
+  
+  All signature fields should be filled in with this image: ${placeholder_signature}
+
+  % for document in interview.uploaded_templates:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+  
+fields:
+  - note: |
+      Confirm your approval of the filled-in PDF. All the boxes must be checked, or you'll get an error message along with instructions to correct the issues.
+  - Confirm the fields are filled in correctly: all_look_good
+    datatype: checkboxes
+    choices:
+      - All the checkboxes are checked: all_checkboxes_checked
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
+        help: |
+          While you may prefer to fix font size now, it will not change your experience
+          with the Weaver. You can upload the fixed template to the Playground later.
+      - All signature fields are filled in with the signature image: signature_filled_in
+    none of the above: False    
+validation code: |
+  checkboxes_msg = ''
+  text_mst = ''
+  signature_msg = ''
+  if not all_look_good['all_checkboxes_checked']:
+    checkboxes_msg = "<ul><li>You didn't confirm 'All the checkboxes are checked'. Check the field's 'export' value. It should be set to 'Yes'.</li></ul>"
+  if not all_look_good['no_unusual_size_text']:
+    text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
+  if not all_look_good['signature_filled_in']:
+    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature interview.all_fields.</li></ul>"  
+  msg = checkboxes_msg + text_mst + signature_msg
+  if len(msg) > 0:
+    validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
+---
+id: pdf tester success
+question: |
+  Your form has passed the test
+subquestion: |  
+  <span class="icon">[FILE stop_sign, 5%]</span> **If your job is only to label the form**, press the **Exit** button and [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
+
+  <span class="icon">[FILE green_light, 5%]</span> **If your job is to build the interview**, press the **Keep going** button to build your draft interview.
+sets: validation_success
+buttons: 
+  - Keep going:   
+      code: |
+        validation_success = True
+  - Exit: exit
+    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
+---
+code: |
+  rename_fields = {}
+---
+id: rename fields
+question: |
+  Rename fields
+fields: 
+  - code: |
+      [{item[0]: f"rename_fields['{item[0]}']", "default" : item[0], "label above field": True, "required": False} for item in interview.uploaded_templates[0].get_pdf_fields()]
+right: |
+  #### Preview of PDF label placement
+  
+  <iframe src="${ field_preview_pdf.url_for() }" height="400"></iframe>
+
+  _note_: This preview will not update with live changes.
+  
+continue button field: display_rename_field_choices
+---
+code: |
+  rename_pdf_fields(interview.uploaded_templates[0].path(), rename_fields)
+  
+  renamed_fields = True
+---
+attachment:
+  variable name: field_preview_pdf
+  editable: False
+  pdf template file:
+    code: |
+      interview.uploaded_templates
+  code: |
+    reflect_fields(interview.uploaded_templates[0].get_pdf_fields(), placeholder_signature)
+---
+code: |
+  from pdfminer.pdfparser import PDFSyntaxError
+  from PyPDF2.utils import PdfReadError
+  
+  try:
+    pdf_concatenate(interview.uploaded_templates)
+  except PDFSyntaxError:
+    # Handle PDF read error
+    force_ask('exit_invalid_pdf')
+  except PdfReadError:
+    force_ask('exit_xref_table')
+  except:
+    pass # Continue on to safer checks with get_pdf_fields
+  validate_pdf = True
+---
+event: exit_xref_table
+question: |
+  This PDF is not valid
+subquestion: |
+  There was a problem reading this PDF.
+  
+  Sometimes you can fix this problem by using 
+  [documate.org/pdf](https://www.documate.org/pdf) or by using 
+  [qpdf](http://qpdf.sourceforge.net/).
+  
+  [Read 
+  more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
+buttons:
+  - Restart: restart
+---
+###################### DOCX validation stuff #############################
+---
+code: |
+  verify_docx_fields 
+  validate_docx = True
+---
+code: |
+  no_recognized_docx_fields = not (any(field for field in validation_fields if field.reserved) or len(validation_people_list))
+---
+id: Did you intend to use Mako syntax
+question: |
+  Did you intend to use Mako syntax?
+subquestion: |
+  Your DOCX template looks like it is using the Mako syntax ${ }. Usually
+  this is an error. DOCX files use Jinja2 syntax, not Mako. You may want to 
+  stop here and fix your template by replacing any instances of <%text>`${ }` 
+  with `{{ }}`.</%text>
+  
+  These are the lines that look like they contain Mako syntax:
+  
+  % for match in mako_matches:
+  * ${ match }
+  % endfor
+  
+  If the matches above are "false positives" or you intentionally used
+  Mako syntax in your DOCX file, keep on going, but your template
+  might not do what you intended. 
+  
+  Check out the documentation for 
+  [python-docx-template](https://docxtpl.readthedocs.io/en/latest/#jinja2-like-syntax) 
+  and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
+sets: mako_syntax_in_docx  
+buttons: 
+  - I understand, let me continue: 
+      code: |
+        mako_syntax_in_docx = True
+  - Restart: restart
+---
+id: did you intend to use PDF variable names
+question: |
+  Did you intend to use variables that match a PDF variable name?
+subquestion: |
+  Your DOCX template looks like it is using a variable name that is 
+  normally only used in a PDF. You may want to stop here and fix your template 
+  by replacing the PDF variable name with the DOCX equivalent.
+
+  These are the lines that look like they contain PDF variable names:
+
+  % for match in pdf_variable_name_in_docx_matches:
+  * `${ match[0] }`, did you mean `${ match[1] }`?
+  % endfor
+
+  Check out [the labeling
+  documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
+  and pay attention to the columns labeled `Docassemble / DOCX form`.
+sets: warn_pdf_variable_names_in_docx
+buttons: 
+  - I understand, let me continue: 
+      code: |
+        warn_pdf_variable_names_in_docx = True
+  - Restart: restart
+---
+id: jinja_exception
+event: jinja_exception
+question: |
+  Your template has invalid Jinja2 syntax
+subquestion: |
+  The error was:
+  
+  ${ jinja_errors }
+  
+  Check out the documentation for 
+  [python-docx-template](https://docxtpl.readthedocs.io/en/latest/#jinja2-like-syntax) 
+  and for [Jinja2](https://jinja.palletsprojects.com/en/3.0.x/) to learn more.
+---
+id: confirm-docx-fields
+continue button field: verify_docx_fields
+question: |
+  Validate your template
+subquestion: |
+  #### Fields
+  
+  All of the fields in your DOCX ${ interview.uploaded_templates.as_noun("file") } are listed
+  in the table below. Confirm that the table looks right.
+  
+  A **bold** name means that this field is **reserved**.
+  Reserved fields are fields that will be handled with a question that
+  comes from the AL Question Library. For example:
+  
+  * Name fields
+  * Address fields
+  * Basic contact information and court information
+  
+  If you expect a field to be bold but it isn't, check the field's spelling.
+
+  The **type** of each field is just a guess, based on the field's name.
+  You can override the guess later.
+
+  Name (bold if {reserved}) | Type
+  --------------------------|------
+  % for field in validation_fields.builtins():
+  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
+  % endfor
+  % for field in validation_fields.custom():
+  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
+  % endfor
+  % for field in validation_fields.signatures():
+  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
+  % endfor
+  
+  % if len(validation_people_list) > 0:
+  :question: Indicates that we think this field could be handled by 
+  questions in our question library, so you don't have to write your own 
+  questions for it! You can choose whether to use our default questions later.
+  % endif
+  
+  #### Preview  
+  Look over the PDF preview of your file below. Make sure that the fonts,
+  spacing, and styles look about right. Note: the conditional logic and text
+  your user enters can change the formatting by moving text to a new line. You
+  will also see the placeholder variable names unchanged in this preview.
+  
+  In DOCX templates, for safety, we recommend that you use the standard
+  [Microsoft Core Fonts for the
+  Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including Arial
+  and Times New Roman, as the standard fonts. It is possible to install additional
+  fonts but it may be complex.
+  
+  If spacing or other formatting looks wrong, try editing your DOCX files in
+  [LibreOffice](https://www.libreoffice.org/) and get it looking right there.
+  
+  % for document in interview.uploaded_templates:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
+fields:
+  - no label: docx_fields_checkup_status
+    datatype: checkboxes
+    choices:
+      - All of my fields are listed in the table above: interview.all_fields_present
+      - There are no unexpected fields in the table: no_unexpected_fields
+      - All the reserved fields are bolded as I expected: correct_reserved_fields    
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: fonts_okay
+        help: |
+          Note: use the Microsoft Core Fonts for the Web to be safe.
+    minlength: 4
+    validation messages:
+      minlength: |
+        You must select all of the checkboxes to keep going.
+    none of the above: False
+terms:
+  - reserved: |
+      Means there is a built-in question for this field.
+css: |
+  <style>
+  .question-confirm-docx-fields div.container {
+    max-width: 2000px;
+  }  
+  </style>
+---
+template: preview_docx_file
+subject: |
+  Preview your DOCX template
+content: |
+  ${ pdf_concatenate(interview.uploaded_templates) }
+---
+only sets:
+  - validation_fields
+  - validation_people_list
+code: |
+  validation_people_list = interview.all_fields.get_person_candidates(custom_only=True)
+  validation_fields = interview.all_fields.copy_deep("validation_fields")
+
+  for field in validation_fields:
+    if field.source_document_type == "docx":
+      field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list
+    elif field.source_document_type == "pdf":
+      field.reserved = is_reserved_label(field.variable)
+    
+  validation_fields.mark_people_as_builtins(people_list)

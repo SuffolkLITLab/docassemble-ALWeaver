@@ -1,0 +1,28 @@
+---
+event: configure_weaver
+question: |
+  Configure Weaver
+subquestion: |
+  The Weaver looks for packages on this server that have said they contain the ability
+  to add customizations, such as new dependencies, variable names, or output patterns.
+  You can add your own Docassemble package that has custom options. For an example
+  package, view [ALAnyState](https://github.com/suffolklitlab/docassemble-alanystate).
+
+  Published Weaver capabilities:
+  
+  % for capability in weaverdata.get("published_configuration_capabilities"):
+  % if "playground" not in capability:
+  * ${ capability }
+  % else:
+  * ${ capability } _(playground only)_
+  % endif
+  % endfor
+  
+  You can clear the configuration by erasing the list of published capabilities. Restarting the
+  server will re-publish capabilities for any packages that are currently on this server.
+  
+  ${ action_button_html(url_action('delete_configuration'), label="Reset published capabilities", icon="trash-alt") }
+---
+event: delete_configuration
+code: |
+  weaverdata.delete("published_configuration_capabilities")  

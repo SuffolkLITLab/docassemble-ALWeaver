@@ -1,3 +1,10 @@
+---
+include:
+  - template_validation.yml
+  - visual.yml
+  - docassemble.ALToolbox:display_template.yml
+  - weaver_configuration.yml
+---  
 metadata:
   title: |
     Interview Weaver: Document Assembly Line
@@ -5,99 +12,6 @@ metadata:
   logo: |
     <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org
----
-imports:
-  - formfyxer
----
-mandatory: True
-code: |
-  menu_items = [ action_menu_item('Configure Weaver', 'configure_weaver') ]
----
-objects:
-  - weaverdata: DAStore.using(base="docassemble.ALWeaver")
-  - upload_template_image: DAStaticFile.using(filename="undraw_upload_re_pasx.svg")
-  - start_from_scratch_image: DAStaticFile.using(filename="undraw_start_building_re_xani.svg")
-  - browse_library_image: DAStaticFile.using(filename="undraw_collecting_re_lp6p.svg")
-  - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
----
-event: configure_weaver
-question: |
-  Configure Weaver
-subquestion: |
-  The Weaver looks for packages on this server that have said they contain the ability
-  to add customizations, such as new dependencies, variable names, or output patterns.
-  You can add your own Docassemble package that has custom options. For an example
-  package, view [ALAnyState](https://github.com/suffolklitlab/docassemble-alanystate).
-
-  Published Weaver capabilities:
-  
-  % for capability in weaverdata.get("published_configuration_capabilities"):
-  % if "playground" not in capability:
-  * ${ capability }
-  % else:
-  * ${ capability } _(playground only)_
-  % endif
-  % endfor
-  
-  You can clear the configuration by erasing the list of published capabilities. Restarting the
-  server will re-publish capabilities for any packages that are currently on this server.
-  
-  ${ action_button_html(url_action('delete_configuration'), label="Reset published capabilities", icon="trash-alt") }
----
-event: delete_configuration
-code: |
-  weaverdata.delete("published_configuration_capabilities")  
----
-imports:
-  - pycountry
----
-features:
-  question help button: True
-  question back button: True
-  css: 
-    - styles.css  
-    - draggable_table.css
-  javascript:     
-    - draggable_table.js
----
-modules:
-  - collections
-  - docassemble.base.util
-  - docassemble.base.logger
-  - .interview_generator
-  - .custom_values
-  - .draggable_table
-  - docassemble.ALToolbox.misc #collapse_template()
-  - .validate_template_files
-  - docassemble.AssemblyLine.sessions
----
-images:
-  branding_extra: branding_extra.png
----
-include:   
-  - pdf_field_tester.yml
-  - docx_field_tester.yml
-  - visual.yml
-  - docassemble.ALToolbox:display_template.yml
----
-# Remove red playground warnings by setting default value for some variables
-# defined in events or exceptions
-objects:
-  - install_step1_status: DAEmpty
-  - task_complete: DAEmpty
-  - task_status: DAEmpty
-  - task_succeeded: DAEmpty
----
-objects:  
-  - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
-  - all_fields: DAFieldList.using(auto_gather=False)
-  - questions: DAQuestionList.using(complete_attribute='complete')
-  - interview_download: DAFile
-  - interview_package_download: DAFile
-  - screen_order: DAList.using(auto_gather=False)
-  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
-  - attachments: DAList.using(object_type=DAObject, auto_gather=False)
-  - bundles: DAList.using(object_type=DAObject, auto_gather=False)    
 ---
 mandatory: True
 id: Interview Order
@@ -114,17 +28,21 @@ code: |
     interview_type
     set_interview_type_vars 
     if have_template_to_load: 
-      template_upload
-      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, template_upload)):
+      interview.uploaded_templates
+      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
         if yes_normalize_fields:
           process_field_normalization
+        initial_get_fields
+        validate_field_names
         validate_pdf
         if no_recognized_pdf_fields:
           warn_no_recognized_al_labels
         fields_checkup_status
         all_look_good
         validation_success
-      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, template_upload)):
+      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
+        initial_get_fields
+        validate_field_names
         if no_recognized_docx_fields:
           warn_no_recognized_al_labels
         validate_docx
@@ -132,7 +50,7 @@ code: |
         validate_mixed_documents
  
   if have_template_to_load:  
-    all_fields.gathered
+    interview.all_fields.gathered
   # Display Weaver question screens   
   interview.jurisdiction_choices 
   if generate_download_screen:      
@@ -147,7 +65,7 @@ code: |
   if not generate_download_screen:    
     no_template_default_values    
   review_fields_after_labeling
-  questions.gather()
+  interview.questions.gather()
   interview.form_type
   
   # Review field order and screen order
@@ -157,70 +75,64 @@ code: |
     screen_tbl_done
 
   # Generate draft interview yaml file
-  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako
-
-  process_interview_order
+  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
   
-  if generate_download_screen: 
-    process_attachments
-
   # Assemble output package
   wrote_interview    
 
   # Display output download screen
-  show_interview
+  show_interview  
 ---
-id: feeling lucky
-question: |
-  Are you feeling lucky?
-subquestion: |
-  You can go straight to a runnable prototype of
-  "${ short_filename_with_spaces }" for ${ state_name(interview.state) },
-  or you can customize this prototype. 
-
-field: im_feeling_lucky
-buttons: 
-  - Customize: False
-  - "I'm feeling lucky": True
+features:
+  question help button: True
+  question back button: True
+  css: 
+    - styles.css  
+    - draggable_table.css
+  javascript:     
+    - draggable_table.js
 ---
-template: template_preview
-subject: |
-  Preview
-content: |
-  ${ template_upload }
+imports:
+  - formfyxer
+  - importlib  
+  - os
+  - pycountry
 ---
-id: no recognized fields
-question: |
-  You do not have any labels that match the Assembly Line labels
-subquestion: |
-  It is a good idea to use labels that match the Assembly Line documentation.
-  Almost every form has a user and most forms also have an opposing party.
-  You should use the Assembly Line labels for these concepts.
-  
-  You can also add labels for:
-  
-  * names for different kinds of people
-  * signatures  
-  * addresses
-  * court information
-
-  ${ action_button_html("https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables", label="Read the labeling documentation", color="info") }
-sets: warn_no_recognized_al_labels
-buttons: 
-  - I know what I'm doing, let me continue:    
-      code: |
-        warn_no_recognized_al_labels = True
-  - Exit: exit
-    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables
-  - Restart: restart
+modules:
+  - .custom_values
+  - .draggable_table
+  - .field_grouping  
+  - .interview_generator
+  - .validate_template_files
+  - collections
+  - docassemble.ALToolbox.misc #collapse_template()
+  - docassemble.AssemblyLine.sessions
+  - docassemble.base.logger
 ---
+mandatory: True
 code: |
-  # TODO: refactor to use the new config system
-  set_custom_people_map( people_variables.true_values() )  
-
-  if len(people_variables.true_values()):
-    all_fields.mark_people_as_builtins(people_variables.true_values())
-  process_people_variables = True
+  menu_items = [ action_menu_item('Configure Weaver', 'configure_weaver') ]
+---
+objects:
+  - install_step1_status: DAEmpty
+  - task_complete: DAEmpty
+  - task_status: DAEmpty
+  - task_succeeded: DAEmpty
+  - weaverdata: DAStore.using(base="docassemble.ALWeaver")
+  - upload_template_image: DAStaticFile.using(filename="undraw_upload_re_pasx.svg")
+  - start_from_scratch_image: DAStaticFile.using(filename="undraw_start_building_re_xani.svg")
+  - browse_library_image: DAStaticFile.using(filename="undraw_collecting_re_lp6p.svg")
+  - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
+  - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
+  - interview_package_download: DAFile
+  - screen_order: DAList.using(auto_gather=False)
+  - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
+  - attachments: DAList.using(object_type=DAObject, auto_gather=False)
+  - people_quantities: DADict.using(auto_gather=False, gathered=True)
+  - next_steps_documents: DADict.using(object_type=DADict)
+---
+images:
+  branding_extra: branding_extra.png
 ---
 id: opening screen
 event: weaver_intro
@@ -311,7 +223,7 @@ fields:
       - Just save the answers to a database: survey_with_template
         help: |
           Select this only if your user does not need to download a completed
-          form at the end. You can still save answers to a database either way.
+          form at the end. You can still save answers to a database either way.          
 ---
 id: browse weaver sessions
 event: browse_weaver_sessions
@@ -338,7 +250,7 @@ subquestion: |
   * [Working with DOCX files](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/docx)
   
 fields:   
-  - Select your PDF or DOCX files: template_upload
+  - Select your PDF or DOCX files: interview.uploaded_templates
     label above field: True
     datatype: files
     accept: |
@@ -355,12 +267,12 @@ fields:
       Use our experimental code to automatically apply AssemblyLine naming conventions.
       If you already followed naming conventions, you might want to skip this.
 validation code: |
-  for document in template_upload:
+  for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:
         document.fix_up()
       except:
-        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="template_upload")
+        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="interview.uploaded_templates")
     else:
       try:
         pdf_concatenate(document)
@@ -368,128 +280,24 @@ validation code: |
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
 ---
 code: |
-  has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
----
-code: |
-  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
-  # Let someone bootstrap an interview from the form explorer
-  interview.original_form = url_args.get('form_to_use')
-  if has_safe_pdf_in_url:
-    template_upload = DAFileList('template_upload', auto_gather=False, gathered=True)
-    template_upload[0] = DAFile('template_upload[0]')
-    template_upload[0].initialize(extension="pdf")
-    template_upload[0].from_url(url_args.get('form_to_use'))
-    template_upload[0].created = True    
-  if url_args.get('title'):
-    short_filename_with_spaces = url_args.get('title')
-    interview.title = short_filename_with_spaces
-    short_filename = space_to_underscore(varname(short_filename_with_spaces))
-    interview_label_draft = short_filename
-  if url_args.get('jur'):
-    interview.state = url_args.get('jur')
-  if url_args.get('nsmi'):
-    nsmi_tmp = url_args.get('nsmi')[1:-1].replace("'","").strip()
-    interview.categories = nsmi_tmp.split(',')
-    interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
-    interview.categories['Other'] = False
-  url_args.clear()    
-  process_url_args = True  
----
-imports:
-  - os
----
-code: |
-  for document in template_upload:
-    if document.filename.endswith("pdf"):
-      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1)
-      document.commit()
-  process_field_normalization = True
----
-objects:
-  - temp_new_pdf: DAFile.using(filename=os.path.basename(template_upload[0].path()))
----
-code: |
-  for document in template_upload:
-    if document.filename.endswith("pdf"):
-      temp_new_pdf.initialize()
-      formfyxer.auto_add_fields(document.path(), temp_new_pdf.path())
-  
-      # also normalize field names after newly recognizing them
-      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1)
-  
-      temp_new_pdf.commit()
-      document.copy_into(temp_new_pdf)
-  process_field_recognition = True
----
-modules:
-  - .field_grouping
----
-only sets: 
-  - process_im_feeling_lucky
-code: |
-  yes_normalize_fields = False
-  yes_recognize_form_fields = False
-  interview_type = "regular"
-  if has_safe_pdf_in_url: # limit when this block can run
-    # Set interview defaults based on the PDF passed in the URL args
-    interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
-    interview.org_choices = get_matching_deps("organization",interview.state)
-    interview.form_type = "starts_case"
-    interview_intro_prompt = interview_intro_prompt_default
-    interview.title = short_filename_with_spaces
-    interview.short_title = short_filename_with_spaces
-    interview.description = short_filename_with_spaces
-    interview.getting_started = "Before you get started, you need to..."
+  # TODO: refactor to use the new config system
+  set_custom_people_map( people_variables.true_values() )  
 
-    interview.typical_role = "unknown"
-
-    all_fields.gathered
-    person_candidates = all_fields.get_person_candidates()
-    all_fields.mark_people_as_builtins(all_fields.get_person_candidates())
-
-    for person in person_candidates:
-      people_quantities[person] = "any"
-
-    process_people_variables = True      
-    
-    for index, field in enumerate(all_fields.elements):
-      field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
-      field.label = field.variable_name_guess
-    # choose_field_types
-    # review_fields_after_labeling
-    
-    questions.auto_gather = False
-    field_grouping = cluster_screens( [field.variable for field in all_fields] )
-    for group in field_grouping:
-      new_screen = questions.appendObject()
-      new_screen.is_informational_screen = False
-      new_screen.has_mandatory_field = True
-      new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
-      new_screen.subquestion_text = ''
-      new_screen.field_list = [field for field in all_fields if field.variable in field_grouping[group]]          
-    
-    questions.gathered = True
-    interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
-    if user_logged_in():
-      interview.author = f"{user_info().first_name} {user_info().last_name}"
-    else:
-      interview.author = "Court Forms Online"    
-    interview.allowed_courts = DADict(auto_gather=False, gathered=True)
-
-
-  process_im_feeling_lucky = True
+  if len(people_variables.true_values()):
+    interview.all_fields.mark_people_as_builtins(people_variables.true_values())
+  process_people_variables = True
 ---
 code: |
   # Note: we just use the first document to create the placeholder name even if multiple forms are uploaded.
   # That's fine as it is a placeholder
   if have_template_to_load:
-    if template_upload[0].filename.endswith('pdf'):
-      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".pdf")]))
+    if interview.uploaded_templates[0].filename.endswith('pdf'):
+      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".pdf")]))
     else:
-      short_filename = space_to_underscore(varname(template_upload[0].filename.lower()[:-len(".docx")]))
+      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".docx")]))
   else:
-    short_filename = ''
-  short_filename_with_spaces = short_filename.replace('_',' ').capitalize()
+    interview.short_filename = ''
+  interview.short_filename_with_spaces = interview.short_filename.replace('_',' ').capitalize()
 ---
 id: information about court-related info
 question: |
@@ -555,7 +363,7 @@ fields:
     js show if: |
       val("interview.categories['Other']") && val("interview.court_related")
   - Unique label for this interview: interview_label_draft
-    default: ${short_filename}
+    default: ${interview.short_filename}
     maxlength: 35
     help: |
       This label should be short but unique. It will be used to name your
@@ -686,13 +494,13 @@ fields:
 ---
 code: |
   if interview.form_type == 'starts_case':
-    interview_intro_prompt_default = "Ask the court for a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Ask the court for a " + interview.short_filename_with_spaces 
   elif interview.form_type == 'existing_case':
-    interview_intro_prompt_default = "File a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "File a " + interview.short_filename_with_spaces 
   elif interview.form_type == 'letter':
-    interview_intro_prompt_default = "Write a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Write a " + interview.short_filename_with_spaces 
   else:
-    interview_intro_prompt_default = "Get a " + short_filename_with_spaces 
+    interview_intro_prompt_default = "Get a " + interview.short_filename_with_spaces 
 ---
 id: form-specific intro page
 question: |
@@ -714,17 +522,17 @@ subquestion: |
   a rough draft.
 fields:
   - Title: interview.title
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
   - Short title that will show up on small screens: interview.short_title
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
   - Short description of your form: interview.description
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
     datatype: area
     rows: 2
   - label: |
       "Getting started" page
     field: interview.getting_started
-    default: ${ short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces }
     datatype: area
     help: |
       Tell your user what they need to know before they start the form.
@@ -732,6 +540,57 @@ fields:
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+---
+id: add fields
+question: |
+  % if have_template_to_load:
+  Review fields
+  % else:
+  Since you don't have a template to load, you can build your questions on this screen
+  % endif
+subquestion: |
+  % if have_template_to_load:
+  Take a moment to review the fields your interview already includes:  
+  
+  % else:
+  You will need to define pairs of question/input variable as follows:
+  
+    1. Click "Add an item".
+    1. Type a name for an input variable using the 'snake_case' name convention.
+    1. Type a label for this input field.
+    1. Pick a field type from the dropdown list.
+  
+  As you so build your questions, they will be added to the table below for your review.
+  
+  Later in the Weaver you'll have a chance to edit these fields and rearrange your question order.
+  % endif
+  
+  ${ collapse_template(review_fields_to_add_template) }
+  
+  Click the button below if you want to add an extra field to your
+  interview. This will not add it to your template file.
+
+  ${ interview.all_fields.add_action() }
+continue button field: review_fields_after_labeling  
+---
+template: review_fields_to_add_template
+subject: |
+  Review fields
+content: |
+  ${ interview.all_fields.review_table }
+---
+#code: |
+#  interview.all_fields.there_is_another = False
+---
+table: interview.all_fields.review_table
+rows: interview.all_fields + interview.all_fields.builtins()
+columns:
+  - On-screen label: |
+      row_item.label if hasattr(row_item, 'label') else '(n/a)'
+  - Field or variable name: |
+      f"`{row_item.variable}`"  
+  - Field type: |
+      showifdef(row_item.attr_name('field_type') )      
 ---
 id: information about people
 question: |
@@ -745,11 +604,11 @@ fields:
       how you use them in your document.
     show if:
       code: |
-        len(all_fields.get_person_candidates(custom_only=True)) > 0
+        len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
   - Which variable names represent people?: people_variables
     datatype: checkboxes
     code: |
-      all_fields.get_person_candidates(custom_only=True)
+      interview.all_fields.get_person_candidates(custom_only=True)
     help: |
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
@@ -786,9 +645,6 @@ help: |
   
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
----
-objects:
-  - people_quantities: DADict.using(auto_gather=False, gathered=True)
 ---
 code: |
   # Build the dynamic question code to ask about people quantities
@@ -829,13 +685,61 @@ help:
     If you only want one of each person type to ever use this form,
     tell us here. You'll still be able to edit your file if you change
     your mind later.
-continue button field: ask_people_quantity_question  
+continue button field: ask_people_quantity_question
+---
+id: choose field types
+continue button field: choose_field_types
+question: |
+  Create on-screen labels for your fields
+subquestion: |  
+  Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
+  
+  % if len(interview.all_fields.ask_about_fields()) > 0:
+  1. Look at each field below. It represents a blank space on your template.
+  1. If the field is handled as a "basic question", it will not be shown
+  below. Instead, we will use a pre-written label for it.
+  2. Assign each field an on-screen label. The label is shown to the user
+  of your form. We start with the name of the field as a label. Edit it so it makes sense.
+  2. Double-check the kind of input your field uses, as well as the type
+  of data it will hold.
+    
+  * `yesno` is for true/false checkboxes
+  * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
+  * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
+  * `date` is a standard date picker, which shows a calendar in most browsers.
+  % endif
+    
+fields:
+  - code: interview.all_fields.ask_about_fields()
+  - note: |
+      **Built-in questions this form triggers**[BR]
+      % if len(interview.all_fields.builtins()) > 0:
+      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(interview.all_fields.builtins()) }`.
+      % endif
+      % if len(interview.all_fields.signatures()):
+      
+      These signature fields are not listed because they cannot be asked
+      on the same screen as any other variable: `${ comma_and_list(interview.all_fields.signatures()) }`
+      % endif      
+      
+      You will have a chance to change the order of these fields later in
+      this interview.
+    show if:
+      code: |
+        len(interview.all_fields.builtins()) or len(interview.all_fields.signatures())
+validation code: |
+  for field in interview.all_fields.custom():
+    if field.field_type == "code":
+        expression = f"{field.final_display_var} = {field.code}"
+        if not is_valid_python(expression):
+            validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
 ---
 comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
+only sets: initial_get_fields
 code: |
-  for document in template_upload:
+  for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       errors = get_pdf_validation_errors(document)
       if errors:
@@ -866,65 +770,26 @@ code: |
     else:
       force_ask("exit_unknown_file_type")
 
-  all_fields.clear()
-  all_fields.add_fields_from_file(template_upload)
-  all_fields.gathered = True
-
-  if not len(all_fields) > 0:
+  interview.all_fields.clear()
+  interview.all_fields.add_fields_from_file(interview.uploaded_templates)
+  interview.all_fields.gathered = True
+  initial_get_fields = True
+---
+code: |
+  interview.all_fields.gathered = True
+---
+code: |
+  if not len(interview.all_fields) > 0:
     force_ask('empty_pdf')
   
-  bad_fields = get_variable_name_warnings(all_fields)
+  bad_fields = get_variable_name_warnings(interview.all_fields)
   if len(bad_fields) > 0:
     force_ask('non_descriptive_field_name')
----
-event: exit_unknown_file_type
-question: |
-  Is this a valid PDF or DOCX file?
-subquestion: |
-  The file you uploaded doesn't appear to be a valid DOCX or PDF document.
----
-event: exit_invalid_pdf
-question: |
-  Is this a valid PDF?
-subquestion: |
-  ${ document.filename } does not seem to be a PDF file. Usually
-  this error happens because the file is corrupt or has the wrong extension.
-
-  Docassemble was not able to read the file you uploaded. Make sure it is a
-  valid document.
-  
-  If it is a PDF, try using [documate.org/pdf](https://www.documate.org/pdf)
-  or [qpdf](http://qpdf.sourceforge.net/) to fix it.
-buttons:
-  - Restart: restart
----
-event: exit_PSEOF_error
-question: |
-  Something is wrong with the internals of this PDF
-subquestion: |
-  Docassemble was not able to read ${ document.filename }.
-  
-  You can try using [qpdf](http://qpdf.sourceforge.net/) or
-  [documate.org/pdf](https://www.documate.org/pdf) to fix it, but some of your
-  interactive elements may stop working.
-buttons:
-  - Restart: restart
----
-event: exit_invalid_docx
-question: |
-  Is this a valid DOCX file?
-subquestion: |
-  ${ document.filename } does not seem to be a DOCX file. Usually
-  this error happens because the file is corrupt or has the wrong extension.
-
-  Docassemble was not able to read the file you uploaded. Make sure it is a
-  valid document.
-buttons:
-  - Restart: restart
+  validate_field_names = True
 ---
 code: |
   if have_template_to_load: 
-    built_in_people_vars_used = all_fields.get_person_candidates(custom_only=False) - all_fields.get_person_candidates(custom_only=True)
+    built_in_people_vars_used = interview.all_fields.get_person_candidates(custom_only=False) - interview.all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
 
@@ -933,7 +798,7 @@ need:
   - interview.categories
   - interview.title
   - interview.short_title
-  - interview_label
+  - interview.interview_label
   - interview.description
   - interview.typical_role
 code: |
@@ -946,148 +811,18 @@ code: |
       interview.allowed_courts[allowed_court.strip()] = True
 
   add_metadata = True
-
----
-code: |
-  # Create code for the question that we use to label
-  # each field.
-  from itertools import chain
-
-  field_question_tmp = [ 
-    field.user_ask_about_field()
-    for field in all_fields.custom()
-  ]
-  field_question = [item for item in chain.from_iterable(field_question_tmp)]
-
-  del field_question_tmp
-  del chain
----
-id: choose field types
-continue button field: choose_field_types
-question: |
-  Create on-screen labels for your fields
-subquestion: |  
-  Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
-  
-  % if len(field_question) > 0:
-  1. Look at each field below. It represents a blank space on your template.
-  1. If the field is handled as a "basic question", it will not be shown
-  below. Instead, we will use a pre-written label for it.
-  2. Assign each field an on-screen label. The label is shown to the user
-  of your form. We start with the name of the field as a label. Edit it so it makes sense.
-  2. Double-check the kind of input your field uses, as well as the type
-  of data it will hold.
-    
-  * `yesno` is for true/false checkboxes
-  * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
-  * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
-  * `date` is a standard date picker, which shows a calendar in most browsers.
-  % endif
-    
-fields:
-  - code: field_question
-  - note: |
-      **Built-in questions this form triggers**[BR]
-      % if len(all_fields.builtins()) > 0:
-      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(all_fields.builtins()) }`.
-      % endif
-      % if len(all_fields.signatures()):
-      
-      These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: `${ comma_and_list(all_fields.signatures()) }`
-      % endif      
-      
-      You will have a chance to change the order of these fields later in
-      this interview.
-    show if:
-      code: |
-        len(all_fields.builtins()) or len(all_fields.signatures())
-validation code: |
-  for field in all_fields.custom():
-    if field.field_type == "code":
-        expression = f"{field.final_display_var} = {field.code}"
-        if not is_valid_python(expression):
-            validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
----
-id: add fields
-question: |
-  % if have_template_to_load:
-  Review fields
-  % else:
-  Since you don't have a template to load, you can build your questions on this screen
-  % endif
-subquestion: |
-  % if have_template_to_load:
-  Take a moment to review the fields your interview already includes:  
-  
-  % else:
-  You will need to define pairs of question/input variable as follows:
-  
-    1. Click "Add an item".
-    1. Type a name for an input variable using 'lower_case' name convension.
-    1. Type a label for this input field.
-    1. Pick a field type from the dropdown list.
-  
-  As you so build your questions, they will be added to the table below for your review.
-  
-  Later in the Weaver you'll have a chance to edit these fields and rearrange your question order.
-  % endif
-  
-  ${ collapse_template(review_fields_to_add_template) }
-  
-  Click the button below if you want to add an extra field to your
-  interview. This will not add it to your template file.
-
-  ${ all_fields.add_action() }
-continue button field: review_fields_after_labeling  
----
-template: review_fields_to_add_template
-subject: |
-  Review fields
-content: |
-  ${ all_fields.review_table }
----
-code: |
-  all_fields.there_is_another = False
----
-table: all_fields.review_table
-rows: all_fields + all_fields.builtins()
-columns:
-  - On-screen label: |
-      row_item.label if hasattr(row_item, 'label') else '(n/a)'
-  - Field or variable name: |
-      f"`{row_item.variable}`"  
-  - Field type: |
-      showifdef(row_item.attr_name('field_type') )
----
-code: |
-  questions[i].question_text
-  
-  if questions[i].is_informational_screen:
-    questions[i].field_list.clear()
-    # The info screen gives it a mandatory field
-    questions[i].has_mandatory_field = True
-  
-  # Simplify the abstraction
-  if not questions[i].has_mandatory_field or questions[i].is_informational_screen:
-    # assigning continue button field name here is messy
-    questions[i].needs_continue_button_field = True
-  else:
-    questions[i].needs_continue_button_field = False
-    
-  questions[i].complete = True
 ---
 generic object: DAObject
 code: |
   x.needs_continue_button_field = False
 ---
 code: |
-  questions.there_are_any = len(all_fields.custom()) > 0
+  interview.questions.there_are_any = len(interview.all_fields.custom()) > 0
 ---
 code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
-  questions.there_is_another = len(questions.all_fields_used(all_fields=all_fields.custom())) < len(all_fields.custom())
+  interview.questions.there_is_another = interview.has_unassigned_fields()
 ---
 id: create a draft of screen i
 question: |
@@ -1097,27 +832,28 @@ subquestion: |
   a title, some context for the screen, and decide which fields are
   shown on this screen.
 fields:
-  - Make this a purely informational screen: questions[i].is_informational_screen
+  - Make this a purely informational screen: interview.questions[i].is_informational_screen
     datatype: yesno
     help: A screen with no fields, just text.
-  - What should the title of this screen be? : questions[i].question_text
+  - What should the title of this screen be? : interview.questions[i].question_text
     default: Screen ${nice_number(i+1)}
-  - What is the text that appears under the title? : questions[i].subquestion_text
+  - What is the text that appears under the title? : interview.questions[i].subquestion_text
     input type: area
     required: False
-  - Select the fields that will appear on this screen: questions[i].field_list
-    hide if: questions[i].is_informational_screen
+  - Select the fields that will appear on this screen: interview.questions[i].field_list
+    hide if: interview.questions[i].is_informational_screen
     # Can we turn this into an object?
     datatype: object_checkboxes
     # We show all of the fields, but exclude the ones present
     # anywhere in the list of questions we already drafted
-    exclude: questions.all_fields_used(all_fields=all_fields.custom())
+    exclude: interview.questions.all_fields_used(all_fields=interview.all_fields.custom())
     none of the above: False
-    choices: all_fields.custom()
-    object labeler: labeller_bold_plus_label
-  - Override the default logic flow by adding a "continue button field": questions[i].has_mandatory_field
+    choices: interview.all_fields.custom()
+    object labeler: |
+      lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
+  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
     datatype: noyes
-    hide if: questions[i].is_informational_screen
+    hide if: interview.questions[i].is_informational_screen
     help: |
       If you are not sure, leave this unchecked.
       You might do this if all of the fields on this
@@ -1125,35 +861,80 @@ fields:
       if you want to add show/hide logic on this screen
       which could otherwise break the interview flow.
 validation code: |
-  if not questions[i].is_informational_screen and len(questions[i].field_list.elements) == 0:
+  if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
 ---
-code: |
-  def labeller_bold_plus_label(y):
-    return bold(str(y.final_display_var)) + "[BR]" + y.label
+id: download your interview
+comment: | 
+event: show_interview
+question: |
+  Congratulations, you have completed your draft interview!
+subquestion: |
+  <div class="panel_sky" markdown="1">
+  #### &#11093; Download the generated interview package
+  **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
+  
+  ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
+  
+  ###### Post-download instructions         
+  ${ collapse_template(start_your_project) }  
+  ${ collapse_template(customize_your_interview) }   
+  See detailed instructions _[here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_  
+  </div>
+  
+  <div class="panel_sky" markdown="1">
+  #### &#11093; Download the generated interview yml file
+  **If you rerun the Weaver and only want the yml file**, you can just download it below:  
+     
+  ${ action_button_html(temp_interview.url_for(attachment=True), color='info', label='Download your yaml file') }
+  </div>
+  
+  <div class="panel_lavender" markdown="1">
+  #### &#11093; Advanced  
+  ###### Review code on the screen
+  ${ display_template(yaml_source, copy=True, collapse=True, scrollable=False) } 
+  
+  ###### Run interview before download
+  If you want to test your interview before you leave this screen, click
+  the "Install your interview" button. You will have a chance to uninstall
+  it once you are done. This can be a quick way to test it interactively 
+  before you leave the weaver.
+  
+  You still need to download and upload the package to your Docassemble
+  playground to finish editing and refining it.
+  
+  % if install_packages_api_key:
+  ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
+  % else:
+  **Sorry, you don't have an API key set up.** Ask your administrator to create
+  a Docassemble API key and save it to your configuration file, like this:
+  
+  ```
+  install packages api key: abcdeFGHIJ12345ZEKS
+  ```
+  % endif  
+  </div>
+---
+template: yaml_source
+subject: |
+  Preview interview YAML
+content: |
+  ${ indent_by(interview_mako_output.raw.content, 4) }
+
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  questions[i].type = 'question'
+  interview.questions[i].type = 'question'
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  all_fields[i].has_label = True
+  interview.all_fields[i].has_label = True
 ---
 code: |
   # Used for adding a new field
-  all_fields[i].field_type_guess = all_fields[i].field_type
-  all_fields[i].raw_field_names = [all_fields[i].variable]
-  all_fields[i].source_document_type = "docx" # don't process the variable name
----
-#code: |
-#  # TODO(qs): do we need to account for this in output.mako?
-#  # Use screen_reordered to reflect the user adjusted table order  
-#  for question in screen_reordered:    
-#    if question not in all_fields.builtins() and question not in all_fields.signatures():
-#		  question.type = "question"
-#		  interview.blocks.append(question)
-#  add_question_screens = True
+  interview.all_fields[i].field_type_guess = interview.all_fields[i].field_type
+  interview.all_fields[i].raw_field_names = [interview.all_fields[i].variable]
+  interview.all_fields[i].source_document_type = "docx" # don't process the variable name
 ---
 code: |
   person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
@@ -1205,9 +986,7 @@ code: |
           }            
   objects.gathered=True
 ---
-continue button field: using_string_debug
-question: |
-  ${ using_string(new_object.params) }
+############ Stuff for reviewing interview #####################################
 ---
 code: |
   # This will add the questions and built-in fields to the screen_order 
@@ -1215,20 +994,20 @@ code: |
   # to restart the interview
   # TODO: do we want to use this to nudge a recommended question order?
   screen_order.clear()
-  for question in questions:
+  for question in interview.questions:
     screen_order.append(question)
   
   # Note that some built-in fields are not unique screens. This could
   # mess up the count
   unique_fields = set()
-  for field in all_fields.builtins():
+  for field in interview.all_fields.builtins():
     # Don't add the users[0].signature field to this list
     if field.final_display_var == "users[0].signature":
       continue
     if not field.final_display_var in unique_fields:
       unique_fields.add(field.final_display_var)
       screen_order.append(field)
-  for field in all_fields.signatures():
+  for field in interview.all_fields.signatures():
     screen_order.append(field)
   screen_order.gathered = True
   set_initial_screen_order = True
@@ -1243,11 +1022,11 @@ columns:
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
 ---
-table: questions[i].edit_table
-rows: questions[i].field_list
+table: interview.questions[i].edit_table
+rows: interview.questions[i].field_list
 columns:
   - Order: |
-      int(questions[i].field_list.index(row_item)) + 1  
+      int(interview.questions[i].field_list.index(row_item)) + 1  
   - Field name: |
       row_item.final_display_var
 edit:
@@ -1255,42 +1034,40 @@ edit:
 delete buttons: False  
 ---
 code: |
-  questions[i].field_list.there_are_any = questions[i].field_list.number() > 0
+  interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
 ---
 code: |
   # not quite sure why we need this--problem w/ how docassemble handles
   # editing lists created with object_checkboxes
-  questions[i].field_list.there_is_another = False
+  interview.questions[i].field_list.there_is_another = False
 ---
-continue button field: all_fields[i].edit_field
+continue button field: interview.all_fields[i].edit_field
 question: |
-  % if hasattr(all_fields[i], 'final_display_var'):
-  Edit field ${ bold(all_fields[i].final_display_var) }
+  % if hasattr(interview.all_fields[i], 'final_display_var'):
+  Edit field ${ bold(interview.all_fields[i].final_display_var) }
   % else:
   Add new field
   % endif
 subquestion: |
-  % if not hasattr(all_fields[i], 'final_display_var'):
+  % if not hasattr(interview.all_fields[i], 'final_display_var'):
   You can use this screen to add a draft of a new field that will
   be asked about in your interview.
   % endif
 
-  % if not hasattr(all_fields[i], 'final_display_var') and have_template_to_load:
+  % if not hasattr(interview.all_fields[i], 'final_display_var') and have_template_to_load:
   When you add a new field, it will not automatically be included
   in your template. You can use this feature to add fields that are used to
   calculate a value, for example.
   % endif
 fields:
-  - Docassemble variable name: all_fields[i].final_display_var
-    hint: lower_case_format 
+  - Docassemble variable name, in `snake_case`: interview.all_fields[i].variable
     show if:
       code: |
-        not hasattr(all_fields[i], 'label')
+        not hasattr(interview.all_fields[i], 'label')
     validate: |
-      lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")          
-  - On-screen field label: all_fields[i].label
-    hint: Label to go with the input variable 
-  - Field type: all_fields[i].field_type
+      lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")
+  - On-screen label or prompt: interview.all_fields[i].label
+  - Field type: interview.all_fields[i].field_type
     choices:
       - text
       - area
@@ -1302,21 +1079,22 @@ fields:
       - email
       - multiple choice radio
       - multiple choice checkboxes
-  - Options (one per line): all_fields[i].choices
+  - Options (one per line): interview.all_fields[i].choices
     datatype: area
     js show if: |
-      val('all_fields[i].field_type') === 'multiple choice radio' || val('all_fields[i].field_type') === 'multiple choice checkboxes'
+      val('interview.all_fields[i].field_type') === 'multiple choice radio' || val('interview.all_fields[i].field_type') === 'multiple choice checkboxes'
     hint: |
       Like 'Descriptive name: key_name', or just 'Descriptive name'
 validation code: |
-  if not hasattr(all_fields[i], 'variable'):
-    all_fields[i].variable = all_fields[i].final_display_var
+  for field in interview.all_fields:
+    if not hasattr(field, 'final_display_var'):
+      field.final_display_var = field.variable
 continue button label: Save
 back button label: Cancel
 ---
-continue button field: questions[i].edit_question
+continue button field: interview.questions[i].edit_question
 scan for variables: False
-sets: questions[i].edit_question
+sets: interview.questions[i].edit_question
 question: |
   Review your ${ ordinal(i) } screen
 subquestion: |    
@@ -1327,20 +1105,21 @@ subquestion: |
                         
   1. You can modify **Screen title** and **Text on your question screen** here and they will be reflected in the generated draft interview.   
 fields:
-  - Screen title: questions[i].question_text
-  - Text on your question screen: questions[i].subquestion_text
+  - Screen title: interview.questions[i].question_text
+  - Text on your question screen: interview.questions[i].subquestion_text
     datatype: area
     required: False
   - note: |
       2. Click **Edit** below to modify individual field's label and type if needed.
       3. After all the edits are done, you can **reorder** the fields in the table by **grabbing anywhere in a row and dragging it to the desired position.** _If you reorder fields before clicking Edit, you'll need to readjust field order after editing._   
-      ${ questions[i].draggable_fld_table }   
-  - no label: questions[i].fld_order_list 
+      ${ interview.questions[i].draggable_fld_table }   
+  - no label: interview.questions[i].fld_order_list 
     datatype: draggable_tbl_order_list    
     required: False
-  - no label: questions[i].table_data 
+  - no label: interview.questions[i].table_data 
     datatype: draggable_tbl_json_string
     required: False
+
 ---
 continue button field: show_screen_order
 question: |
@@ -1359,82 +1138,18 @@ fields:
     datatype: draggable_tbl_json_string    
     required: False
 ---
-code: |
-  # 1. Build the code block that will control question flow
-  logic_list = []
-  # 1.1 Court related
-  if generate_download_screen: 
-    logic_list.append('# Set the allowed courts for this interview')
-    logic_list.append('allowed_courts = interview_metadata["' + interview_label + '"]["allowed courts"]')
-    
-  # 1.2 The placeholder section label just reviews all of the questions
-  logic_list.append("nav.set_section('" + "review_" + interview_label + "')")
-  if interview.typical_role == 'unknown':
-    logic_list.append("# Below sets the user_role by asking a question.")
-    logic_list.append("# You can set user_role directly instead to either 'plaintiff' or 'defendant'")
-    logic_list.append("user_ask_role")
-  else:
-    logic_list.append("user_role = '" + interview.typical_role +"'")
-  
-  # 1.3. Figure out how many steps the interview has
-  total_num_screens = len(screen_order)
-  
-  # We'll have a progress step every 5 screens, 
-  # unless it's very short
-  if total_num_screens > 20:
-    screen_divisor = 5
-  else:
-    screen_divisor = 3
-  
-  total_steps = round(total_num_screens / screen_divisor) + 2 # signature screen adds two steps
-  increment = 100/total_steps
-  progress = 0
-  
-  saved_answer_name_flag = False
-  for index, question in enumerate(screen_reordered):
-    if index and index % screen_divisor == 0:
-      progress += increment
-      logic_list.append(f"set_progress({int(progress)})")
-    if isinstance(question, DAQuestion) and question.type == 'question':
-      # TODO(bryce): make OOP: don't refer to question.type
-      # Add the first field in every question to our logic tree
-      # This can be customized to control the order of questions later      
-      if question.needs_continue_button_field:
-        logic_list.append(varname(question.question_text))
-      else:
-        logic_list.append(question.field_list[0].trigger_gather())
-    else:
-      # it's a built-in field OR a signature, not a question block
-      if not (question in all_fields.builtins() and question.trigger_gather().endswith('.signature')):
-        logic_list.append(question.trigger_gather())      
-        # set the saved answer name so it includes the user's name in saved
-        # answer list
-        if question.trigger_gather() == 'users.gather()' and not saved_answer_name_flag:
-          logic_list.append("set_parts(subtitle=str(users))")
-          saved_answer_name_flag = True
-  
-  # 1.4. For survey/feedback type of interviews, add a code block to save data
-  if not generate_download_screen: 
-    logic_list.append("saved_report_data")
-    
-  built_in_signatures = set()
-  for field in all_fields.builtins():
-    if field.trigger_gather().endswith('.signature'):
-      built_in_signatures.add(field.trigger_gather())
-  
-  process_interview_order = True
-
+##################################### Controlling generated interview contents ################
 ---
 code: |
-  # This interview_label field is used throughout the 
+  # This interview.interview_label field is used throughout the 
   # generated interview to let us store interview-specific
   # metadata
   # We removed random ID, so make sure the file names are unique
   # varname will strip leading numbers--but they may be valid at the end of the label
-  interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
+  interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
 ---
 code: |
-  attachment_variable_name = interview_label + '_attachment'
+  attachment_variable_name = interview.interview_label + '_attachment'
 ---
 template: start_your_project
 subject: |
@@ -1455,77 +1170,48 @@ content: |
   3. Customize the wording, reorder questions, and make the interview your
      own! 
 ---
-id: download your interview
-comment: | 
-event: show_interview
-question: |
-  Congratulations, you have completed your draft interview!
-subquestion: |
-  <div class="panel_sky" markdown="1">
-  #### &#11093; Download the generated interview package
-  **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
-  
-  ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
-  
-  ###### Post-download instructions         
-  ${ collapse_template(start_your_project) }  
-  ${ collapse_template(customize_your_interview) }   
-  See detailed instructions _[here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_  
-  </div>
-  
-  <div class="panel_sky" markdown="1">
-  #### &#11093; Download the generated interview yml file
-  **If you rerun the Weaver and only want the yml file**, you can just download it below:  
-     
-  ${ action_button_html(interview_download.url_for(attachment=True), color='info', label='Download your yaml file') }
-  </div>
-  
-  <div class="panel_lavender" markdown="1">
-  #### &#11093; Advanced  
-  ###### Review code on the screen
-  ${ display_template(yaml_source, copy=True, collapse=True, scrollable=False) } 
-  
-  ###### Run interview before download
-  If you want to test your interview before you leave this screen, click
-  the "Install your interview" button. You will have a chance to uninstall
-  it once you are done. This can be a quick way to test it interactively 
-  before you leave the weaver.
-  
-  You still need to download and upload the package to your Docassemble
-  playground to finish editing and refining it.
-  
-  % if install_packages_api_key:
-  ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
-  % else:
-  **Sorry, you don't have an API key set up.** Ask your administrator to create
-  a Docassemble API key and save it to your configuration file, like this:
-  
-  ```
-  install packages api key: abcdeFGHIJ12345ZEKS
-  ```
-  % endif  
-  </div>
----
-template: yaml_source
-subject: |
-  Preview interview YAML
-content: |
-  ${ indent_by(interview_mako_output.raw.content, 4) }
----
 attachment:
   variable name: interview_mako_output
   name: YAML output
-  filename: interview.yml # Docassemble appends .mako to the filename, so we copy this into the interview_download variable later
+  filename: interview.yml
   raw: True
   content file:
     code: |
       ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
-objects: 
-  - labels_lists: DAList.using(auto_gather=False, gathered=True)
+code: |
+  sanitized_filename = f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
 ---
-objects:   
-  - next_steps_documents: DADict.using(object_type=DADict)
+code: |
+  # Unfortunately, there's no good "new" name for the file
+  # when someone uploads multiple templates at once
+  if have_template_to_load and len(interview.uploaded_templates) == 1:
+    interview.uploaded_templates[0].set_attributes(filename=sanitized_filename)
+  inflate_renamed_upload = True
+---
+need:
+  - inflate_renamed_upload
+  - interview.author
+  - generate_download_screen
+# Prepare content for the Weaver's download screen.
+code: |
+  interview.dependencies = get_pypi_deps_from_choices(
+            interview.jurisdiction_choices.true_values() +
+            interview.org_choices.true_values()
+  )
+
+  #HACK: Docassemble bug:
+  # - stops us from using interview_label.yml as the original filename, and
+  # - stops us from just renaming the file instead of making a copy.
+  #TODO(#689) should fix this
+  temp_interview = DAFile(filename = f"{ interview.interview_label }.yml")
+  temp_interview.initialize()
+  temp_interview.copy_into(interview_mako_output.raw)
+  temp_interview.commit()
+
+  interview.create_package(temp_interview, generate_download_screen, output_file=interview_package_download)
+
+  wrote_interview = True
 ---
 ############ Next Steps documents generation ################
 comment: |
@@ -1551,178 +1237,38 @@ code: |
 attachments:
   - variable name: next_steps_starts_case
     docx template file: next_steps_starts_case.docx
-    filename: ${ interview_label + '_next_steps' }
+    filename: ${ interview.interview_label + '_next_steps' }
 ---
 attachments:
   - variable name: next_steps_existing_case
     docx template file: next_steps_existing_case.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_appeal
     docx template file: next_steps_appeal.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_letter
     docx template file: next_steps_letter.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_other_form
     docx template file:  next_steps_other_form.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }    
 ---
 attachments:
   - variable name: next_steps_other
     docx template file:  next_steps_other.docx
-    filename: ${ interview_label + '_next_steps' }    
+    filename: ${ interview.interview_label + '_next_steps' }
 ---
 code: |
-  # Package title is PascalCase, per our AssemblyLine convention
-  package_title = re.sub("\W|_","", interview_label.title())
----
-code: |
-  sanitized_filename = f"{interview_label}.{template_upload[0].extension}"
----
-objects:
-  - renamed_upload: DAFile.using(filename=sanitized_filename)
----
-code: |
-  # Unfortunately, there's no good "new" name for the file
-  # when someone uploads multiple templates at once
-  if have_template_to_load and len(template_upload) == 1:
-    template_upload[0].set_attributes(filename=sanitized_filename)
-  inflate_renamed_upload = True
----
-need:
-  - inflate_renamed_upload
-  - interview.author
-  - generate_download_screen
-# Prepare content for the Weaver's download screen.
-code: |
-  # 1. Commit the generated interview YAML file
-  interview_download.initialize(filename = interview_label + '.yml')  
-  interview_download.write(interview_mako_output.raw.content)
-  interview_download.commit()
-  
-  # 2. Build data for folders_and_files and package_info   
-  folders_and_files = {
-    "questions": [interview_download],
-    "modules":[],
-    "static": [],
-    "sources": []
-  }
-  
-  if generate_download_screen:
-    folders_and_files["templates"] = [
-        next_steps_documents[interview.form_type]['attachment'].docx,
-    ]
-    folders_and_files["templates"].extend(template_upload)
-  else:    
-    folders_and_files["templates"] = []
-    
-  package_info = interview.package_info(
-          get_pypi_deps_from_choices(
-            interview.jurisdiction_choices.true_values() +
-            interview.org_choices.true_values()
-          )
-        )    
-  
-  if interview.author and str(interview.author).splitlines():
-    # TODO(qs): is it worth ever adding email here?
-    # It would conflict with listing multiple authors
-    default_vals = {
-      "author name and email": str(interview.author).splitlines()[0]
-    }
-    package_info['author_name'] = default_vals['author name and email']
-  else:
-    default_vals = {
-      "author name and email": "author@example.com"
-    }
-    
-  # 3. Generate the output package
-  create_package_zip(package_title,
-        package_info,
-        default_vals,
-        folders_and_files, 
-        interview_package_download)
-  
-  wrote_interview = True
-
----  
-need: # trigger these up front for idempotency
-  - interview.title
-  - interview_intro_prompt
-  - interview.court_related
-code: |
-  # TODO(qs): this can be cleaned up further
-  #-----------------------------------------------------------------
-  # Prepare data for output.mako, each attachment file must provide those 6 attributes.
-  #-----------------------------------------------------------------
-
-  labels_lists.clear()
-  # Set attributes for the "next_steps" docx. 
-  # To add any additional attachment files, follow this example.
-  file2 = labels_lists.appendObject()
-  file2.input_filename = interview_label + '_next_steps.docx'
-  file2.output_filename = 'Post-interview-instructions'
-  file2.attachment_varname = f'{interview_label}_{file2.output_filename.replace("-", "_").lower()}'
-  file2.type = 'docx'
-  file2.description = 'Instructions'
-  file2.fields = 'na'
-  file2.has_addendum = False
-
-  if len(template_upload) == 1:
-    # Set attributes for the uploaded template file     
-    file1 = labels_lists.appendObject()    
-    file1.input_filename = sanitized_filename  
-    file1.output_filename = sanitized_filename
-    file1.attachment_varname = attachment_variable_name    
-    file1.type = "pdf" if template_upload[0].mimetype == "application/pdf" else "docx"
-    file1.description = interview.title
-    file1.fields = all_fields
-    file1.has_addendum = all_fields.has_addendum_fields()
-  else:
-    for document in template_upload:
-      temp_file = labels_lists.appendObject()    
-      temp_file.input_filename = document.filename
-      temp_file.output_filename = base_name(document.filename)
-      temp_file.attachment_varname = space_to_underscore(base_name(document.filename))
-      temp_file.type = "pdf" if document.mimetype == "application/pdf" else "docx"
-      temp_file.description = base_name(document.filename).capitalize().replace("_", " ")
-      temp_file.fields = all_fields.matching_pdf_fields_from_file(document)
-      temp_file.has_addendum = all_fields.has_addendum_fields()
-
-  # TODO: it would be possible to merge the "bundles" list with the
-  # attachments/labels_list.
-  bundles.clear()
-  user_bundle = bundles.appendObject()
-  user_bundle.name = 'al_user_bundle'
-  user_bundle.elements = labels_lists
-  
-  court_bundle = bundles.appendObject()
-  if interview.court_related:
-    court_bundle.name = 'al_court_bundle'
-  else:
-    court_bundle.name = 'al_recipient_bundle'
-  # Court does not get the user next steps instructions
-  # Skip instructions TODO: remove if instructions become optional  
-  court_bundle.elements = labels_lists[1:] 
-  bundles.gathered = True
-  
-  # Bundle-name is a single value
-  if len(labels_lists) > 1:
-    bundle_name =  sanitized_filename + '_package.pdf'
-  else:
-    bundle_name = sanitized_filename + '.pdf'
-  
-  process_attachments = True
+  interview.instructions = next_steps_documents[interview.form_type]['attachment'].docx  
 ---
 #######################################
 # Code to support github feedback form
-imports:
-  - importlib
 ---
 code: |
   try:
@@ -1768,7 +1314,7 @@ subquestion: |
   
   <i class="fas fa-spinner fa-pulse"></i> 
   % else:  
-  ${ action_button_html(interview_url(reset=1, i="docassemble." + package_title + ":data/questions/" + interview_label + '.yml'), label = "Run interview", new_window=True ) }
+  ${ action_button_html(interview_url(reset=1, i="docassemble." + interview.package_title + ":data/questions/" + interview.interview_label + '.yml'), label = "Run interview", new_window=True ) }
   % endif
 
   ${ action_button_html(url_action('button_uninstall_package'),label="Uninstall interview", color="danger") }
@@ -1776,7 +1322,7 @@ subquestion: |
   ${ collapse_template(yaml_source) }
   
   Download the YAML file only:  
-  [:download: Download YAML](${interview_download.url_for(attachment=True)})
+  [:download: Download YAML](${interview_mako_output.raw.url_for(attachment=True)})
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})
@@ -1794,7 +1340,7 @@ code: |
 event: uninstall_package_event
 code: |
   data = {"key": install_packages_api_key,
-          "package": "docassemble." + package_title
+          "package": "docassemble." + interview.package_title
           }
   status = installer.delete("package", data=data)
   background_response()            
@@ -1880,31 +1426,31 @@ comment: |
   This block is called when the "field table" is initially loaded.
 code: |
   # Initialize the hidden fields. 
-  questions[i].fld_order_list = '' # Will be updated in js
-  questions[i].table_data = ''     # Will be updated in the next code block
+  interview.questions[i].fld_order_list = '' # Will be updated in js
+  interview.questions[i].table_data = ''     # Will be updated in the next code block
   
   # Make the field table draggable  
-  questions[i].html_fld_table = make_it_draggable(questions[i].edit_table) 
-  questions[i].original_fld_order = questions[i].html_fld_table[0] #list
-  questions[i].draggable_fld_table = questions[i].html_fld_table[1] #soup table
+  interview.questions[i].html_fld_table = make_it_draggable(interview.questions[i].edit_table) 
+  interview.questions[i].original_fld_order = interview.questions[i].html_fld_table[0] #list
+  interview.questions[i].draggable_fld_table = interview.questions[i].html_fld_table[1] #soup table
 ---
 comment: |
   This block is called after the "field table" is reordered by the user.
 code: |     
-  if len(questions[i].fld_order_list) > 0:    
+  if len(interview.questions[i].fld_order_list) > 0:    
     # Update existing fld table order var - will affect output interview layout
-    questions[i].field_list = update_table_order_var(questions[i].original_fld_order, questions[i].fld_order_list, questions[i].field_list)
+    interview.questions[i].field_list = update_table_order_var(interview.questions[i].original_fld_order, interview.questions[i].fld_order_list, interview.questions[i].field_list)
     
     # Save new table data to the hidden field for JS to access    
-    questions[i].table_data = make_json(questions[i].fld_order_list, questions[i].draggable_fld_table)    
+    interview.questions[i].table_data = make_json(interview.questions[i].fld_order_list, interview.questions[i].draggable_fld_table)    
     
-  questions[i].field_tbl_done = True  
+  interview.questions[i].field_tbl_done = True  
 ---
 # Loop thru all the field tables and display them on the screen
 code: |  
-  for j in range(0, len(questions)):      
-    questions[j].edit_question     
-    questions[j].field_tbl_done 
+  for index in range(0, len(interview.questions)):      
+    interview.questions[index].edit_question     
+    interview.questions[index].field_tbl_done 
   show_field_order = True
 ---
 event: let_skip
@@ -1919,7 +1465,7 @@ code: |
 only sets: no_template_default_values
 code: |
   if not have_template_to_load:
-    all_fields.gathered = True
+    interview.all_fields.gathered = True
   interview.original_form = 'NA'  
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title
@@ -1939,102 +1485,99 @@ code: |
     
   set_interview_type_vars = 'Done'
 ---
-id: confirm-mixed-document-fields
-continue button field: validate_mixed_documents
+################ I'm feeling lucky feature ###################
+---
+id: feeling lucky
 question: |
-  Validate your templates
+  Are you feeling lucky?
 subquestion: |
-  #### Your upload contains both DOCX and PDF files
+  You can go straight to a runnable prototype of
+  "${ interview.short_filename_with_spaces }" for ${ state_name(interview.state) },
+  or you can customize this prototype. 
 
-  #### Fields
-  
-  All of the fields in your template files are listed in the table below.
-  Confirm that the table looks right.
-  
-  A **bold** name means that this field is **reserved**.
-  Reserved fields are fields that will be handled with a question that
-  comes from the AL Question Library. For example:
-  
-  * Name fields
-  * Address fields
-  * Basic contact information and court information
-  
-  If you expect a field to be bold but it isn't, check the field's spelling.
+field: im_feeling_lucky
+buttons: 
+  - Customize: False
+  - "I'm feeling lucky": True
+---
+code: |
+  has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
+---
+code: |
+  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
+  # Let someone bootstrap an interview from the form explorer
+  interview.original_form = url_args.get('form_to_use')
+  if has_safe_pdf_in_url:
+    interview.uploaded_templates = DAFileList('interview.uploaded_templates', auto_gather=False, gathered=True)
+    interview.uploaded_templates[0] = DAFile('interview.uploaded_templates[0]')
+    interview.uploaded_templates[0].initialize(extension="pdf")
+    interview.uploaded_templates[0].from_url(url_args.get('form_to_use'))
+    interview.uploaded_templates[0].created = True    
+  if url_args.get('title'):
+    interview.short_filename_with_spaces = url_args.get('title')
+    interview.title = interview.short_filename_with_spaces
+    interview.short_filename = space_to_underscore(varname(interview.short_filename_with_spaces))
+    interview_label_draft = interview.short_filename
+  if url_args.get('jur'):
+    interview.state = url_args.get('jur')
+  if url_args.get('nsmi'):
+    nsmi_tmp = url_args.get('nsmi')[1:-1].replace("'","").strip()
+    interview.categories = nsmi_tmp.split(',')
+    interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
+    interview.categories['Other'] = False
+  url_args.clear()    
+  process_url_args = True  
+---
+only sets: 
+  - process_im_feeling_lucky
+code: |
+  yes_normalize_fields = False
+  yes_recognize_form_fields = False
+  interview_type = "regular"
+  if has_safe_pdf_in_url: # limit when this block can run
+    # Set interview defaults based on the PDF passed in the URL args
+    interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
+    interview.org_choices = get_matching_deps("organization",interview.state)
+    interview.form_type = "starts_case"
+    interview_intro_prompt = interview_intro_prompt_default
+    interview.title = interview.short_filename_with_spaces
+    interview.short_title = interview.short_filename_with_spaces
+    interview.description = interview.short_filename_with_spaces
+    interview.getting_started = "Before you get started, you need to..."
 
-  The **type** of each field is just a guess, based on the field's name.
-  You can override the guess later.
+    interview.typical_role = "unknown"
 
-  Name (bold if {reserved}) | Type
-  --------------------------|------
-  % for field in validation_fields.builtins():
-  ${ bold(field.variable) } :question: | ${ field.field_type_guess } |
-  % endfor
-  % for field in validation_fields.custom():
-  ${ bold(field.variable) if field.reserved else field.variable } |  ${ field.field_type_guess } | 
-  % endfor
-  % for field in validation_fields.signatures():
-  ${ bold(field.variable) if field.reserved else field.variable } | signature  |
-  % endfor
+    interview.all_fields.gathered
+    person_candidates = interview.all_fields.get_person_candidates()
+    interview.all_fields.mark_people_as_builtins(interview.all_fields.get_person_candidates())
+
+    for person in person_candidates:
+      people_quantities[person] = "any"
+
+    process_people_variables = True      
     
-  #### Preview  
-  Look over the PDF preview of your file below. Make sure that the
-  fonts, spacing, and styles look about right. Note: the conditional logic
-  and text your user enters can change the formatting. You will also
-  see the placeholder variable names unchanged in this preview.
-  
-  For safety, we recommend that you use the standard [Microsoft Core Fonts
-  for the Web](https://en.wikipedia.org/wiki/Core_fonts_for_the_Web), including
-  Arial and Times New Roman, as the standard fonts in Word templates.
-  
-  If spacing or other formatting looks wrong, try editing your file in
-  [LibreOffice](https://www.libreoffice.org/) and get it looking right
-  there.
-  
-  % for document in template_upload:  
-  ${ collapse_template(document.preview_template) }
+    for index, field in enumerate(interview.all_fields.elements):
+      field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
+      field.label = field.variable_name_guess
+    # choose_field_types
+    # review_fields_after_labeling
+    
+    interview.questions.auto_gather = False
+    field_grouping = cluster_screens( [field.variable for field in interview.all_fields] )
+    for group in field_grouping:
+      new_screen = interview.questions.appendObject()
+      new_screen.is_informational_screen = False
+      new_screen.has_mandatory_field = True
+      new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
+      new_screen.subquestion_text = ''
+      new_screen.field_list = [field for field in interview.all_fields if field.variable in field_grouping[group]]          
+    
+    interview.questions.gathered = True
+    interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
+    if user_logged_in():
+      interview.author = f"{user_info().first_name} {user_info().last_name}"
+    else:
+      interview.author = "Court Forms Online"    
+    interview.allowed_courts = DADict(auto_gather=False, gathered=True)
 
-  % endfor
-
-fields:
-  - no label: mixed_fields_checkup_status
-    datatype: checkboxes
-    choices:
-      - All of my fields are listed in the table above: all_fields_present
-      - There are no unexpected fields in the table: no_unexpected_fields
-      - All the reserved fields are bolded as I expected: correct_reserved_fields    
-      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: fonts_okay
-        help: |
-          Note: use the Microsoft Core Fonts for the Web to be safe.
-    minlength: 4
-    validation messages:
-      minlength: |
-        You must select all of the checkboxes to keep going.
-    none of the above: False
-terms:
-  - reserved: |
-      Means there is a built-in question for this field.
-css: |
-  <style>
-  .question-confirm-docx-fields div.container {
-    max-width: 2000px;
-  }  
-  </style>
----
-template: template_upload[i].preview_template
-subject: |
-  Preview ${ template_upload[i].filename }
-content: |
-  % if template_upload[i].mimetype == "application/pdf":
-  ${ pdf_concatenate(overlay_pdf(template_upload[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf") }  
-  % else:
-  ${ pdf_concatenate(template_upload[i]) }
-  % endif
----
-attachment:
-  variable name: template_upload[i].pdf_field_preview
-  editable: False
-  pdf template file:
-    code: |
-      template_upload[i]
-  code: |
-    reflect_fields(template_upload[i].get_pdf_fields(), placeholder_signature)
+  process_im_feeling_lucky = True

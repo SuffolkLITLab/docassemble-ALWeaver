@@ -1,4 +1,5 @@
 import ast
+from dataclasses import field
 import keyword
 import os
 import re
@@ -12,11 +13,11 @@ from docassemble.base.util import (
     DAObject,
     DAList,
     DAFile,
+    DAFileCollection,
     DAFileList,
-    path_and_mimetype,
-    user_info,
     DAEmpty,
     pdf_concatenate,
+    comma_list,
 )
 import docassemble.base.functions
 import docassemble.base.parse
@@ -24,20 +25,22 @@ import docassemble.base.pdftk
 import datetime
 import zipfile
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 from .validate_template_files import matching_reserved_names
 import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
-from pdfminer.pdftypes import PDFObjRef, resolve1
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
+import itertools
+import more_itertools
+
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -45,62 +48,60 @@ mako.runtime.UNDEFINED = DAEmpty()
 TypeType = type(type(None))
 
 __all__ = [
-    "ParsingException",
-    "indent_by",
-    "varname",
-    "DAFieldGroup",
-    "DAField",
-    "DAFieldList",
-    "DAQuestion",
-    "DAInterview",
-    "to_yaml_file",
-    "base_name",
-    "escape_quotes",
-    "escape_double_quoted_yaml",
-    "oneline",
-    "DAQuestionList",
-    "map_raw_to_final_display",
-    "is_reserved_label",
     "attachment_download_html",
-    "get_fields",
-    "is_reserved_docx_label",
-    "get_character_limit",
+    "base_name",
     "create_package_zip",
-    "remove_multiple_appearance_indicator",
-    "get_court_choices",
-    "set_custom_people_map",
+    "DAField",
+    "DAFieldGroup",
+    "DAFieldList",
+    "DAInterview",
+    "DAQuestion",
+    "DAQuestionList",
+    "escape_double_quoted_yaml",
+    "escape_quotes",
     "fix_id",
-    "DABlock",
-    "DABlockList",
-    "using_string",
-    "pdf_field_type_str",
-    "is_valid_python",
-    "get_pdf_validation_errors",
+    "get_character_limit",
+    "get_court_choices",
     "get_docx_validation_errors",
-    "get_variable_name_warnings",
+    "get_fields",
+    "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
+    "get_variable_name_warnings",
+    "indent_by",
+    "is_reserved_docx_label",
+    "is_reserved_label",
+    "is_valid_python",
+    "map_raw_to_final_display",
+    "oneline",
+    "ParsingException",
+    "pdf_field_type_str",
+    "remove_multiple_appearance_indicator",
+    "set_custom_people_map",
+    "to_yaml_file",
+    "using_string",
+    "varname",
 ]
 
 always_defined = set(
     [
-        "False",
-        "None",
-        "True",
         "dict",
+        "False",
         "i",
         "list",
         "menu_items",
         "multi_user",
-        "role",
+        "nav",
+        "None",
+        "PY2",
         "role_event",
         "role_needed",
+        "role",
         "speak_text",
+        "string_types",
         "track_location",
+        "True",
         "url_args",
         "x",
-        "nav",
-        "PY2",
-        "string_types",
     ]
 )
 replace_square_brackets = re.compile(r"\\\[ *([^\\]+)\\\]")
@@ -165,144 +166,20 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
     return max_chars
 
 
+def varname(var_name: str) -> str:
+    if var_name:
+        var_name = var_name.strip()
+        var_name = spaces.sub(r"_", var_name)
+        var_name = invalid_var_characters.sub(r"", var_name)
+        var_name = digit_start.sub(r"", var_name)
+        return var_name
+    return var_name
+
+
 class DAFieldGroup(Enum):
     BUILT_IN = "built in"
     SIGNATURE = "signature"
     CUSTOM = "custom"
-
-
-class DABlock(DAObject):
-    """
-    A Block in a Docassemble interview YAML file.
-    """
-
-    pass
-
-
-class DABlockList(DAList):
-    """
-    This represents a list of DABlocks representing seperate YAML "documents"
-    (blocks) in a Docassemble interview file
-    """
-
-    def init(self, *pargs, **kwargs):
-        super().init(*pargs, **kwargs)
-        self.object_type = DABlock
-
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
-        """This method is used to help us iteratively build a list of fields
-        that have already been assigned to a screen/question
-        in our wizarding process. It makes sure the fields aren't displayed to
-        the wizard user on multiple screens. It prevents the formatter of the
-        wizard from putting the same fields on two different screens."""
-        fields = set()
-        for question in self.elements:
-            if hasattr(question, "field_list"):
-                for field in question.field_list.elements:
-                    if field.group == group:
-                        fields.add(field)
-        if all_fields:
-            fields.update(
-                [
-                    field
-                    for field in all_fields
-                    if field.field_type in ["code", "skip this field"]
-                    and field.group == group
-                ]
-            )
-        return fields
-
-
-class DAQuestionList(DAList):
-    """This represents a list of DAQuestions."""
-
-    def init(self, **kwargs):
-        super().init(**kwargs)
-        self.object_type = DAQuestion
-        # self.auto_gather = False
-        # self.gathered = True
-        # self.is_mandatory = False
-
-    def all_fields_used(self, all_fields: List = None, group=DAFieldGroup.CUSTOM):
-        """This method is used to help us iteratively build a list of fields that have already been assigned to a
-        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
-        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
-        parameter "all_fields" is provided.
-        """
-        fields = set()
-        for question in self.elements:
-            if hasattr(question, "field_list"):
-                for field in question.field_list.elements:
-                    if field.group == group:
-                        fields.add(field)
-        if all_fields:
-            fields.update(
-                [
-                    field
-                    for field in all_fields
-                    if field.field_type in ["code", "skip this field"]
-                    and field.group == group
-                ]
-            )
-        return fields
-
-
-TemplateDict = TypedDict(
-    "TemplateDict",
-    {
-        "mako template imports": List[str],
-        "mako template local imports": Dict[str, List[str]],
-    },
-    total=False,
-)
-
-
-class DAInterview(DAObject):
-    """
-    This class is a container for the various questions and metadata
-    associated with an interview.
-    """
-
-    templates: TemplateDict
-    template_path: str  # Like: docassemble.ALWeaver:data/sources/interview_structure.yml
-    blocks: DABlockList
-    questions: DAQuestionList  # is this used?
-
-    def init(self, *pargs, **kwargs):
-        super().init(*pargs, **kwargs)
-        self.blocks = DABlockList(auto_gather=False, gathered=True, is_mandatory=False)
-        self.questions = DAQuestionList(
-            auto_gather=False, gathered=True, is_mandatory=False
-        )
-
-    def package_info(self, dependencies: List[str] = None) -> Dict[str, Any]:
-        assembly_line_dep = "docassemble.AssemblyLine"
-        if dependencies is None:
-            dependencies = [
-                assembly_line_dep,
-                "docassemble.ALMassachusetts",
-                "docassemble.MassAccess",
-            ]
-        elif assembly_line_dep not in dependencies:
-            dependencies.append(assembly_line_dep)
-
-        info: Dict[str, Union[str, List[str]]] = {}
-        for field in [
-            "interview_files",
-            "template_files",
-            "module_files",
-            "static_files",
-        ]:
-            if field not in info:
-                info[field] = list()
-        info["dependencies"] = dependencies
-        info["author_name"] = ""
-        info["readme"] = ""
-        info["description"] = self.title
-        info["version"] = "1.0"
-        info["license"] = "The MIT License"
-        info["url"] = "https://courtformsonline.org"
-        return info
 
 
 class DAField(DAObject):
@@ -312,7 +189,7 @@ class DAField(DAObject):
       In the case of PDFs, there could be multiple, i.e. `child__0` and `child__1`
     * `variable`: the field name that has been turned into a valid identifier, spaces to `_` and stripped of
       non identifier characters
-    * `final_display_var`: the docassamble python code that computes exactly what the author wants in their PDF
+    * `final_display_var`: the docassemble python code that computes exactly what the author wants in their PDF
 
     In many of the methods, you'll also find two other common versions of the field, computed on the fly:
     * `trigger_gather`: returns the statement that causes docassemble to correctly ask the question for this variable,
@@ -324,6 +201,14 @@ class DAField(DAObject):
 
     def init(self, **kwargs):
         return super().init(**kwargs)
+
+    @property
+    def complete(self):
+        self.variable
+        self.label
+        if not hasattr(self, "group"):
+            self.group = DAFieldGroup.CUSTOM
+        return True
 
     def fill_in_docx_attributes(
         self,
@@ -733,31 +618,15 @@ class DAFieldList(DAList):
     """A DAFieldList contains multiple DAFields."""
 
     def init(self, **kwargs):
+        super().init(**kwargs)
         self.object_type = DAField
         self.auto_gather = False
-        # self.gathered = True
-        return super().init(**kwargs)
+        self.complete_attribute = "complete"
 
     def __str__(self):
         return docassemble.base.functions.comma_and_list(
-            map(lambda x: "`" + x.variable + "`", self.elements)
+            map(lambda x: "`" + x.variable + "`", self.complete_elements())
         )
-
-    def __add__(self, other):
-        """Needed to make sure that DAFieldLists stay DAFieldLists when adding them"""
-        self._trigger_gather()
-        if isinstance(other, DAEmpty):
-            return self
-        if isinstance(other, DAFieldList):
-            other._trigger_gather()
-            the_list = DAFieldList(
-                elements=self.elements + other.elements,
-                gathered=True,
-                auto_gather=False,
-            )
-            the_list.set_random_instance_name()
-            return the_list
-        return self.elements + other
 
     def consolidate_yesnos(self):
         """Combines separate yes/no questions into a single variable, and writes back out to the yes
@@ -871,6 +740,18 @@ class DAFieldList(DAList):
 
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
+
+    def ask_about_fields(self) -> List[dict]:
+        """
+        Return a list of Docassemble fields that ask the user to verify type and
+        label each "custom" field in the field list
+        """
+        return [
+            item
+            for item in itertools.chain.from_iterable(
+                [field.user_ask_about_field() for field in self.custom()]
+            )
+        ]
 
     def matching_pdf_fields_from_file(self, document: DAFile) -> List[str]:
         """
@@ -1002,16 +883,35 @@ class DAFieldList(DAList):
         """Returns "built-in" fields, including ones the user indicated contain
         custom person-prefixes"""
         # Can't use .filter() because that would create new intrinsicNames
-        return [item for item in self.elements if item.group == DAFieldGroup.BUILT_IN]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "group") and item.group == DAFieldGroup.BUILT_IN
+        ]
+
+    def built_in_signature_triggers(self):
+        return [
+            field.trigger_gather()
+            for field in self.builtins()
+            if field.trigger_gather().endswith(".signature")
+        ]
 
     def signatures(self):
         """Returns all signature fields in list"""
-        return [item for item in self.elements if item.group == DAFieldGroup.SIGNATURE]
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE
+        ]
 
     def custom(self):
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
-        return [item for item in self.elements if item.group == DAFieldGroup.CUSTOM]
+        return [
+            item
+            for item in self.elements
+            if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM
+        ]
 
     def skip_fields(self):
         return [
@@ -1041,15 +941,235 @@ class DAFieldList(DAList):
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         ]
 
+    def hook_after_gather(self):
+        for field in self.elements:
+            if not hasattr(field, "group"):
+                field.group = DAFieldGroup.CUSTOM
 
-class DAQuestion(DABlock):
+
+class DAQuestion(DAObject):
     """
-    DABlock that also contains a list of fields
+    A block in a Docassemble interview YAML file that represents a question screen
     """
 
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.field_list = DAFieldList()
+
+    @property
+    def complete(self):
+        self.question_text
+        if self.is_informational_screen:
+            self.field_list.clear()
+            # The info screen gives it a mandatory field
+            self.has_mandatory_field = True
+
+        # Simplify the abstraction
+        if not self.has_mandatory_field or self.is_informational_screen:
+            # assigning continue button field name here is messy
+            self.needs_continue_button_field = True
+        else:
+            self.needs_continue_button_field = False
+        return True
+
+
+class DAQuestionList(DAList):
+    """This represents a list of DAQuestions."""
+
+    def init(self, **kwargs):
+        super().init(**kwargs)
+        self.object_type = DAQuestion
+        self.complete_attribute = "complete"
+
+    def all_fields_used(self, all_fields: List = None):
+        """This method is used to help us iteratively build a list of fields that have already been assigned to a
+        screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
+        It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
+        parameter "all_fields" is provided.
+        """
+        fields = set()
+        for question in self.elements:
+            if hasattr(question, "field_list"):
+                for field in question.field_list.elements:
+                    if (
+                        not hasattr(field, "group")
+                        or field.group == DAFieldGroup.CUSTOM
+                    ):
+                        fields.add(field)
+        if all_fields:
+            fields.update(
+                [
+                    field
+                    for field in all_fields
+                    if field.field_type in ["code", "skip this field"]
+                ]
+            )
+        return fields
+
+    def interview_order_list(
+        self,
+        all_fields,
+        screens: List["DAQuestion"] = None,
+        sections: Optional[List] = None,
+        set_progress=True,
+    ) -> List[str]:
+        """
+        Creates a list of fields for use in creating an interview order block.
+        Fairly opinionated/tied to current expectations of AssemblyLine:
+
+        1.
+        """
+        if not screens:
+            screens = self
+
+        logic_list = []
+
+        total_num_screens = len(screens)
+
+        # We'll have a progress step every 5 screens,
+        # unless it's very short
+        if total_num_screens > 20:
+            screen_divisor = 5
+        else:
+            screen_divisor = 3
+
+        total_steps = (
+            round(total_num_screens / screen_divisor) + 2
+        )  # signature screen adds two steps
+        increment = int(100 / total_steps)
+        progress = 0
+
+        saved_answer_name_flag = False
+        for index, question in enumerate(screens):
+            if set_progress and index and index % screen_divisor == 0:
+                progress += increment
+                logic_list.append(f"set_progress({int(progress)})")
+            if isinstance(question, DAQuestion) and question.type == "question":
+                # TODO(bryce): make OOP: don't refer to question.type
+                # Add the first field in every question to our logic tree
+                # This can be customized to control the order of questions later
+                if question.needs_continue_button_field:
+                    logic_list.append(varname(question.question_text))
+                else:
+                    logic_list.append(question.field_list[0].trigger_gather())
+            else:
+                # it's a built-in field OR a signature, not a question block
+                if not (
+                    question in all_fields.builtins()
+                    and question.trigger_gather().endswith(".signature")
+                ):
+                    logic_list.append(question.trigger_gather())
+                    # set the saved answer name so it includes the user's name in saved
+                    # answer list
+                    # NOTE: this is redundant now that we have a custom interview list, but leaving for now
+                    if (
+                        question.trigger_gather() == "users.gather()"
+                        and not saved_answer_name_flag
+                    ):
+                        logic_list.append("set_parts(subtitle=str(users))")
+                        saved_answer_name_flag = True
+
+        return list(more_itertools.unique_everseen(logic_list))
+
+
+class DAInterview(DAObject):
+    """
+    This class is a container for the various questions and metadata
+    associated with an interview.
+    """
+
+    def init(self, *pargs, **kwargs):
+        super().init(*pargs, **kwargs)
+        self.initializeAttribute("questions", DAQuestionList)
+        self.initializeAttribute("all_fields", DAFieldList.using(auto_gather=False))
+
+    def has_unassigned_fields(self):
+        return len(
+            self.questions.all_fields_used(all_fields=self.all_fields.custom())
+        ) < len(self.all_fields.custom())
+
+    def package_info(self) -> Dict[str, Any]:
+        assembly_line_dep = "docassemble.AssemblyLine"
+        if not hasattr(self, "dependencies"):
+            self.dependencies: List[str] = []
+        if not self.dependencies:
+            self.dependencies = [assembly_line_dep]
+        elif assembly_line_dep not in self.dependencies:
+            self.dependencies.append(assembly_line_dep)
+
+        info: Dict[str, Union[str, List[str]]] = {}
+        for field in [
+            "interview_files",
+            "template_files",
+            "module_files",
+            "static_files",
+        ]:
+            if field not in info:
+                info[field] = list()
+        info["dependencies"] = self.dependencies
+        info["author_name"] = ""
+        info["readme"] = ""
+        info["description"] = self.title
+        info["version"] = "1.0"
+        info["license"] = "The MIT License"
+        info["url"] = "https://courtformsonline.org"
+        return info
+
+    @property
+    def package_title(self):
+        return re.sub("\W|_", "", self.interview_label.title())
+
+    def create_package(
+        self,
+        interview_mako_output: DAFileCollection,
+        generate_download_screen: bool = True,
+        output_file: Optional[DAFile] = None,
+    ) -> DAFile:
+
+        # 2. Build data for folders_and_files and package_info
+        folders_and_files = {
+            "questions": [interview_mako_output],
+            "modules": [],
+            "static": [],
+            "sources": [],
+        }
+
+        if generate_download_screen:
+            folders_and_files["templates"] = [
+                self.instructions
+            ] + self.uploaded_templates
+        else:
+            folders_and_files["templates"] = []
+
+        package_info = self.package_info()
+
+        if self.author and str(self.author).splitlines():
+            # TODO(qs): is it worth ever adding email here?
+            # It would conflict with listing multiple authors
+            default_vals = {"author name and email": str(self.author).splitlines()[0]}
+            package_info["author_name"] = default_vals["author name and email"]
+        else:
+            default_vals = {"author name and email": "author@example.com"}
+
+        # 3. Generate the output package
+        return create_package_zip(
+            self.package_title,
+            package_info,
+            default_vals,
+            folders_and_files,
+            output_file,
+        )
+
+    def attachment_varnames(self) -> str:
+        if len(self.uploaded_templates) == 1:
+            return f"{self.interview_label }_attachment"
+        else:
+            return comma_list(
+                [
+                    varname(base_name(document.filename))
+                    for document in self.uploaded_templates
+                ]
+            )
 
 
 def fix_id(string: str) -> str:
@@ -1074,16 +1194,6 @@ def indent_by(text: str, num: int) -> str:
     if not text:
         return ""
     return (" " * num) + re.sub(r"\r*\n", "\n" + (" " * num), text).rstrip() + "\n"
-
-
-def varname(var_name: str) -> str:
-    if var_name:
-        var_name = var_name.strip()
-        var_name = spaces.sub(r"_", var_name)
-        var_name = invalid_var_characters.sub(r"", var_name)
-        var_name = digit_start.sub(r"", var_name)
-        return var_name
-    return var_name
 
 
 def oneline(text: str) -> str:
@@ -1616,7 +1726,7 @@ def create_package_zip(
       static
       sources
 
-    Strucure of a docassemble package:
+    Structure of a docassemble package:
     + docassemble-PKGNAME/
         LICENSE
         MANIFEST.in
