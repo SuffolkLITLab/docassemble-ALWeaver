@@ -1676,6 +1676,10 @@ def get_variable_name_warnings(fields):
 
 
 def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str, str]]:
+    """
+    Identify any variable names that look like they are intended to be for a PDF
+    in a DOCX template.
+    """
     if isinstance(document, DAFile):
         docx_data = docx2python(document.path())
     else:
@@ -1684,7 +1688,7 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     fields = get_docx_variables(text)
     res = set()
     for field in fields:
-        possible_new_field = map_raw_to_final_display(field)
+        possible_new_field = map_raw_to_final_display(field, document_type="docx")
         if possible_new_field != field:
             res.add((field, possible_new_field))
     return res
