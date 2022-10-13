@@ -112,7 +112,7 @@ code: |
   % if interview.typical_role == 'unknown':
   # Below sets the user_role by asking a question.
   # You can set user_role directly instead to either 'plaintiff' or 'defendant'
-  user_ask_role
+  user_role
   % else:
   user_role = "${ interview.typical_role }"
   % endif
@@ -242,6 +242,7 @@ code: |
   # This is a placeholder for the addresses that will be searched
   # for matching address to court. Edit if court venue is based on 
   # a different address than the user's
+  [user.address.address for user in users]
   addresses_to_search = [user.address for user in users]
 % endif
 <%doc>
