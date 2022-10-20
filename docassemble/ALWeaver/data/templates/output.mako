@@ -112,7 +112,7 @@ code: |
   % if interview.typical_role == 'unknown':
   # Below sets the user_role by asking a question.
   # You can set user_role directly instead to either 'plaintiff' or 'defendant'
-  user_role
+  user_ask_role
   % else:
   user_role = "${ interview.typical_role }"
   % endif
