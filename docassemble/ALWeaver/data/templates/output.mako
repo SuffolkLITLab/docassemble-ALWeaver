@@ -242,8 +242,8 @@ code: |
   # This is a placeholder for the addresses that will be searched
   # for matching address to court. Edit if court venue is based on 
   # a different address than the user's
-  [user.address.address for user in users]
-  addresses_to_search = [user.address for user in users]
+  [user.address.address for user in users.complete_elements()]
+  addresses_to_search = [user.address for user in users.complete_elements()]
 % endif
 <%doc>
     Review screens
