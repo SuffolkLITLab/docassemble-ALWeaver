@@ -1690,9 +1690,13 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     for field in fields:
         # See if the docx fields would change at all if they were actually in a PDF.
         # This means that the author may have been following the PDF labeling tutorials
-        possible_new_field = map_raw_to_final_display(field, document_type="pdf")
-        if possible_new_field != field:
-            res.add((field, possible_new_field))
+        try:
+            possible_new_field = map_raw_to_final_display(field, document_type="pdf")
+            if possible_new_field != field:
+                res.add((field, possible_new_field))
+        except ParsingException:
+            # ParsingExceptions are fine, because we aren't really parsing a PDF
+            pass
     return res
 
 
