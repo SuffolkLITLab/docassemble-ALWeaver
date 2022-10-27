@@ -37,7 +37,7 @@ from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
-import itertools
+from itertools import zip_longest, chain
 import more_itertools
 
 
@@ -705,17 +705,21 @@ class DAFieldList(DAList):
 
         if document_type == "pdf":
             # Use pikepdf to get more info about each field
+            pike_fields: Iterable = []
             pike_obj = Pdf.open(document.path())
-            pike_fields = pike_obj.Root.AcroForm.Fields or []
-            for pdf_field_tuple, pike_info in itertools.zip_longest(all_fields, pike_fields):
+            if pike_obj.Root.AcroForm.Fields and isinstance(
+                pike_obj.Root.AcroForm.Fields, Iterable
+            ):
+                pike_fields = pike_obj.Root.AcroForm.Fields
+            for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
-                if pike_info and hasattr(pike_info, 'Ff'):
+                if pike_info and hasattr(pike_info, "Ff"):
                     # PDF fields have bit flags that set specific options. The 17th bit (or hex
                     # 10000) on Buttons says it's a "push button", that "does not retain a
                     # permanent value" (e.g. a "Print this PDF" button.) They generally aren't
                     # really fields, and don't play well with PDF editing tools. Just skip them.
-                    if pike_info.FT == '/Btn' and bool(pike_info.Ff & 0x10000):
-                      continue
+                    if pike_info.FT == "/Btn" and bool(pike_info.Ff & 0x10000):
+                        continue
 
                 new_field = self.appendObject()
                 new_field.source_document_type = "pdf"
@@ -758,7 +762,7 @@ class DAFieldList(DAList):
         """
         return [
             item
-            for item in itertools.chain.from_iterable(
+            for item in chain.from_iterable(
                 [field.user_ask_about_field() for field in self.custom()]
             )
         ]
