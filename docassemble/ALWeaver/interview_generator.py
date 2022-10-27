@@ -24,21 +24,20 @@ import docassemble.base.parse
 import docassemble.base.pdftk
 import datetime
 import zipfile
-import json
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
 from .generator_constants import generator_constants
 from .custom_values import custom_values
 from .validate_template_files import matching_reserved_names
-import ruamel.yaml as yaml
 import mako.template
 import mako.runtime
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
+from pikepdf import Pdf
 from PyPDF2.utils import PdfReadError
 from zipfile import BadZipFile
 import ast
 from enum import Enum
-import itertools
+from itertools import zip_longest, chain
 import more_itertools
 
 
@@ -705,8 +704,23 @@ class DAFieldList(DAList):
             )
 
         if document_type == "pdf":
-            for pdf_field_tuple in all_fields:
+            # Use pikepdf to get more info about each field
+            pike_fields: Iterable = []
+            pike_obj = Pdf.open(document.path())
+            if pike_obj.Root.AcroForm.Fields and isinstance(
+                pike_obj.Root.AcroForm.Fields, Iterable
+            ):
+                pike_fields = pike_obj.Root.AcroForm.Fields
+            for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
+                if pike_info and hasattr(pike_info, "Ff"):
+                    # PDF fields have bit flags that set specific options. The 17th bit (or hex
+                    # 10000) on Buttons says it's a "push button", that "does not retain a
+                    # permanent value" (e.g. a "Print this PDF" button.) They generally aren't
+                    # really fields, and don't play well with PDF editing tools. Just skip them.
+                    if pike_info.FT == "/Btn" and bool(pike_info.Ff & 0x10000):
+                        continue
+
                 new_field = self.appendObject()
                 new_field.source_document_type = "pdf"
 
@@ -748,7 +762,7 @@ class DAFieldList(DAList):
         """
         return [
             item
-            for item in itertools.chain.from_iterable(
+            for item in chain.from_iterable(
                 [field.user_ask_about_field() for field in self.custom()]
             )
         ]
@@ -1173,6 +1187,7 @@ class DAInterview(DAObject):
 
 
 def fix_id(string: str) -> str:
+    """Returns a valid, readable docassemble YAML block id"""
     if string and isinstance(string, str):
         return re.sub(r"[\W_]+", " ", string).strip()
     else:
@@ -1234,7 +1249,7 @@ def docx_variable_fix(variable: str) -> str:
     return variable
 
 
-def get_fields(document: Union[DAFile, DAFileList]):
+def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     """Get the list of fields needed inside a template file (PDF or Docx Jinja
     tags). This will include attributes referenced. Assumes a file that
     has a valid and exiting filepath."""
@@ -1621,6 +1636,8 @@ def bad_name_reason(field: DAField):
             return f"`{ field.variable }` is not a valid python expression"
         return None
     else:
+        if len(field.variable) == 0:
+            return f"A { field.field_type_guess } field has no name. All field names should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case)."
         # log(field[0], "console")
         python_var = map_raw_to_final_display(
             remove_multiple_appearance_indicator(varname(field.variable)),
