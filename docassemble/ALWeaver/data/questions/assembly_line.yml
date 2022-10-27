@@ -51,11 +51,12 @@ code: |
  
   if have_template_to_load:  
     interview.all_fields.gathered
-  # Display Weaver question screens   
-  interview.jurisdiction_choices 
-  if generate_download_screen:      
+  # Display Weaver question screens
+  interview.jurisdiction_choices
+  interview.form_type
+  if generate_download_screen:
     interview_intro_prompt #branding screen
-    interview.short_title #intro screen    
+    interview.short_title #intro screen
     interview.typical_role #people related questions
     process_people_variables
     ask_people_quantity_question    
@@ -66,7 +67,6 @@ code: |
     no_template_default_values    
   review_fields_after_labeling
   interview.questions.gather()
-  interview.form_type
   
   # Review field order and screen order
   if not (has_safe_pdf_in_url and im_feeling_lucky):
@@ -619,6 +619,9 @@ fields:
 
       - The Plaintiff/Petitioner starts a case. 
       - The Defendant/Respondent responds to a case someone else started.
+    show if:
+      code: |
+        interview.form_type != "starts_case"
   - User's role: interview.typical_role
     input type: radio
     choices:
@@ -626,6 +629,9 @@ fields:
       - Defendant/Respondent: defendant
       - Could be either: unknown
       - None of the above: na
+    show if:
+      code: |
+        interview.form_type != "starts_case"
     help: |
       If form type is an appeal, this is asking about the role in the trial court, not appellate proceeding.
   #- Number of users whose information can be filled in on this form: user_count
@@ -645,6 +651,10 @@ help: |
   
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
+---
+if: interview.form_type == "starts_case"
+code: |
+  interview.typical_role = "plaintiff"
 ---
 code: |
   # Build the dynamic question code to ask about people quantities
@@ -1466,7 +1476,7 @@ only sets: no_template_default_values
 code: |
   if not have_template_to_load:
     interview.all_fields.gathered = True
-  interview.original_form = 'NA'  
+  interview.original_form = 'NA'
   interview.typical_role = 'anonymous'
   interview_label_draft = interview.short_title
   
