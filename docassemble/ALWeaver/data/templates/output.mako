@@ -110,11 +110,12 @@ code: |
   % endif
   nav.set_section("review_${ interview.interview_label }")
   % if interview.typical_role == 'unknown':
-  # Below sets the user_role by asking a question.
-  # You can set user_role directly instead to either 'plaintiff' or 'defendant'
+  # Below sets the user_role and user_ask_role by asking a question.
+  # You can set user_ask_role directly instead to either 'plaintiff' or 'defendant'
   user_ask_role
   % else:
   user_role = "${ interview.typical_role }"
+  user_ask_role = "${ interview.typical_role }"
   % endif
   % for field in interview.questions.interview_order_list(interview.all_fields, screen_reordered):
   ${ field }
