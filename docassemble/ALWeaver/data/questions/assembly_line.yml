@@ -766,7 +766,7 @@ code: |
     elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
       errors = get_docx_validation_errors(document)
       if errors:
-        force_ask('exit_invalid_docx')        
+        force_ask('exit_invalid_docx')
       # Check for syntax that indicates a user error
       jinja_errors = get_jinja_errors(document)
       if jinja_errors:

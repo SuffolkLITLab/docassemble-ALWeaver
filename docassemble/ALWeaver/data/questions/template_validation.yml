@@ -261,7 +261,7 @@ question: ${ parsing_ex.main_issue }
 subquestion: |
   ${ parsing_ex.description }
 
-  % if parsing_ex.url is not None:  
+  % if parsing_ex.url is not None:
   Check out the [documentation](${ parsing_ex.url }) to learn more.
   % endif
   
