@@ -57,7 +57,9 @@ class test_docxs(unittest.TestCase):
         self.assertNotIn(("other_parties", "other_parties"), matching_fields)
 
     def test_no_pdf_variables_in_docx(self):
-        pdf_variables_file = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        pdf_variables_file = (
+            Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        )
 
         matching_fields = get_pdf_variable_name_matches(pdf_variables_file)
         self.assertEqual(len(matching_fields), 0)
