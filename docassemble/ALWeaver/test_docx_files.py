@@ -11,7 +11,8 @@ from docx2python import docx2python
 from pathlib import Path
 
 import docassemble.base.functions
-   
+
+
 class MockDAStaticFile(DAStaticFile):
     def init(self, *pargs, **kwargs):
         if "full_path" in kwargs:
@@ -70,12 +71,12 @@ class test_docxs(unittest.TestCase):
             Path(__file__).parent / "test/docx_file_with_reserved_keywords.docx"
         )
         docassemble.base.functions.this_thread.current_question = type("", (), {})
-        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"            
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
         da_docx = MockDAStaticFile(
             full_path=str(reserved_keywords_docx),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
-        
+
         fields = DAFieldList()
         fields.add_fields_from_file(da_docx)
         fields.gathered = True
