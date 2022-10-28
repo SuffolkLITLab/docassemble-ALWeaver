@@ -908,7 +908,7 @@ class DAFieldList(DAList):
         ]
 
     def reserved(self):
-        """Returns "reserved" fields that aren't supposed to ever be asked 
+        """Returns "reserved" fields that aren't supposed to ever be asked
         or triggered in the interview order block.
         """
         return [
@@ -1461,7 +1461,7 @@ def map_raw_to_final_display(
 
 
 def is_reserved_docx_label(
-    label:str,
+    label: str,
     docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
     reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
@@ -1473,7 +1473,7 @@ def is_reserved_docx_label(
     reserved variable names. `label` must be a string."""
     if label in reserved_whole_words:
         return True
-    
+
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r"([^.]*)(\..*)*", label)
 
@@ -1707,10 +1707,7 @@ def get_variable_name_warnings(fields):
     Get a list with each field that has an invalid variable name.
     """
     return [
-        bad_name_reason(field)
-        for field
-        in fields
-        if bad_name_reason(field) is not None
+        bad_name_reason(field) for field in fields if bad_name_reason(field) is not None
     ]
 
 

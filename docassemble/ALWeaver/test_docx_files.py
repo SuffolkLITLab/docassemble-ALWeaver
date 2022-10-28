@@ -10,6 +10,8 @@ from docassemble.base.util import DAStaticFile
 from docx2python import docx2python
 from pathlib import Path
 
+import docassemble.base.functions
+   
 class MockDAStaticFile(DAStaticFile):
     def init(self, *pargs, **kwargs):
         if "full_path" in kwargs:
@@ -27,6 +29,7 @@ class MockDAStaticFile(DAStaticFile):
 
     def path(self):
         return self.full_path
+
 
 class test_docxs(unittest.TestCase):
     def test_unmap_suffixes(self):
@@ -66,15 +69,19 @@ class test_docxs(unittest.TestCase):
         reserved_keywords_docx = (
             Path(__file__).parent / "test/docx_file_with_reserved_keywords.docx"
         )
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"            
         da_docx = MockDAStaticFile(
-            full_path=str(reserved_keywords_docx), mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            full_path=str(reserved_keywords_docx),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+        
         fields = DAFieldList()
         fields.add_fields_from_file(da_docx)
         fields.gathered = True
-        self.assertEqual(len(fields.reserved()),2)
-        self.assertEqual(len(fields.builtins()),1)
-        self.assertEqual(len(fields.custom()),2)
+        self.assertEqual(len(fields.reserved()), 2)
+        self.assertEqual(len(fields.builtins()), 1)
+        self.assertEqual(len(fields.custom()), 2)
 
     def test_pdf_variables_in_docx(self):
         pdf_variables_file = Path(__file__).parent / "test/pdf_variables_in_docx.docx"
