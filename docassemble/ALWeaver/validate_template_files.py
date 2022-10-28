@@ -19,7 +19,7 @@ import docassemble.AssemblyLine.language
 
 # import docassemble.AssemblyLine.sessions
 import docassemble.ALToolbox.misc
-from typing import Optional, Iterable, Set
+from typing import Optional, Iterable, Set, Union, List
 import re
 
 __all__ = [
@@ -112,7 +112,7 @@ all_reserved_names = set(
 )
 
 
-def matching_reserved_names(field_names: Set[str]) -> Set[str]:
+def matching_reserved_names(field_names: Union[Set[str], List[str]]) -> Set[str]:
     """
     Returns a list of the matching reserved keywords in the given list of
     field names. Will parse to remove brackets and attribute names.

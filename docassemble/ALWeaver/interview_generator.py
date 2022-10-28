@@ -61,6 +61,7 @@ __all__ = [
     "fix_id",
     "get_character_limit",
     "get_court_choices",
+    "get_docx_variables",
     "get_docx_validation_errors",
     "get_fields",
     "get_pdf_validation_errors",
@@ -176,6 +177,7 @@ def varname(var_name: str) -> str:
 
 
 class DAFieldGroup(Enum):
+    RESERVED = "reserved"
     BUILT_IN = "built in"
     SIGNATURE = "signature"
     CUSTOM = "custom"
@@ -742,14 +744,16 @@ class DAFieldList(DAList):
             for field in all_fields:
                 new_field = self.appendObject()
                 new_field.source_document_type = "docx"
-                if is_reserved_docx_label(field):
+                if matching_reserved_names({field}):
+                    new_field.group = DAFieldGroup.RESERVED
+                elif is_reserved_docx_label(field):
                     new_field.group = DAFieldGroup.BUILT_IN
                 elif field.endswith(".signature"):
                     new_field.group = DAFieldGroup.SIGNATURE
                 else:
                     new_field.group = DAFieldGroup.CUSTOM
                 new_field.fill_in_docx_attributes(field)
-                if new_field.group == DAFieldGroup.BUILT_IN:
+                if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
         self.consolidate_duplicate_fields(document_type)
@@ -901,6 +905,16 @@ class DAFieldList(DAList):
             item
             for item in self.elements
             if hasattr(item, "group") and item.group == DAFieldGroup.BUILT_IN
+        ]
+
+    def reserved(self):
+        """Returns "reserved" fields that aren't supposed to ever be asked 
+        or triggered in the interview order block.
+        """
+        return [
+            item
+            for item in self.elements
+            if hasattr(item, "group") and item.group == DAFieldGroup.RESERVED
         ]
 
     def built_in_signature_triggers(self):
@@ -1447,19 +1461,19 @@ def map_raw_to_final_display(
 
 
 def is_reserved_docx_label(
-    label,
+    label:str,
     docx_only_suffixes=generator_constants.DOCX_ONLY_SUFFIXES,
     reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
     reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
     allow_singular_suffixes=generator_constants.ALLOW_SINGULAR_SUFFIXES,
-):
+) -> bool:
     """Given a string, will return whether the string matches
     reserved variable names. `label` must be a string."""
     if label in reserved_whole_words:
         return True
-
+    
     # Everything before the first period and everything from the first period to the end
     label_parts = re.findall(r"([^.]*)(\..*)*", label)
 
@@ -1627,8 +1641,6 @@ def is_valid_python(code: str) -> bool:
 
 def bad_name_reason(field: DAField):
     """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
-    if matching_reserved_names({field.variable}):
-        return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package"
     if field.source_document_type == "docx":
         # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
         # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
@@ -1636,6 +1648,8 @@ def bad_name_reason(field: DAField):
             return f"`{ field.variable }` is not a valid python expression"
         return None
     else:
+        if matching_reserved_names({field.variable}):
+            return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package"
         if len(field.variable) == 0:
             return f"A { field.field_type_guess } field has no name. All field names should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case)."
         # log(field[0], "console")
@@ -1689,7 +1703,15 @@ def get_docx_validation_errors(document: DAFile):
 
 
 def get_variable_name_warnings(fields):
-    return list(filter(lambda elem: elem is not None, map(bad_name_reason, fields)))
+    """
+    Get a list with each field that has an invalid variable name.
+    """
+    return [
+        bad_name_reason(field)
+        for field
+        in fields
+        if bad_name_reason(field) is not None
+    ]
 
 
 def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str, str]]:
