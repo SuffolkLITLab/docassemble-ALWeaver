@@ -639,7 +639,7 @@ subquestion: |
     
   Symbol   | Meaning
   ---------|---------
-  **bold** | Handled by a question in our question library
+  **bold** | Handled by a question in our question library. You can choose whether to use our default question later.
   :person: | Can be optionally handled as an object representing a person
   `red`    | A word with a reserved meaning in Docassemble, and will not have a question associated with it
   
