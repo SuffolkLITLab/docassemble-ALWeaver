@@ -112,7 +112,7 @@ all_reserved_names = set(
 )
 
 
-def matching_reserved_names(field_names: Union[Set[str], List[str]]) -> Set[str]:
+def matching_reserved_names(field_names: Iterable[str]) -> Set[str]:
     """
     Returns a list of the matching reserved keywords in the given list of
     field names. Will parse to remove brackets and attribute names.
