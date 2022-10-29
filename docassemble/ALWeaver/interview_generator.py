@@ -1704,7 +1704,7 @@ def get_docx_validation_errors(document: DAFile):
 
 def get_variable_name_warnings(fields):
     """
-    Get a list with each field that has an invalid variable name.
+    If any fields have invalid variable names, get a list of those reasons.
     """
     return [
         bad_name_reason(field) for field in fields if bad_name_reason(field) is not None
