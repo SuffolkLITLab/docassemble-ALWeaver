@@ -567,12 +567,17 @@ buttons:
   - Restart: restart
 ---    
 id: did you intend to use reserved variable names
+decoration: triangle-exclamation
 question: |
   Did you intend to use variables that have a reserved meaning in Docassemble interviews?
 subquestion: |
   Your DOCX template looks like it is using a variable name that has a
-  reserved meaning. You won't be asked a question to define this variable in your interview.
+  reserved meaning. **You won't be asked a question to define this variable in your interview.**
   It will get the value or use the meaning that it normally has in Docassemble.
+
+  Check out [the labeling
+  documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords)
+  to learn more.
 
   These are the variables that have a special meaning:
 
@@ -580,9 +585,8 @@ subquestion: |
   * `${ match }`
   % endfor
 
-  Check out [the labeling
-  documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords)
-  to learn more.
+  Only continue if you know what the variables above will contain and you intended to display
+  or check the value of a built-in Docassemble or AssemblyLine variable in your template.
 sets: warn_reserved_variables_in_docx
 buttons: 
   - I understand, let me continue: 
