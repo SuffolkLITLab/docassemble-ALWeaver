@@ -1,13 +1,35 @@
 import unittest
 from .interview_generator import (
-    DAField,
+    DAFieldList,
     get_docx_variables,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
 )
-from docassemble.base.util import DAFile
+from .validate_template_files import matching_reserved_names
+from docassemble.base.util import DAStaticFile
 from docx2python import docx2python
 from pathlib import Path
+
+import docassemble.base.functions
+
+
+class MockDAStaticFile(DAStaticFile):
+    def init(self, *pargs, **kwargs):
+        if "full_path" in kwargs:
+            full_path = kwargs["full_path"]
+            self.full_path = str(full_path)
+            if isinstance(full_path, Path):
+                kwargs["filename"] = full_path.name
+                kwargs["extension"] = full_path.suffix[1:]
+            else:
+                kwargs["filename"] = self.full_path.split("/")[-1]
+                kwargs["extension"] = self.full_path.split(".")[-1]
+            if kwargs["extension"] == "pdf":
+                kwargs["mimetype"] = "application/pdf"
+        super().init(*pargs, **kwargs)
+
+    def path(self):
+        return self.full_path
 
 
 class test_docxs(unittest.TestCase):
@@ -43,6 +65,24 @@ class test_docxs(unittest.TestCase):
         self.assertIn("trial_court.address.county", reserved_labels)
         self.assertIn("users[0].address.address", reserved_labels)
         self.assertNotIn("users.address.zip", reserved_labels)
+
+    def test_actually_reserved_keywords(self):
+        reserved_keywords_docx = (
+            Path(__file__).parent / "test/docx_file_with_reserved_keywords.docx"
+        )
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        da_docx = MockDAStaticFile(
+            full_path=str(reserved_keywords_docx),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        fields = DAFieldList()
+        fields.add_fields_from_file(da_docx)
+        fields.gathered = True
+        self.assertEqual(len(fields.reserved()), 2)
+        self.assertEqual(len(fields.builtins()), 1)
+        self.assertEqual(len(fields.custom()), 2)
 
     def test_pdf_variables_in_docx(self):
         pdf_variables_file = Path(__file__).parent / "test/pdf_variables_in_docx.docx"
