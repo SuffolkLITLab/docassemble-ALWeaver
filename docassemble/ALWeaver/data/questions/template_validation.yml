@@ -590,6 +590,23 @@ buttons:
         warn_reserved_variables_in_docx = True
   - Restart: restart
 ---
+event: exit_keywords_in_docx
+id: python keywords in the docx template
+question: |
+  Your template uses invalid variable names
+subquestion: |
+  These variable names are all reserved keywords or identifiers in Python:
+
+  % for kw in keywords_in_docx:
+  * `${ kw }`
+  % endfor
+
+  Using any of these as variable names will [cause an
+  error](https://en.wikipedia.org/wiki/Reserved_word) when your template is
+  assembled.
+buttons:
+  - Restart: restart
+---
 id: jinja_exception
 event: jinja_exception
 question: |

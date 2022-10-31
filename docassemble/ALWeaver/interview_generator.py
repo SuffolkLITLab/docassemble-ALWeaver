@@ -1325,8 +1325,8 @@ def get_docx_variables(text: str) -> set:
         if not prefix_root.isidentifier():
             continue
         # Filter out keywords like `in`
-        if keyword.iskeyword(prefix_root):
-            continue
+        #if keyword.iskeyword(prefix_root):
+        #    continue
 
         if ".mailing_address" in possible_var:  # a mailing address
             if ".mailing_address.county" in possible_var:  # a county is special
@@ -1644,6 +1644,8 @@ def bad_name_reason(field: DAField):
     if field.source_document_type == "docx":
         # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
         # TODO(brycew): this needs more work, we already filter out bad names in get_docx_variables()
+        if matching_reserved_names({field.variable}, keywords_and_builtins_only=True):
+            return f"`{field.variable}` is a [reserved Python keyword](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) and cannot be used as a variable name"
         if not is_valid_python(field.variable):
             return f"`{ field.variable }` is not a valid python expression"
         return None

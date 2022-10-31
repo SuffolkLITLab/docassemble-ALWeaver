@@ -111,8 +111,13 @@ all_reserved_names = set(
     ]
 )
 
+just_keywords_and_builtins = set(
+    keyword.kwlist
+    + list(dir(__builtins__))
+)
 
-def matching_reserved_names(field_names: Iterable[str]) -> Set[str]:
+
+def matching_reserved_names(field_names: Iterable[str], keywords_and_builtins_only:bool = False) -> Set[str]:
     """
     Returns a list of the matching reserved keywords in the given list of
     field names. Will parse to remove brackets and attribute names.
@@ -123,7 +128,8 @@ def matching_reserved_names(field_names: Iterable[str]) -> Set[str]:
         match = word_part.match(word)
         if match:
             matches.add(match[0])
-
+    if keywords_and_builtins_only:
+        return matches.intersection(just_keywords_and_builtins)
     return matches.intersection(all_reserved_names)
 
 
