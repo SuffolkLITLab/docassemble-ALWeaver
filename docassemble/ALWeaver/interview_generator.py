@@ -1324,9 +1324,6 @@ def get_docx_variables(text: str) -> set:
         # Filter out non-identifiers (invalid variable names), like functions
         if not prefix_root.isidentifier():
             continue
-        # Filter out keywords like `in`
-        #if keyword.iskeyword(prefix_root):
-        #    continue
 
         if ".mailing_address" in possible_var:  # a mailing address
             if ".mailing_address.county" in possible_var:  # a county is special
