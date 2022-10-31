@@ -112,7 +112,7 @@ all_reserved_names = set(
 )
 
 just_keywords_and_builtins = set(
-    keyword.kwlist
+    list(keyword.kwlist)
     + list(dir(__builtins__))
 )
 
