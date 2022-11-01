@@ -89,7 +89,6 @@ pluralization map:
     "guardians_ad_litem": "guardians_ad_litem"
     "guardians": "guardians"
     "adoptees": "adoptees"
-    # These are left in for backwards compatibility
     "user": "users"
     "plaintiff": "plaintiffs"
     "defendant": "defendants"
@@ -103,7 +102,6 @@ pluralization map:
     "translator": "translators"
     "debt_collector": "debt_collectors"
     "creditor": "creditors"
-    # Non "s" plurals
     "other_party": "other_parties"
     "child": "children"
     "guardian_ad_litem": "guardians_ad_litem"
@@ -111,3 +109,89 @@ pluralization map:
     "decedent": "decedents"
     "interested_party": "interested_parties"
     "adoptee": "adoptees"
+    "docket_numbers": "docket_numbers"
+    "court": "courts" # extra deprecated
+
+# PDF label: DOCX/Python attribute or method for display 
+person suffix map:
+    "_name": "",  # full name
+    "_name_full": "",  # full name
+    "_name_first": ".name.first"
+    "_name_middle": ".name.middle"
+    "_name_middle_initial": ".name.middle_initial()"
+    "_name_last": ".name.last"
+    "_name_suffix": ".name.suffix"
+    "_gender": ".gender"
+    "_gender_male": ".gender_male"
+    "_gender_female": ".gender_female"
+    "_gender_nonbinary": ".gender_nonbinary"
+    "_gender_undisclosed": ".gender_undisclosed"
+    "_gender_self_described": ".gender_self_described"
+    "_birthdate": ".birthdate.format()"
+    "_age": ".age_in_years()"
+    "_email": ".email"
+    "_language": ".language"
+    "_phone": ".phone_number"
+    "_phone_number": ".phone_number"
+    "_fax_number": ".fax_number"
+    "_mobile": ".mobile_number"
+    "_mobile_number": ".mobile_number"
+    "_phones": ".phone_numbers()"
+    "_address_block": ".address.block()"
+    # street and street2 are deprecated
+    "_address_street": ".address.address"
+    "_address_street2": ".address.unit"
+    "_address_address": ".address.address"
+    "_address_unit": ".address.unit"
+    "_address_city": ".address.city"
+    "_address_state": ".address.state"
+    "_address_zip": ".address.zip"
+    "_address_county": ".address.county"
+    "_address_country": ".address.country"
+    "_address_on_one_line": ".address.on_one_line()"
+    "_address_line_one": ".address.line_one()"
+    "_address_city_state_zip": ".address.line_two()"
+    "_address_line_two": ".address.line_two()"
+    "_signature": ".signature"
+    "_mailing_address_block": ".mailing_address.block()"
+    "_mailing_address_street": ".mailing_address.address"
+    "_mailing_address_street2": ".mailing_address.unit"
+    "_mailing_address_address": ".mailing_address.address"
+    "_mailing_address_unit": ".mailing_address.unit"
+    "_mailing_address_city": ".mailing_address.city"
+    "_mailing_address_state": ".mailing_address.state"
+    "_mailing_address_zip": ".mailing_address.zip"
+    "_mailing_address_county": ".mailing_address.county"
+    "_mailing_address_country": ".mailing_address.country"
+    "_mailing_address_on_one_line": ".mailing_address.on_one_line()"
+    "_mailing_address_line_one": ".mailing_address.line_one()"
+    "_mailing_address_city_state_zip": ".mailing_address.line_two()"
+    "_mailing_address_line_two": ".mailing_address.line_two()"
+    "_mailing_address": ".mailing_address"
+
+extra suffix map:
+  "_division": ".division"
+  "_county": ".address.county"
+  "_department": ".department"
+
+# Suffixes that can be used in a DOCX but don't have a PDF equivalent
+extra person suffixes:
+  - ".name.full()"
+  - ".name"
+
+# Regular expressions that help indicate a DOCX variable name
+# represents a person
+extra suffix regexes:
+  - |-
+    .birthdate
+  - |-
+    .birthdate.format\(.*\)
+  - |-
+    .familiar\(\)
+  - |-
+    .familiar_or\(\)
+  - |-
+    .phone_numbers\(\)
+  - |-
+    .formatted_age\(\)
+  
