@@ -1,0 +1,113 @@
+# Words that are reserved exactly as they are
+whole words:
+  - signature_date
+  - docket_number
+  - user_needs_interpreter
+  - user_preferred_language
+
+# Objects that are defined with a question rather than in an objects block
+skip objects block:
+  - trial_court
+
+# Prefixes for singular objects, like trial_court.
+# We don't make trial_court into a list of courts.
+singular person prefixes:
+  - trial_court
+
+# prefixes for lists. Parties in a case are always treated as a list
+# so that we can be consistent in their use across forms
+plural prefixes:
+  - users
+  - other_parties
+  - children
+  - plaintiffs
+  - defendants
+  - petitioners
+  - respondents
+  - spouses
+  - parents
+  - caregivers
+  - attorneys
+  - translators
+  - debt_collectors
+  - creditors
+  - witnesses
+  - courts
+  - decedents
+  - interested_partys
+  - interested_parties
+  - trial_court
+  - docket_numbers
+  - user
+  - other_party
+  - child
+  - plaintiff
+  - defendant
+  - petitioner
+  - respondent
+  - spouse
+  - parent
+  - caregiver
+  - attorney
+  - translator
+  - debt_collector
+  - creditor
+  - witness
+  - court
+  - decedent
+  - interested_party
+  - trial_court
+  - docket_numbers
+  - adoptees
+  - guardians_ad_litem
+  - guardian_ad_litem
+  - guardians
+  - guardian
+
+# Rules for turning nouns into plurals, limited to PDF field names.
+# This feature is deprecated but common in the first generation of MAVC forms;
+# We don't recommend using it in newly labeled PDFs
+pluralization map:
+    "users": "users"
+    "other_parties": "other_parties"
+    "children": "children"
+    "plaintiffs": "plaintiffs"
+    "defendants": "defendants"
+    "petitioners": "petitioners"
+    "respondents": "respondents"
+    "spouses": "spouses"
+    "parents": "parents"
+    "caregivers": "caregivers"
+    "attorneys": "attorneys"
+    "translators": "translators"
+    "debt_collectors": "debt_collectors"
+    "creditors": "creditors"
+    "witnesses": "witnesses"
+    "courts": "courts"
+    "decedents": "decedents"
+    "interested_parties": "interested_parties"
+    "guardians_ad_litem": "guardians_ad_litem"
+    "guardians": "guardians"
+    "adoptees": "adoptees"
+    # These are left in for backwards compatibility
+    "user": "users"
+    "plaintiff": "plaintiffs"
+    "defendant": "defendants"
+    "petitioner": "petitioners"
+    "respondent": "respondents"
+    "spouse": "spouses"
+    "parent": "parents"
+    "guardian": "guardians"
+    "caregiver": "caregivers"
+    "attorney": "attorneys"
+    "translator": "translators"
+    "debt_collector": "debt_collectors"
+    "creditor": "creditors"
+    # Non "s" plurals
+    "other_party": "other_parties"
+    "child": "children"
+    "guardian_ad_litem": "guardians_ad_litem"
+    "witness": "witnesses"
+    "decedent": "decedents"
+    "interested_party": "interested_parties"
+    "adoptee": "adoptees"
