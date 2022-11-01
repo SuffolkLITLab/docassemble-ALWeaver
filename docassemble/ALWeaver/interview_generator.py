@@ -1660,7 +1660,9 @@ def bad_name_reason(field: DAField) -> Optional[str]:
             return f"`{ field.variable }`, the { field.field_type_guess } field, should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case) and use alphabetical characters"
         return None
 
+
 ValidationError = Tuple[str, Union[str, ParsingException]]
+
 
 def get_pdf_validation_errors(document: DAFile) -> Optional[ValidationError]:
     try:
@@ -1708,7 +1710,9 @@ def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     If any fields have invalid variable names, get a list of those reasons.
     """
     return [
-        reason for reason in (bad_name_reason(field) for field in fields) if reason is not None
+        reason
+        for reason in (bad_name_reason(field) for field in fields)
+        if reason is not None
     ]
 
 

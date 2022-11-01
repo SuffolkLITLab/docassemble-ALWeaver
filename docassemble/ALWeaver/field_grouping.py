@@ -35,7 +35,7 @@ def rename_pdf_fields(pdf_path: str, mapping: Dict[str, str]) -> None:
 
     changed_fields = False
 
-    for field in my_pdf.Root.AcroForm.Fields: #type: ignore
+    for field in my_pdf.Root.AcroForm.Fields:  # type: ignore
         if field.T in mapping:
             field.T = mapping[field.T]
             changed_fields = True
@@ -43,7 +43,7 @@ def rename_pdf_fields(pdf_path: str, mapping: Dict[str, str]) -> None:
         my_pdf.save(pdf_path)
 
 
-def reCase(text:str):
+def reCase(text: str):
     # a quick and dirty way to pull words out of
     # snake_case, camelCase and the like.
     output = re.sub("(\w|\d)(_|-)(\w|\d)", "\\1 \\3", text.strip())
@@ -52,7 +52,7 @@ def reCase(text:str):
     return output
 
 
-def cluster_screens(fields:List[str]=[], damping:float=0.9):
+def cluster_screens(fields: List[str] = [], damping: float = 0.9):
     # Takes in a list (fields) and returns a suggested screen grouping
     # Set damping to value >= 0.5 or < 1 to tune how related screens should be
 
