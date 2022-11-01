@@ -1708,7 +1708,7 @@ def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     If any fields have invalid variable names, get a list of those reasons.
     """
     return [
-        bad_name_reason(field) for field in fields if bad_name_reason(field) is not None
+        reason for reason in (bad_name_reason(field) for field in fields) if reason is not None
     ]
 
 
