@@ -129,15 +129,15 @@ class ParsingException(Exception):
         return (ParsingException, (self.main_issue, self.description, self.url))
 
 
-def get_court_choices():
+def get_court_choices() -> List[str]:
     return generator_constants.COURT_CHOICES
 
 
-def attachment_download_html(url, label):
+def attachment_download_html(url, label) -> str:
     return '<a href="' + url + '" download="">' + label + "</a>"
 
 
-def get_character_limit(pdf_field_tuple, char_width=6, row_height=12):
+def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optional[int]:
     """
     Take the pdf_field_tuple and estimate the number of characters that can fit
     in the field, based on the x/y bounding box.
@@ -204,7 +204,7 @@ class DAField(DAObject):
         return super().init(**kwargs)
 
     @property
-    def complete(self):
+    def complete(self) -> bool:
         self.variable
         self.label
         if not hasattr(self, "group"):
@@ -306,7 +306,7 @@ class DAField(DAObject):
         """
         self.raw_field_names += duplicate_field_names
 
-    def get_single_field_screen(self):
+    def get_single_field_screen(self) -> str:
         settable_version = self.get_settable_var()
         if self.field_type == "yesno":
             return "yesno: {}".format(settable_version)
@@ -315,7 +315,7 @@ class DAField(DAObject):
         else:
             return ""
 
-    def need_maxlength(self):
+    def need_maxlength(self) -> bool:
         if hasattr(self, "field_type") and self.field_type not in [
             "email",
             "area",
@@ -608,7 +608,7 @@ confirm: True
             settable_list=settable_list.rstrip("\n"),
         )
 
-    def full_display(self):
+    def full_display(self) -> str:
         settable_var = self.fields[0].get_settable_var()
         parent_var = DAField._get_parent_variable(settable_var)[0]
         # NOTE: we rely on the "stock" full_display map here
@@ -624,7 +624,7 @@ class DAFieldList(DAList):
         self.auto_gather = False
         self.complete_attribute = "complete"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return docassemble.base.functions.comma_and_list(
             map(lambda x: "`" + x.variable + "`", self.complete_elements())
         )
@@ -652,7 +652,7 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
-    def consolidate_duplicate_fields(self, document_type: str = "pdf"):
+    def consolidate_duplicate_fields(self, document_type: str = "pdf") -> None:
         """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just
         represent a single variable, leaving one remaining field that writes all of the original vars
         """
@@ -917,14 +917,14 @@ class DAFieldList(DAList):
             if hasattr(item, "group") and item.group == DAFieldGroup.RESERVED
         ]
 
-    def built_in_signature_triggers(self):
+    def built_in_signature_triggers(self) -> List[str]:
         return [
             field.trigger_gather()
             for field in self.builtins()
             if field.trigger_gather().endswith(".signature")
         ]
 
-    def signatures(self):
+    def signatures(self) -> List[DAField]:
         """Returns all signature fields in list"""
         return [
             item
@@ -932,7 +932,7 @@ class DAFieldList(DAList):
             if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE
         ]
 
-    def custom(self):
+    def custom(self) -> List[DAField]:
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
         return [
@@ -941,14 +941,14 @@ class DAFieldList(DAList):
             if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM
         ]
 
-    def skip_fields(self):
+    def skip_fields(self) -> List[DAField]:
         return [
             item
             for item in self.elements
             if hasattr(item, "field_type") and item.field_type == "skip this field"
         ]
 
-    def code_fields(self):
+    def code_fields(self) -> List[DAField]:
         return [
             item
             for item in self.elements
@@ -962,7 +962,7 @@ class DAFieldList(DAList):
             if hasattr(field, "send_to_addendum") and field.send_to_addendum
         )
 
-    def addendum_fields(self):
+    def addendum_fields(self) -> List[DAField]:
         return [
             field
             for field in self
@@ -985,7 +985,7 @@ class DAQuestion(DAObject):
         self.field_list = DAFieldList()
 
     @property
-    def complete(self):
+    def complete(self) -> bool:
         self.question_text
         if self.is_informational_screen:
             self.field_list.clear()
@@ -1009,7 +1009,7 @@ class DAQuestionList(DAList):
         self.object_type = DAQuestion
         self.complete_attribute = "complete"
 
-    def all_fields_used(self, all_fields: List = None):
+    def all_fields_used(self, all_fields: List = None) -> set:
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
         screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
         It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
@@ -1111,7 +1111,7 @@ class DAInterview(DAObject):
         self.initializeAttribute("questions", DAQuestionList)
         self.initializeAttribute("all_fields", DAFieldList.using(auto_gather=False))
 
-    def has_unassigned_fields(self):
+    def has_unassigned_fields(self) -> bool:
         return len(
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
@@ -1513,7 +1513,7 @@ def is_reserved_label(
     reserved_prefixes=generator_constants.RESERVED_PREFIXES,
     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
     reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
-):
+) -> bool:
     """Given a PDF label, returns whether the label fully
     matches a reserved prefix or a reserved prefix with a
     reserved suffix"""
@@ -1608,7 +1608,7 @@ def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
     return retval + ")"
 
 
-def pdf_field_type_str(field):
+def pdf_field_type_str(field) -> str:
     """Gets a human readable string from a PDF field code, like '/Btn'"""
     if not isinstance(field, tuple) or len(field) < 4 or not isinstance(field[4], str):
         return ""
@@ -1636,7 +1636,7 @@ def is_valid_python(code: str) -> bool:
     return True
 
 
-def bad_name_reason(field: DAField):
+def bad_name_reason(field: DAField) -> Optional[str]:
     """Returns if a PDF or DOCX field name is valid for AssemblyLine or not"""
     if field.source_document_type == "docx":
         # We can't map DOCX fields to valid variable names, but we can tell if they are valid expressions
@@ -1661,7 +1661,10 @@ def bad_name_reason(field: DAField):
         return None
 
 
-def get_pdf_validation_errors(document: DAFile):
+ValidationError = Tuple[str, Union[str, ParsingException]]
+
+
+def get_pdf_validation_errors(document: DAFile) -> Optional[ValidationError]:
     try:
         fields = DAFieldList()
         fields.add_fields_from_file(document)
@@ -1683,15 +1686,15 @@ def get_pdf_validation_errors(document: DAFile):
             "concatenation_error",
             "Unknown error concatenating PDF file to itself. The file may be invalid.",
         )
+    return None
 
 
-def get_docx_validation_errors(document: DAFile):
+def get_docx_validation_errors(document: DAFile) -> Optional[ValidationError]:
     try:
         fields = DAFieldList()
         fields.add_fields_from_file(document)
     except (BadZipFile, KeyError):
         return ("bad_docx", "Error opening DOCX. Is this a valid DOCX file?")
-
     try:
         pdf_concatenate(document)
     except:
@@ -1699,14 +1702,17 @@ def get_docx_validation_errors(document: DAFile):
             "unable_to_convert_to_pdf",
             "Unable to convert to PDF. Is this is a valid DOCX file?",
         )
+    return None
 
 
-def get_variable_name_warnings(fields):
+def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     """
     If any fields have invalid variable names, get a list of those reasons.
     """
     return [
-        bad_name_reason(field) for field in fields if bad_name_reason(field) is not None
+        reason
+        for reason in (bad_name_reason(field) for field in fields)
+        if reason is not None
     ]
 
 
