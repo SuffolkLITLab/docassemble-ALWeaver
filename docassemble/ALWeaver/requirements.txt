@@ -1,5 +1,4 @@
 docassemble.base>=1.3
-docassemble.webapp
 more_itertools
 pyyaml
 docx2python
