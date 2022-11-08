@@ -138,7 +138,7 @@ confirm: True\
     % elif hasattr(field, "field_type") and field.field_type=="currency":
       - "${ raw_name }": <%text>${</%text> currency(${ field.variable }) }
     % elif hasattr(field, "field_type") and field.field_type=="number":
-      - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable })" }
+      - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable }) }
     % elif field.field_type_guess == "signature":
       % if field.final_display_var.endswith("].signature"): # signature of ALIndividual
       - "${ raw_name }": <%text>${</%text> ${ field.final_display_var}_if_final(i) }
