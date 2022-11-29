@@ -37,8 +37,10 @@ data:
     ${ oneline(interview.short_title) }
   description: |-
 ${ indent(interview.description, by=4) }
+  % if interview.original_form:
   original_form: >-
 ${ indent(interview.original_form, by=4) }
+  % endif
   % if len(interview.allowed_courts.true_values()) < 1:
   allowed courts: []
   % else:
