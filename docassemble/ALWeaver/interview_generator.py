@@ -256,7 +256,7 @@ class DAField(DAObject):
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
-        self.maxlength = get_character_limit(pdf_field_tuple) or 80
+        self.maxlength = get_character_limit(pdf_field_tuple)
         self.variable_name_guess = variable_name_guess
 
         if self.variable.endswith("_date"):
@@ -274,7 +274,7 @@ class DAField(DAObject):
             self.field_type_guess = "yesno"
         elif pdf_field_tuple[4] == "/Sig":
             self.field_type_guess = "signature"
-        elif self.maxlength > 100:
+        elif self.maxlength and self.maxlength > 100:
             self.field_type_guess = "area"
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
