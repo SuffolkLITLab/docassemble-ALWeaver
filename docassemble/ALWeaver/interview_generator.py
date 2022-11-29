@@ -707,20 +707,27 @@ class DAFieldList(DAList):
 
         if document_type == "pdf":
             # Use pikepdf to get more info about each field
-            pike_fields: Iterable = []
+            pike_fields: Dict = {}
             pike_obj = Pdf.open(document.path())
             if pike_obj.Root.AcroForm.Fields and isinstance(
                 pike_obj.Root.AcroForm.Fields, Iterable
             ):
-                pike_fields = pike_obj.Root.AcroForm.Fields
+                for pike_info in pike_obj.Root.AcroForm.Fields:
+                    pike_fields[str(pike_info.T)] = pike_info
             for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
-                if pike_info and hasattr(pike_info, "Ff"):
+                if pdf_field_name in pike_fields:
+                    pike_info = pike_fields[pdf_field_name]
                     # PDF fields have bit flags that set specific options. The 17th bit (or hex
                     # 10000) on Buttons says it's a "push button", that "does not retain a
                     # permanent value" (e.g. a "Print this PDF" button.) They generally aren't
                     # really fields, and don't play well with PDF editing tools. Just skip them.
-                    if pike_info.FT == "/Btn" and bool(pike_info.Ff & 0x10000):
+                    if (
+                        hasattr(pike_info, "FT")
+                        and hasattr(pike_info, "Ff")
+                        and pike_info.FT == "/Btn"
+                        and bool(pike_info.Ff & 0x10000)
+                    ):
                         continue
 
                 new_field = self.appendObject()
