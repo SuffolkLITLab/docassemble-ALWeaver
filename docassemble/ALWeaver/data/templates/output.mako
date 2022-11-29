@@ -343,12 +343,12 @@ code: |
 ---
 # ALDocument objects specify the metadata for each template
 objects:
-  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % endfor
   % endif
 ---
@@ -387,7 +387,7 @@ attachment:
   pdf template file: ${ document.filename }
   fields:
     % for field in interview.all_fields.matching_pdf_fields_from_file(document):
-    ${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
+${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
     % endfor
 % else:
   skip undefined: True
