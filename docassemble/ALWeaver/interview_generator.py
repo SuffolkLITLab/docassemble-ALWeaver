@@ -116,7 +116,9 @@ remove_u = re.compile(r"^u")
 class ParsingException(Exception):
     """Throws an error if we can't understand the labels somehow, so we can tell the user"""
 
-    def __init__(self, message: str, description: Optional[str] = None, url: Optional[str] = None):
+    def __init__(
+        self, message: str, description: Optional[str] = None, url: Optional[str] = None
+    ):
         self.main_issue = message
         self.description = description
         self.url = url
