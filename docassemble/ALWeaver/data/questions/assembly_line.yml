@@ -370,8 +370,12 @@ fields:
       package, the main YAML file, and give a unique label to variables inside
       your document.
   - Link to original form: interview.original_form
-    hint: http://masslegalhelp.org/my_form
+    help: |
+      Include a link to a page where your user can download the blank form, if
+      that exists.
     required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
 ---
 code: |
   interview.default_country_code = 'US'

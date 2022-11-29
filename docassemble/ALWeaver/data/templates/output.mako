@@ -37,8 +37,10 @@ data:
     ${ oneline(interview.short_title) }
   description: |-
 ${ indent(interview.description, by=4) }
+  % if interview.original_form:
   original_form: >-
 ${ indent(interview.original_form, by=4) }
+  % endif
   % if len(interview.allowed_courts.true_values()) < 1:
   allowed courts: []
   % else:
@@ -341,12 +343,12 @@ code: |
 ---
 # ALDocument objects specify the metadata for each template
 objects:
-  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE)
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % endfor
   % endif
 ---
@@ -362,33 +364,36 @@ objects:
 # Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
 # used for "preview" and "final" keys, and logic in the template checks the value of 
 # `i` to show or hide the user's signature
-attachments:
-  - name: Post-interview-Instructions
-    filename: ${ interview.interview_label }_next_steps
-    docx template file: ${ interview.interview_label }_next_steps.docx
-    variable name: ${ interview.interview_label }_Post_interview_instructions[i]
-  % for document in interview.uploaded_templates:
-    % if len(interview.uploaded_templates) == 1:
-  - name: ${ interview.interview_label.replace('_',' ') }
-    filename: ${ interview.interview_label }
-    variable name: ${ interview.interview_label }_attachment[i]
-    % else:
-  - name: ${ base_name(document.filename).replace('_',' ') }
-    filename: ${ base_name(document.filename) }
-    variable name: ${ varname(base_name(document.filename)) }[i]
-    % endif
-    % if document.mimetype == "application/pdf":
-    skip undefined: True
-    pdf template file: ${ document.filename }
-    fields:
-      % for field in interview.all_fields.matching_pdf_fields_from_file(document):
+attachment:
+  name: Post-interview-Instructions
+  filename: ${ interview.interview_label }_next_steps
+  docx template file: ${ interview.interview_label }_next_steps.docx
+  variable name: ${ interview.interview_label }_Post_interview_instructions[i]
+  skip undefined: True
+% for document in interview.uploaded_templates:
+---
+attachment:
+% if len(interview.uploaded_templates) == 1:
+  name: ${ interview.interview_label.replace('_',' ') }
+  filename: ${ interview.interview_label }
+  variable name: ${ interview.interview_label }_attachment[i]
+% else:
+  name: ${ base_name(document.filename).replace('_',' ') }
+  filename: ${ base_name(document.filename) }
+  variable name: ${ varname(base_name(document.filename)) }[i]
+% endif
+% if document.mimetype == "application/pdf":
+  skip undefined: True
+  pdf template file: ${ document.filename }
+  fields:
+    % for field in interview.all_fields.matching_pdf_fields_from_file(document):
 ${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
-      % endfor
-    % else:
-    skip undefined: True
-    docx template file: ${ document.filename }
-    % endif
-  % endfor
+    % endfor
+% else:
+  skip undefined: True
+  docx template file: ${ document.filename }
+% endif
+% endfor
 % if interview.all_fields.has_addendum_fields():
 ---
 code: |
