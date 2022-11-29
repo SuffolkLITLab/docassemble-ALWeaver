@@ -1752,7 +1752,7 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     return res
 
 
-def is_url(url:str) -> bool:
+def is_url(url: str) -> bool:
     """
     Returns True if and only if the input string is in the format of a valid URL
     """
