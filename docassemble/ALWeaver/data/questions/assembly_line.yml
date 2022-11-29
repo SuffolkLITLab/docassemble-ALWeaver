@@ -9,9 +9,14 @@ metadata:
   title: |
     Interview Weaver: Document Assembly Line
   short title: Weaver
-  logo: |
-    <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org
+---
+objects:
+  - weaver_logo: DAStaticFile.using(filename="logo.svg")
+---
+default screen parts:
+  logo: |
+    <img src="${ weaver_logo.url_for() }" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
 ---
 mandatory: True
 id: Interview Order
