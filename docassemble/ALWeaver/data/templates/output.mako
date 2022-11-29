@@ -362,33 +362,36 @@ objects:
 # Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
 # used for "preview" and "final" keys, and logic in the template checks the value of 
 # `i` to show or hide the user's signature
-attachments:
-  - name: Post-interview-Instructions
-    filename: ${ interview.interview_label }_next_steps
-    docx template file: ${ interview.interview_label }_next_steps.docx
-    variable name: ${ interview.interview_label }_Post_interview_instructions[i]
-  % for document in interview.uploaded_templates:
-    % if len(interview.uploaded_templates) == 1:
-  - name: ${ interview.interview_label.replace('_',' ') }
-    filename: ${ interview.interview_label }
-    variable name: ${ interview.interview_label }_attachment[i]
-    % else:
-  - name: ${ base_name(document.filename).replace('_',' ') }
-    filename: ${ base_name(document.filename) }
-    variable name: ${ varname(base_name(document.filename)) }[i]
-    % endif
-    % if document.mimetype == "application/pdf":
-    skip undefined: True
-    pdf template file: ${ document.filename }
-    fields:
-      % for field in interview.all_fields.matching_pdf_fields_from_file(document):
-${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
-      % endfor
-    % else:
-    skip undefined: True
-    docx template file: ${ document.filename }
-    % endif
-  % endfor
+attachment:
+  name: Post-interview-Instructions
+  filename: ${ interview.interview_label }_next_steps
+  docx template file: ${ interview.interview_label }_next_steps.docx
+  variable name: ${ interview.interview_label }_Post_interview_instructions[i]
+  skip undefined: True
+% for document in interview.uploaded_templates:
+---
+attachment:
+% if len(interview.uploaded_templates) == 1:
+  name: ${ interview.interview_label.replace('_',' ') }
+  filename: ${ interview.interview_label }
+  variable name: ${ interview.interview_label }_attachment[i]
+% else:
+  name: ${ base_name(document.filename).replace('_',' ') }
+  filename: ${ base_name(document.filename) }
+  variable name: ${ varname(base_name(document.filename)) }[i]
+% endif
+% if document.mimetype == "application/pdf":
+  skip undefined: True
+  pdf template file: ${ document.filename }
+  fields:
+    % for field in interview.all_fields.matching_pdf_fields_from_file(document):
+    ${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
+    % endfor
+% else:
+  skip undefined: True
+  docx template file: ${ document.filename }
+% endif
+% endfor
 % if interview.all_fields.has_addendum_fields():
 ---
 code: |
