@@ -116,7 +116,7 @@ remove_u = re.compile(r"^u")
 class ParsingException(Exception):
     """Throws an error if we can't understand the labels somehow, so we can tell the user"""
 
-    def __init__(self, message: str, description: str = None, url: str = None):
+    def __init__(self, message: str, description: Optional[str] = None, url: Optional[str] = None):
         self.main_issue = message
         self.description = description
         self.url = url
@@ -243,20 +243,20 @@ class DAField(DAObject):
         else:
             self.field_type_guess = "text"
 
-    def fill_in_pdf_attributes(self, pdf_field_tuple):
+    def fill_in_pdf_attributes(self, pdf_field_tuple: Any) -> None:
         """Let's guess the type of each field from the name / info from PDF"""
         # The raw name of the field from the PDF: must go in attachment block
-        self.raw_field_names: List[str] = [pdf_field_tuple[0]]
+        self.raw_field_names = [pdf_field_tuple[0]]
         # turns field_name into a valid python identifier: must be one per field
-        self.variable: str = remove_multiple_appearance_indicator(
+        self.variable = remove_multiple_appearance_indicator(
             varname(self.raw_field_names[0])
         )
         # the variable, in python: i.e., users[1].name.first
-        self.final_display_var: str = map_raw_to_final_display(self.variable)
+        self.final_display_var = map_raw_to_final_display(self.variable)
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
-        self.maxlength = get_character_limit(pdf_field_tuple)
+        self.maxlength = get_character_limit(pdf_field_tuple) or 80
         self.variable_name_guess = variable_name_guess
 
         if self.variable.endswith("_date"):
@@ -324,7 +324,7 @@ class DAField(DAObject):
             return False
         return (
             hasattr(self, "maxlength")
-            and self.maxlength
+            and bool(self.maxlength)
             and not (hasattr(self, "send_to_addendum") and self.send_to_addendum)
         )
 
@@ -629,10 +629,10 @@ class DAFieldList(DAList):
             map(lambda x: "`" + x.variable + "`", self.complete_elements())
         )
 
-    def consolidate_yesnos(self):
+    def consolidate_yesnos(self) -> None:
         """Combines separate yes/no questions into a single variable, and writes back out to the yes
         and no variables"""
-        yesno_map = defaultdict(list)
+        yesno_map: Dict[str, Any] = defaultdict(list)
         mark_to_remove: List[int] = []
         for idx, field in enumerate(self.elements):
             if not field.variable.endswith("_yes") and not field.variable.endswith(
@@ -1016,7 +1016,7 @@ class DAQuestionList(DAList):
         self.object_type = DAQuestion
         self.complete_attribute = "complete"
 
-    def all_fields_used(self, all_fields: List = None) -> set:
+    def all_fields_used(self, all_fields: Optional[List] = None) -> set:
         """This method is used to help us iteratively build a list of fields that have already been assigned to a
         screen/question. It makes sure the fields aren't displayed to the Weaver user on multiple screens.
         It will also filter out fields that shouldn't appear on any screen based on the field_type if the optional
@@ -1044,7 +1044,7 @@ class DAQuestionList(DAList):
     def interview_order_list(
         self,
         all_fields,
-        screens: List["DAQuestion"] = None,
+        screens: Optional[List["DAQuestion"]] = None,
         sections: Optional[List] = None,
         set_progress=True,
     ) -> List[str]:
