@@ -39,6 +39,7 @@ import ast
 from enum import Enum
 from itertools import zip_longest, chain
 import more_itertools
+from urllib.parse import urlparse
 
 
 mako.runtime.UNDEFINED = DAEmpty()
@@ -80,6 +81,7 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
+    "is_url",
 ]
 
 always_defined = set(
@@ -1748,6 +1750,17 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
             # ParsingExceptions are fine, because we aren't really parsing a PDF
             pass
     return res
+
+
+def is_url(url:str) -> bool:
+    """
+    Returns True if and only if the input string is in the format of a valid URL
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
 
 
 ############################
