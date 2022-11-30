@@ -1217,7 +1217,7 @@ class DAInterview(DAObject):
                 ]
             )
 
-    def auto_assign_attributes(self, url:str, title:Optional[str]=None, jurisdiction:Optional[str]=None, categories:str=None, ):
+    def auto_assign_attributes(self, url:str, title:Optional[str]=None, jurisdiction:Optional[str]=None, categories:str=None, default_country_code:str = "US"):
         """
         Automatically assign interview attributes based on the template
         assigned to the interview object.
@@ -1248,9 +1248,9 @@ class DAInterview(DAObject):
         self.intro_prompt = self._guess_intro_prompt(self.title)
         self.court_related = not (self.form_type == "letter")
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
+        self.default_country_code = default_country_code
+        self.output_mako_choice = "Default configuration:standard AssemblyLine"
         self.all_fields.auto_label_fields()
-        self.auto_group_fields()
-
 
     def _set_template_from_url(self, url:str):
         self.uploaded_templates = DAFileList(self.attr_name("uploaded_templates"), auto_gather=False, gathered=True)
