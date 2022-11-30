@@ -78,10 +78,10 @@ code: |
 ---
 code: |
   github_repo_name =  'docassemble-${ interview.package_title }'
-% if defined('interview_intro_prompt'):
+% if defined('interview.intro_prompt'):
 ---
 code: |
-  interview_short_title = "${ escape_quotes(interview_intro_prompt) }"
+  interview_short_title = "${ escape_quotes(interview.intro_prompt) }"
 % endif
 % if generate_download_screen:
 ---
