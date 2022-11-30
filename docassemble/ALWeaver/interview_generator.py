@@ -41,6 +41,7 @@ from enum import Enum
 from itertools import zip_longest, chain
 import more_itertools
 import formfyxer
+from urllib.parse import urlparse
 
 
 mako.runtime.UNDEFINED = DAEmpty()
@@ -83,6 +84,7 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
+    "is_url",
 ]
 
 always_defined = set(
@@ -1878,6 +1880,16 @@ def reflect_fields(
             mapping.append({field[0]: field[0]})
     return mapping
 
+
+def is_url(url: str) -> bool:
+    """
+    Returns True if and only if the input string is in the format of a valid URL
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
 
 ############################
 # Create a Docassemble .zip package
