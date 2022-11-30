@@ -9,9 +9,14 @@ metadata:
   title: |
     Interview Weaver: Document Assembly Line
   short title: Weaver
-  logo: |
-    <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org
+---
+objects:
+  - weaver_logo: DAStaticFile.using(filename="logo.svg")
+---
+default screen parts:
+  logo: |
+    <img src="${ weaver_logo.url_for() }" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
 ---
 mandatory: True
 id: Interview Order
@@ -369,8 +374,12 @@ fields:
       package, the main YAML file, and give a unique label to variables inside
       your document.
   - Link to original form: interview.original_form
-    hint: http://masslegalhelp.org/my_form
+    help: |
+      Include a link to a page where your user can download the blank form, if
+      that exists.
     required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
 ---
 code: |
   interview.default_country_code = 'US'
