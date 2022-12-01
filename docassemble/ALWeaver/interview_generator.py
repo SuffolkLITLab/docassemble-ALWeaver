@@ -913,7 +913,7 @@ class DAFieldList(DAList):
         # restriction on how people write DOCX variable names
         self.consolidate_duplicate_fields()
 
-    def auto_mark_people_as_builtins(self) -> Set[str]:
+    def auto_mark_people_as_builtins(self):
         """
         Mark people as built-ins if they match heuristics, without asking. For
         use with "I'm feeling lucky" feature.
@@ -1232,7 +1232,7 @@ class DAInterview(DAObject):
 
     def auto_assign_attributes(
         self,
-        url: Optional[str]=None,
+        url: Optional[str] = None,
         input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
@@ -1301,9 +1301,13 @@ class DAInterview(DAObject):
         self.uploaded_templates[0].initialize(extension="pdf")
         self.uploaded_templates[0].from_url(url)
         self.uploaded_templates[0].created = True
-    
-    def _set_template_from_file(self, input_file: Union[DAFileList, DAFile, DAStaticFile]):
-        self.uploaded_templates = input_file.copy_deep(self.attr_name("uploaded_templates"))
+
+    def _set_template_from_file(
+        self, input_file: Union[DAFileList, DAFile, DAStaticFile]
+    ):
+        self.uploaded_templates = input_file.copy_deep(
+            self.attr_name("uploaded_templates")
+        )
 
     def _guess_posture(self, title: str):
         """
