@@ -28,7 +28,9 @@ class MockDAStaticFile(DAStaticFile):
 
 class test_feeling_lucky(unittest.TestCase):
     def test_load_fields(self):
-        test_lucky_pdf = Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        test_lucky_pdf = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
         docassemble.base.functions.this_thread.current_question = type("", (), {})
         docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
         da_pdf = MockDAStaticFile(
@@ -37,12 +39,8 @@ class test_feeling_lucky(unittest.TestCase):
 
         interview = DAInterview()
         interview.auto_assign_attributes(input_file=da_pdf)
-        self.assertEqual(
-            len(interview.all_fields), 36
-        )
-        self.assertEqual(
-            len(interview.all_fields.builtins()), 24
-        )
+        self.assertEqual(len(interview.all_fields), 36)
+        self.assertEqual(len(interview.all_fields.builtins()), 24)
 
 
 if __name__ == "__main__":
