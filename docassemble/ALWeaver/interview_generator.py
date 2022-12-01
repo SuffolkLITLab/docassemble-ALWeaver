@@ -1,45 +1,49 @@
-import ast
-from dataclasses import field
-import keyword
-import os
-import re
-import uuid
+from .custom_values import custom_values, get_matching_deps
+from .generator_constants import generator_constants
+from .validate_template_files import matching_reserved_names
 from collections import defaultdict
-from docx2python import docx2python
+from dataclasses import field
 from docassemble.base.util import (
-    log,
-    space_to_underscore,
     bold,
-    DAObject,
-    DAList,
+    comma_list,
+    DADict,
+    DAEmpty,
     DAFile,
     DAFileCollection,
     DAFileList,
-    DAEmpty,
+    DAList,
+    DAObject,
+    DAStaticFile,
+    log,
     pdf_concatenate,
-    comma_list,
+    space_to_underscore,
+    user_info,
+    user_logged_in,
 )
-import docassemble.base.functions
-import docassemble.base.parse
-import docassemble.base.pdftk
-import datetime
-import zipfile
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
-from .generator_constants import generator_constants
-from .custom_values import custom_values
-from .validate_template_files import matching_reserved_names
-import mako.template
-import mako.runtime
+from docx2python import docx2python
+from enum import Enum
+from itertools import zip_longest, chain
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
 from PyPDF2.utils import PdfReadError
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
+from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
-from enum import Enum
-from itertools import zip_longest, chain
+import ast
+import datetime
+import docassemble.base.functions
+import docassemble.base.parse
+import docassemble.base.pdftk
+import formfyxer
+import mako.runtime
+import mako.template
 import more_itertools
-from urllib.parse import urlparse
+import os
+import re
+import uuid
+import zipfile
 
 
 mako.runtime.UNDEFINED = DAEmpty()
@@ -62,8 +66,8 @@ __all__ = [
     "fix_id",
     "get_character_limit",
     "get_court_choices",
-    "get_docx_variables",
     "get_docx_validation_errors",
+    "get_docx_variables",
     "get_fields",
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
@@ -76,6 +80,7 @@ __all__ = [
     "oneline",
     "ParsingException",
     "pdf_field_type_str",
+    "reflect_fields",
     "remove_multiple_appearance_indicator",
     "set_custom_people_map",
     "to_yaml_file",
@@ -877,7 +882,7 @@ class DAFieldList(DAList):
 
     def mark_people_as_builtins(
         self,
-        people_list: List[str],
+        people_list: Iterable[str],
         people_suffixes: List[str] = (
             generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
         ),
@@ -907,6 +912,21 @@ class DAFieldList(DAList):
         # This treats all fields as PDF fields, which should be a reasonable
         # restriction on how people write DOCX variable names
         self.consolidate_duplicate_fields()
+
+    def auto_mark_people_as_builtins(self):
+        """
+        Mark people as built-ins if they match heuristics, without asking. For
+        use with "I'm feeling lucky" feature.
+        """
+        candidates = self.get_person_candidates()
+        self.mark_people_as_builtins(candidates)
+
+    def auto_label_fields(self):
+        for field in self.elements:
+            field.field_type = (
+                field.field_type_guess if hasattr(field, "field_type_guess") else "text"
+            )
+            field.label = field.variable_name_guess
 
     def builtins(self):
         """Returns "built-in" fields, including ones the user indicated contain
@@ -1209,6 +1229,163 @@ class DAInterview(DAObject):
                     for document in self.uploaded_templates
                 ]
             )
+
+    def auto_assign_attributes(
+        self,
+        url: Optional[str] = None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        title: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        categories: Optional[str] = None,
+        default_country_code: str = "US",
+    ):
+        """
+        Automatically assign interview attributes based on the template
+        assigned to the interview object.
+        To assist with "I'm feeling lucky" button.
+        """
+        try:
+            if user_logged_in():
+                self.author = f"{user_info().first_name} {user_info().last_name}"
+            else:
+                self.author = "Court Forms Online"
+        except:
+            self.author = "Court Forms Online"
+        if url:
+            self._set_template_from_url(url)
+            self.title = os.path.basename(url)
+        elif input_file:
+            self._set_template_from_file(input_file)
+            self.title = os.path.basename(input_file.path())
+        if title:
+            self.title = title
+        self.short_title = self.title
+        self.description = self.title
+        self.short_filename_with_spaces = self.title
+        self.short_filename = space_to_underscore(
+            varname(self.short_filename_with_spaces)
+        )
+
+        if jurisdiction:
+            self.state = jurisdiction
+        if categories:
+            nsmi_tmp = (
+                categories[1:-1].replace("'", "").strip()
+            )  # they aren't valid JSON right now
+            categories_tmp = nsmi_tmp.split(",")
+            self.categories = DADict(
+                elements={cat.strip(): True for cat in categories_tmp},
+                auto_gather=False,
+                gathered=True,
+            )
+            self.categories["Other"] = False
+        self.typical_role = self._guess_role(self.title)
+        self.form_type = self._guess_posture(self.title)
+        self.jurisdiction_choices = get_matching_deps("jurisdiction", jurisdiction)
+        self.org_choices = get_matching_deps("organization", jurisdiction)
+        self.getting_started = "Before you get started, you need to..."
+        self.intro_prompt = self._guess_intro_prompt(self.title)
+        self.court_related = not (self.form_type == "letter")
+        self.allowed_courts = DADict(auto_gather=False, gathered=True)
+        self.default_country_code = default_country_code
+        self.output_mako_choice = "Default configuration:standard AssemblyLine"
+        self._auto_load_fields()
+        self.all_fields.auto_label_fields()
+        self.all_fields.auto_mark_people_as_builtins()
+        self.auto_group_fields()
+
+    def _set_template_from_url(self, url: str):
+        self.uploaded_templates = DAFileList(
+            self.attr_name("uploaded_templates"), auto_gather=False, gathered=True
+        )
+        self.uploaded_templates[0] = DAFile(
+            self.attr_name("uploaded_templates") + "[0]"
+        )
+        self.uploaded_templates[0].initialize(extension="pdf")
+        self.uploaded_templates[0].from_url(url)
+        self.uploaded_templates[0].created = True
+
+    def _set_template_from_file(
+        self, input_file: Union[DAFileList, DAFile, DAStaticFile]
+    ):
+        self.uploaded_templates = input_file.copy_deep(
+            self.attr_name("uploaded_templates")
+        )
+
+    def _guess_posture(self, title: str):
+        """
+        Guess posture of the case using simple heuristics
+        """
+        title = title.lower()
+        if "petition" in title or "complaint" in title:
+            return "starts_case"
+        if "motion" in title:
+            return "existing_case"
+        if "appeal" in title or "appellate" in title:
+            return "appeal"
+        if "letter" in title:
+            return "letter"
+        if "form" in title:
+            return "other_form"
+        return "other"
+
+    def _guess_intro_prompt(self, title: str):
+        if self.form_type == "starts_case":
+            return "Ask the court for a " + title
+        elif self.form_type == "existing_case":
+            return "File a " + title
+        elif self.form_type == "letter":
+            return "Write a " + title
+        return "Get a " + title
+
+    def _guess_role(self, title: str):
+        """
+        Guess role from the form's title, using some simple heuristics.
+        """
+        title = title.lower()
+        if "answer" in title:
+            return "defendant"
+        if "complaint" in title or "petition" in title:
+            return "plaintiff"
+        if "defendant" in title or "respondent" in title:
+            return "defendant"
+        if "plaintiff" in title or "probate" in title or "guardian" in title:
+            return "plaintiff"
+
+        return "unknown"
+
+    def auto_group_fields(self):
+        """
+        Use FormFyxer to assign fields to screens.
+        To assist with "I'm feeling lucky" button
+        """
+        field_grouping = formfyxer.cluster_screens(
+            [field.variable for field in self.all_fields]
+        )
+        self.questions.auto_gather = False
+        for group in field_grouping:
+            new_screen = self.questions.appendObject()
+            new_screen.is_informational_screen = False
+            new_screen.has_mandatory_field = True
+            new_screen.question_text = (
+                next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
+            )
+            new_screen.subquestion_text = ""
+            new_screen.field_list = [
+                field
+                for field in self.all_fields
+                if field.variable in field_grouping[group]
+            ]
+        self.questions.gathered = True
+
+    def _auto_load_fields(self):
+        """
+        Automatically scan the interview's templates for fields and process
+        them.
+        """
+        self.all_fields.clear()
+        self.all_fields.add_fields_from_file(self.uploaded_templates)
+        self.all_fields.gathered = True
 
 
 def fix_id(string: str) -> str:
@@ -1750,6 +1927,23 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
             # ParsingExceptions are fine, because we aren't really parsing a PDF
             pass
     return res
+
+
+def reflect_fields(
+    pdf_field_tuples: List[Tuple], image_placeholder: DAFile = None
+) -> List[Dict[str, str]]:
+    """Return a mapping between the field names and either the same name, or "yes"
+    if the field is a checkbox value, in order to visually capture the location of
+    labeled fields on the PDF."""
+    mapping = []
+    for field in pdf_field_tuples:
+        if field[4] == "/Btn":
+            mapping.append({field[0]: "Yes"})
+        elif field[4] == "/Sig" and image_placeholder:
+            mapping.append({field[0]: image_placeholder})
+        else:
+            mapping.append({field[0]: field[0]})
+    return mapping
 
 
 def is_url(url: str) -> bool:
