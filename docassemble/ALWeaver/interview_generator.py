@@ -1244,9 +1244,12 @@ class DAInterview(DAObject):
         assigned to the interview object.
         To assist with "I'm feeling lucky" button.
         """
-        if user_logged_in():
-            self.author = f"{user_info().first_name} {user_info().last_name}"
-        else:
+        try:
+            if user_logged_in():
+                self.author = f"{user_info().first_name} {user_info().last_name}"
+            else:
+                self.author = "Court Forms Online"
+        except:
             self.author = "Court Forms Online"
         if url:
             self._set_template_from_url(url)
