@@ -1225,7 +1225,7 @@ class DAInterview(DAObject):
         url: str,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
-        categories: str = None,
+        categories: Optional[str] = None,
         default_country_code: str = "US",
     ):
         """
