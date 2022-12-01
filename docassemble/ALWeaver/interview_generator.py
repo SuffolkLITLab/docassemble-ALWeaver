@@ -1,47 +1,49 @@
-import ast
-from dataclasses import field
-import keyword
-import os
-import re
-import uuid
+from .custom_values import custom_values, get_matching_deps
+from .generator_constants import generator_constants
+from .validate_template_files import matching_reserved_names
 from collections import defaultdict
-from docx2python import docx2python
+from dataclasses import field
 from docassemble.base.util import (
-    log,
-    space_to_underscore,
     bold,
-    DAObject,
+    comma_list,
     DADict,
-    DAList,
+    DAEmpty,
     DAFile,
     DAFileCollection,
     DAFileList,
-    DAEmpty,
+    DAList,
+    DAObject,
+    DAStaticFile,
+    log,
     pdf_concatenate,
-    comma_list,
+    space_to_underscore,
+    user_info,
+    user_logged_in,
 )
-import docassemble.base.functions
-import docassemble.base.parse
-import docassemble.base.pdftk
-import datetime
-import zipfile
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
-from .generator_constants import generator_constants
-from .custom_values import custom_values, get_matching_deps
-from .validate_template_files import matching_reserved_names
-import mako.template
-import mako.runtime
+from docx2python import docx2python
+from enum import Enum
+from itertools import zip_longest, chain
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
 from PyPDF2.utils import PdfReadError
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
+from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
-from enum import Enum
-from itertools import zip_longest, chain
-import more_itertools
+import ast
+import datetime
+import docassemble.base.functions
+import docassemble.base.parse
+import docassemble.base.pdftk
 import formfyxer
-from urllib.parse import urlparse
+import mako.runtime
+import mako.template
+import more_itertools
+import os
+import re
+import uuid
+import zipfile
 
 
 mako.runtime.UNDEFINED = DAEmpty()
@@ -880,7 +882,7 @@ class DAFieldList(DAList):
 
     def mark_people_as_builtins(
         self,
-        people_list: List[str],
+        people_list: Iterable[str],
         people_suffixes: List[str] = (
             generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
         ),
@@ -910,6 +912,14 @@ class DAFieldList(DAList):
         # This treats all fields as PDF fields, which should be a reasonable
         # restriction on how people write DOCX variable names
         self.consolidate_duplicate_fields()
+
+    def auto_mark_people_as_builtins(self) -> Set[str]:
+        """
+        Mark people as built-ins if they match heuristics, without asking. For
+        use with "I'm feeling lucky" feature.
+        """
+        candidates = self.get_person_candidates()
+        self.mark_people_as_builtins(candidates)
 
     def auto_label_fields(self):
         for field in self.elements:
@@ -1222,7 +1232,8 @@ class DAInterview(DAObject):
 
     def auto_assign_attributes(
         self,
-        url: str,
+        url: Optional[str]=None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
@@ -1233,11 +1244,18 @@ class DAInterview(DAObject):
         assigned to the interview object.
         To assist with "I'm feeling lucky" button.
         """
-        self._set_template_from_url(url)
+        if user_logged_in():
+            self.author = f"{user_info().first_name} {user_info().last_name}"
+        else:
+            self.author = "Court Forms Online"
+        if url:
+            self._set_template_from_url(url)
+            self.title = os.path.basename(url)
+        elif input_file:
+            self._set_template_from_file(input_file)
+            self.title = os.path.basename(input_file.path())
         if title:
             self.title = title
-        else:
-            self.title = os.path.basename(url)
         self.short_title = self.title
         self.description = self.title
         self.short_filename_with_spaces = self.title
@@ -1268,7 +1286,10 @@ class DAInterview(DAObject):
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
+        self._auto_load_fields()
         self.all_fields.auto_label_fields()
+        self.all_fields.auto_mark_people_as_builtins()
+        self.auto_group_fields()
 
     def _set_template_from_url(self, url: str):
         self.uploaded_templates = DAFileList(
@@ -1280,6 +1301,9 @@ class DAInterview(DAObject):
         self.uploaded_templates[0].initialize(extension="pdf")
         self.uploaded_templates[0].from_url(url)
         self.uploaded_templates[0].created = True
+    
+    def _set_template_from_file(self, input_file: Union[DAFileList, DAFile, DAStaticFile]):
+        self.uploaded_templates = input_file.copy_deep(self.attr_name("uploaded_templates"))
 
     def _guess_posture(self, title: str):
         """
@@ -1346,6 +1370,15 @@ class DAInterview(DAObject):
                 if field.variable in field_grouping[group]
             ]
         self.questions.gathered = True
+
+    def _auto_load_fields(self):
+        """
+        Automatically scan the interview's templates for fields and process
+        them.
+        """
+        self.all_fields.clear()
+        self.all_fields.add_fields_from_file(self.uploaded_templates)
+        self.all_fields.gathered = True
 
 
 def fix_id(string: str) -> str:

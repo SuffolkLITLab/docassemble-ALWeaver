@@ -982,6 +982,7 @@ need:
   - person_candidates
   - people_quantities
 code: |
+  # TODO(qs): this should have a better API
   # Create objects block that specifies the number of people for
   # the developer. Switches between target_number and there_are_any list gathering
   # approaches
@@ -1541,20 +1542,14 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if has_safe_pdf_in_url: # limit when this block can run
-    initial_get_fields
-    interview.all_fields.auto_label_fields()
+    # TODO: refactor this at some point, this is a shim to create objects block but we
+    # shouldn't need it forever.
     person_candidates = interview.all_fields.get_person_candidates()
-    interview.all_fields.mark_people_as_builtins(person_candidates)
-
     for person in person_candidates:
       people_quantities[person] = "any"
     process_people_variables = True
-    interview.auto_group_fields()
-        
+    
+    # Skip some screens we don't need
     ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
-    if user_logged_in():
-      interview.author = f"{user_info().first_name} {user_info().last_name}"
-    else:
-      interview.author = "Court Forms Online"
 
   process_im_feeling_lucky = True
