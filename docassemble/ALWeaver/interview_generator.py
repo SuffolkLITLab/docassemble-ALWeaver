@@ -1183,7 +1183,6 @@ class DAInterview(DAObject):
         generate_download_screen: bool = True,
         output_file: Optional[DAFile] = None,
     ) -> DAFile:
-
         # 2. Build data for folders_and_files and package_info
         folders_and_files = {
             "questions": [interview_mako_output],
@@ -1857,7 +1856,7 @@ def get_pdf_validation_errors(document: DAFile) -> Optional[ValidationError]:
         fields.add_fields_from_file(document)
     except ParsingException as ex:
         return ("parsing_exception", ex)
-    except (PDFSyntaxError):
+    except PDFSyntaxError:
         return ("invalid_pdf", "Invalid PDF")
     except PSEOF:
         return (

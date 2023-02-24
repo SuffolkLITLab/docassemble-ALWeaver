@@ -89,7 +89,6 @@ def make_json(order, old_html):
 
     # 3. Loop thru the adjusted order and copy data from old_soup to collections
     for j, row_name in enumerate(adjusted_order):
-
         # Handle one row at a time.
         old_tbl_rows = old_soup.find_all("tr")[1:]  # skip heading row
         for old_row in old_tbl_rows:
