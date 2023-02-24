@@ -280,7 +280,14 @@ class DAField(DAObject):
             )
             self.variable_name_guess = name_no_suffix.replace("_", " ").capitalize()
         elif pdf_field_tuple[4] == "/Btn":
-            if str(self.export_value.lower()) in ['yes', 'true', 'on', 'no', 'false', 'off']:
+            if str(self.export_value.lower()) in [
+                "yes",
+                "true",
+                "on",
+                "no",
+                "false",
+                "off",
+            ]:
                 self.field_type_guess = "yesno"
             else:
                 self.field_type_guess = "multiple choice radio"
@@ -419,7 +426,9 @@ class DAField(DAObject):
                 "field": self.attr_name("choices"),
                 "datatype": "area",
                 "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('{ self.attr_name('field_type') }'))",
-                "default": "\n".join(self.choice_options) if hasattr(self, "choice_options") else None,
+                "default": "\n".join(self.choice_options)
+                if hasattr(self, "choice_options")
+                else None,
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
@@ -685,7 +694,6 @@ class DAFieldList(DAList):
 
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
-
 
     def consolidate_duplicate_fields(self, document_type: str = "pdf") -> None:
         """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just
@@ -1964,10 +1972,12 @@ def reflect_fields(
     mapping = []
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
-            if str(field[5]).lower() in ['yes', 'on', 'true']:
+            if str(field[5]).lower() in ["yes", "on", "true"]:
                 mapping.append({field[0]: "Yes"})
             else:
-                if field[0] not in [next(iter(field_val.keys())) for field_val in mapping]:
+                if field[0] not in [
+                    next(iter(field_val.keys())) for field_val in mapping
+                ]:
                     mapping.append({field[0]: field[5]})
         elif field[4] == "/Sig" and image_placeholder:
             mapping.append({field[0]: image_placeholder})
