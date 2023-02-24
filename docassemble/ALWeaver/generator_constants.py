@@ -3,6 +3,7 @@ Constants for interview_generator.py
 """
 from typing import Dict, List
 
+
 # This is to workaround fact you can't do local import in Docassemble playground
 class GeneratorConstantObject(object):
     RESERVED_WHOLE_WORDS: List[str]

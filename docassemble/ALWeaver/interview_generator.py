@@ -1183,7 +1183,6 @@ class DAInterview(DAObject):
         generate_download_screen: bool = True,
         output_file: Optional[DAFile] = None,
     ) -> DAFile:
-
         # 2. Build data for folders_and_files and package_info
         folders_and_files = {
             "questions": [interview_mako_output],
