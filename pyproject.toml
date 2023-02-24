@@ -53,9 +53,5 @@ module = "mypy-ruamel"
 ignore_missing_imports=true
 
 [[tool.mypy.overrides]]
-module = "PyPDF2.*"
-ignore_missing_imports=true
-
-[[tool.mypy.overrides]]
 module = "formfyxer"
 ignore_missing_imports=true
