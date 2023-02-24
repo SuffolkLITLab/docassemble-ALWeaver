@@ -1,0 +1,57 @@
+[tool.black]
+extend-exclude = '(__init__.py|setup.py)'
+
+[tool.mypy]
+# global options
+exclude = '''(?x)(
+    ^setup.py$
+  )'''
+no_warn_no_return = true
+warn_redundant_casts = true
+warn_unused_configs = true
+show_error_codes = true
+
+# per-module options:
+[[tool.mypy.overrides]]
+module = "pikepdf.*"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "docassemble.base.*"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "more_itertools"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "docxtpl"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "docx2python"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "bs4"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "mako.*"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "mypy-pdfminer.*"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "mypy-ruamel"
+ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "formfyxer"
+ignore_missing_imports=true
