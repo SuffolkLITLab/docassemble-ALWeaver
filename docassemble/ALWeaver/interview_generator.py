@@ -26,7 +26,6 @@ from itertools import zip_longest, chain
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
-from PyPDF2.utils import PdfReadError
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
 from urllib.parse import urlparse
 from zipfile import BadZipFile
@@ -1858,7 +1857,7 @@ def get_pdf_validation_errors(document: DAFile) -> Optional[ValidationError]:
         fields.add_fields_from_file(document)
     except ParsingException as ex:
         return ("parsing_exception", ex)
-    except (PDFSyntaxError, PdfReadError):
+    except (PDFSyntaxError):
         return ("invalid_pdf", "Invalid PDF")
     except PSEOF:
         return (

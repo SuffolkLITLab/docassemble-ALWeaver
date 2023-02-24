@@ -476,33 +476,15 @@ attachment:
 ---
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
-  from PyPDF2.utils import PdfReadError
   
   try:
     pdf_concatenate(interview.uploaded_templates)
   except PDFSyntaxError:
     # Handle PDF read error
     force_ask('exit_invalid_pdf')
-  except PdfReadError:
-    force_ask('exit_xref_table')
   except:
     pass # Continue on to safer checks with get_pdf_fields
   validate_pdf = True
----
-event: exit_xref_table
-question: |
-  This PDF is not valid
-subquestion: |
-  There was a problem reading this PDF.
-  
-  Sometimes you can fix this problem by using 
-  [documate.org/pdf](https://www.documate.org/pdf) or by using 
-  [qpdf](http://qpdf.sourceforge.net/).
-  
-  [Read 
-  more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
-buttons:
-  - Restart: restart
 ---
 ###################### DOCX validation stuff #############################
 ---
