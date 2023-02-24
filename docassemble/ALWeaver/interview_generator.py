@@ -1856,7 +1856,7 @@ def get_pdf_validation_errors(document: DAFile) -> Optional[ValidationError]:
         fields.add_fields_from_file(document)
     except ParsingException as ex:
         return ("parsing_exception", ex)
-    except (PDFSyntaxError):
+    except PDFSyntaxError:
         return ("invalid_pdf", "Invalid PDF")
     except PSEOF:
         return (
