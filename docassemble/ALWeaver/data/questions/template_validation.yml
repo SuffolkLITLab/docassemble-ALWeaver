@@ -406,13 +406,13 @@ fields:
   - Confirm the fields are filled in correctly: all_look_good
     datatype: checkboxes
     choices:
-      - All the checkboxes are checked: all_checkboxes_checked
+      - All the checkboxes are checked and at least one radio button in each group is selected: all_checkboxes_checked
       - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
         help: |
           While you may prefer to fix font size now, it will not change your experience
           with the Weaver. You can upload the fixed template to the Playground later.
       - All signature fields are filled in with the signature image: signature_filled_in
-    none of the above: False    
+    none of the above: False
 validation code: |
   checkboxes_msg = ''
   text_mst = ''

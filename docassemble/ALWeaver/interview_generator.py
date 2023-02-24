@@ -267,6 +267,7 @@ class DAField(DAObject):
         self.maxlength = get_character_limit(pdf_field_tuple)
         self.variable_name_guess = variable_name_guess
 
+        self.export_value = pdf_field_tuple[5]
         if self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = "Date of " + self.variable[:-5].replace("_", " ")
@@ -279,7 +280,11 @@ class DAField(DAObject):
             )
             self.variable_name_guess = name_no_suffix.replace("_", " ").capitalize()
         elif pdf_field_tuple[4] == "/Btn":
-            self.field_type_guess = "yesno"
+            if str(self.export_value.lower()) in ['yes', 'true', 'on', 'no', 'false', 'off']:
+                self.field_type_guess = "yesno"
+            else:
+                self.field_type_guess = "multiple choice radio"
+                self.choice_options = [self.export_value]
         elif pdf_field_tuple[4] == "/Sig":
             self.field_type_guess = "signature"
         elif self.maxlength and self.maxlength > 100:
@@ -414,6 +419,7 @@ class DAField(DAObject):
                 "field": self.attr_name("choices"),
                 "datatype": "area",
                 "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('{ self.attr_name('field_type') }'))",
+                "default": "\n".join(self.choice_options) if hasattr(self, "choice_options") else None,
                 "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
             }
         )
@@ -660,6 +666,27 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
+    def consolidate_radios(self) -> None:
+        """Combines separate radio buttons into a single variable"""
+        radio_map: Dict[str, Any] = defaultdict(list)
+        mark_to_remove: List[int] = []
+        for idx, field in enumerate(self.elements):
+            if field.field_type_guess != "multiple choice radio":
+                continue
+
+            if len(radio_map[field.variable_name_guess]) > 0:
+                radio_map[field.variable_name_guess][0].choice_options.append(
+                    field.export_value
+                )
+            radio_map[field.variable_name_guess].append(field)
+
+            if len(radio_map[field.variable_name_guess]) > 1:
+                mark_to_remove.append(idx)
+
+        self.delitem(*mark_to_remove)
+        self.there_are_any = len(self.elements) > 0
+
+
     def consolidate_duplicate_fields(self, document_type: str = "pdf") -> None:
         """Removes all duplicate fields from a PDF (docx's are handled elsewhere) that really just
         represent a single variable, leaving one remaining field that writes all of the original vars
@@ -771,6 +798,7 @@ class DAFieldList(DAList):
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
+        self.consolidate_radios()
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
 
@@ -1936,7 +1964,11 @@ def reflect_fields(
     mapping = []
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
-            mapping.append({field[0]: "Yes"})
+            if str(field[5]).lower() in ['yes', 'on', 'true']:
+                mapping.append({field[0]: "Yes"})
+            else:
+                if field[0] not in [next(iter(field_val.keys())) for field_val in mapping]:
+                    mapping.append({field[0]: field[5]})
         elif field[4] == "/Sig" and image_placeholder:
             mapping.append({field[0]: image_placeholder})
         else:
