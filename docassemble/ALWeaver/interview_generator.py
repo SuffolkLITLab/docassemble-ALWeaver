@@ -287,7 +287,7 @@ class DAField(DAObject):
                 "no",
                 "false",
                 "off",
-                ""
+                "",
             ]:
                 self.field_type_guess = "yesno"
             else:
