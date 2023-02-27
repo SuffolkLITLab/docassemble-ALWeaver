@@ -65,7 +65,14 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
 
     def test_multiple_choice(self):
         # From an Adobe-Acrobat made radio button field
-        pdf_field_tuple = ("Group1", "No", 1, [162.9, 631.3, 180.9, 649.3], "/Btn", 'Choice3')
+        pdf_field_tuple = (
+            "Group1",
+            "No",
+            1,
+            [162.9, 631.3, 180.9, 649.3],
+            "/Btn",
+            "Choice3",
+        )
         new_field = DAField()
         new_field.fill_in_pdf_attributes(pdf_field_tuple)
         self.assertEqual(new_field.variable, "Group1")
@@ -73,7 +80,6 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, "multiple choice radio")
         self.assertEqual(new_field.variable_name_guess, "Group1")
-
 
 
 if __name__ == "__main__":
