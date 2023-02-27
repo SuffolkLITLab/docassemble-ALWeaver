@@ -267,7 +267,7 @@ class DAField(DAObject):
         self.maxlength = get_character_limit(pdf_field_tuple)
         self.variable_name_guess = variable_name_guess
 
-        self.export_value = pdf_field_tuple[5]
+        self.export_value = pdf_field_tuple[5] if len(pdf_field_tuple) >= 6 else ""
         if self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = "Date of " + self.variable[:-5].replace("_", " ")
@@ -287,6 +287,7 @@ class DAField(DAObject):
                 "no",
                 "false",
                 "off",
+                ""
             ]:
                 self.field_type_guess = "yesno"
             else:
@@ -1972,13 +1973,14 @@ def reflect_fields(
     mapping = []
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
-            if str(field[5]).lower() in ["yes", "on", "true"]:
+            export_val = field[5] if len(field) >= 6 else ""
+            if str(export_val).lower() in ["yes", "on", "true", ""]:
                 mapping.append({field[0]: "Yes"})
             else:
                 if field[0] not in [
                     next(iter(field_val.keys())) for field_val in mapping
                 ]:
-                    mapping.append({field[0]: field[5]})
+                    mapping.append({field[0]: export_val})
         elif field[4] == "/Sig" and image_placeholder:
             mapping.append({field[0]: image_placeholder})
         else:
