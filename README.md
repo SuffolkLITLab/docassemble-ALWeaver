@@ -26,7 +26,7 @@ Read more on our [documentation page](https://suffolklitlab.org/docassemble-Asse
 * https://github.com/SuffolkLitLab/docassemble-AssemblyLine
 * https://github.com/SuffolkLitLab/docassemble-ALMassachusetts
 * https://github.com/SuffolkLitLab/docassemble-MassAccess
-* https://github.com/SuffolkLitLab/docassemble-ALGenericJurisdiction
+* https://github.com/SuffolkLitLab/docassemble-ThemeTemplate
 * https://github.com/SuffolkLitLab/EfileProxyServer
 
 # Documentation
