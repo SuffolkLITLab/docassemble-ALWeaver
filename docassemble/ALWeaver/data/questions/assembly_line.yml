@@ -4,6 +4,7 @@ include:
   - visual.yml
   - docassemble.ALToolbox:display_template.yml
   - weaver_configuration.yml
+  - review_screen.yml
 ---  
 metadata:
   title: |
@@ -74,6 +75,7 @@ code: |
     show_screen_order
     screen_tbl_done
 
+  review_weaver
   # Generate draft interview yaml file
   add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
   
