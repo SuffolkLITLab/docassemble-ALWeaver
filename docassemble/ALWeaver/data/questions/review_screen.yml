@@ -1,0 +1,359 @@
+---
+id: review_weaver
+question: |
+  Review and edit your interview
+continue button field: review_weaver
+review:
+
+  - Edit: |-
+      interview.revisit
+    button: |-
+      **Interview**
+
+      % for item in interview:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      interview_package_download.revisit
+    button: |-
+      **Interview Package Download**
+
+      % for item in interview_package_download:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      screen_order.revisit
+    button: |-
+      **Screen Order**
+
+      % for item in screen_order:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      attachments.revisit
+    button: |-
+      **Attachments**
+
+      % for item in attachments:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      people_quantities.revisit
+    button: |-
+      **People Quantities**
+
+      % for item in people_quantities:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      next_steps_documents.revisit
+    button: |-
+      **Next Steps Documents**
+
+      % for item in next_steps_documents:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      jurisdiction_choices.revisit
+    button: |-
+      **Jurisdiction Choices**
+
+      % for item in jurisdiction_choices:
+      - ${ item }
+      % endfor
+  - Edit: |-
+      interview_type
+    button: |
+      **What kind of output will your interview have?**
+
+      What kind of output do you want?: ${ showifdef('interview_type') }
+  - Edit: |-
+      interview.uploaded_templates
+    button: |
+      **Upload one or more template files**
+
+      Select your PDF or DOCX files: ${ showifdef('interview.uploaded_templates') }
+  - Edit: |-
+      interview.court_related
+    button: |
+      **Is your form court-related?**
+
+      Is your form court-related?: ${ word(yesno(interview.court_related)) }
+
+      Kind of form: ${ showifdef('interview.form_type') }
+
+      Kind of form: ${ showifdef('interview.form_type') }
+
+      Alternate Allowed Courts (separate with a comma): ${ showifdef('interview.allowed_courts_text') }
+
+      Categories: ${ showifdef('interview.categories') }
+
+      Other categories (separate with a comma): ${ showifdef('interview.other_categories') }
+
+      Unique label for this interview: ${ showifdef('interview_label_draft') }
+
+      Link to original form: ${ showifdef('interview.original_form') }
+  - Edit: |-
+      interview.author
+    button: |
+      **Identity, location, and brand**
+
+      Author name(s) (one per line): ${ showifdef('interview.author') }
+  - Edit: |-
+      interview_intro_prompt
+    button: |
+      **Add your form name to the branding page**
+
+      Action-oriented text: ${ showifdef('interview_intro_prompt') }
+  - Edit: |-
+      interview.title
+    button: |
+      **Form description and "Getting Started" page**
+
+      Title: ${ showifdef('interview.title') }
+
+      Short title that will show up on small screens: ${ showifdef('interview.short_title') }
+
+      Short description of your form: ${ showifdef('interview.description') }
+
+      Getting started page: ${ showifdef('interview.getting_started') }
+  - Edit: interview.typical_role
+    button: |
+      **User's role for your form**
+
+      User's role: ${ showifdef('interview.typical_role') }
+---
+event: |-
+  install_step1_status.revisit
+id: |-
+  revisit install_step1_status
+question: |-
+  Edit your answers about Install Step1 Status
+subquestion: |-
+  ${ install_step1_status.table }
+---
+event: |-
+  task_complete.revisit
+id: |-
+  revisit task_complete
+question: |-
+  Edit your answers about Task Complete
+subquestion: |-
+  ${ task_complete.table }
+---
+event: |-
+  task_status.revisit
+id: |-
+  revisit task_status
+question: |-
+  Edit your answers about Task Status
+subquestion: |-
+  ${ task_status.table }
+---
+event: |-
+  task_succeeded.revisit
+id: |-
+  revisit task_succeeded
+question: |-
+  Edit your answers about Task Succeeded
+subquestion: |-
+  ${ task_succeeded.table }
+---
+event: |-
+  weaverdata.revisit
+id: |-
+  revisit weaverdata
+question: |-
+  Edit your answers about Weaverdata
+subquestion: |-
+  ${ weaverdata.table }
+---
+event: |-
+  upload_template_image.revisit
+id: |-
+  revisit upload_template_image
+question: |-
+  Edit your answers about Upload Template Image
+subquestion: |-
+  ${ upload_template_image.table }
+---
+event: |-
+  start_from_scratch_image.revisit
+id: |-
+  revisit start_from_scratch_image
+question: |-
+  Edit your answers about Start From Scratch Image
+subquestion: |-
+  ${ start_from_scratch_image.table }
+---
+event: |-
+  browse_library_image.revisit
+id: |-
+  revisit browse_library_image
+question: |-
+  Edit your answers about Browse Library Image
+subquestion: |-
+  ${ browse_library_image.table }
+---
+event: |-
+  keep_editing_image.revisit
+id: |-
+  revisit keep_editing_image
+question: |-
+  Edit your answers about Keep Editing Image
+subquestion: |-
+  ${ keep_editing_image.table }
+---
+event: |-
+  interview.revisit
+id: |-
+  revisit interview
+question: |-
+  Edit your answers about Interview
+subquestion: |-
+  ${ interview.table }
+---
+event: |-
+  interview_package_download.revisit
+id: |-
+  revisit interview_package_download
+question: |-
+  Edit your answers about Interview Package Download
+subquestion: |-
+  ${ interview_package_download.table }
+---
+event: |-
+  screen_order.revisit
+id: |-
+  revisit screen_order
+question: |-
+  Edit your answers about Screen Order
+subquestion: |-
+  ${ screen_order.table }
+---
+event: |-
+  installer.revisit
+id: |-
+  revisit installer
+question: |-
+  Edit your answers about Installer
+subquestion: |-
+  ${ installer.table }
+---
+event: |-
+  attachments.revisit
+id: |-
+  revisit attachments
+question: |-
+  Edit your answers about Attachments
+subquestion: |-
+  ${ attachments.table }
+---
+event: |-
+  people_quantities.revisit
+id: |-
+  revisit people_quantities
+question: |-
+  Edit your answers about People Quantities
+subquestion: |-
+  ${ people_quantities.table }
+---
+event: |-
+  next_steps_documents.revisit
+id: |-
+  revisit next_steps_documents
+question: |-
+  Edit your answers about Next Steps Documents
+subquestion: |-
+  ${ next_steps_documents.table }
+---
+event: |-
+  weaverdata.revisit
+id: |-
+  revisit weaverdata
+question: |-
+  Edit your answers about Weaverdata
+subquestion: |-
+  ${ weaverdata.table }
+---
+event: |-
+  jurisdiction_choices.revisit
+id: |-
+  revisit jurisdiction_choices
+question: |-
+  Edit your answers about Jurisdiction Choices
+subquestion: |-
+  ${ jurisdiction_choices.table }
+---
+event: |-
+  generic_report.revisit
+id: |-
+  revisit generic_report
+question: |-
+  Edit your answers about Generic Report
+subquestion: |-
+  ${ generic_report.table }
+---
+event: |-
+  placeholder_signature.revisit
+id: |-
+  revisit placeholder_signature
+question: |-
+  Edit your answers about Placeholder Signature
+subquestion: |-
+  ${ placeholder_signature.table }
+---
+event: |-
+  quality_check_overlay.revisit
+id: |-
+  revisit quality_check_overlay
+question: |-
+  Edit your answers about Quality Check Overlay
+subquestion: |-
+  ${ quality_check_overlay.table }
+---
+columns:
+  - 'Make this a purely informational screen': |-
+      row_item.is_informational_screen if hasattr(row_item, 'is_informational_screen') else ''
+  - 'What should the title of this screen be?': |-
+      row_item.question_text if hasattr(row_item, 'question_text') else ''
+  - 'What is the text that appears under the title?': |-
+      row_item.subquestion_text if hasattr(row_item, 'subquestion_text') else ''
+  - 'Select the fields that will appear on this screen': |-
+      row_item.field_list if hasattr(row_item, 'field_list') else ''
+  - 'Override the default logic flow by adding a "continue button field"': |-
+      row_item.has_mandatory_field if hasattr(row_item, 'has_mandatory_field') else ''
+  - 'Docassemble variable name, in `snake_case`': |-
+      row_item.variable if hasattr(row_item, 'variable') else ''
+  - 'On-screen label or prompt': |-
+      row_item.label if hasattr(row_item, 'label') else ''
+  - 'Field type': |-
+      row_item.field_type if hasattr(row_item, 'field_type') else ''
+  - 'Options (one per line)': |-
+      row_item.choices if hasattr(row_item, 'choices') else ''
+  - 'Screen title': |-
+      row_item.question_text if hasattr(row_item, 'question_text') else ''
+  - 'Text on your question screen': |-
+      row_item.subquestion_text if hasattr(row_item, 'subquestion_text') else ''
+  - fld_order_list: |-
+      row_item.fld_order_list if hasattr(row_item, 'fld_order_list') else ''
+  - table_data: |-
+      row_item.table_data if hasattr(row_item, 'table_data') else ''
+rows: |-
+  interview
+table: |-
+  interview.table
+---
+columns:
+  - 'Descriptive name': |-
+      row_item.description if hasattr(row_item, 'description') else ''
+  - 'Dependency to add to setup.py': |-
+      row_item.dependency_name if hasattr(row_item, 'dependency_name') else ''
+  - 'YAML file name to add to `include` statement (optional)': |-
+      row_item.include_name if hasattr(row_item, 'include_name') else ''
+  - 'Enable by default': |-
+      row_item.default if hasattr(row_item, 'default') else ''
+rows: |-
+  jurisdiction_choices
+table: |-
+  jurisdiction_choices.table
