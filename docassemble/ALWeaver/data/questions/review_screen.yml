@@ -41,26 +41,36 @@ review:
       % for item in people_quantities:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
-  - Edit: |-
-      interview.court_related
+  - note: |
+      <h2 class="h3">Style and metadata</h2>
+  - Edit: 
+    - interview.court_related
+    - recompute:
+        - interview.interview_label
     button: |
-      **Is your form court-related?**
+      **Kind of form**
 
       Is your form court-related?: ${ word(yesno(interview.court_related)) }
 
       Kind of form: ${ showifdef('interview.form_type') }
 
-      Alternate Allowed Courts (separate with a comma): ${ showifdef('interview.allowed_courts_text') }
+      % if interview.court_related:
+      Allowed courts (MA only): ${ interview.allowed_courts.true_values() }
 
-      Categories: ${ showifdef('interview.categories') }
+      % if interview.allowed_courts["other"]:
+      Alternate Allowed Courts: ${ showifdef('interview.allowed_courts_text') }
+      % endif
 
-      Other categories (separate with a comma): ${ showifdef('interview.other_categories') }
+      Categories: ${ interview.categories.true_values() }
+      
+      % if interview.categories["other"]:
+      Other categories : ${ showifdef('interview.other_categories') }
+      % endif
+      % endif
 
       Unique label for this interview: ${ showifdef('interview_label_draft') }
 
       Link to original form: ${ showifdef('interview.original_form') }
-  - note: |
-      <h2 class="h3">Style and metadata</h2>
   - Edit: |-
       interview.author
     button: |
