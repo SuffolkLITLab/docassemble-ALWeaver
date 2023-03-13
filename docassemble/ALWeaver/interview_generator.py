@@ -156,7 +156,11 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optiona
     3: vertical end
     """
     # Make sure it's the right kind of tuple
-    if len(pdf_field_tuple) < 3 or (pdf_field_tuple[3] and len(pdf_field_tuple[3]) < 4):
+    if (
+        len(pdf_field_tuple) < 4
+        or not pdf_field_tuple[3]
+        or len(pdf_field_tuple[3]) < 4
+    ):
         return None  # we can't really guess
 
     # Did a little testing for typical field width/number of chars with both w and e.
