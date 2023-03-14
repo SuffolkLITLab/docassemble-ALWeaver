@@ -762,6 +762,7 @@ class DAFieldList(DAList):
             ):
                 for pike_info in pike_obj.Root.AcroForm.Fields:
                     pike_fields[str(pike_info.T)] = pike_info
+            pike_obj.close()
             for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
                 if pdf_field_name in pike_fields:
