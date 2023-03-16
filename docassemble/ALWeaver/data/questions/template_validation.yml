@@ -474,18 +474,6 @@ attachment:
   code: |
     reflect_fields(interview.uploaded_templates[0].get_pdf_fields(), placeholder_signature)
 ---
-code: |
-  from pdfminer.pdfparser import PDFSyntaxError
-  
-  try:
-    pdf_concatenate(interview.uploaded_templates)
-  except PDFSyntaxError:
-    # Handle PDF read error
-    force_ask('exit_invalid_pdf')
-  except:
-    pass # Continue on to safer checks with get_pdf_fields
-  validate_pdf = True
----
 ###################### DOCX validation stuff #############################
 ---
 code: |
