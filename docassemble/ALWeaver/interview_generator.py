@@ -453,7 +453,7 @@ class DAField(DAObject):
 
     def trigger_gather(
         self,
-        custom_plurals: Iterable[str],
+        custom_plurals: Optional[Iterable[str]]=None,
         reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
         undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
