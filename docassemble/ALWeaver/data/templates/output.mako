@@ -150,7 +150,7 @@ code: |
   ${ interview.interview_label }_preview_question
   basic_questions_signature_flow    
   % for signature_field in interview.all_fields.signatures():
-  ${ signature_field.trigger_gather() }
+  ${ signature_field.trigger_gather(interview.all_fields.custom_people_plurals) }
   % endfor
   % endif
   ${ interview.interview_label }_download
@@ -227,7 +227,7 @@ continue button field: ${ interview.interview_label }_preview_question
 % if generate_download_screen:
 ---
 code: |
-  signature_fields = ${ str(list(interview.all_fields.built_in_signature_triggers()) + [field.trigger_gather() for field in interview.all_fields.signatures()] ) }
+  signature_fields = ${ str(list(interview.all_fields.built_in_signature_triggers()) + [field.trigger_gather(interview.all_fields.custom_people_plurals) for field in interview.all_fields.signatures()] ) }
 % endif
 % for field in interview.all_fields.skip_fields():
 ---
