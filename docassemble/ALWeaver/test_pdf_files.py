@@ -45,7 +45,9 @@ class test_pdfs(unittest.TestCase):
         )
 
     def test_person_candidates(self):
-        push_button_pdf = Path(__file__).parent / "data/sources/test_civil_docketing_statement.pdf"
+        push_button_pdf = (
+            Path(__file__).parent / "data/sources/test_civil_docketing_statement.pdf"
+        )
         docassemble.base.functions.this_thread.current_question = type("", (), {})
         docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
         da_pdf = MockDAStaticFile(
@@ -60,8 +62,6 @@ class test_pdfs(unittest.TestCase):
         fields.add_fields_from_file(da_pdf)
         fields.gathered = True
         self.assertIn("decision_maker", fields.get_person_candidates(custom_only=True))
-
-
 
 
 if __name__ == "__main__":

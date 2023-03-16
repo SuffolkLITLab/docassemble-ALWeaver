@@ -254,8 +254,9 @@ class DAField(DAObject):
         else:
             self.field_type_guess = "text"
 
-    def fill_in_pdf_attributes(self, pdf_field_tuple: Any,
-        custom_plurals: Dict[str, str]) -> None:
+    def fill_in_pdf_attributes(
+        self, pdf_field_tuple: Any, custom_plurals: Dict[str, str]
+    ) -> None:
         """Let's guess the type of each field from the name / info from PDF"""
         if not custom_plurals:
             custom_plurals = {}
@@ -266,7 +267,9 @@ class DAField(DAObject):
             varname(self.raw_field_names[0])
         )
         # the variable, in python: i.e., users[1].name.first
-        self.final_display_var = map_raw_to_final_display(self.variable, custom_people_plurals_map=custom_plurals)
+        self.final_display_var = map_raw_to_final_display(
+            self.variable, custom_people_plurals_map=custom_plurals
+        )
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
@@ -453,7 +456,7 @@ class DAField(DAObject):
 
     def trigger_gather(
         self,
-        custom_plurals: Optional[Iterable[str]]=None,
+        custom_plurals: Optional[Iterable[str]] = None,
         reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
         undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
@@ -461,7 +464,7 @@ class DAField(DAObject):
         """Turn the docassemble variable string into an expression
         that makes DA ask a question for it. This is mostly
         calling `gather()` for lists
-        
+
         Args:
           custom_plurals: a list of variables strs that users have marked as being lists of people
         """
@@ -488,8 +491,7 @@ class DAField(DAObject):
         # The prefix, ensuring no key or index
         prefix = re.sub(r"\[.+\]", "", var_parts[0][0])
         has_plural_prefix = (
-            prefix in reserved_pluralizers_map.values()
-            or prefix in custom_plurals
+            prefix in reserved_pluralizers_map.values() or prefix in custom_plurals
         )
         has_singular_prefix = prefix in undefined_person_prefixes
 
@@ -572,8 +574,7 @@ class DAField(DAObject):
         prefix = re.sub(r"\[.+\]", "", indexed_var)
 
         has_plural_prefix = (
-            prefix in reserved_pluralizers_map.values()
-            or prefix in custom_plurals
+            prefix in reserved_pluralizers_map.values() or prefix in custom_plurals
         )
         if has_plural_prefix:
             return prefix, "list"
@@ -598,7 +599,13 @@ class ParentCollection(object):
     The parent collection is useful for review screens, where we want to group related fields
     """
 
-    def __init__(self, var_name: str, var_type: str, fields: List[DAField], custom_plurals:Iterable[str]):
+    def __init__(
+        self,
+        var_name: str,
+        var_type: str,
+        fields: List[DAField],
+        custom_plurals: Iterable[str],
+    ):
         """Constructor:
         @param var_name: the name of this parent collection variable
         @param var_type: the type of this parent collection variable. Can be 'list', 'object', or 'primitive'
@@ -650,7 +657,9 @@ confirm: True
 
     def full_display(self) -> str:
         settable_var = self.fields[0].get_settable_var()
-        parent_var = DAField._get_parent_variable(settable_var, custom_plurals=self.custom_plurals)[0]
+        parent_var = DAField._get_parent_variable(
+            settable_var, custom_plurals=self.custom_plurals
+        )[0]
         # NOTE: we rely on the "stock" full_display map here
         return substitute_suffix(parent_var)
 
@@ -663,7 +672,9 @@ class DAFieldList(DAList):
         self.object_type = DAField
         self.auto_gather = False
         self.complete_attribute = "complete"
-        self.initializeAttribute("custom_people_plurals", DADict.using(auto_gather=False, gathered=True))
+        self.initializeAttribute(
+            "custom_people_plurals", DADict.using(auto_gather=False, gathered=True)
+        )
 
     def __str__(self) -> str:
         return docassemble.base.functions.comma_and_list(
@@ -737,11 +748,19 @@ class DAFieldList(DAList):
         """Gets all of the individual ParentCollections from the DAFields in this list."""
         parent_coll_map = defaultdict(list)
         for field in self.elements:
-            parent_var_and_type = DAField._get_parent_variable(field.final_display_var, custom_plurals=self.custom_people_plurals.values())
+            parent_var_and_type = DAField._get_parent_variable(
+                field.final_display_var,
+                custom_plurals=self.custom_people_plurals.values(),
+            )
             parent_coll_map[parent_var_and_type].append(field)
 
         return [
-            ParentCollection(var_and_type[0], var_and_type[1], fields, self.custom_people_plurals.values())
+            ParentCollection(
+                var_and_type[0],
+                var_and_type[1],
+                fields,
+                self.custom_people_plurals.values(),
+            )
             for var_and_type, fields in parent_coll_map.items()
         ]
 
@@ -805,7 +824,9 @@ class DAFieldList(DAList):
 
                 # This function determines what type of variable
                 # we're dealing with
-                new_field.fill_in_pdf_attributes(pdf_field_tuple, self.custom_people_plurals)
+                new_field.fill_in_pdf_attributes(
+                    pdf_field_tuple, self.custom_people_plurals
+                )
                 if new_field.group == DAFieldGroup.BUILT_IN:
                     new_field.label = new_field.variable_name_guess
         else:
@@ -881,8 +902,8 @@ class DAFieldList(DAList):
             file_type = field.source_document_type
             if file_type == "pdf":
                 # map_raw_to_final_display will only transform names that are built-in to the constants
-                field_to_check = map_raw_to_final_display(field.variable, 
-                        custom_people_plurals_map=self.custom_people_plurals
+                field_to_check = map_raw_to_final_display(
+                    field.variable, custom_people_plurals_map=self.custom_people_plurals
                 )
             else:
                 field_to_check = field.variable
@@ -942,7 +963,9 @@ class DAFieldList(DAList):
             generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
         ),
     ) -> None:
-        self.custom_people_plurals = {var_name: var_name for var_name in list(people_list)}
+        self.custom_people_plurals = {
+            var_name: var_name for var_name in list(people_list)
+        }
         """Scan the list of fields and see if any of them should be renamed
         or marked as built-ins given the list of new, custom prefixes."""
         for field in self:
@@ -956,7 +979,7 @@ class DAFieldList(DAList):
                         field.variable,
                         document_type=field.source_document_type,
                         reserved_prefixes=people_list,
-                        custom_people_plurals_map=self.custom_people_plurals
+                        custom_people_plurals_map=self.custom_people_plurals,
                     )
                     if new_potential_name != field.variable:
                         field.final_display_var = new_potential_name
@@ -1009,7 +1032,9 @@ class DAFieldList(DAList):
         return [
             field.trigger_gather(custom_plurals=self.custom_people_plurals.values())
             for field in self.builtins()
-            if field.trigger_gather(custom_plurals=self.custom_people_plurals.values()).endswith(".signature")
+            if field.trigger_gather(
+                custom_plurals=self.custom_people_plurals.values()
+            ).endswith(".signature")
         ]
 
     def signatures(self) -> List[DAField]:
@@ -1165,10 +1190,16 @@ class DAQuestionList(DAList):
                 if question.needs_continue_button_field:
                     logic_list.append(varname(question.question_text))
                 else:
-                    logic_list.append(question.field_list[0].trigger_gather(custom_plurals=all_fields.custom_people_plurals.values()))
+                    logic_list.append(
+                        question.field_list[0].trigger_gather(
+                            custom_plurals=all_fields.custom_people_plurals.values()
+                        )
+                    )
             else:
                 # it's a built-in field OR a signature, not a question block
-                trigger_gather = question.trigger_gather(custom_plurals=all_fields.custom_people_plurals.values())
+                trigger_gather = question.trigger_gather(
+                    custom_plurals=all_fields.custom_people_plurals.values()
+                )
                 if not (
                     question in all_fields.builtins()
                     and trigger_gather.endswith(".signature")
@@ -1616,7 +1647,7 @@ def map_raw_to_final_display(
     label: str,
     document_type: str = "pdf",
     reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
-    custom_people_plurals_map:Optional[Dict[str, str]]=None,
+    custom_people_plurals_map: Optional[Dict[str, str]] = None,
     reserved_prefixes=generator_constants.RESERVED_PREFIXES,
     undefined_person_prefixes=generator_constants.UNDEFINED_PERSON_PREFIXES,
     reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
