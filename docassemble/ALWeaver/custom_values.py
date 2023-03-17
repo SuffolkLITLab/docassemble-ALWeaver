@@ -6,17 +6,6 @@ from packaging.version import Version
 from more_itertools import unique_everseen
 
 
-################# To refactor - I don't think these are used but they are mentioned in interview_generator.py
-class CustomValues(object):
-    people_plurals_map: Dict[str, str]
-    org_specific_config: Any
-
-
-custom_values = CustomValues()
-custom_values.people_plurals_map = {}
-custom_values.org_specific_config = None
-########################## End to refactor
-
 __all__ = [
     "get_possible_deps_as_choices",
     "get_pypi_deps_from_choices",

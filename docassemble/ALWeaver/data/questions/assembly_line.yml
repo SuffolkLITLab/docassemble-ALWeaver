@@ -285,9 +285,6 @@ validation code: |
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
 ---
 code: |
-  # TODO: refactor to use the new config system
-  set_custom_people_map( people_variables.true_values() )  
-
   if len(people_variables.true_values()):
     interview.all_fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True

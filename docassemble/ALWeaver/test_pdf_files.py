@@ -44,6 +44,25 @@ class test_pdfs(unittest.TestCase):
             len(bad_fields), 0, f"Bad fields in test_push_button.pdf: {bad_fields}"
         )
 
+    def test_person_candidates(self):
+        push_button_pdf = (
+            Path(__file__).parent / "data/sources/test_civil_docketing_statement.pdf"
+        )
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        da_pdf = MockDAStaticFile(
+            full_path=str(push_button_pdf), extension="pdf", mimetype="application/pdf"
+        )
+        fields = DAFieldList()
+        fields.add_fields_from_file(da_pdf)
+        fields.gathered = True
+        self.assertIn("decision_maker", fields.get_person_candidates(custom_only=True))
+        fields.mark_people_as_builtins(["decision_maker"])
+        fields = DAFieldList()
+        fields.add_fields_from_file(da_pdf)
+        fields.gathered = True
+        self.assertIn("decision_maker", fields.get_person_candidates(custom_only=True))
+
 
 if __name__ == "__main__":
     unittest.main()
