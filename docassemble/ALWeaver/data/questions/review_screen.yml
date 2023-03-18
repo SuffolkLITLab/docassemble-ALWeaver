@@ -1,5 +1,35 @@
+def: preview_questions
+mako: |
+  <%def name="preview_field(field)">\
+          <div class="row">
+              <div class="col-sm">
+              ${ field.label }
+              </div>
+              <div class="col-sm">
+              [---]
+              </div>
+          </div>
+  </%def>
+  <%def name="preview_question_screen(question)">\
+  <div class="card">
+    <div class="card-header">
+      ${ question.question_text }
+    </div>
+    <div class="card-body">
+      <h5 class="card-title">${ question.subquestion_text }</h5>
+      <div class="container">
+      % for field in question.field_list:
+      ${ preview_field(field) }
+      % endfor
+      </div>
+      <a href="#" class="card-link">Edit screen</a>
+    </div>
+  </div>
+  </%def>
 ---
 id: review_weaver
+usedefs:
+  - preview_questions
 question: |
   Review and edit your interview
 continue button field: review_weaver
@@ -41,6 +71,17 @@ review:
       % for item in people_quantities:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
+  - note: |
+      <h2 class="h3">Interview questions</h2>
+      <div class="container">
+      <div class="row">
+      % for question in interview.questions:
+      <div class="col">
+      ${ preview_question_screen(question) }
+      </div>
+      % endfor
+      </div>
+      </div>
   - note: |
       <h2 class="h3">Style and metadata</h2>
   - Edit: 
