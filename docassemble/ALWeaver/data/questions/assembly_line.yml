@@ -39,7 +39,6 @@ code: |
           process_field_normalization
         initial_get_fields
         validate_field_names
-        validate_pdf
         if no_recognized_pdf_fields:
           warn_no_recognized_al_labels
         fields_checkup_status
