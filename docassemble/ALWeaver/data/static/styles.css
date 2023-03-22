@@ -120,3 +120,12 @@ div.attention {
   text-align: center;
   padding: 15px;
 }
+
+/* CSS for review screen */
+.edit-icon {
+  display: none;
+}
+
+.edit-link:hover + .edit_icon {
+  display: block;
+}

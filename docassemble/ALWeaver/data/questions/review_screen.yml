@@ -2,39 +2,111 @@ def: preview_questions
 mako: |
   <%def name="preview_field(field)">\
           <div class="row">
-              <div class="col-sm">
+              <div class="col-md">
               ${ field.label }
               </div>
-              <div class="col-sm">
-              [---]
+              <div class="col-md">
+              <i>${ field.field_type }</i>
+              <a href="${ url_action(field.attr_name("edit_field")) }"><i class="fa-solid fa-pencil"></i></a>
               </div>
           </div>
   </%def>
   <%def name="preview_question_screen(question)">\
-  <div class="card">
+  <div class="card h-100">
     <div class="card-header">
       ${ question.question_text }
     </div>
     <div class="card-body">
-      <h5 class="card-title">${ question.subquestion_text }</h5>
+      <p>${ question.subquestion_text }</p>
       <div class="container">
       % for field in question.field_list:
       ${ preview_field(field) }
       % endfor
       </div>
-      <a href="#" class="card-link">Edit screen</a>
     </div>
+    % if isinstance(question, DAQuestion):
+    <div class="card-footer">
+      <a href="${ url_action(question.attr_name("edit_question")) }" class="card-link edit-link">Edit screen</a><span class="edit-icon"><i class="fa-solid fa-pencil"></i></span>
+    </div>
+    % endif
   </div>
   </%def>
 ---
+code: |
+  mock_intro_screen = DAObject(
+    question_text = f"<a href=\"{ url_action('interview_intro_prompt') }\">{ interview_intro_prompt }</a>: [Organization name]",
+    subquestion_text = """
+  <p>[Organization name] can help you complete and download forms in 3 steps:</p>
+  <b>Step 1.</b> Answer questions that will fill in your form for you.<br>
+  <b>Step 2.</b> Preview the completed form.<br> ...
+  """,
+  field_list=[]
+  )
+
+  mock_getting_started_screen = DAObject(
+    question_text = interview.title,
+    subquestion_text = interview.getting_started,
+    field_list = []
+  )
+
+  mock_preview_screen = DAObject(
+    question_text = "Preview your form before you sign it",
+    subquestion_text = """
+    <p>Here is a preview of the form you will sign on the next page.</p>
+    <p>Click the image to open it in a new tab. Click the "Edit answers" button
+  to edit your answers.</p>
+  ...
+  """,
+  field_list=[]
+  )
+
+  mock_signature_choice = DAObject(
+    question_text = "Your documents are almost ready",
+    subquestion_text = "How do you want to sign them?",
+    field_list = []
+  )
+
+  mock_signature_screen = DAObject(
+    question_text = "Please sign below",
+    subquestion_text = "[           ]",
+    field_list = []
+  )
+
+  mock_download_screen = DAObject(
+    question_text = "All done.",
+    subquestion_text = "Thank you. Your form is ready to download and deliver. ...",
+    field_list = [],
+  )
+---
 id: review_weaver
+need:
+  - mock_intro_screen
+  - mock_getting_started_screen
+  - mock_preview_screen
+  - mock_signature_choice
+  - mock_signature_screen
+  - mock_download_screen
 usedefs:
   - preview_questions
 question: |
   Review and edit your interview
 continue button field: review_weaver
 review:
+  - note: |
+      <h2 class="h3">Preview of interview screens</h2>
+      <i>Note: this is a preview based on the default
+      text and look and feel for a Weaver-generated interview. Your output may 
+      be different.</i>
 
+      <div class="card-deck row row-cols-1 row-cols-md-3">
+      % for question in [mock_intro_screen, mock_getting_started_screen] + (interview.questions if not defined("screen_tbl_done") else screen_reordered) + [mock_preview_screen, mock_signature_choice, mock_signature_screen, mock_download_screen]:
+      <div class="col mb-4">
+      ${ preview_question_screen(question) }
+      </div>
+      % endfor
+      </div>
+
+      <a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }"><i class="fa-solid fa-bars-staggered"></i> Change screen order</a>
   - Edit: |-
       interview.title
     button: |
@@ -71,17 +143,6 @@ review:
       % for item in people_quantities:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
-  - note: |
-      <h2 class="h3">Interview questions</h2>
-      <div class="container">
-      <div class="row">
-      % for question in interview.questions:
-      <div class="col">
-      ${ preview_question_screen(question) }
-      </div>
-      % endfor
-      </div>
-      </div>
   - note: |
       <h2 class="h3">Style and metadata</h2>
   - Edit: 
