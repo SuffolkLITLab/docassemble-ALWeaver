@@ -22,6 +22,7 @@ a.collapsed .pdcaretclosed {
 .ma_icon {
     position: relative;
     margin-right: 0.5rem;
+    max-height: 40px;
 }
 .title {
     display: inline;

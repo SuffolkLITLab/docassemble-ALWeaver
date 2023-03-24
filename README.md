@@ -1,6 +1,8 @@
 # Assembly Line Weaver: Suffolk LIT Lab Document Assembly Line
 
-<img src="https://user-images.githubusercontent.com/7645641/142245862-c2eb02ab-3090-4e97-9653-bb700bf4c54d.png" alt="drawing" width="300" alt="work together" style="align: center;"/>
+[![PyPI version](https://badge.fury.io/py/docassemble.ALWeaver.svg)](https://badge.fury.io/py/docassemble.ALWeaver)
+
+<img src="https://user-images.githubusercontent.com/7645641/142245862-c2eb02ab-3090-4e97-9653-bb700bf4c54d.png" alt="drawing of two cartoon people collaborating on building a web application" width="300" style="align: center;"/>
 
 The Assembly Line Project is a collection of volunteers, students, and institutions who joined together
 during the COVID-19 pandemic to help increase access to the court system. Our vision is mobile-friendly,
@@ -24,7 +26,7 @@ Read more on our [documentation page](https://suffolklitlab.org/docassemble-Asse
 * https://github.com/SuffolkLitLab/docassemble-AssemblyLine
 * https://github.com/SuffolkLitLab/docassemble-ALMassachusetts
 * https://github.com/SuffolkLitLab/docassemble-MassAccess
-* https://github.com/SuffolkLitLab/docassemble-ALGenericJurisdiction
+* https://github.com/SuffolkLitLab/docassemble-ThemeTemplate
 * https://github.com/SuffolkLitLab/EfileProxyServer
 
 # Documentation

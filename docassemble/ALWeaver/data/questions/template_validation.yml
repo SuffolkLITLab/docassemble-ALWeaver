@@ -261,7 +261,7 @@ question: ${ parsing_ex.main_issue }
 subquestion: |
   ${ parsing_ex.description }
 
-  % if parsing_ex.url is not None:  
+  % if parsing_ex.url is not None:
   Check out the [documentation](${ parsing_ex.url }) to learn more.
   % endif
   
@@ -406,13 +406,13 @@ fields:
   - Confirm the fields are filled in correctly: all_look_good
     datatype: checkboxes
     choices:
-      - All the checkboxes are checked: all_checkboxes_checked
+      - All the checkboxes are checked and at least one radio button in each group is selected: all_checkboxes_checked
       - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
         help: |
           While you may prefer to fix font size now, it will not change your experience
           with the Weaver. You can upload the fixed template to the Playground later.
       - All signature fields are filled in with the signature image: signature_filled_in
-    none of the above: False    
+    none of the above: False
 validation code: |
   checkboxes_msg = ''
   text_mst = ''
@@ -476,33 +476,15 @@ attachment:
 ---
 code: |
   from pdfminer.pdfparser import PDFSyntaxError
-  from PyPDF2.utils import PdfReadError
   
   try:
     pdf_concatenate(interview.uploaded_templates)
   except PDFSyntaxError:
     # Handle PDF read error
     force_ask('exit_invalid_pdf')
-  except PdfReadError:
-    force_ask('exit_xref_table')
   except:
     pass # Continue on to safer checks with get_pdf_fields
   validate_pdf = True
----
-event: exit_xref_table
-question: |
-  This PDF is not valid
-subquestion: |
-  There was a problem reading this PDF.
-  
-  Sometimes you can fix this problem by using 
-  [documate.org/pdf](https://www.documate.org/pdf) or by using 
-  [qpdf](http://qpdf.sourceforge.net/).
-  
-  [Read 
-  more](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs).
-buttons:
-  - Restart: restart
 ---
 ###################### DOCX validation stuff #############################
 ---

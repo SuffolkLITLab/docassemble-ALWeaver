@@ -10,9 +10,14 @@ metadata:
   title: |
     Interview Weaver: Document Assembly Line
   short title: Weaver
-  logo: |
-    <img src="/packagestatic/docassemble.ALWeaver/logo.png" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
   exit url: https://courtformsonline.org
+---
+objects:
+  - weaver_logo: DAStaticFile.using(filename="logo.svg")
+---
+default screen parts:
+  logo: |
+    <img src="${ weaver_logo.url_for() }" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
 ---
 mandatory: True
 id: Interview Order
@@ -48,6 +53,7 @@ code: |
           warn_no_recognized_al_labels
         validate_docx
       else: # mixed PDF and DOCX templates
+        initial_get_fields
         validate_mixed_documents
  
   if have_template_to_load:  
@@ -56,7 +62,7 @@ code: |
   interview.jurisdiction_choices
   interview.form_type
   if generate_download_screen:
-    interview_intro_prompt #branding screen
+    interview.intro_prompt #branding screen
     interview.short_title #intro screen
     interview.typical_role #people related questions
     process_people_variables
@@ -103,7 +109,6 @@ imports:
 modules:
   - .custom_values
   - .draggable_table
-  - .field_grouping  
   - .interview_generator
   - .validate_template_files
   - collections
@@ -371,8 +376,12 @@ fields:
       package, the main YAML file, and give a unique label to variables inside
       your document.
   - Link to original form: interview.original_form
-    hint: http://masslegalhelp.org/my_form
+    help: |
+      Include a link to a page where your user can download the blank form, if
+      that exists.
     required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
 ---
 code: |
   interview.default_country_code = 'US'
@@ -490,18 +499,11 @@ subquestion: |
   
   **Remember:** You can always change this text later in your playground.
 fields:
-  - Action-oriented text: interview_intro_prompt
+  - Action-oriented text: interview.intro_prompt
     default: ${ interview_intro_prompt_default }
 ---
 code: |
-  if interview.form_type == 'starts_case':
-    interview_intro_prompt_default = "Ask the court for a " + interview.short_filename_with_spaces 
-  elif interview.form_type == 'existing_case':
-    interview_intro_prompt_default = "File a " + interview.short_filename_with_spaces 
-  elif interview.form_type == 'letter':
-    interview_intro_prompt_default = "Write a " + interview.short_filename_with_spaces 
-  else:
-    interview_intro_prompt_default = "Get a " + interview.short_filename_with_spaces 
+  interview_intro_prompt_default = interview._guess_intro_prompt(interview.short_filename_with_spaces)
 ---
 id: form-specific intro page
 question: |
@@ -773,7 +775,7 @@ code: |
     elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
       errors = get_docx_validation_errors(document)
       if errors:
-        force_ask('exit_invalid_docx')        
+        force_ask('exit_invalid_docx')
       # Check for syntax that indicates a user error
       jinja_errors = get_jinja_errors(document)
       if jinja_errors:
@@ -988,6 +990,7 @@ need:
   - person_candidates
   - people_quantities
 code: |
+  # TODO(qs): this should have a better API
   # Create objects block that specifies the number of people for
   # the developer. Switches between target_number and there_are_any list gathering
   # approaches
@@ -1497,27 +1500,16 @@ code: |
   has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
 ---
 code: |
-  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverGroupBuiltinFields%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
+  # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverBugs%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
   interview.original_form = url_args.get('form_to_use')
   if has_safe_pdf_in_url:
-    interview.uploaded_templates = DAFileList('interview.uploaded_templates', auto_gather=False, gathered=True)
-    interview.uploaded_templates[0] = DAFile('interview.uploaded_templates[0]')
-    interview.uploaded_templates[0].initialize(extension="pdf")
-    interview.uploaded_templates[0].from_url(url_args.get('form_to_use'))
-    interview.uploaded_templates[0].created = True    
-  if url_args.get('title'):
-    interview.short_filename_with_spaces = url_args.get('title')
-    interview.title = interview.short_filename_with_spaces
-    interview.short_filename = space_to_underscore(varname(interview.short_filename_with_spaces))
+    interview.auto_assign_attributes(url_args.get('form_to_use'),
+                                     title=url_args.get('title'),
+                                     categories=url_args.get('nsmi'),
+                                     jurisdiction=url_args.get('jur'),
+    )
     interview_label_draft = interview.short_filename
-  if url_args.get('jur'):
-    interview.state = url_args.get('jur')
-  if url_args.get('nsmi'):
-    nsmi_tmp = url_args.get('nsmi')[1:-1].replace("'","").strip()
-    interview.categories = nsmi_tmp.split(',')
-    interview.categories = DADict(elements={cat.strip():True for cat in interview.categories}, auto_gather=False, gathered=True)
-    interview.categories['Other'] = False
   url_args.clear()    
   process_url_args = True  
 ---
@@ -1528,49 +1520,14 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if has_safe_pdf_in_url: # limit when this block can run
-    # Set interview defaults based on the PDF passed in the URL args
-    interview.jurisdiction_choices = get_matching_deps("jurisdiction",interview.state)    
-    interview.org_choices = get_matching_deps("organization",interview.state)
-    interview.form_type = "starts_case"
-    interview_intro_prompt = interview_intro_prompt_default
-    interview.title = interview.short_filename_with_spaces
-    interview.short_title = interview.short_filename_with_spaces
-    interview.description = interview.short_filename_with_spaces
-    interview.getting_started = "Before you get started, you need to..."
-
-    interview.typical_role = "unknown"
-
-    interview.all_fields.gathered
+    # TODO: refactor this at some point, this is a shim to create objects block but we
+    # shouldn't need it forever.
     person_candidates = interview.all_fields.get_person_candidates()
-    interview.all_fields.mark_people_as_builtins(interview.all_fields.get_person_candidates())
-
     for person in person_candidates:
       people_quantities[person] = "any"
-
-    process_people_variables = True      
+    process_people_variables = True
     
-    for index, field in enumerate(interview.all_fields.elements):
-      field.field_type = field.field_type_guess if hasattr(field, 'field_type_guess') else 'text'
-      field.label = field.variable_name_guess
-    # choose_field_types
-    # review_fields_after_labeling
-    
-    interview.questions.auto_gather = False
-    field_grouping = cluster_screens( [field.variable for field in interview.all_fields] )
-    for group in field_grouping:
-      new_screen = interview.questions.appendObject()
-      new_screen.is_informational_screen = False
-      new_screen.has_mandatory_field = True
-      new_screen.question_text = next(iter(field_grouping[group]),'').capitalize().replace('_', ' ')
-      new_screen.subquestion_text = ''
-      new_screen.field_list = [field for field in interview.all_fields if field.variable in field_grouping[group]]          
-    
-    interview.questions.gathered = True
-    interview.court_related = ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
-    if user_logged_in():
-      interview.author = f"{user_info().first_name} {user_info().last_name}"
-    else:
-      interview.author = "Court Forms Online"    
-    interview.allowed_courts = DADict(auto_gather=False, gathered=True)
+    # Skip some screens we don't need
+    ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
 
   process_im_feeling_lucky = True

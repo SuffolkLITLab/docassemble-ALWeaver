@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 from pathlib import Path
 import ruamel.yaml as yaml
 from docassemble.base.util import log, DADict, DAList, DAStore, path_and_mimetype
 from packaging.version import Version
 from more_itertools import unique_everseen
+
 
 ################# To refactor - I don't think these are used but they are mentioned in interview_generator.py
 class CustomValues(object):
@@ -31,7 +32,7 @@ __all__ = [
 ]
 
 
-def _package_name(package_name: str = None):
+def _package_name(package_name: Optional[str] = None):
     """Get package name without the name of the current module, like: docassemble.ALWeaver instead of
     docassemble.ALWeaver.advertise_capabilities"""
     if not package_name:
@@ -183,7 +184,7 @@ def get_yml_deps_from_choices(choices: Union[List[str], DADict]):
         return choices
 
 
-def get_full_dep_details(dep_category: str = None) -> List:
+def get_full_dep_details(dep_category: Optional[str] = None) -> List:
     """Get the full dictionary describing each dependency (including custom ones) so that it can be
     filtered and used as needed."""
     dep_choices = []
@@ -202,7 +203,9 @@ def get_full_dep_details(dep_category: str = None) -> List:
     return list(unique_everseen(dep_choices))
 
 
-def get_matching_deps(dep_category: str = None, state: str = None) -> DADict:
+def get_matching_deps(
+    dep_category: Optional[str] = None, state: Optional[str] = None
+) -> DADict:
     """Get the dependencies that match the specified state.
     State "ANY" has a special meaning."""
     dep_choices = []
@@ -271,7 +274,7 @@ def get_output_mako_package_and_path(key: str) -> str:
 
 
 def advertise_capabilities(
-    package_name: str = None,
+    package_name: Optional[str] = None,
     yaml_name: str = "configuration_capabilities.yml",
     base: str = "docassemble.ALWeaver",
     minimum_version="1.5",

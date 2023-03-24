@@ -1,0 +1,14 @@
+name: Publish Python 🐍 distributions 📦 to PyPI and TestPyPI
+
+on: push
+
+jobs:
+  build-n-publish:
+    name: Build and publish Python 🐍 distributions 📦 to PyPI
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: SuffolkLITLab/ALActions/publish@main
+      with:
+        PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        VERSION_TO_PUBLISH: ${{ env.GITHUB_REF_NAME }}
+        TEAMS_BUMP_WEBHOOK: ${{ secrets.TEAMS_BUMP_WEBHOOK }}
