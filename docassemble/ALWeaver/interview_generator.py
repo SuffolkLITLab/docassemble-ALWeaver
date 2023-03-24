@@ -1183,7 +1183,7 @@ class DAInterview(DAObject):
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
 
-    def draft_screen_order(self, instanceName:str = "screen_order") -> DAList:
+    def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
         """
         Create a draft screen order. We ask for the user's name first, then
         for each question screen, then the "built-in" fields.
