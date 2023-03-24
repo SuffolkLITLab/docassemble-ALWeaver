@@ -114,6 +114,8 @@ need:
   - mock_signature_choice
   - mock_signature_screen
   - mock_download_screen
+reconsider:
+  - mock_download_screen
 usedefs:
   - preview_questions
 question: |
