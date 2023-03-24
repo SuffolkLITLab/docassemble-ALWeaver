@@ -122,10 +122,17 @@ div.attention {
 }
 
 /* CSS for review screen */
-.edit-icon {
-  display: none;
+
+.edit-link {
+  text-decoration: underline dotted;
 }
 
-.edit-link:hover + .edit_icon {
-  display: block;
+.edit-link .edit-icon {
+  display: none;
+  margin-left: 5px;
+}
+
+/* Show the edit icon when the anchor tag is hovered */
+.edit-link:hover .edit-icon {
+  display: inline;
 }

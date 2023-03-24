@@ -1116,6 +1116,38 @@ class DAInterview(DAObject):
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
 
+    def draft_screen_order(self, instanceName:str = "screen_order") -> DAList:
+        """
+        Create a draft screen order. We ask for the user's name first, then
+        for each question screen, then the "built-in" fields.
+
+        If the field has a duplicate "trigger gather" we only include it once.
+        """
+        screen_order = DAList(instanceName, auto_gather=False)
+        builtins = []
+        unique_fields = set()
+        has_user = False
+        for field in self.all_fields.builtins():
+            # Don't add the users[0].signature field to this list
+            if field.final_display_var == "users[0].signature":
+                continue
+            if field.trigger_gather() == "users":
+                has_user = True
+                user_field = field
+            if not field.trigger_gather() in unique_fields:
+                unique_fields.add(field.trigger_gather())
+                builtins.append(field)
+        if has_user:
+            screen_order.append(user_field)
+
+        for question in self.questions:
+            screen_order.append(question)
+
+        screen_order.extend(builtins)
+        screen_order.extend(self.all_fields.signatures())
+        screen_order.gathered = True
+        return screen_order
+
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
         if not hasattr(self, "dependencies"):

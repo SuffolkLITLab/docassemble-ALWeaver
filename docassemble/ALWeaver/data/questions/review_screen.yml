@@ -6,8 +6,8 @@ mako: |
               ${ field.label }
               </div>
               <div class="col-md">
-              <i>${ field.field_type }</i>
-              <a href="${ url_action(field.attr_name("edit_field")) }"><i class="fa-solid fa-pencil"></i></a>
+              <a href="${ url_action(field.attr_name("edit_field")) }" class="edit-link"><i>${ field.field_type }</i>
+              <i class="fa-solid fa-pencil edit-icon"></i></a>
               </div>
           </div>
   </%def>
@@ -24,29 +24,53 @@ mako: |
       % endfor
       </div>
     </div>
-    % if isinstance(question, DAQuestion):
     <div class="card-footer">
-      <a href="${ url_action(question.attr_name("edit_question")) }" class="card-link edit-link">Edit screen</a><span class="edit-icon"><i class="fa-solid fa-pencil"></i></span>
-    </div>
+    % if isinstance(question, DAQuestion):
+        <a href="${ url_ask([question.attr_name("edit_question"), {"recompute": [question.attr_name("field_tbl_done")]}]) }" class="card-link edit-link">
+            Edit screen
+            <i class="fas fa-pencil-alt edit-icon"></i>
+        </a>
+    % else:
+    <i>${ question.card_footer_text }</i>
     % endif
+    </div>
+  </div>
+  </%def>
+  <%def name="preview_dafield_screen(field)">\
+  <div class="card h-100 weaver-builtin">
+    <div class="card-header">
+      % if field.trigger_gather().endswith(".gather()"):
+      Names of ${ field.trigger_gather().replace(".gather()", "").capitalize().replace("_", " ") }
+      % else:
+      ${ field.variable_name_guess }
+      % endif
+    </div>
+    <div class="card-body">
+      <p></p>
+    </div>
+    <div class="card-footer">
+    <p><i>Built-in screen</i></p>
+    </div>
   </div>
   </%def>
 ---
 code: |
   mock_intro_screen = DAObject(
-    question_text = f"<a href=\"{ url_action('interview_intro_prompt') }\">{ interview_intro_prompt }</a>: [Organization name]",
+    question_text = f"<a href=\"{ url_action('interview_intro_prompt') }\" class=\"edit-link\">{ interview_intro_prompt }<i class=\"fas fa-pencil-alt edit-icon\"></i></a>: [Organization name]",
     subquestion_text = """
   <p>[Organization name] can help you complete and download forms in 3 steps:</p>
   <b>Step 1.</b> Answer questions that will fill in your form for you.<br>
   <b>Step 2.</b> Preview the completed form.<br> ...
   """,
-  field_list=[]
+  field_list=[],
+  card_footer_text = "Introduction screen"
   )
 
   mock_getting_started_screen = DAObject(
-    question_text = interview.title,
-    subquestion_text = interview.getting_started,
-    field_list = []
+    question_text = f'<a href="{ url_action("interview.title") }" class="edit-link">{ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>',
+    subquestion_text = f'<a href="{ url_action("interview.getting_started") }" class="edit-link">{ interview.getting_started }<i class="fas fa-pencil-alt edit-icon"></i></a>',
+    field_list = [],
+    card_footer_text = "Getting started screen"
   )
 
   mock_preview_screen = DAObject(
@@ -57,25 +81,29 @@ code: |
   to edit your answers.</p>
   ...
   """,
-  field_list=[]
+  field_list=[],
+  card_footer_text = "Preview screen"
   )
 
   mock_signature_choice = DAObject(
     question_text = "Your documents are almost ready",
     subquestion_text = "How do you want to sign them?",
-    field_list = []
+    field_list = [],
+    card_footer_text = "Signature method screen"
   )
 
   mock_signature_screen = DAObject(
     question_text = "Please sign below",
     subquestion_text = "[           ]",
-    field_list = []
+    field_list = [],
+    card_footer_text = "Signature screen"
   )
 
   mock_download_screen = DAObject(
     question_text = "All done.",
     subquestion_text = "Thank you. Your form is ready to download and deliver. ...",
     field_list = [],
+    card_footer_text = "Download screen"
   )
 ---
 id: review_weaver
@@ -94,6 +122,13 @@ continue button field: review_weaver
 review:
   - note: |
       <h2 class="h3">Preview of interview screens</h2>
+      Review the screens below. 
+      
+      1. Click "<a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a>" to
+      change the order of question screens.
+      1. Click the "Edit screen" button to edit the text or order of fields on a screen.
+      1. Click on a dotted line to edit an individual field.
+
       <i>Note: this is a preview based on the default
       text and look and feel for a Weaver-generated interview. Your output may 
       be different.</i>
@@ -101,7 +136,11 @@ review:
       <div class="card-deck row row-cols-1 row-cols-md-3">
       % for question in [mock_intro_screen, mock_getting_started_screen] + (interview.questions if not defined("screen_tbl_done") else screen_reordered) + [mock_preview_screen, mock_signature_choice, mock_signature_screen, mock_download_screen]:
       <div class="col mb-4">
+      % if isinstance(question, DAField):
+      ${ preview_dafield_screen(question) }
+      % else:
       ${ preview_question_screen(question) }
+      % endif
       </div>
       % endfor
       </div>
@@ -150,11 +189,11 @@ review:
     - recompute:
         - interview.interview_label
     button: |
-      **Kind of form**
+      **Information about the original form**
 
       Is your form court-related?: ${ word(yesno(interview.court_related)) }
 
-      Kind of form: ${ showifdef('interview.form_type') }
+      What kind of form is this?: ${ showifdef('interview.form_type') }
 
       % if interview.court_related:
       Allowed courts (MA only): ${ interview.allowed_courts.true_values() }
@@ -170,19 +209,19 @@ review:
       % endif
       % endif
 
-      Unique label for this interview: ${ showifdef('interview_label_draft') }
+      Label used to prefix variable names: ${ showifdef('interview_label_draft') }
 
       Link to original form: ${ showifdef('interview.original_form') }
   - Edit: |-
       interview.author
     button: |
-      **Author's name**
+      **Interview author**
 
       ${ showifdef('interview.author') }
   - Edit: |
       interview.default_country_code
     button: |
-      **Default country and state**
+      **Defaults for address fields**
       
       ${ country_name(interview.default_country_code) }
 
@@ -190,14 +229,14 @@ review:
   - Edit: |
       interview.jurisdiction_choices
     button: |
-      **Jurisdiction and branding packages**
+      **Include these brand and question packages**
 
       ${ interview.jurisdiction_choices.true_values() }
 
       ${ interview.org_choices.true_values() }
   - Edit: interview.output_mako_choice
     button: |
-      **Selected template for interview YAML**
+      **Use this template to create the Docassemble interview (YAML)**
 
       ${ interview.output_mako_choice }
 ---

@@ -70,10 +70,10 @@ code: |
   interview.questions.gather()
   
   # Review field order and screen order
-  if not (has_safe_pdf_in_url and im_feeling_lucky):
-    show_field_order
-    show_screen_order
-    screen_tbl_done
+  #if not (has_safe_pdf_in_url and im_feeling_lucky):
+  #  show_field_order
+  #  show_screen_order
+  #  screen_tbl_done
 
   review_weaver
   # Generate draft interview yaml file
@@ -127,7 +127,6 @@ objects:
   - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
   - interview_package_download: DAFile
-  - screen_order: DAList.using(auto_gather=False)
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
   - people_quantities: DADict.using(auto_gather=False, gathered=True)
@@ -551,33 +550,36 @@ question: |
   Since you don't have a template to load, you can build your questions on this screen
   % endif
 subquestion: |
-  % if have_template_to_load:
-  Take a moment to review the fields your interview already includes:  
-  
-  % else:
-  You will need to define pairs of question/input variable as follows:
-  
-    1. Click "Add an item".
-    1. Type a name for an input variable using the 'snake_case' name convention.
-    1. Type a label for this input field.
-    1. Pick a field type from the dropdown list.
-  
-  As you so build your questions, they will be added to the table below for your review.
-  
-  Later in the Weaver you'll have a chance to edit these fields and rearrange your question order.
+  % if not have_template_to_load:
+  Add some fields to capture information in your interview by clicking the "Add a custom field"
+  button. When you are done adding fields, you can assign them to screens on the next
+  page.
   % endif
   
-  ${ collapse_template(review_fields_to_add_template) }
-  
-  Click the button below if you want to add an extra field to your
-  interview. This will not add it to your template file.
+  Your interview has ${ len( interview.all_fields.custom() ) } custom
+  % if len(interview.all_fields.builtins()):
+  field(s)
+  and ${ len(interview.all_fields.builtins()) } field(s) that will be handled by
+  the question library.
+  % else:
+  fields.
+  % endif
 
-  ${ interview.all_fields.add_action() }
+  ${ collapse_template(review_fields_to_add_template) }
+
+  % if have_template_to_load:
+  You can add additional custom fields that will not appear on the template. For example,
+  to hold a calculated value or to help your user understand if it is the right form
+  for them.
+  % endif
+
+  ${ interview.all_fields.add_action(label="Add a custom field") }
+    
 continue button field: review_fields_after_labeling  
 ---
 template: review_fields_to_add_template
 subject: |
-  Review fields
+  Review custom fields
 content: |
   ${ interview.all_fields.review_table }
 ---
@@ -585,14 +587,17 @@ content: |
 #  interview.all_fields.there_is_another = False
 ---
 table: interview.all_fields.review_table
-rows: interview.all_fields + interview.all_fields.builtins()
+rows: interview.all_fields.custom()
 columns:
   - On-screen label: |
       row_item.label if hasattr(row_item, 'label') else '(n/a)'
   - Field or variable name: |
       f"`{row_item.variable}`"  
   - Field type: |
-      showifdef(row_item.attr_name('field_type') )      
+      showifdef(row_item.attr_name('field_type') )
+  - Actions: |
+      action_button_html(url_action(row_item.attr_name('label')), size="sm", color="secondary")
+ 
 ---
 id: information about people
 question: |
@@ -1010,25 +1015,7 @@ code: |
   # This will add the questions and built-in fields to the screen_order 
   # list. This will allow the developer to reorder questions without needing
   # to restart the interview
-  # TODO: do we want to use this to nudge a recommended question order?
-  screen_order.clear()
-  for question in interview.questions:
-    screen_order.append(question)
-  
-  # Note that some built-in fields are not unique screens. This could
-  # mess up the count
-  unique_fields = set()
-  for field in interview.all_fields.builtins():
-    # Don't add the users[0].signature field to this list
-    if field.final_display_var == "users[0].signature":
-      continue
-    if not field.final_display_var in unique_fields:
-      unique_fields.add(field.final_display_var)
-      screen_order.append(field)
-  for field in interview.all_fields.signatures():
-    screen_order.append(field)
-  screen_order.gathered = True
-  set_initial_screen_order = True
+  screen_order = interview.draft_screen_order()
 ---
 table: screen_order.table
 rows: screen_order
@@ -1036,7 +1023,7 @@ columns:
   - Order: |
       int(screen_order.index(row_item)) + 1  
   - Screen: |
-      row_item.question_text if isinstance(row_item, DAQuestion) else row_item.variable_name_guess if isinstance(row_item, DAField) else 'N/A'
+      row_item.question_text if isinstance(row_item, DAQuestion) else row_item.trigger_gather() if isinstance(row_item, DAField) else 'N/A'
   - Number of fields: |
       len(row_item.field_list) if isinstance(row_item, DAQuestion) else 'N/A'
 ---
@@ -1047,9 +1034,6 @@ columns:
       int(interview.questions[i].field_list.index(row_item)) + 1  
   - Field name: |
       row_item.final_display_var
-edit:
-  - edit_field
-delete buttons: False  
 ---
 code: |
   interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
@@ -1114,22 +1098,15 @@ continue button field: interview.questions[i].edit_question
 scan for variables: False
 sets: interview.questions[i].edit_question
 question: |
-  Review your ${ ordinal(i) } screen
-subquestion: |    
-  <div style="text-align:right; font-style: italic">[Skip these screens anytime: ${ action_button_html(url_action('let_skip'),
-                        label='Skip',
-                        size='md',
-                        color='primary') }]</div>
-                        
-  1. You can modify **Screen title** and **Text on your question screen** here and they will be reflected in the generated draft interview.   
+  Edit screen ${ i + 1 }
 fields:
   - Screen title: interview.questions[i].question_text
-  - Text on your question screen: interview.questions[i].subquestion_text
+  - Text underneath the title: interview.questions[i].subquestion_text
     datatype: area
     required: False
   - note: |
-      2. Click **Edit** below to modify individual field's label and type if needed.
-      3. After all the edits are done, you can **reorder** the fields in the table by **grabbing anywhere in a row and dragging it to the desired position.** _If you reorder fields before clicking Edit, you'll need to readjust field order after editing._   
+      Click and drag to rearrange fields on this screen.
+
       ${ interview.questions[i].draggable_fld_table }   
   - no label: interview.questions[i].fld_order_list 
     datatype: draggable_tbl_order_list    
@@ -1137,7 +1114,6 @@ fields:
   - no label: interview.questions[i].table_data 
     datatype: draggable_tbl_json_string
     required: False
-
 ---
 continue button field: show_screen_order
 question: |
@@ -1147,7 +1123,6 @@ subquestion: |
 
   ${ draggable_scr_table } 
   
-  **NOTE:** All of the built-in fields are listed together, regardless of whether they appear together on one screen. For that reason, you don't need to reorder those rows.    
 fields:
   - no label: scr_order_list 
     datatype: draggable_tbl_order_list
