@@ -137,3 +137,18 @@ div.attention {
 .edit-link:hover .edit-icon {
   display: inline;
 }
+
+/* @media (min-width: 768px) { */
+  .extramedium #daquestion, #dahelp {
+      flex: 0 0 auto;
+      width: 83.33333333%;
+      margin-left: 8.33333333%;
+  }
+/*}
+@media (min-width: 992px) { */
+  .extramedium #daquestion, #dahelp {
+      flex: 0 0 auto;
+      width: 50%;
+      margin-left: 25%;
+  }
+/* } */

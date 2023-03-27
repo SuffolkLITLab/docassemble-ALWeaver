@@ -56,7 +56,7 @@ mako: |
 ---
 code: |
   mock_intro_screen = DAObject(
-    question_text = f"<a href=\"{ url_action('interview_intro_prompt') }\" class=\"edit-link\">{ interview_intro_prompt }<i class=\"fas fa-pencil-alt edit-icon\"></i></a>: [Organization name]",
+    question_text = f"<a href=\"{ url_action('interview.intro_prompt') }\" class=\"edit-link\">{ interview.intro_prompt }<i class=\"fas fa-pencil-alt edit-icon\"></i></a>: [Organization name]",
     subquestion_text = """
   <p>[Organization name] can help you complete and download forms in 3 steps:</p>
   <b>Step 1.</b> Answer questions that will fill in your form for you.<br>
@@ -106,7 +106,7 @@ code: |
     card_footer_text = "Download screen"
   )
 ---
-id: review_weaver
+id: review-weaver
 need:
   - mock_intro_screen
   - mock_getting_started_screen
@@ -121,6 +121,14 @@ usedefs:
 question: |
   Review and edit your interview
 continue button field: review_weaver
+css: |
+  <style>
+  .question-review-weaver #daquestion {
+        flex: 0 0 auto;
+        width: 83.33333333%;
+        margin-left: 8.33333333%;  
+  }
+  </style>
 review:
   - note: |
       <h2 class="h3">Preview of interview screens</h2>
@@ -161,11 +169,11 @@ review:
 
       Getting started page: ${ showifdef('interview.getting_started') }
   - Edit: |-
-      interview_intro_prompt
+      interview.intro_prompt
     button: |
       **Form name on the branding page**
 
-      ${ showifdef('interview_intro_prompt') }
+      ${ showifdef('interview.intro_prompt') }
   - Edit: review_fields_after_labeling
     button: |
       **Review field labels and prompts**
