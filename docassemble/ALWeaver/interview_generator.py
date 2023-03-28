@@ -1198,7 +1198,7 @@ class DAInterview(DAObject):
             # Don't add the users[0].signature field to this list
             if field.final_display_var == "users[0].signature":
                 continue
-            if field.trigger_gather() == "users":
+            if field.trigger_gather() == "users.gather()":
                 has_user = True
                 user_field = field
             if not field.trigger_gather() in unique_fields:
