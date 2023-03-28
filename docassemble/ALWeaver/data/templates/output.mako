@@ -410,3 +410,49 @@ code: |
 <%doc>
     End optional blocks related to attachments (if generating a file as output)
 </%doc>
+<%doc>
+  HACK: add the name change questions directly to the Weaver output for now. See https://github.com/SuffolkLITLab/docassemble-AssemblyLine/pull/668#discussion_r1149774674
+  We need a more generalized way to do this in the future but this can get us through LIT Con
+</%doc>
+% if showifdef("add_name_change_questions"):
+---
+id: consent of parent 1
+question: |
+  Do you consent to ${ children[0].preferred_name }'s name change?
+fields:
+  - I consent: users[0].consented_to_name_change
+    datatype: yesnoradio
+---
+id: consent of parent 1
+question: |
+  Does ${ users[1] } consent to ${ children[0].preferred_name }'s name change?
+fields:
+  - ${ users[1] } consents: users[0].consented_to_name_change
+    datatype: yesnoradio
+---
+id: consent of parent 1 attached
+question: |
+  Is your consent attached?
+fields:
+  - My consent is attached: users[0].parent_consent_attached
+    datatype: yesnoradio
+  - Why not?: users[0].no_consent_attached_explanation
+    datatype: area
+    rows: 2
+    show if:
+      variable: users[0].parent_consent_attached
+      is: False
+---
+id: consent of parent 2 attached
+question: |
+  Is ${ users[1] }'s consent attached?
+fields:
+  - ${ users[1] }'s consent is attached: users[0].parent_consent_attached
+    datatype: yesnoradio
+  - Why not?: users[1].no_consent_attached_explanation
+    datatype: area
+    rows: 2
+    show if:
+      variable: users[1].parent_consent_attached
+      is: False
+% endif
