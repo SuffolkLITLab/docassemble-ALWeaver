@@ -635,7 +635,7 @@ id: information about people
 question: |
   "People" mentioned in your form
 subquestion: |  
-  The Weaver will treat fields that represent "people" into objects so that
+  The Weaver will treat fields that represent "people" as objects so that
   attributes like their name, address, and phone number are linked together.
 fields:
   - note: |

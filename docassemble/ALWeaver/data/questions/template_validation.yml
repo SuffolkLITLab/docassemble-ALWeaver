@@ -416,21 +416,6 @@ right: |
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
 ---
-id: pdf tester success
-question: |
-  Your form has passed the test
-subquestion: |  
-  <span class="icon">[FILE stop_sign, 5%]</span> **If your job is only to label the form**, press the **Exit** button and [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
-
-  <span class="icon">[FILE green_light, 5%]</span> **If your job is to build the interview**, press the **Keep going** button to build your draft interview.
-sets: validation_success
-buttons: 
-  - Keep going:   
-      code: |
-        validation_success = True
-  - Exit: exit
-    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
----
 code: |
   rename_fields = {}
 ---
