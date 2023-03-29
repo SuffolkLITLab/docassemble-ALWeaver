@@ -500,7 +500,7 @@ code: |
 ---
 id: action-oriented splash title
 question: |
-  What does the this form help the user do?
+  What does this form help the user do?
 subquestion: |
   Use a short,
   action-oriented phrase to describe what the form will do.
