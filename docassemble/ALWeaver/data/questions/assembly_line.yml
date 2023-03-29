@@ -533,7 +533,7 @@ fields:
     js show if: |
       val("interview.title").length > 25
   - Title for mobile devices: interview.short_title
-    default: ${ interview.short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces[:25] }
     maxlength: 25
     js show if: |
       val("interview.title").length > 25
