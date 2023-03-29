@@ -533,7 +533,7 @@ fields:
     js show if: |
       val("interview.title").length > 25
   - Title for mobile devices: interview.short_title
-    default: ${ interview.short_filename_with_spaces }
+    default: ${ interview.short_filename_with_spaces[:25] }
     maxlength: 25
     js show if: |
       val("interview.title").length > 25
@@ -697,6 +697,10 @@ help: |
   
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
+---
+code: |
+  if interview.form_type == "starts_case" and len(interview.all_fields.get_person_candidates(custom_only=True)) < 1:
+    people_variables = DADict(auto_gather=False, gathered=True)
 ---
 if: interview.form_type == "starts_case"
 code: |
@@ -1099,13 +1103,35 @@ fields:
       - text
       - area
       - yesno
+      - noyes
+      - yesnoradio
+      - noyesradio
       - integer
       - number
       - currency
       - date
       - email
+      - multiple choice dropdown
+      - multiple choice combobox
       - multiple choice radio
       - multiple choice checkboxes
+      - multiselect
+      - file
+      - code
+  - Send overflow text to addendum: interview.all_fields[i].send_to_addendum
+    datatype: yesno
+    show if:
+      variable: interview.all_fields[i].field_type
+      is: area
+      code: |
+        hasattr(interview.all_fields[i], "maxlength")
+  - label: |
+      Complete the Python expression: `${ interview.all_fields[i].final_display_var } =`
+    field: interview.all_fields[i].code
+    datatype: area
+    show if:
+      variable: interview.all_fields[i].field_type
+      is: code
   - Options (one per line): interview.all_fields[i].choices
     datatype: area
     js show if: |
@@ -1116,6 +1142,10 @@ validation code: |
   for field in interview.all_fields:
     if not hasattr(field, 'final_display_var'):
       field.final_display_var = field.variable
+  if interview.all_fields[i].field_type == "code":
+      expression = f"{interview.all_fields[i].final_display_var} = {interview.all_fields[i].code}"
+      if not is_valid_python(expression):
+          validation_error(f"`{expression}` is not a valid Python expression.", field=interview.all_fields[i])
 continue button label: Save
 back button label: Cancel
 ---

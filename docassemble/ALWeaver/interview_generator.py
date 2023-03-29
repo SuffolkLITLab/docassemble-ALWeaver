@@ -1253,6 +1253,7 @@ class DAInterview(DAObject):
             if field.trigger_gather() == "users.gather()":
                 has_user = True
                 user_field = field
+                unique_fields.add(field.trigger_gather())
             if not field.trigger_gather() in unique_fields:
                 unique_fields.add(field.trigger_gather())
                 builtins.append(field)
