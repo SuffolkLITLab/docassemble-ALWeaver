@@ -498,7 +498,8 @@ class DAField(DAObject):
         if has_plural_prefix or has_singular_prefix:
             first_attribute = var_parts[0][1]
             if has_plural_prefix and (
-                first_attribute == "" or first_attribute == ".name"
+                # HACK LITCon 2023 - hardcode previous_names list
+                first_attribute == "" or first_attribute == ".name" or first_attribute in [".previous_names[0]", ".previous_names[1]", ".previous_names[2]", ".previous_names[3]", ".previous_names[4]"]
             ):
                 return prefix + GATHER_CALL
             elif first_attribute == ".address" or first_attribute == ".mailing_address":
