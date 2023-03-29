@@ -44,7 +44,6 @@ code: |
           warn_no_recognized_al_labels
         fields_checkup_status
         all_look_good
-        validation_success
       elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
         initial_get_fields
         validate_field_names
@@ -62,13 +61,14 @@ code: |
   interview.form_type
   if generate_download_screen:
     interview.intro_prompt #branding screen
-    interview.short_title #intro screen
+    interview.title #intro screen
     interview.typical_role #people related questions
     process_people_variables
     ask_people_quantity_question    
   if have_template_to_load: 
     ask_people_quantity_question  
-    choose_field_types    
+    if len(interview.all_fields.custom()):
+      choose_field_types
   if not generate_download_screen:    
     no_template_default_values    
   review_fields_after_labeling
@@ -239,39 +239,39 @@ subquestion: |
 ---
 id: file upload screen
 question: |
-  Upload one or more template files
+  Upload a template
 subquestion: |
   You can upload PDF files, DOCX files, or a mix of the two.
 
-  Before you upload it, your document should be prepared with labeled fields
-  that follow our [labelling
-  conventions](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables).
+  **Add fields before you upload your document.** The fields should use the [Assembly Line variable standard](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables).
 
-  In some cases, we can automatically process a PDF file that hasn't been
-  labeled yet.
+  Learn more:
 
   * [Working with 
   PDFs](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs)
   * [Working with DOCX files](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/docx)
   
 fields:   
-  - Select your PDF or DOCX files: interview.uploaded_templates
+  - Upload PDF or DOCX files: interview.uploaded_templates
     label above field: True
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
-    datatype: yesno
-    help: |
-      Use our experimental code to automatically identify boxes and lines. Form fields
-      will be added where we think the form author intended the user to type or write-in
-      information. If your document already has fields, you don't need this step.
-  - Rename fields automatically (PDFs only): yes_normalize_fields
-    datatype: yesno
-    help: |
-      Use our experimental code to automatically apply AssemblyLine naming conventions.
-      If you already followed naming conventions, you might want to skip this.
+  # - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
+  #   datatype: yesno
+  #   help: |
+  #     Use our experimental code to automatically identify boxes and lines. Form fields
+  #     will be added where we think the form author intended the user to type or write-in
+  #     information. If your document already has fields, you don't need this step.
+  # - Rename fields automatically (PDFs only): yes_normalize_fields
+  #   datatype: yesno
+  #   help: |
+  #     Use our experimental code to automatically apply AssemblyLine naming conventions.
+  #     If you already followed naming conventions, you might want to skip this.
 validation code: |
+  # HACK Litcon 2023: remove these confusing checkboxes for now
+  yes_normalize_fields = False
+  yes_recognize_form_fields = False
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:
@@ -303,11 +303,16 @@ code: |
 ---
 id: information about court-related info
 question: |
-  Is your form court-related? 
-subquestion: |
-  The answers below will help the Weaver to add appropriate post-interview instructions for your user.
+  What kind of form is this?
 fields:
-  - Is your form court-related?: interview.court_related
+  - Web page with a link to this form (optional): interview.original_form
+    help: |
+      Include a link to a page where your user can download the blank form, if
+      that exists.
+    required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+  - Is the form court-related?: interview.court_related
     datatype: yesnoradio
     help: |
       Answer yes if the form lists the name of a court, even if it is not
@@ -331,13 +336,17 @@ fields:
     show if:
       variable: interview.court_related
       is: False
-  - Allowed courts: interview.allowed_courts
+  - What court department can this filed in? (Massachusetts only): interview.allowed_courts
+    help: |
+      The current list of courts only applies to Massachusetts. Skip this
+      if your form is not filed in Massachusetts.
     datatype: checkboxes
     none of the above: False
+    required: False
     code: |
-      get_court_choices() + ['Other']
+      sorted(get_court_choices()) + ['Other']
     show if: interview.court_related
-  - Alternate Allowed Courts (separate with a comma): interview.allowed_courts_text
+  - Other (separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
     js show if: |
@@ -345,18 +354,33 @@ fields:
   - Categories: interview.categories
     datatype: checkboxes
     choices:
-      - Housing: HO-00-00-00-00
       - Family: FA-00-00-00-00
       - Domestic Violence and Abuse: FA-07-00-00-00
-      - Health: HE-00-00-00-00
-      - Estates, Wills, and Guardianships: ES-00-00-00-00
+      - Housing: HO-00-00-00-00
       - Money, Debt, and Consumer Issues: MO-00-00-00-00
-      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
+      - Work and Employment Law: WO-00-00-00-00
+      - Crime and Prisons: CR-00-00-00-00
       - Immigration: IM-00-00-00-00
+      - Estates, Wills, and Guardianships: ES-00-00-00-00
+      - Health: HE-00-00-00-00
+      - Traffic and Cars: TR-00-00-00-00
       - Public Benefits: BE-00-00-00-00
+      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
+      - Courts and Lawyers: CO-00-00-00-00
+      - Accidents and Torts: TO-00-00-00-00
       - Education: ED-00-00-00-00
+      - Government Services: GO-00-00-00-00
+      - Native American Issues and Tribal Law: NA
+      - Veterans and Military: VE-00-00-00-00
+      - Disaster Relief: DI-00-00-00-00
+      - Small Business and IP: BU-00-00-00-00
+      - Environmental Justice: EN-00-00-00-00
+      - Civil and Human Rights: RI-00-00-00-00
       - Prisoners' Rights: RI-10-00-00-00
       - Other: Other
+    help: |
+      The categories listed above are a subset of the law types described 
+      in the [LIST taxonomy](taxonomy.legal) (formerly NSMIv2)
     none of the above: False
     show if: interview.court_related
   - Other categories (separate with a comma): interview.other_categories
@@ -364,20 +388,16 @@ fields:
     rows: 2
     js show if: |
       val("interview.categories['Other']") && val("interview.court_related")
-  - Unique label for this interview: interview_label_draft
-    default: ${interview.short_filename}
-    maxlength: 35
-    help: |
-      This label should be short but unique. It will be used to name your
-      package, the main YAML file, and give a unique label to variables inside
-      your document.
-  - Link to original form: interview.original_form
-    help: |
-      Include a link to a page where your user can download the blank form, if
-      that exists.
-    required: False
-    validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+#  - Unique label for this interview: interview_label_draft
+#    default: ${interview.short_filename}
+#    maxlength: 35
+#    help: |
+#      This label should be short but unique. It will be used to name your
+#      package, the main YAML file, and give a unique label to variables inside
+#      your document.
+---
+code: |
+  interview_label_draft = interview.short_filename[:35]
 ---
 code: |
   interview.default_country_code = 'US'
@@ -414,7 +434,8 @@ fields:
   # and risks inappropriate contact by end users
   - note: |
       ---
-  - Default country (for address fields): interview.default_country_code
+      <h2 class="h5">Defaults for address fields</h2>
+  - Default country: interview.default_country_code
     code: |
       countries_list()
     default: ${ interview.default_country_code }
@@ -426,11 +447,14 @@ fields:
     
   - note: |
       ---
+      <h2 class="h5">Optional packages to include</h2>
   - Jurisdiction package: interview.jurisdiction_choices
     datatype: checkboxes
     required: False
     code: |
       get_possible_deps_as_choices('jurisdiction')
+    default:
+      - docassemble.ALAnyState:any_state.yml
   - Branding package: interview.org_choices
     datatype: checkboxes
     required: False
@@ -476,26 +500,17 @@ code: |
 ---
 id: action-oriented splash title
 question: |
-  Add your form name to the branding page
+  What does the this form help the user do?
 subquestion: |
-  Every interview starts with a "brand" page with a terms of use.
-  Add your form's purpose to this page so your user knows they are in
-  the right place. Usually, the best way to do this is using 
-  action-oriented text to call the user to action. 
-  
-  Example: "Ask the court for a restraining order" or "Demand your landlord 
-  return your security deposit".
-  
-  Or start with words like "File a...", "Write a...", "Get a..." depending on 
-  your form type, followed by your form name.
-  
-  This is what it looks like:
-  
+  Use a short,
+  action-oriented phrase to describe what the form will do.
+
+  This will be shown in the body of the first page.
+
+  Example:   
   [FILE branding_extra, 80%]
-  
-  **Remember:** You can always change this text later in your playground.
 fields:
-  - Action-oriented text: interview.intro_prompt
+  - Action-oriented description of this form: interview.intro_prompt
     default: ${ interview_intro_prompt_default }
 ---
 code: |
@@ -503,42 +518,64 @@ code: |
 ---
 id: form-specific intro page
 question: |
-  Form description and "Getting Started" page
+  Title and introduction screen
 subquestion: |
-  Use plain language that will be understandable to 
-  someone who uses this form without a lawyer.
-  
-  Do your best to tell your user what they need to know before they
-  get started on the form. For example, you may want to tell them about:
-  
-  1. How much time the form will take to complete.  
-  1. Documents to have at hand.
-  1. Information they may need to ask someone else for or to look up.
-  1. Steps they will need to take before they can deliver the form, 
-    such as printing or getting a notary.
-  
-  **Remember:** you can change the text later in your playground. Start with
-  a rough draft.
+  Create a draft title, description, and instructions for a user
+  before they start your interview.
+
+  You can change these later in the Playground.
 fields:
-  - Title: interview.title
+  - Title in navigation bar: interview.title
     default: ${ interview.short_filename_with_spaces }
-  - Short title that will show up on small screens: interview.short_title
+  - note: |
+      **Your title is a little long.** Write an alternate version that
+      will be used on mobile screens.
+    js show if: |
+      val("interview.title").length > 25
+  - Title for mobile devices: interview.short_title
     default: ${ interview.short_filename_with_spaces }
-  - Short description of your form: interview.description
-    default: ${ interview.short_filename_with_spaces }
+    maxlength: 25
+    js show if: |
+      val("interview.title").length > 25
+    help: |
+      This title will appear in the navigation bar on small screens.
+  - Description of the form for metadata: interview.description
+    default: |
+      This interview helps someone in ${ state_name(interview.state, country_code=interview.default_country_code) } ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
     datatype: area
     rows: 2
+    help: |
+      This description can help people find your form. It is not
+      displayed inside the interview.
   - label: |
-      "Getting started" page
+      What does your user need to know before they start this interview?
     field: interview.getting_started
-    default: ${ interview.short_filename_with_spaces }
+    default: |
+      This interview will help you ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
+
+      Before you get started, please gather:
+
+      1. 
+      1. 
+      1. 
+
+      When you are finished, you will need to:
+
+      1. 
+      1. 
+      
+      Most people take about _______ minutes to finish this interview.
     datatype: area
+    rows: 17
     help: |
       Tell your user what they need to know before they start the form.
       This helps your user feel prepared and
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+---
+code: |
+  interview.short_title = interview.title
 ---
 id: add fields
 question: |
@@ -599,10 +636,10 @@ columns:
 ---
 id: information about people
 question: |
-  User's role for your form
+  "People" mentioned in your form
 subquestion: |  
-  Knowing user's role and "people variables" in general will help the Weaver 
-  to handle those fields accordingly.
+  The Weaver will treat fields that represent "people" as objects so that
+  attributes like their name, address, and phone number are linked together.
 fields:
   - note: |
       The list of names below look like names for people, based on
@@ -610,7 +647,7 @@ fields:
     show if:
       code: |
         len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
-  - Which variable names represent people?: people_variables
+  - Do any of these variable names represent people?: people_variables
     datatype: checkboxes
     code: |
       interview.all_fields.get_person_candidates(custom_only=True)
@@ -618,22 +655,26 @@ fields:
       "person" variables will get things like addresses, multi-part
       names, and proper questions handled automatically. Using them
       will help you save time writing your interview.
-  - note: |
-      For this ${interview.title} form, is the user of the form typically the 
-      Plaintiff/Petitioner or the Defendant/Respondent?
-
-      - The Plaintiff/Petitioner starts a case. 
-      - The Defendant/Respondent responds to a case someone else started.
-    show if:
-      code: |
-        interview.form_type != "starts_case"
-  - User's role: interview.typical_role
+  - What role will the person using this interview have?: interview.typical_role
     input type: radio
     choices:
-      - Plaintiff/Petitioner: plaintiff
-      - Defendant/Respondent: defendant
-      - Could be either: unknown
-      - None of the above: na
+      - label: |
+          % if interview.court_related:
+          Person **who started** the process (e.g., plaintiff)
+          % else:
+          Person who started the process
+          % endif
+        key: plaintiff
+      - label: |
+          % if interview.court_related:
+          Person **responding** to a process someone else started
+          (e.g., defendant)
+          % else:
+          Person responding to a process someone else started
+          % endif
+        key: defendant
+      - Role isn't known yet: unknown
+      - Does not apply to this form: na
     show if:
       code: |
         interview.form_type != "starts_case"
@@ -676,11 +717,10 @@ code: |
   del temp_people_quantity_question
 ---
 question: |
-  Quantify "people variables" on your form
+  How many of each kind of person can be mentioned in this interview?
 subquestion: |
-  This form includes the following variables representing people:
-  ${ comma_and_list(person_candidates) }.
   
+
   % if added_other_party:
   **Note**: Your form includes `defendants/respondents` or
   `plaintiffs/petitioners`. In the interview file, those variables will be
@@ -688,19 +728,25 @@ subquestion: |
   the form has in the case.
   % endif
   
-  The Weaver needs to know how many people each variable can represent.
+  ${ collapse_template(why_count_people_template) }
 fields:
   - code: people_quantity_question
-help:
-  label: |
-    What is this about?
-  content: |
-    By default, all "person" variables are plural.
-    
-    If you only want one of each person type to ever use this form,
-    tell us here. You'll still be able to edit your file if you change
-    your mind later.
 continue button field: ask_people_quantity_question
+---
+template: why_count_people_template 
+subject: |
+  Why do you need to know?
+content: |
+  By default, whenever a person appears on the form, we use a list
+  of people instead of a single person object. This lets us standardize
+  the questions so we can handle situations with multiple plaintiffs, 
+  defendants, etc. in a consistent way.
+
+  Sometimes this adds questions that may confuse your user. If you
+  already know there can only be one plaintiff, defendant, etc., you
+  can set that up in your interview now.
+  
+  You can always change this setting in the Playground later.
 ---
 id: choose field types
 continue button field: choose_field_types
@@ -902,38 +948,18 @@ subquestion: |
   ${ collapse_template(customize_your_interview) }   
   See detailed instructions _[here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_  
   </div>
-  
-  <div class="panel_sky" markdown="1">
-  #### &#11093; Download the generated interview yml file
-  **If you rerun the Weaver and only want the yml file**, you can just download it below:  
-     
-  ${ action_button_html(temp_interview.url_for(attachment=True), color='info', label='Download your yaml file') }
-  </div>
-  
+    
   <div class="panel_lavender" markdown="1">
   #### &#11093; Advanced  
   ###### Review code on the screen
-  ${ display_template(yaml_source, copy=True, collapse=True, scrollable=False) } 
-  
-  ###### Run interview before download
-  If you want to test your interview before you leave this screen, click
-  the "Install your interview" button. You will have a chance to uninstall
-  it once you are done. This can be a quick way to test it interactively 
-  before you leave the weaver.
-  
-  You still need to download and upload the package to your Docassemble
-  playground to finish editing and refining it.
-  
-  % if install_packages_api_key:
-  ${ action_button_html(url_action('button_install_package'), label="Install your interview") }
-  % else:
-  **Sorry, you don't have an API key set up.** Ask your administrator to create
-  a Docassemble API key and save it to your configuration file, like this:
-  
-  ```
-  install packages api key: abcdeFGHIJ12345ZEKS
-  ```
-  % endif  
+  ${ collapse_template(yaml_source) } 
+
+  ###### Download the YAML file only
+  If you already uploaded a previous version of the package to the Playground, 
+  you can get just the updated YAML file here.
+
+  ${ action_button_html(temp_interview.url_for(attachment=True), color='info', label='Download your yaml file') }
+
   </div>
 ---
 template: yaml_source
@@ -1148,19 +1174,20 @@ subject: |
   To start your project after download:
 content: |  
   1. Go to your _Playground_ to add a new project.
-  2. Open the new project's _Packages_ folder.
-  3. Use the third icon _Upload_ to install this package.
-  4. Go back to Playground, delete test.yml file, now you can see your interview file.  
+  2. Navigate to Folders | Packages.
+  3. Click the "Upload" icon and select your .ZIP file.
+  4. Go back to Playground to view your interview YAML.
+  1. If you do not see the new interview YAML, look in the dropdown menu next to the YAML file name.
 ---
 template: customize_your_interview
 subject: |
   To customize your interview:
 content: |  
-  1. Start by running your interview. Make a note of anything you want to 
-     change.  
-  2. **Next steps** instruction file: we created a starting point for a cover page that your form's users will use. Edit this file so it has appropriate instructions for your form. 
+  1. Run your interview from the playground. Pay attention to any screens you want to change.
+  1. You can use the `id: ...` to quickly find the screen using the Playground search bar.
+  2. Download the "Next steps" template and customize the instructions. Upload it again with exactly the same file name.
   3. Customize the wording, reorder questions, and make the interview your
-     own! 
+     own!
 ---
 attachment:
   variable name: interview_mako_output

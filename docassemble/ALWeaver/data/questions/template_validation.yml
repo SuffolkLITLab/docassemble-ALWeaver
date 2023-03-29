@@ -286,17 +286,17 @@ question: |
   % if len(warnings) > 0:
   Correct warnings in field labels
   % else:
-  Check for expected fields
+  Do you see the fields that you expect?
   % endif
 subquestion: |
-  The table below shows all of the fields present in your PDF. Read through 
-  it to make sure that everything is as you expect it to be.      
+  All of the fields in your PDF ${ interview.uploaded_templates.as_noun("file") } are listed
+  in the table below. Confirm that the table looks right. 
   
-  A **bold** name means that this field is **reserved**, because input for this 
-  field will be asked by a built-in question from the AL Question Library later 
-  in your playground. Common reserved-field examples are: fields associated 
-  with signature or representing someone's name. If you expect a field to be 
-  bold but it isn't, check the field's spelling.
+  The **type** of each field is just a guess based on the field's name and the input type in the PDF.
+  You can override the guess later.
+
+  **Bold** field names match a question in our question library. That means you do not 
+  need to write your own question for this field.
 
   Name (bold if {reserved}) | Type | {Internal DA name} | Max length
   -----------|------------|-------------------|-----------
@@ -323,16 +323,14 @@ subquestion: |
   ------------------------------------------------------------
 fields:
   - note: |
-      Confirm your field-checkup status. All the boxes must be checked, otherwise you'll get an error message for each unchecked box along with instructions to correct the issues.
-      
-      If more of the :question: fields are listed as reserved than you expected: that's okay! You'll get to chose which ones are actually reserved later when you build your interview.
-  - no label: fields_checkup_status
+      If everything looks right, check **each** checkbox below to continue.
+  - Confirm the fields in the PDF are correct: fields_checkup_status
     datatype: checkboxes
     choices:
       - All my fields are listed in the table above: interview.all_fields_present
       - There are no unexpected fields in the table: no_unexpected_fields
       - All the reserved fields are bolded as I expected: correct_reserved_fields    
-    none of the above: False    
+    none of the above: False
   - Are you okay with fixing the shown warnings yourself?: will_handle_errors
     datatype: yesnoradio
     required: True
@@ -341,6 +339,24 @@ fields:
     show if:
       code: |
         len(warnings) > 0
+  - note: |
+      <h2 class="h4">Preview the completed PDF</h2>
+      % for document in interview.uploaded_templates:  
+      ${ collapse_template(document.preview_template) }
+
+      % endfor
+  - Confirm the PDF preview looks right: all_look_good
+    datatype: checkboxes
+    choices:
+      - All the checkboxes are checked and at least one radio button in each group is selected: all_checkboxes_checked
+      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
+        help: |
+          While you may prefer to fix font size now, it will not change your experience
+          with the Weaver. You can upload the fixed template to the Playground later.
+      - label: |
+          If there are any signature fields, this image is displayed in the field: ${placeholder_signature.show(width=".75in") }
+        key: signature_filled_in
+    none of the above: False
 validation code: |
   all_present_msg = ''
   all_expected_msg = '' 
@@ -353,7 +369,20 @@ validation code: |
     correct_reserved_msg = "<ul><li>You didn't confirm 'All the reserved fields are bolded as I expected'. Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are spelled correctly.</li></ul>"
   pdf_preview_msg = all_present_msg + all_expected_msg + correct_reserved_msg
   if len(pdf_preview_msg) > 0:
-    validation_error(pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']")   
+    validation_error(pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']")
+  checkboxes_msg = ''
+  text_mst = ''
+  signature_msg = ''
+  if not all_look_good['all_checkboxes_checked']:
+    checkboxes_msg = "<ul><li>You didn't confirm 'All the checkboxes are checked'. Check the field's 'export' value. It should be set to 'Yes'.</li></ul>"
+  if not all_look_good['no_unusual_size_text']:
+    text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
+  if not all_look_good['signature_filled_in']:
+    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature interview.all_fields.</li></ul>"  
+  msg = checkboxes_msg + text_mst + signature_msg
+  if len(msg) > 0:
+    validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
+
 #continue button field: field_list_display
 help:
   label: Debug Info
@@ -386,61 +415,6 @@ right: |
 ---
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
----
-id: Confirm filled in PDF
-question: |
-  Here is the filled-in PDF
-subquestion: |
-  The fields are filled in with the names listed in the table on the previous screen.  
-  
-  All signature fields should be filled in with this image: ${placeholder_signature}
-
-  % for document in interview.uploaded_templates:  
-  ${ collapse_template(document.preview_template) }
-
-  % endfor
-  
-fields:
-  - note: |
-      Confirm your approval of the filled-in PDF. All the boxes must be checked, or you'll get an error message along with instructions to correct the issues.
-  - Confirm the fields are filled in correctly: all_look_good
-    datatype: checkboxes
-    choices:
-      - All the checkboxes are checked and at least one radio button in each group is selected: all_checkboxes_checked
-      - The fonts and styles in the preview look okay OR I am comfortable fixing them later: no_unusual_size_text
-        help: |
-          While you may prefer to fix font size now, it will not change your experience
-          with the Weaver. You can upload the fixed template to the Playground later.
-      - All signature fields are filled in with the signature image: signature_filled_in
-    none of the above: False
-validation code: |
-  checkboxes_msg = ''
-  text_mst = ''
-  signature_msg = ''
-  if not all_look_good['all_checkboxes_checked']:
-    checkboxes_msg = "<ul><li>You didn't confirm 'All the checkboxes are checked'. Check the field's 'export' value. It should be set to 'Yes'.</li></ul>"
-  if not all_look_good['no_unusual_size_text']:
-    text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
-  if not all_look_good['signature_filled_in']:
-    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature interview.all_fields.</li></ul>"  
-  msg = checkboxes_msg + text_mst + signature_msg
-  if len(msg) > 0:
-    validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
----
-id: pdf tester success
-question: |
-  Your form has passed the test
-subquestion: |  
-  <span class="icon">[FILE stop_sign, 5%]</span> **If your job is only to label the form**, press the **Exit** button and [pass your PDF file](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/getting_started#trello-boards) to the next person for interview building.
-
-  <span class="icon">[FILE green_light, 5%]</span> **If your job is to build the interview**, press the **Keep going** button to build your draft interview.
-sets: validation_success
-buttons: 
-  - Keep going:   
-      code: |
-        validation_success = True
-  - Exit: exit
-    url: https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/generating_code
 ---
 code: |
   rename_fields = {}
@@ -601,7 +575,7 @@ question: |
 subquestion: |
   #### Fields
   
-  All of the fields in your DOCX ${ interview.uploaded_templates.as_noun("file") } are listed
+  All of the fields in your template ${ interview.uploaded_templates.as_noun("file") } are listed
   in the table below. Confirm that the table looks right.
         
   The **type** of each field is just a guess, based on the field's name.
