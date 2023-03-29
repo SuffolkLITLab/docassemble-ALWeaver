@@ -160,7 +160,7 @@ review:
   - Edit: |-
       interview.title
     button: |
-      **Form description and "Getting Started" page**
+      **Draft title and "Getting Started" page**
 
       Title: ${ showifdef('interview.title') }
 
@@ -168,11 +168,14 @@ review:
 
       Short description of your form: ${ showifdef('interview.description') }
 
-      Getting started page: ${ showifdef('interview.getting_started') }
+      Getting started page: 
+      <blockquote>
+      ${ showifdef('interview.getting_started') }
+      </blockquote>
   - Edit: |-
       interview.intro_prompt
     button: |
-      **Form name on the branding page**
+      **What does this form do?**
 
       ${ showifdef('interview.intro_prompt') }
   - Edit: review_fields_after_labeling
@@ -184,7 +187,18 @@ review:
     button: |
       **User's role on this form**
 
-      ${ showifdef('interview.typical_role') }
+      % if defined('interview.typical_role'):
+      % if interview.typical_role == "plaintiff":
+      Person who started the process
+      % elif interview.typical_role == "defendant":
+      Person responding to a process started by someone else
+      % else:
+      Unknown
+      % endif
+      % endif
+    show if: |
+      interview.form_type != "starts_case"
+      
   - Edit: |-
       ask_people_quantity_question
     button: |-

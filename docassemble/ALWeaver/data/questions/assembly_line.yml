@@ -698,6 +698,10 @@ help: |
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
 ---
+code: |
+  if interview.form_type == "starts_case" and len(interview.all_fields.get_person_candidates(custom_only=True)) < 1:
+    people_variables = DADict(auto_gather=False, gathered=True)
+---
 if: interview.form_type == "starts_case"
 code: |
   interview.typical_role = "plaintiff"
