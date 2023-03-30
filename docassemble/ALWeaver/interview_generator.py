@@ -1125,6 +1125,7 @@ class DAQuestion(DAObject):
         self.question_text
         if self.is_informational_screen:
             self.field_list.clear()
+            self.field_list.gathered = True
             # The info screen gives it a mandatory field
             self.has_mandatory_field = True
 
