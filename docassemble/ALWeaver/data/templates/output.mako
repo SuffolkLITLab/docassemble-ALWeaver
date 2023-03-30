@@ -387,7 +387,7 @@ attachment:
   pdf template file: ${ document.filename }
   fields:
     % for field in interview.all_fields.matching_pdf_fields_from_file(document):
-${ attachment_yaml(field, attachment_name=varname(base_name(document.filename))) }\
+${ attachment_yaml(field, attachment_name=f"{ interview.interview_label}_attachment") }\
     % endfor
 % else:
   skip undefined: True
