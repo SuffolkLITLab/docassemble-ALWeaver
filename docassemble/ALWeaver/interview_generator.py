@@ -1128,6 +1128,9 @@ class DAQuestion(DAObject):
             self.field_list.gathered = True
             # The info screen gives it a mandatory field
             self.has_mandatory_field = True
+        else:
+            # TEMP: see https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/783
+            self.has_mandatory_field = False
 
         # Simplify the abstraction
         if not self.has_mandatory_field or self.is_informational_screen:

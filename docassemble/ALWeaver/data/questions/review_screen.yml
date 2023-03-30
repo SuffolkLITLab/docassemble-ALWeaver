@@ -463,8 +463,8 @@ columns:
       row_item.subquestion_text if hasattr(row_item, 'subquestion_text') else ''
   - 'Select the fields that will appear on this screen': |-
       row_item.field_list if hasattr(row_item, 'field_list') else ''
-  - 'Override the default logic flow by adding a "continue button field"': |-
-      row_item.has_mandatory_field if hasattr(row_item, 'has_mandatory_field') else ''
+#  - 'Override the default logic flow by adding a "continue button field"': |-
+#      row_item.has_mandatory_field if hasattr(row_item, 'has_mandatory_field') else ''
   - 'Docassemble variable name, in `snake_case`': |-
       row_item.variable if hasattr(row_item, 'variable') else ''
   - 'On-screen label or prompt': |-

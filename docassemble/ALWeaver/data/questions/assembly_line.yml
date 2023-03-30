@@ -922,15 +922,15 @@ fields:
     choices: interview.all_fields.custom()
     object labeler: |
       lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
-  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
-    datatype: noyes
-    hide if: interview.questions[i].is_informational_screen
-    help: |
-      If you are not sure, leave this unchecked.
-      You might do this if all of the fields on this
-      screen will be optional. You also might do this
-      if you want to add show/hide logic on this screen
-      which could otherwise break the interview flow.
+#  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
+#    datatype: noyes
+#    hide if: interview.questions[i].is_informational_screen
+#    help: |
+#      If you are not sure, leave this unchecked.
+#      You might do this if all of the fields on this
+#      screen will be optional. You also might do this
+#      if you want to add show/hide logic on this screen
+#      which could otherwise break the interview flow.
 validation code: |
   if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
