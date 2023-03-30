@@ -388,7 +388,7 @@ help:
   label: Debug Info
   content: |
     % for field in interview.all_fields:
-    * ${field}
+    * ${field} | ${ field.final_display_var } | ${ field.trigger_gather() }
     % endfor
 terms:
   - reserved: |

@@ -468,7 +468,20 @@ class DAField(DAObject):
         Args:
           custom_plurals: a list of variables strs that users have marked as being lists of people
         """
+                
         GATHER_CALL = ".gather()"
+        # HACK LITCon 2023 TODO
+        # preferred_name and previous_names won't work w/ current structure of generator_constants
+        if self.final_display_var.endswith(".preferred_name"):
+            return self.final_display_var + ".first"
+        if self.final_display_var.endswith(".preferred_name.first"):
+            return self.final_display_var
+        if self.final_display_var.endswith("previous_names"):
+            return self.final_display_var + GATHER_CALL
+        if re.search("previous_names\[\d\]$", self.final_display_var):
+            return self.final_display_var[:-len("[0]")] + GATHER_CALL
+        # NOTE: this only works through previous_names[9]
+        
         if not custom_plurals:
             custom_plurals = []
         if self.final_display_var in reserved_whole_words:

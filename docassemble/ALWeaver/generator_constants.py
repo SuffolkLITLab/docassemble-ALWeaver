@@ -139,6 +139,9 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "decedent": "decedents",
     "interested_party": "interested_parties",
     "adoptee": "adoptees",
+    # Special for name change forms (maybe HACK)
+    "users[0].previous_names": "users[0].previous_names",
+    "children[0].previous_names": "children[0].previous_names",
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
