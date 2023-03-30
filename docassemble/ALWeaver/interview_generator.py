@@ -468,7 +468,20 @@ class DAField(DAObject):
         Args:
           custom_plurals: a list of variables strs that users have marked as being lists of people
         """
+
         GATHER_CALL = ".gather()"
+        # HACK LITCon 2023 TODO
+        # preferred_name and previous_names won't work w/ current structure of generator_constants
+        if self.final_display_var.endswith(".preferred_name"):
+            return self.final_display_var + ".first"
+        if self.final_display_var.endswith(".preferred_name.first"):
+            return self.final_display_var
+        if self.final_display_var.endswith("previous_names"):
+            return self.final_display_var + GATHER_CALL
+        if re.search("previous_names\[\d\]$", self.final_display_var):
+            return self.final_display_var[: -len("[0]")] + GATHER_CALL
+        # NOTE: this only works through previous_names[9]
+
         if not custom_plurals:
             custom_plurals = []
         if self.final_display_var in reserved_whole_words:
@@ -498,7 +511,17 @@ class DAField(DAObject):
         if has_plural_prefix or has_singular_prefix:
             first_attribute = var_parts[0][1]
             if has_plural_prefix and (
-                first_attribute == "" or first_attribute == ".name"
+                # HACK LITCon 2023 - hardcode previous_names list
+                first_attribute == ""
+                or first_attribute == ".name"
+                or first_attribute
+                in [
+                    ".previous_names[0]",
+                    ".previous_names[1]",
+                    ".previous_names[2]",
+                    ".previous_names[3]",
+                    ".previous_names[4]",
+                ]
             ):
                 return prefix + GATHER_CALL
             elif first_attribute == ".address" or first_attribute == ".mailing_address":

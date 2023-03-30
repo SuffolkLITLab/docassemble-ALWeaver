@@ -139,6 +139,9 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "decedent": "decedents",
     "interested_party": "interested_parties",
     "adoptee": "adoptees",
+    # Special for name change forms (maybe HACK)
+    "users[0].previous_names": "users[0].previous_names",
+    "children[0].previous_names": "children[0].previous_names",
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
@@ -213,6 +216,45 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_mailing_address_city_state_zip": ".mailing_address.line_two()",
     "_mailing_address_line_two": ".mailing_address.line_two()",
     "_mailing_address": ".mailing_address",
+    "_preferred_name": ".preferred_name",
+    "_preferred_name_full": ".preferred_name",
+    "_preferred_name_first": ".preferred_name.first",
+    "_preferred_name_middle": ".preferred_name.middle",
+    "_preferred_name_last": ".preferred_name.last",
+    "_preferred_name_suffix": ".preferred_name.suffix",
+    "_previous_names1": ".previous_names[0]",  # HACK for LIT Con 2023: we don't have a way to say an attribute is a list yet.
+    "_previous_names1_full": ".previous_names[0]",
+    "_previous_names1_first": ".previous_names[0].first",
+    "_previous_names1_middle": ".previous_names[0].middle",
+    "_previous_names1_last": ".previous_names[0].last",
+    "_previous_names1_suffix": ".previous_names[0].suffix",
+    "_previous_names2": ".previous_names[1]",
+    "_previous_names2_full": ".previous_names[1]",
+    "_previous_names2_first": ".previous_names[1].first",
+    "_previous_names2_middle": ".previous_names[1].middle",
+    "_previous_names2_last": ".previous_names[1].last",
+    "_previous_names2_suffix": ".previous_names[1].suffix",
+    "_previous_names3": ".previous_names[2]",
+    "_previous_names3_full": ".previous_names[2]",
+    "_previous_names3_first": ".previous_names[2].first",
+    "_previous_names3_middle": ".previous_names[2].middle",
+    "_previous_names3_last": ".previous_names[2].last",
+    "_previous_names3_suffix": ".previous_names[2].suffix",
+    "_previous_names4": ".previous_names[3]",
+    "_previous_names4_full": ".previous_names[3]",
+    "_previous_names4_first": ".previous_names[3].first",
+    "_previous_names4_middle": ".previous_names[3].middle",
+    "_previous_names4_last": ".previous_names[3].last",
+    "_previous_names4_suffix": ".previous_names[3].suffix",
+    "_previous_names5": ".previous_names[4]",
+    "_previous_names5_full": ".previous_names[4]",
+    "_previous_names5_first": ".previous_names[4].first",
+    "_previous_names5_middle": ".previous_names[4].middle",
+    "_previous_names5_last": ".previous_names[4].last",
+    "_previous_names5_suffix": ".previous_names[4].suffix",
+    "_consented_to_name_change": ".consented_to_name_change",  # HACK for LITCon 2023: these are name-change specific
+    "_parent_consent_attached": ".parent_consent_attached",
+    "_no_consent_attached_explanation": ".no_consent_attached_explanation",
 }
 
 generator_constants.PEOPLE_SUFFIXES = list(
@@ -258,6 +300,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
     "\.mailing_address.on_one_line\(\)$": ".mailing_address.address",
     "\.name.middle_initial\(\)$": ".name.first",
     "\.phone_numbers\(\)$": ".phone_number",
+    "\.preferred_name$": ".preferred_name.first",
 }
 
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
