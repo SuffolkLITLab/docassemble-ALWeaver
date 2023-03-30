@@ -1126,7 +1126,7 @@ fields:
       code: |
         hasattr(interview.all_fields[i], "maxlength")
   - label: |
-      Complete the Python expression: `${ interview.all_fields[i].final_display_var } =`
+      Complete the Python expression: `${ interview.all_fields[i].final_display_var if hasattr(interview.all_fields[i], 'final_display_var') else "x" } =`
     field: interview.all_fields[i].code
     datatype: area
     show if:
