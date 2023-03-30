@@ -436,7 +436,12 @@ class DAField(DAObject):
                 "field": self.attr_name("choices"),
                 "datatype": "area",
                 "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('{ self.attr_name('field_type') }'))",
-                "default": "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in self.choice_options])
+                "default": "\n".join(
+                    [
+                        f"{opt.capitalize().replace('_', ' ')}: {opt}"
+                        for opt in self.choice_options
+                    ]
+                )
                 if hasattr(self, "choice_options")
                 else None,
                 "help": "Like `Descriptive name: key_name`, or just `Descriptive name`",
