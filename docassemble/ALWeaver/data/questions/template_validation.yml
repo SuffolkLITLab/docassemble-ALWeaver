@@ -90,9 +90,12 @@ subject: |
   Preview ${ interview.uploaded_templates[i].filename }
 content: |
   % if interview.uploaded_templates[i].mimetype == "application/pdf":
-  ${ pdf_concatenate(overlay_pdf(interview.uploaded_templates[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf") }  
+  <iframe src="${ pdf_concatenate(overlay_pdf(interview.uploaded_templates[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf").url_for() }" height="400"></iframe>
+  % if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview.all_fields", interview.uploaded_templates[i].attr_name("pdf_field_preview")]} ]), label="Rename fields") }
+  % endif
   % else:
-  ${ pdf_concatenate(interview.uploaded_templates[i]) }
+  <iframe src="${ pdf_concatenate(interview.uploaded_templates[i]).url_for() }" height="400"></iframe>
   % endif
 ---
 attachment:
@@ -402,16 +405,7 @@ css: |
   .question-confirm-pdf-fields div.container {
     max-width: 2000px;
   }
-  </style>
-right: |
-  #### Preview of PDF label placement
-  
-  <iframe src="${ field_preview_pdf.url_for() }" height="400"></iframe>
-  
-  _Limitations_: we do not have a way to show you the labels for
-  checkbox fields yet.
-  
-  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview.all_fields", "field_preview_pdf"]} ]), label="Rename fields") }
+  </style>  
 ---
 objects:
   - quality_check_overlay: DAStaticFile.using(filename='quality_check_overlay.pdf')
