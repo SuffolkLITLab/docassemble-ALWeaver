@@ -1136,8 +1136,10 @@ fields:
     datatype: area
     js show if: |
       val('interview.all_fields[i].field_type') === 'multiple choice radio' || val('interview.all_fields[i].field_type') === 'multiple choice checkboxes'
-    hint: |
+    help: |
       Like 'Descriptive name: key_name', or just 'Descriptive name'
+    hint: |
+      Descriptive name: key_name
 validation code: |
   for field in interview.all_fields:
     if not hasattr(field, 'final_display_var'):
