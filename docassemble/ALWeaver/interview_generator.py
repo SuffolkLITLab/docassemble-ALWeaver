@@ -439,7 +439,8 @@ class DAField(DAObject):
                 "default": "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in self.choice_options])
                 if hasattr(self, "choice_options")
                 else None,
-                "hint": "Like 'Descriptive name: key_name', or just 'Descriptive name'",
+                "help": "Like `Descriptive name: key_name`, or just `Descriptive name`",
+                "hint": "Descriptive name: key_name",
             }
         )
         if hasattr(self, "maxlength"):
