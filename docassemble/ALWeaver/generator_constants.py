@@ -222,7 +222,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_preferred_name_middle": ".preferred_name.middle",
     "_preferred_name_last": ".preferred_name.last",
     "_preferred_name_suffix": ".preferred_name.suffix",
-    "_previous_names1": ".previous_names[0]", # HACK for LIT Con 2023: we don't have a way to say an attribute is a list yet. 
+    "_previous_names1": ".previous_names[0]",  # HACK for LIT Con 2023: we don't have a way to say an attribute is a list yet.
     "_previous_names1_full": ".previous_names[0]",
     "_previous_names1_first": ".previous_names[0].first",
     "_previous_names1_middle": ".previous_names[0].middle",
@@ -252,7 +252,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_previous_names5_middle": ".previous_names[4].middle",
     "_previous_names5_last": ".previous_names[4].last",
     "_previous_names5_suffix": ".previous_names[4].suffix",
-    "_consented_to_name_change": ".consented_to_name_change", # HACK for LITCon 2023: these are name-change specific
+    "_consented_to_name_change": ".consented_to_name_change",  # HACK for LITCon 2023: these are name-change specific
     "_parent_consent_attached": ".parent_consent_attached",
     "_no_consent_attached_explanation": ".no_consent_attached_explanation",
 }
@@ -321,4 +321,3 @@ generator_constants.COURT_CHOICES = [
     "Juvenile Court",
     "Land Court",
 ]
-
