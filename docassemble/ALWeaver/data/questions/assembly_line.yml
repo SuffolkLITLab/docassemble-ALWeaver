@@ -285,6 +285,10 @@ validation code: |
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
 ---
 code: |
+  # HACK temporary LIT Con 2023
+  people_variables = DADict("people_variables", auto_gather=False, gathered=True)
+---
+code: |
   if len(people_variables.true_values()):
     interview.all_fields.mark_people_as_builtins(people_variables.true_values())
   process_people_variables = True
@@ -637,24 +641,24 @@ columns:
 id: information about people
 question: |
   "People" mentioned in your form
-subquestion: |  
-  The Weaver will treat fields that represent "people" as objects so that
-  attributes like their name, address, and phone number are linked together.
+#subquestion: |  
+#  The Weaver will treat fields that represent "people" as objects so that
+#  attributes like their name, address, and phone number are linked together.
 fields:
-  - note: |
-      The list of names below look like names for people, based on
-      how you use them in your document.
-    show if:
-      code: |
-        len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
-  - Do any of these variable names represent people?: people_variables
-    datatype: checkboxes
-    code: |
-      interview.all_fields.get_person_candidates(custom_only=True)
-    help: |
-      "person" variables will get things like addresses, multi-part
-      names, and proper questions handled automatically. Using them
-      will help you save time writing your interview.
+  #- note: |
+  #    The list of names below look like names for people, based on
+  #    how you use them in your document.
+  #  show if:
+  #    code: |
+  #      len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
+  #- Do any of these variable names represent people?: people_variables
+  #  datatype: checkboxes
+  #  code: |
+  #    interview.all_fields.get_person_candidates(custom_only=True)
+  #  help: |
+  #    "person" variables will get things like addresses, multi-part
+  #    names, and proper questions handled automatically. Using them
+  #    will help you save time writing your interview.
   - What role will the person using this interview have?: interview.typical_role
     input type: radio
     choices:
@@ -1575,9 +1579,11 @@ code: |
   if has_safe_pdf_in_url: # limit when this block can run
     # TODO: refactor this at some point, this is a shim to create objects block but we
     # shouldn't need it forever.
-    person_candidates = interview.all_fields.get_person_candidates()
-    for person in person_candidates:
-      people_quantities[person] = "any"
+    # person_candidates = interview.all_fields.get_person_candidates()
+    # for person in person_candidates:
+    #  people_quantities[person] = "any"
+    # HACK Litcon 2023
+    people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
     process_people_variables = True
     
     # Skip some screens we don't need
