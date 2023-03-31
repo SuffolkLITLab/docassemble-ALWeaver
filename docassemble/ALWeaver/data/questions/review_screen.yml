@@ -12,7 +12,7 @@ mako: |
           </div>
   </%def>
   <%def name="preview_question_screen(question)">\
-  <div class="card h-100">
+  <div class="card h-100 review-question">
     <div class="card-header">
       ${ question.question_text }
     </div>
@@ -37,7 +37,7 @@ mako: |
   </div>
   </%def>
   <%def name="preview_dafield_screen(field)">\
-  <div class="card h-100 weaver-builtin">
+  <div class="card h-100 weaver-builtin review-question">
     <div class="card-header">
       % if field.trigger_gather().endswith(".gather()"):
       Names of ${ field.trigger_gather().replace(".gather()", "").capitalize().replace("_", " ") }
@@ -64,13 +64,6 @@ code: |
   """,
   field_list=[],
   card_footer_text = "Introduction screen"
-  )
-
-  mock_getting_started_screen = DAObject(
-    question_text = f'<a href="{ url_action("interview.title") }" class="edit-link">{ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>',
-    subquestion_text = f'<a href="{ url_action("interview.getting_started") }" class="edit-link">{ interview.getting_started }<i class="fas fa-pencil-alt edit-icon"></i></a>',
-    field_list = [],
-    card_footer_text = "Getting started screen"
   )
 
   mock_preview_screen = DAObject(
@@ -110,7 +103,6 @@ id: review-weaver
 need:
   - screen_order
   - mock_intro_screen
-  - mock_getting_started_screen
   - mock_preview_screen
   - mock_signature_choice
   - mock_signature_screen
@@ -140,12 +132,30 @@ review:
       1. Click the "Edit screen" button to edit the text or order of fields on a screen.
       1. Click on a dotted line to edit an individual field.
 
-      <i>Note: this is a preview based on the default
-      text and look and feel for a Weaver-generated interview. Your output may 
-      be different.</i>
+      <i>Note: this preview shows the default
+      look and feel of a Weaver-generated interview. Your output may 
+      be different and can be customized later.</i>
 
       <div class="card-deck row row-cols-1 row-cols-md-3">
-      % for question in [mock_intro_screen, mock_getting_started_screen] + (screen_order if not defined("screen_tbl_done") else screen_reordered) + [mock_preview_screen, mock_signature_choice, mock_signature_screen, mock_download_screen]:
+      <div class="col mb-4">
+      ${ preview_question_screen(mock_intro_screen) }
+      </div>
+      <div class="col mb-4">
+        <div class="card h-100 weaver-builtin review-question">
+          <div class="card-header">
+            <a href="{ url_action("interview.title") }" class="edit-link">${ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>
+          </div>
+          <div class="card-body">
+          % for line in interview.getting_started.split("\n"):
+          <p>${ line }</p>
+          % endfor
+          </div>
+          <div class="card-footer">
+          <a href="${ url_action("interview.getting_started") }" class="edit-link">Edit getting started screen<i class="fas fa-pencil-alt edit-icon"></i></a>
+          </div>
+        </div>
+      </div>
+      % for question in (screen_order if not defined("screen_tbl_done") else screen_reordered) + [mock_preview_screen, mock_signature_choice, mock_signature_screen, mock_download_screen]:
       <div class="col mb-4">
       % if isinstance(question, DAField):
       ${ preview_dafield_screen(question) }
@@ -162,16 +172,16 @@ review:
     button: |
       **Draft title and "Getting Started" page**
 
-      Title: ${ showifdef('interview.title') }
+      **Title**: ${ showifdef('interview.title') }
 
-      Short title that will show up on small screens: ${ showifdef('interview.short_title') }
+      **Mobile device title**: ${ showifdef('interview.short_title') }
 
-      Short description of your form: ${ showifdef('interview.description') }
+      **Description**: ${ showifdef('interview.description') }
 
-      Getting started page: 
-      <blockquote>
-      ${ showifdef('interview.getting_started') }
-      </blockquote>
+      **Getting started page**
+      
+      ${ single_to_double_newlines(showifdef('interview.getting_started')) }
+      
   - Edit: |-
       interview.intro_prompt
     button: |
