@@ -229,6 +229,12 @@ continue button field: ${ interview.interview_label }_preview_question
 code: |
   signature_fields = ${ str(list(interview.all_fields.built_in_signature_triggers()) + [field.trigger_gather(interview.all_fields.custom_people_plurals) for field in interview.all_fields.signatures()] ) }
 % endif
+% for custom_signature in interview.all_fields.custom_signatures():
+---
+question: |
+  ${custom_signature.variable.replace("_", " ").capitalize()}, sign below
+signature: ${ custom_signature }
+% endfor
 % for field in interview.all_fields.skip_fields():
 ---
 code: |

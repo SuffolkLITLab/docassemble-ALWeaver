@@ -94,7 +94,7 @@ code: |
 
   mock_signature_screen = DAObject(
     question_text = "Please sign below",
-    subquestion_text = "[           ]",
+    subquestion_text = "[_____________]",
     field_list = [],
     card_footer_text = "Signature screen"
   )

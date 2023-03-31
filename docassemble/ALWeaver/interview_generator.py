@@ -1074,6 +1074,21 @@ class DAFieldList(DAList):
             if hasattr(item, "group") and item.group == DAFieldGroup.SIGNATURE
         ]
 
+    def custom_signatures(self) -> List[DAField]:
+        """Returns signatures that aren't builtin and aren't a part of people.
+        These signatures need new signature blocks in the resulting interview."""
+        return [
+            item
+            for item in self.elements
+            if (
+                hasattr(item, "group")
+                and item.group == DAFieldGroup.SIGNATURE
+                and not item.trigger_gather(
+                    custom_plurals=self.custom_people_plurals.values()
+                ).endswith(".signature")
+            )
+        ]
+
     def custom(self) -> List[DAField]:
         """Returns the fields that can be assigned to screens and which will require
         custom labels"""
