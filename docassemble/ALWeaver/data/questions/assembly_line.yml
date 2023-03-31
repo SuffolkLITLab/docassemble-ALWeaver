@@ -1590,7 +1590,7 @@ code: |
     
     for field in interview.all_fields:
       if field.field_type == "multiple choice radio":
-        field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in self.choice_options])
+        field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in field.choice_options])
     # Skip some screens we don't need
     ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
 
