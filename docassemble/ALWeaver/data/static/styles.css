@@ -149,3 +149,10 @@ div.attention {
     width: 50%;
     margin-left: 25%;
 }
+
+.review-question .card-header {
+  font-weight: 500;
+  font-size: calc(.8rem + .6vw);
+  background-color: var(--bs-card-color)!important;
+  border-bottom: 1px solid #eee;
+}

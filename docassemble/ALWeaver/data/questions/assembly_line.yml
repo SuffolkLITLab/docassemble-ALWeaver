@@ -759,49 +759,59 @@ content: |
 id: choose field types
 continue button field: choose_field_types
 question: |
-  Create on-screen labels for your fields
-subquestion: |  
-  Fields in your form will become input variables on the question-screens of your interview. As those field labels can be too technical for your user to understand when displayed on the screen, before you start building the question-screens, here you get to make them more user-friendly.
-  
-  % if len(interview.all_fields.ask_about_fields()) > 0:
-  1. Look at each field below. It represents a blank space on your template.
-  1. If the field is handled as a "basic question", it will not be shown
-  below. Instead, we will use a pre-written label for it.
-  2. Assign each field an on-screen label. The label is shown to the user
-  of your form. We start with the name of the field as a label. Edit it so it makes sense.
-  2. Double-check the kind of input your field uses, as well as the type
-  of data it will hold.
-    
-  * `yesno` is for true/false checkboxes
-  * `text` is a normal text field. `area` is a text field with more room (3 lines by default)
-  * `integer` is a whole number, while `number` can have a decimal point. `currency` represents a dollar figure
-  * `date` is a standard date picker, which shows a calendar in most browsers.
+  Create prompts for each custom field
+subquestion: |
+  Your template has ${ len(interview.all_fields.custom()) } custom fields.
+  Review and update the prompt and type associated with each field.
+
+  Prompts are **short** and appear to the left of the field.
+  Later in this interview we will ask you to add each field to a screen where you can add 
+  additional context.
+
+  ${ collapse_template(example_of_question_screen) }
+
+  % if len(interview.all_fields.builtins()) or len(interview.all_fields.signatures()):
+  ${ collapse_template(explain_fields_not_shown) }
   % endif
-    
 fields:
   - code: interview.all_fields.ask_about_fields()
-  - note: |
-      **Built-in questions this form triggers**[BR]
-      % if len(interview.all_fields.builtins()) > 0:
-      These fields are not listed above because a built-in question already handles them: `${ comma_and_list(interview.all_fields.builtins()) }`.
-      % endif
-      % if len(interview.all_fields.signatures()):
-      
-      These signature fields are not listed because they cannot be asked
-      on the same screen as any other variable: `${ comma_and_list(interview.all_fields.signatures()) }`
-      % endif      
-      
-      You will have a chance to change the order of these fields later in
-      this interview.
-    show if:
-      code: |
-        len(interview.all_fields.builtins()) or len(interview.all_fields.signatures())
 validation code: |
   for field in interview.all_fields.custom():
     if field.field_type == "code":
         expression = f"{field.final_display_var} = {field.code}"
         if not is_valid_python(expression):
             validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
+css: |
+  <style>
+  .da-field-container-note {
+    margin-top: 2em;
+    margin-bottom: 0em!important;
+  }
+  </style>
+---
+template: example_of_question_screen
+subject: |
+  Preview a Docassemble interview screen
+content: |
+  [FILE example_question_layout.png]
+---
+template: explain_fields_not_shown
+subject: |
+  What about the other fields in my template?
+content: |
+  Fields that are in the question library are not displayed on this
+  screen:
+  % if len(interview.all_fields.builtins()) > 0:
+  `${ comma_and_list(interview.all_fields.builtins()) }`
+  % endif
+  % if len(interview.all_fields.signatures()):
+
+  These signature fields are not listed because they cannot be asked
+  on the same screen as any other variable: `${ comma_and_list(interview.all_fields.signatures()) }`
+  % endif
+
+  After you use the Weaver, you will have a chance to customize
+  these screens.
 ---
 comment: |
   Get the list of fields, and check for any possible labeling errors
@@ -901,21 +911,27 @@ code: |
 ---
 id: create a draft of screen i
 question: |
-  Create your question screens - the ${ordinal(i)} screen
+  % if i == 0:
+  Create your first question screen
+  % else:
+  ${ ordinal(i).capitalize() } question screen
+  % endif
 subquestion: |
-  Each screen can define multiple fields at a time. Give this screen
-  a title, some context for the screen, and decide which fields are
-  shown on this screen.
+  ${ collapse_template(example_of_question_screen) }
 fields:
   - Make this a purely informational screen: interview.questions[i].is_informational_screen
     datatype: yesno
     help: A screen with no fields, just text.
-  - What should the title of this screen be? : interview.questions[i].question_text
+  - "**Title**" : interview.questions[i].question_text
     default: Screen ${nice_number(i+1)}
-  - What is the text that appears under the title? : interview.questions[i].subquestion_text
+    help: |
+      Docassemble calls this the "question"
+  - Text under the title : interview.questions[i].subquestion_text
     input type: area
     required: False
-  - Select the fields that will appear on this screen: interview.questions[i].field_list
+    help: |
+      Docassemble calls this the "subquestion"
+  - Fields that will appear on this screen: interview.questions[i].field_list
     hide if: interview.questions[i].is_informational_screen
     # Can we turn this into an object?
     datatype: object_checkboxes
@@ -924,8 +940,9 @@ fields:
     exclude: interview.questions.all_fields_used(all_fields=interview.all_fields.custom())
     none of the above: False
     choices: interview.all_fields.custom()
+    all of the above: True
     object labeler: |
-      lambda y: bold(str(y.final_display_var)) + "[BR]" + y.label
+      lambda y: f"{ y.label } (`{ y.final_display_var }`)"
 #  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
 #    datatype: noyes
 #    hide if: interview.questions[i].is_informational_screen
@@ -1103,25 +1120,8 @@ fields:
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")
   - On-screen label or prompt: interview.all_fields[i].label
   - Field type: interview.all_fields[i].field_type
-    choices:
-      - text
-      - area
-      - yesno
-      - noyes
-      - yesnoradio
-      - noyesradio
-      - integer
-      - number
-      - currency
-      - date
-      - email
-      - multiple choice dropdown
-      - multiple choice combobox
-      - multiple choice radio
-      - multiple choice checkboxes
-      - multiselect
-      - file
-      - code
+    code: |
+      field_type_options()
   - Send overflow text to addendum: interview.all_fields[i].send_to_addendum
     datatype: yesno
     show if:

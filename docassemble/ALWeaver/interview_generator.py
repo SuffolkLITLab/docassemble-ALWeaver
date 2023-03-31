@@ -63,6 +63,7 @@ __all__ = [
     "escape_double_quoted_yaml",
     "escape_quotes",
     "fix_id",
+    "field_type_options",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -192,6 +193,30 @@ class DAFieldGroup(Enum):
     BUILT_IN = "built in"
     SIGNATURE = "signature"
     CUSTOM = "custom"
+
+
+def field_type_options() -> List[Dict[str,str]]:
+    return [
+            {"text": "Text"},
+            {"area": "Area"},
+            {"yesno": "Yes/no checkbox"},
+            {"noyes": "No/yes checkbox"},
+            {"yesnoradio": "Yes/no radio"},
+            {"noyesradio": "No/yes radio"},
+            {"integer": "Whole number"},
+            {"number": "Number"},
+            {"currency": "Currency"},
+            {"date": "Date"},
+            {"email": "Email"},
+            {"multiple choice dropdown": "Drop-down"},
+            {"multiple choice combobox": "Combobox"},
+            {"multiple choice radio": "Radio buttons"},
+            {"multiple choice checkboxes": "Checkboxes"},
+            {"multiselect": "Multi-select"},
+            {"file": "Uploaded file"},
+            {"code": "Python code"},
+            {"skip this field": "[Skip this field]"},
+    ]
 
 
 class DAField(DAObject):
@@ -384,39 +409,25 @@ class DAField(DAObject):
         else:
             field_title = self.final_display_var
 
-        field_questions.append({"note": bold(field_title)})
+        field_questions.append({"note": 
+                                f"""
+                                <h2 class="h5 prompt-heading">{self.final_display_var}</h2>
+                                """                                
+                                })
         field_questions.append(
             {
-                "label": "On-screen label",
+                "label": f"Prompt",
+                #"label above field": True,
                 "field": self.attr_name("label"),
                 "default": self.variable_name_guess,
             }
         )
         field_questions.append(
             {
-                "label": "Field Type",
+                "label": f"Type",
+                # "label above field": True,
                 "field": self.attr_name("field_type"),
-                "choices": [
-                    "text",
-                    "area",
-                    "yesno",
-                    "noyes",
-                    "yesnoradio",
-                    "noyesradio",
-                    "integer",
-                    "number",
-                    "currency",
-                    "date",
-                    "email",
-                    "multiple choice dropdown",
-                    "multiple choice combobox",
-                    "multiple choice radio",
-                    "multiple choice checkboxes",
-                    "multiselect",
-                    "file",
-                    "code",
-                    "skip this field",
-                ],
+                "code": "field_type_options()",
                 "default": self.field_type_guess
                 if hasattr(self, "field_type_guess")
                 else None,
