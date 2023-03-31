@@ -1588,6 +1588,9 @@ code: |
     people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
     process_people_variables = True
     
+    for field in interview.all_fields:
+      if field.field_type == "multiple_choice_radio":
+        field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in self.choice_options])
     # Skip some screens we don't need
     ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
 
