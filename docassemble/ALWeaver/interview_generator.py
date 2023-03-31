@@ -195,27 +195,27 @@ class DAFieldGroup(Enum):
     CUSTOM = "custom"
 
 
-def field_type_options() -> List[Dict[str,str]]:
+def field_type_options() -> List[Dict[str, str]]:
     return [
-            {"text": "Text"},
-            {"area": "Area"},
-            {"yesno": "Yes/no checkbox"},
-            {"noyes": "No/yes checkbox"},
-            {"yesnoradio": "Yes/no radio"},
-            {"noyesradio": "No/yes radio"},
-            {"integer": "Whole number"},
-            {"number": "Number"},
-            {"currency": "Currency"},
-            {"date": "Date"},
-            {"email": "Email"},
-            {"multiple choice dropdown": "Drop-down"},
-            {"multiple choice combobox": "Combobox"},
-            {"multiple choice radio": "Radio buttons"},
-            {"multiple choice checkboxes": "Checkboxes"},
-            {"multiselect": "Multi-select"},
-            {"file": "Uploaded file"},
-            {"code": "Python code"},
-            {"skip this field": "[Skip this field]"},
+        {"text": "Text"},
+        {"area": "Area"},
+        {"yesno": "Yes/no checkbox"},
+        {"noyes": "No/yes checkbox"},
+        {"yesnoradio": "Yes/no radio"},
+        {"noyesradio": "No/yes radio"},
+        {"integer": "Whole number"},
+        {"number": "Number"},
+        {"currency": "Currency"},
+        {"date": "Date"},
+        {"email": "Email"},
+        {"multiple choice dropdown": "Drop-down"},
+        {"multiple choice combobox": "Combobox"},
+        {"multiple choice radio": "Radio buttons"},
+        {"multiple choice checkboxes": "Checkboxes"},
+        {"multiselect": "Multi-select"},
+        {"file": "Uploaded file"},
+        {"code": "Python code"},
+        {"skip this field": "[Skip this field]"},
     ]
 
 
@@ -409,15 +409,17 @@ class DAField(DAObject):
         else:
             field_title = self.final_display_var
 
-        field_questions.append({"note": 
-                                f"""
+        field_questions.append(
+            {
+                "note": f"""
                                 <h2 class="h5 prompt-heading">{self.final_display_var}</h2>
-                                """                                
-                                })
+                                """
+            }
+        )
         field_questions.append(
             {
                 "label": f"Prompt",
-                #"label above field": True,
+                # "label above field": True,
                 "field": self.attr_name("label"),
                 "default": self.variable_name_guess,
             }
