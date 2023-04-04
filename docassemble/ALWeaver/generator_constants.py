@@ -28,6 +28,7 @@ generator_constants = GeneratorConstantObject()
 generator_constants.RESERVED_WHOLE_WORDS = [
     "signature_date",
     "docket_number",
+    "case_number",
     "user_needs_interpreter",
     "user_preferred_language",
 ]
@@ -65,6 +66,7 @@ generator_constants.RESERVED_PREFIXES = [
     "interested_parties",
     "trial_court",
     "docket_numbers",
+    "case_numbers",
     "user",
     "other_party",
     "child",
@@ -84,7 +86,6 @@ generator_constants.RESERVED_PREFIXES = [
     "decedent",
     "interested_party",
     "trial_court",
-    "docket_numbers",
     "adoptees",
     # Can't find a way to make order not matter here
     # without making everything in general more messy
@@ -145,7 +146,8 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
 }
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
-    "docket_numbers": "docket_numbers"
+    "docket_numbers": "docket_numbers",
+    "case_numbers": "case_numbers"
 }
 
 generator_constants.RESERVED_PLURALIZERS_MAP = {

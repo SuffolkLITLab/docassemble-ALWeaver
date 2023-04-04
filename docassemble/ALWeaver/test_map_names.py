@@ -100,6 +100,8 @@ attachment_scenarios = {
     # Starts with no names
     "docket_number": "docket_number",
     "docket_numbers": "docket_numbers",
+    "case_number": "case_number",
+    "case_numbers": "case_numbers",
     "signature_date": "signature_date",
     # Reserved start with unreserved end
     "user_address_street2_zip": "user_address_street2_zip",
@@ -162,6 +164,8 @@ interview_order_scenarios = {
     # Starts with no names
     "docket_number": "docket_number",
     "docket_numbers": "docket_numbers.gather()",
+    "case_number": "case_number",
+    "case_numbers": "case_numbers.gather()",
     "signature_date": "signature_date",
     # Reserved start with unreserved end
     "user_address_street2_zip": "user_address_street2_zip",
