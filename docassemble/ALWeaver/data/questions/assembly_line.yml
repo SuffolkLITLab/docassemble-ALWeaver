@@ -724,11 +724,10 @@ code: |
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
 ---
+id: how many people in interview
 question: |
   How many of each kind of person can be mentioned in this interview?
 subquestion: |
-  
-
   % if added_other_party:
   **Note**: Your form includes `defendants/respondents` or
   `plaintiffs/petitioners`. In the interview file, those variables will be
