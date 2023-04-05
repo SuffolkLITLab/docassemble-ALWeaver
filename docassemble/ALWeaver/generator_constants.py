@@ -147,7 +147,7 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
 
 generator_constants.RESERVED_PRIMITIVE_PLURALIZERS_MAP = {
     "docket_numbers": "docket_numbers",
-    "case_numbers": "case_numbers"
+    "case_numbers": "case_numbers",
 }
 
 generator_constants.RESERVED_PLURALIZERS_MAP = {
