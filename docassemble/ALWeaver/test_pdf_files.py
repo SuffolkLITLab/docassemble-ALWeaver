@@ -56,12 +56,12 @@ class test_pdfs(unittest.TestCase):
         fields = DAFieldList()
         fields.add_fields_from_file(da_pdf)
         fields.gathered = True
-        self.assertIn("decision_maker", fields.get_person_candidates(custom_only=True))
-        fields.mark_people_as_builtins(["decision_maker"])
+        self.assertIn("have_served_other_party", fields.get_person_candidates(custom_only=True))
+        fields.mark_people_as_builtins(["have_served_other_party"])
         fields = DAFieldList()
         fields.add_fields_from_file(da_pdf)
         fields.gathered = True
-        self.assertIn("decision_maker", fields.get_person_candidates(custom_only=True))
+        self.assertIn("have_served_other_party", fields.get_person_candidates(custom_only=True))
 
 
 if __name__ == "__main__":

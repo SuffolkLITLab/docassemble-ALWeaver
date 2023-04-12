@@ -939,6 +939,13 @@ class DAFieldList(DAList):
         """
         people_vars = reserved_person_pluralizers_map.values()
         people = set()
+        if custom_only:
+            suffixes_to_use = set(people_suffixes_map.keys()) - set(["_name"])
+        else:
+            suffixes_to_use = people_suffixes_map.keys()
+        match_pdf_person_suffixes = (
+            r"(.+?)(?:(" + "$)|(".join(suffixes_to_use) + "$))"
+        )
         for field in self:
             # fields are currently tuples for PDF and strings for docx
             file_type = field.source_document_type
@@ -983,9 +990,6 @@ class DAFieldList(DAList):
                 # In this branch and all subbranches strip trailing numbers
                 # regex to check for matching suffixes, and catch things like mailing_address_address
                 # instead of just _address_address, if the longer one matches
-                match_pdf_person_suffixes = (
-                    r"(.+?)(?:(" + "$)|(".join(people_suffixes_map.keys()) + "$))"
-                )
                 matches = re.match(match_pdf_person_suffixes, field_to_check)
                 if matches:
                     if not matches.groups()[0] in undefined_person_prefixes:
