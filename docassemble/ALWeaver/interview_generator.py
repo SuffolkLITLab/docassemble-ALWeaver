@@ -946,9 +946,7 @@ class DAFieldList(DAList):
             suffixes_to_use = set(people_suffixes_map.keys()) - set(["_name"])
         else:
             suffixes_to_use = people_suffixes_map.keys()
-        match_pdf_person_suffixes = (
-            r"(.+?)(?:(" + "$)|(".join(suffixes_to_use) + "$))"
-        )
+        match_pdf_person_suffixes = r"(.+?)(?:(" + "$)|(".join(suffixes_to_use) + "$))"
         for field in self:
             # fields are currently tuples for PDF and strings for docx
             file_type = field.source_document_type
@@ -1005,10 +1003,7 @@ class DAFieldList(DAList):
         else:
             return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
-    def mark_people_as_builtins(
-        self,
-        people_list: Iterable[str]
-    ) -> None:
+    def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
         }
