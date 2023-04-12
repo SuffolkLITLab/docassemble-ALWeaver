@@ -23,7 +23,6 @@ class MockDAStaticFile(DAStaticFile):
             if kwargs["extension"] == "pdf":
                 kwargs["mimetype"] = "application/pdf"
         super().init(*pargs, **kwargs)
-
     def path(self):
         return self.full_path
 
@@ -45,13 +44,13 @@ class test_pdfs(unittest.TestCase):
         )
 
     def test_person_candidates(self):
-        push_button_pdf = (
+        person_pdf = (
             Path(__file__).parent / "data/sources/test_civil_docketing_statement.pdf"
         )
         docassemble.base.functions.this_thread.current_question = type("", (), {})
         docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
         da_pdf = MockDAStaticFile(
-            full_path=str(push_button_pdf), extension="pdf", mimetype="application/pdf"
+            full_path=str(person_pdf), extension="pdf", mimetype="application/pdf"
         )
         fields = DAFieldList()
         fields.add_fields_from_file(da_pdf)

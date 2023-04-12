@@ -2,6 +2,7 @@
 docassemble/assemblylinewizard/docassemble*
 .history/
 .vscode/
+.hypothesis/
 *.egg-info
 
 # alkiln testing
@@ -16,6 +17,9 @@ npm-debug.log
 *_lang_*.feature
 *_report_*
 _al_test_project_name*
+alkiln-*
+cucumber-report.txt
+runtime_config.json
 # package.json is for local development only
 package.json
 package-lock.json

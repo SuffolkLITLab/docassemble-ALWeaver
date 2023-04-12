@@ -629,6 +629,9 @@ class DAField(DAObject):
     def __str__(self) -> str:
         return self.variable
 
+    def __repr__(self) -> str:
+        return f"{self.variable} ({self.raw_field_names}, {self.final_display_var})"
+
 
 class ParentCollection(object):
     """A ParentCollection is "highest" level of data structure containing some DAField.
@@ -957,9 +960,9 @@ class DAFieldList(DAList):
             else:
                 field_to_check = field.variable
             # Exact match
-            if (field_to_check) in people_vars:
+            if field_to_check in people_vars:
                 people.add(field_to_check)
-            elif (field_to_check) in undefined_person_prefixes:
+            elif field_to_check in undefined_person_prefixes:
                 pass  # Do not ask how many there will be about a singluar person
             elif file_type == "docx" and (
                 "[" in field_to_check or "." in field_to_check
@@ -987,7 +990,6 @@ class DAFieldList(DAList):
                             people.add(matches.groups()[0])
             elif file_type == "pdf":
                 # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
-                # In this branch and all subbranches strip trailing numbers
                 # regex to check for matching suffixes, and catch things like mailing_address_address
                 # instead of just _address_address, if the longer one matches
                 matches = re.match(match_pdf_person_suffixes, field_to_check)
@@ -996,6 +998,7 @@ class DAFieldList(DAList):
                         # Skip pre-defined but singular objects since they are not "people" that
                         # need to turn into lists.
                         # currently this is only trial_court
+                        # strip trailing numbers so we end up with just the people object, i.e. `users`
                         people.add(re.sub(r"\d+$", "", matches.groups()[0]))
         if custom_only:
             return people - set(reserved_pluralizers_map.values())
@@ -1004,10 +1007,7 @@ class DAFieldList(DAList):
 
     def mark_people_as_builtins(
         self,
-        people_list: Iterable[str],
-        people_suffixes: List[str] = (
-            generator_constants.PEOPLE_SUFFIXES + generator_constants.DOCX_ONLY_SUFFIXES
-        ),
+        people_list: Iterable[str]
     ) -> None:
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
