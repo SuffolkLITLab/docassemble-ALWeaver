@@ -1111,6 +1111,18 @@ class DAFieldList(DAList):
             if not hasattr(item, "group") or item.group == DAFieldGroup.CUSTOM
         ]
 
+    def remove_incorrect_names(self) -> None:
+        """
+        If any fields have invalid variable names, remove them from the DAField list.
+        """
+        to_remove = [
+          item
+          for item in self.elements
+          if bad_name_reason(item) is not None
+        ]
+        for val in to_remove:
+          self.remove(val)
+
     def skip_fields(self) -> List[DAField]:
         return [
             item

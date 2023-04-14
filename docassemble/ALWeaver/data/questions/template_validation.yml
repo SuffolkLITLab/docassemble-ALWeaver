@@ -242,7 +242,6 @@ subquestion: |
 buttons:
   - Restart: restart
 ---
-event: non_descriptive_field_name
 question: Some of the fields in your template are not descriptive
 subquestion: |
   Some of your field names can't be turned into valid variable names for a Docassemble interview.
@@ -255,9 +254,11 @@ subquestion: |
   % for bad_field in bad_fields:
     * ${ bad_field }
   % endfor
-
 buttons:
   - Restart: restart
+  - I know what I'm doing, ignore these fields and continue:
+      code: |
+        non_descriptive_field_name = 'ignore'
 ---
 event: parsing_exception
 question: ${ parsing_ex.main_issue }
