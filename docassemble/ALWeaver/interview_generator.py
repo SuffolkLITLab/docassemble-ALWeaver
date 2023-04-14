@@ -835,8 +835,10 @@ class DAFieldList(DAList):
             # Use pikepdf to get more info about each field
             pike_fields: Dict = {}
             pike_obj = Pdf.open(document.path())
-            if pike_obj.Root.AcroForm.Fields and isinstance(
-                pike_obj.Root.AcroForm.Fields, Iterable
+            if (
+                hasattr(pike_obj.Root, "AcroForm")
+                and pike_obj.Root.AcroForm.Fields
+                and isinstance(pike_obj.Root.AcroForm.Fields, Iterable)
             ):
                 for pike_info in pike_obj.Root.AcroForm.Fields:
                     pike_fields[str(pike_info.T)] = pike_info
