@@ -868,7 +868,11 @@ code: |
   
   bad_fields = get_variable_name_warnings(interview.all_fields)
   if len(bad_fields) > 0:
-    force_ask('non_descriptive_field_name')
+    if non_descriptive_field_name == 'ignore':
+        interview.all_fields.remove_incorrect_names()
+    else:
+        del non_descriptive_field_name
+        non_descriptive_field_name
   validate_field_names = True
 ---
 code: |
