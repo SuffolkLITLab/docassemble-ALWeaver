@@ -2012,14 +2012,22 @@ def bad_name_reason(field: DAField) -> Optional[str]:
             return f"`{ field.variable }` is already used with a [different meaning](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords) in Python, Docassemble, or the AssemblyLine package"
         if len(field.variable) == 0:
             if len(field.raw_field_names) == 0:
-              start = f"A { field.field_type_guess } field has no name. "
+                start = f"A { field.field_type_guess } field has no name. "
             if len(field.raw_field_names) == 1:
-              start = f"A { field.field_type_guess } field has no name. In the PDF, it is called "
+                start = f"A { field.field_type_guess } field has no name. In the PDF, it is called "
             else:
-              start = f"Some { field.field_type_guess } fields have no name. In the PDF, they are called "
+                start = f"Some { field.field_type_guess } fields have no name. In the PDF, they are called "
             if len(field.raw_field_names) > 0:
-              start += comma_and_list([n.replace('`', '\`') for n in field.raw_field_names]) + ". "
-            return start + "All field names should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case)."
+                start += (
+                    comma_and_list(
+                        [n.replace("`", "\`") for n in field.raw_field_names]
+                    )
+                    + ". "
+                )
+            return (
+                start
+                + "All field names should be in [snake case](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/naming#pdf-variables--snake_case)."
+            )
         # log(field[0], "console")
         python_var = map_raw_to_final_display(
             remove_multiple_appearance_indicator(varname(field.variable)),
