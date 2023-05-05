@@ -21,6 +21,7 @@ import docassemble.AssemblyLine.language
 import docassemble.ALToolbox.misc
 from typing import Optional, Iterable, Set, Union, List
 import re
+import pikepdf
 
 __all__ = [
     "CallAndDebugUndefined",
@@ -28,6 +29,7 @@ __all__ = [
     "get_mako_matches",
     "matching_reserved_names",
     "all_reserved_names",
+    "has_fields",
 ]
 
 
@@ -175,3 +177,22 @@ def get_mako_matches(the_file: DAFile) -> Iterable[str]:
     )
     docx_data = docx2python(the_file.path())  # Will error with invalid value
     return re.findall(match_mako, docx_data.text)
+
+
+def has_fields(pdf_file: str) -> bool:
+    """
+    Check if a PDF has at least one form field using PikePDF.
+
+    Args:
+        pdf_file (str): The path to the PDF file.
+
+    Returns:
+        bool: True if the PDF has at least one form field, False otherwise.
+    """
+    with pikepdf.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            if '/Annots' in page:
+                for annot in page.Annots: # type: ignore
+                    if annot.Type == '/Annot' and annot.Subtype == '/Widget':
+                        return True
+    return False

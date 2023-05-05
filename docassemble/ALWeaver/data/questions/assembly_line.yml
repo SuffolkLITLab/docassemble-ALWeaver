@@ -35,6 +35,9 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       interview.uploaded_templates
+      if all(not has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+        if yes_recognize_form_fields: # ask to add fields
+          process_field_recognition
       if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
         if yes_normalize_fields:
           process_field_normalization
@@ -271,7 +274,6 @@ fields:
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
-  yes_recognize_form_fields = False
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:
@@ -283,6 +285,19 @@ validation code: |
         pdf_concatenate(document)
       except:
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
+---
+id: add fields?
+question: |
+  Your PDF does not have any fields
+subquestion: |
+  Do you want to recognize and add fields automatically?
+fields:
+  - Auto identify fields: yes_recognize_form_fields
+    datatype: yesnoradio
+---
+code: |
+  if any(has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+    yes_recognize_form_fields = False
 ---
 code: |
   # HACK temporary LIT Con 2023
