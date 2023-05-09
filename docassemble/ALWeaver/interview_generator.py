@@ -1445,10 +1445,10 @@ class DAInterview(DAObject):
             self.author = "Court Forms Online"
         if url:
             self._set_template_from_url(url)
-            self.title = os.path.basename(url)
         elif input_file:
             self._set_template_from_file(input_file)
-            self.title = os.path.basename(input_file.path())
+        self.title = self._set_title(url=url, input_file=input_file)
+
         if title:
             self.title = title
         self.short_title = self.title
@@ -1485,6 +1485,15 @@ class DAInterview(DAObject):
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
         self.auto_group_fields()
+
+    def _set_title(self, url=None, input_file=None):
+        if url:
+            draft_title = url
+        elif input_file:
+            draft_title = input_file.path()
+        else:
+            draft_title = self.uploaded_templates[0].filename
+        return os.path.splitext(os.path.basename(draft_title))[0].replace("_", " ").capitalize()
 
     def _set_template_from_url(self, url: str):
         self.uploaded_templates = DAFileList(
@@ -1552,7 +1561,7 @@ class DAInterview(DAObject):
         To assist with "I'm feeling lucky" button
         """
         field_grouping = formfyxer.cluster_screens(
-            [field.variable for field in self.all_fields]
+            [field.variable for field in self.all_fields.custom()]
         )
         self.questions.auto_gather = False
         for group in field_grouping:
