@@ -1493,7 +1493,11 @@ class DAInterview(DAObject):
             draft_title = input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
-        return os.path.splitext(os.path.basename(draft_title))[0].replace("_", " ").capitalize()
+        return (
+            os.path.splitext(os.path.basename(draft_title))[0]
+            .replace("_", " ")
+            .capitalize()
+        )
 
     def _set_template_from_url(self, url: str):
         self.uploaded_templates = DAFileList(

@@ -191,8 +191,8 @@ def has_fields(pdf_file: str) -> bool:
     """
     with pikepdf.open(pdf_file) as pdf:
         for page in pdf.pages:
-            if '/Annots' in page:
-                for annot in page.Annots: # type: ignore
-                    if annot.Type == '/Annot' and annot.Subtype == '/Widget':
+            if "/Annots" in page:
+                for annot in page.Annots:  # type: ignore
+                    if annot.Type == "/Annot" and annot.Subtype == "/Widget":
                         return True
     return False
