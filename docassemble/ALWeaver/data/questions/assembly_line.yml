@@ -1636,7 +1636,8 @@ code: |
   # HACK Litcon 2023
   people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
   process_people_variables = True
-  
+  interview.categories = DAEmpty()
+  interview.state = DAEmpty()
   for field in interview.all_fields:
     if field.field_type == "multiple choice radio":
       field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in field.choice_options])
