@@ -35,24 +35,30 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       interview.uploaded_templates
-      if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
-        if yes_normalize_fields:
-          process_field_normalization
-        initial_get_fields
-        validate_field_names
-        if no_recognized_pdf_fields:
-          warn_no_recognized_al_labels
-        fields_checkup_status
-        all_look_good
-      elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
-        initial_get_fields
-        validate_field_names
-        if no_recognized_docx_fields:
-          warn_no_recognized_al_labels
-        validate_docx
-      else: # mixed PDF and DOCX templates
-        initial_get_fields
-        validate_mixed_documents
+      if all(not has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+        if yes_recognize_form_fields: # ask to add fields
+          process_field_recognition
+      if im_feeling_lucky:
+        process_im_feeling_lucky
+      else:
+        if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
+          if yes_normalize_fields:
+            process_field_normalization
+          initial_get_fields
+          validate_field_names
+          if no_recognized_pdf_fields:
+            warn_no_recognized_al_labels
+          fields_checkup_status
+          all_look_good
+        elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
+          initial_get_fields
+          validate_field_names
+          if no_recognized_docx_fields:
+            warn_no_recognized_al_labels
+          validate_docx
+        else: # mixed PDF and DOCX templates
+          initial_get_fields
+          validate_mixed_documents
  
   if have_template_to_load:  
     interview.all_fields.gathered
@@ -271,7 +277,6 @@ fields:
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
-  yes_recognize_form_fields = False
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:
@@ -283,6 +288,19 @@ validation code: |
         pdf_concatenate(document)
       except:
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
+---
+id: add fields?
+question: |
+  Your PDF does not have any fields
+subquestion: |
+  Do you want to recognize and add fields automatically?
+fields:
+  - Auto identify fields: yes_recognize_form_fields
+    datatype: yesnoradio
+---
+code: |
+  if any(has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+    yes_recognize_form_fields = False
 ---
 code: |
   # HACK temporary LIT Con 2023
@@ -402,11 +420,6 @@ fields:
 ---
 code: |
   interview_label_draft = interview.short_filename[:35]
----
-code: |
-  interview.default_country_code = 'US'
-  # This is weird but needed for check-in logic that refreshes list of states
-  # TODO(qs): adjust when we have a way to load in org defaults at runtime
 ---
 event: update_state_list
 code: |
@@ -1547,20 +1560,50 @@ code: |
 ---
 id: feeling lucky
 question: |
-  Are you feeling lucky?
+  Do you want us to draft your interview?
 subquestion: |
   You can go straight to a runnable prototype of
-  "${ interview.short_filename_with_spaces }" for ${ state_name(interview.state) },
-  or you can customize this prototype. 
+  "${ interview.short_filename_with_spaces }",
+  or you can build the interview step by step.
 
-field: im_feeling_lucky
-buttons: 
-  - Customize: False
-  - "I'm feeling lucky": True
+  Either way, you will have a chance to edit your answers.
+
+  ${ collapse_template(explain_auto_drafting) }
+
+  <h2 class="h4">Preview your uploaded forms</h2>
+  % for document in interview.uploaded_templates:  
+  ${ collapse_template(document.preview_template) }
+
+  % endfor
+
+fields: 
+  - Do you want us to draft the interview for you?: im_feeling_lucky
+    datatype: radio
+    choices:
+      - Build step by step: False
+      - Use auto-drafting mode: True
+---
+template: explain_auto_drafting
+subject: |
+  What is auto-drafting mode?
+content: |
+  Automated drafting uses the information on your PDF or Word form
+  as the basis for a guided interview of your form.
+
+  Labels will start with just the name of each field, with underscores
+  replaced with spaces. We'll use a machine learning model to 
+  automatically group the fields into screens by similarity.
+
+  This is still an experimental feature but it can save you time.
+
+  You will be able to make some changes inside the Weaver. Some changes
+  will only be possible to make in the Docassemble Playground. Auto-drafting
+  mode is not as flexible yet as building screen by screen.
 ---
 code: |
   has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
 ---
+only sets: process_url_args
 code: |
   # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverBugs%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
@@ -1572,8 +1615,8 @@ code: |
                                      jurisdiction=url_args.get('jur'),
     )
     interview_label_draft = interview.short_filename
-  url_args.clear()    
-  process_url_args = True  
+    url_args.clear()
+  process_url_args = True
 ---
 only sets: 
   - process_im_feeling_lucky
@@ -1581,20 +1624,30 @@ code: |
   yes_normalize_fields = False
   yes_recognize_form_fields = False
   interview_type = "regular"
-  if has_safe_pdf_in_url: # limit when this block can run
-    # TODO: refactor this at some point, this is a shim to create objects block but we
-    # shouldn't need it forever.
-    # person_candidates = interview.all_fields.get_person_candidates()
-    # for person in person_candidates:
-    #  people_quantities[person] = "any"
-    # HACK Litcon 2023
-    people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
-    process_people_variables = True
-    
-    for field in interview.all_fields:
-      if field.field_type == "multiple choice radio":
-        field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in field.choice_options])
-    # Skip some screens we don't need
-    ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = True
+  if not has_safe_pdf_in_url:
+    interview.auto_assign_attributes()
+    interview_label_draft = interview.short_filename
+
+  # TODO: refactor this at some point, this is a shim to create objects block but we
+  # shouldn't need it forever.
+  # person_candidates = interview.all_fields.get_person_candidates()
+  # for person in person_candidates:
+  #  people_quantities[person] = "any"
+  # HACK Litcon 2023
+  people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
+  process_people_variables = True
+  
+  for field in interview.all_fields:
+    if field.field_type == "multiple choice radio":
+      field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in field.choice_options])
+  # Skip some screens we don't need
+  ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = validate_field_names = True
 
   process_im_feeling_lucky = True
+---
+##### Keep this block towards end of interview #############
+---
+code: |
+  interview.default_country_code = 'US'
+  # This is weird but needed for check-in logic that refreshes list of states
+  # TODO(qs): adjust when we have a way to load in org defaults at runtime
