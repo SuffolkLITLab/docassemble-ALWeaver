@@ -13,6 +13,8 @@ Scenario: I weave the civil docketing statement
   And I get to the question id "download-your-interview" with this data:
     | var | value | trigger |
     | interview_type | regular | |
+    | im_feeling_lucky | False | |
+    | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | all_look_good['all_checkboxes_checked'] | True |  |
     | all_look_good['no_unusual_size_text'] | True |  |
     | all_look_good['signature_filled_in'] | True |  |
@@ -99,7 +101,6 @@ Scenario: I weave the civil docketing statement
     | interview.questions[i].subquestion_text | Screen 2 informational only | interview.questions[1].question_text |
     | review_fields_after_labeling | True |  |
     | show_screen_order | True |  |
-    | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | weaver_intro | True |  |
 
 @weaver2 @weaver @people_vars
@@ -110,6 +111,7 @@ Scenario: I weave the civil docketing statement
   And I get to the question id "how many people in interview" with this data:
     | var | value | trigger |
     | interview_type | regular | |
+    | im_feeling_lucky | False | |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | all_look_good['all_checkboxes_checked'] | True |  |
     | all_look_good['no_unusual_size_text'] | True |  |
