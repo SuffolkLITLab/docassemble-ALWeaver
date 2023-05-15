@@ -1170,9 +1170,9 @@ class DAQuestion(DAObject):
     def complete(self) -> bool:
         self.question_text
         # see https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/783
-        # We no longer expose this option to use a "continue button field" on a 
+        # We no longer expose this option to use a "continue button field" on a
         # regular question page. User can still manually add this in Playground.
-        self.has_mandatory_field = True # Means at least one question is required. If False, we add a continue button field
+        self.has_mandatory_field = True  # Means at least one question is required. If False, we add a continue button field
         if self.is_informational_screen:
             self.field_list.clear()
             self.field_list.gathered = True
