@@ -398,6 +398,7 @@ ${ attachment_yaml(field, attachment_name=f"{ interview.interview_label}_attachm
 % else:
   skip undefined: True
   docx template file: ${ document.filename }
+  tagged pdf: True
 % endif
 % endfor
 % if interview.all_fields.has_addendum_fields():
