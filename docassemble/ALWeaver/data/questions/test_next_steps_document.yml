@@ -1,0 +1,27 @@
+---
+objects:
+  - trial_court: Thing
+  - appeals_court: Thing
+  - interview: DAObject
+---
+code: |
+  interview.intro_prompt = "Get a test interview"
+  interview.title = "Test"
+  users = "Test users"
+  trial_court.name.text = "Test trial court"
+  trial_court.phone_number = appeals_court.phone_number = "867-5309"
+  appeals_court.name.text = "Test appeals court"  
+---
+question: |
+  Upload the next step document
+fields:
+  - Upload: the_file
+    datatype: file
+---
+mandatory: True
+question: |
+  Here is the result
+attachment:
+  docx template file:
+    code: |
+      the_file
