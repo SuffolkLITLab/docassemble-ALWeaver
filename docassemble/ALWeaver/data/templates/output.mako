@@ -9,50 +9,14 @@ include:
   % endfor
 ---
 metadata:
-  title: |
-    ${ interview.title }
-  short title: |
-    ${ interview.short_title }
-  % if interview.categories.any_true():
-  tags:
-    % for category in interview.categories.true_values():
-    - ${ category }
-    % endfor
-  % endif
-  authors:
-    % for author in interview.author.splitlines():
-    - ${ author }
-    % endfor
----
-mandatory: True
-comment: |
-  Global interview metadata
-variable name: interview_metadata["${ interview.interview_label }"]
-data:
-  al_weaver_version: "${ package_version_number }"
-  generated on: "${ today().format("yyyy-MM-dd") }"
   title: >-
-    ${ oneline(interview.title) }
+    ${ interview.title }
   short title: >-
-    ${ oneline(interview.short_title) }
+    ${ interview.short_title }
   description: |-
 ${ indent(interview.description, by=4) }
-  % if interview.original_form:
-  original_form: >-
-${ indent(interview.original_form, by=4) }
-  % endif
-  % if len(interview.allowed_courts.true_values()) < 1:
-  allowed courts: []
-  % else:
-  allowed courts: 
-    % for court in interview.allowed_courts.true_values():
-    - "${ escape_double_quoted_yaml(oneline(court)) }"
-    % endfor
-  % endif
-  % if len(interview.categories.true_values()) < 1:
-  categories: []
-  % else:
-  categories:
+  % if interview.categories.any_true():
+  tags:
     % for category in set(interview.categories.true_values()) - {'Other'}:
     - "${ escape_double_quoted_yaml(oneline(category)) }"
     % endfor
@@ -61,14 +25,36 @@ ${ indent(interview.original_form, by=4) }
     - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
     % endfor
     % endif
+  % else:
+  tags: []
+  % endif
+  authors:
+    % for author in interview.author.splitlines():
+    - ${ author }
+    % endfor
+  % if interview.original_form:
+  original_form:
+    - ${ interview.original_form }
+  % endif
+  % if interview.help_page_url:
+  help_page_url: >-
+${ indent(interview.help_page_url, by=4) }
+  help_page_title: >-
+${ indent(interview.help_page_title, by=4) }
+  % endif
+  % if len(interview.allowed_courts.true_values()) < 1:
+  allowed_courts: []
+  % else:
+  allowed_courts: 
+    % for court in sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])):
+    - "${ escape_double_quoted_yaml(oneline(court)) }"
+    % endfor
   % endif
   % if interview.typical_role:
-  typical role: "${ escape_double_quoted_yaml(oneline(interview.typical_role)) }"
+  typical_role: "${ escape_double_quoted_yaml(oneline(interview.typical_role)) }"
   % endif
-  generate download screen: ${ generate_download_screen }
----
-code: |
-  interview_metadata['main_interview_key'] =  '${ interview.interview_label }'
+  al_weaver_version: "${ package_version_number }"
+  generated_on: "${ today().format("yyyy-MM-dd") }"
 ---
 code: |
   # This controls the default country and list of states in address field questions
@@ -108,7 +94,9 @@ id: interview_order_${ interview.interview_label }
 code: |
   % if generate_download_screen:
   # Set the allowed courts for this interview
-  allowed_courts = interview_metadata["${ interview.interview_label }"]["allowed courts"]
+  % if interview.court_related:
+  allowed_courts = ${ repr(sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else []))) }
+  % endif
   % endif
   nav.set_section("review_${ interview.interview_label }")
   % if interview.typical_role == 'unknown':
@@ -376,6 +364,7 @@ attachment:
   docx template file: ${ interview.interview_label }_next_steps.docx
   variable name: ${ interview.interview_label }_Post_interview_instructions[i]
   skip undefined: True
+  tagged pdf: True
 % for document in interview.uploaded_templates:
 ---
 attachment:
