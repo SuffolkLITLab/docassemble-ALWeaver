@@ -334,6 +334,20 @@ fields:
     required: False
     validate: |
       lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+  - Web page with related resources (optional): interview.help_page_url
+    help: |
+      Include a link to a resource that explains the topic of this form. For example,
+      a page on a legal-aid or official court site. By default this will be shown to
+      the end user on the "about" page and in the next steps instructions.
+    required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/eviction")
+  - Name of web page with more information: interview.help_page_title
+    help: |
+      For example, "MassLegalHelp page about evictions"
+    js show if: |
+      val("interview.help_page_url").length > 0
+    maxlength: 40
   - Is the form court-related?: interview.court_related
     datatype: yesnoradio
     help: |
