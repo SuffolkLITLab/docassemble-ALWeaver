@@ -337,7 +337,9 @@ code: |
 ---
 # ALDocument objects specify the metadata for each template
 objects:
+  % if interview.include_next_steps:
   - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title="Instructions", filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
+  % endif
   % if len(interview.uploaded_templates) == 1:
   - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % else:
@@ -348,7 +350,11 @@ objects:
 ---
 # Bundles group the ALDocuments into separate downloads, such as for court and for the user
 objects:
+  % if interview.include_next_steps:
   - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", title="All forms to download for your records", enabled=True)
+  % else:
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames()}], filename="${interview.interview_label}", title="All forms to download for your records", enabled=True)
+  % endif
   % if interview.court_related:
   - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }],  filename="${interview.interview_label}", title="All forms to deliver to court", enabled=True)
   % else:
