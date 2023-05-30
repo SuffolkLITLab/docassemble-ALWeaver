@@ -1591,7 +1591,7 @@ class DAInterview(DAObject):
         self.all_fields.add_fields_from_file(self.uploaded_templates)
         self.all_fields.gathered = True
 
-    def get_file_types(self) -> Literal["pdf","docx","mixed"]:
+    def get_file_types(self) -> Literal["pdf", "docx", "mixed"]:
         """
         Return the type of templates this interview assembles
         """
@@ -1610,22 +1610,19 @@ class DAInterview(DAObject):
                 return "pdf"
             return "docx"
         return "mixed"
-    
+
     def has_all_unlabeled_pdfs(self) -> bool:
         """
         Returns true only if the uploaded templates are:
-         1. all PDFs 
+         1. all PDFs
          2. without form fields.
         """
         if self.get_file_types() in ["docx", "mixed"]:
             return False
-        
-        return not any(
-            has_fields(f.path())
-            for f
-            in self.uploaded_templates
-        )
-                
+
+        return not any(has_fields(f.path()) for f in self.uploaded_templates)
+
+
 def fix_id(string: str) -> str:
     """Returns a valid, readable docassemble YAML block id"""
     if string and isinstance(string, str):
