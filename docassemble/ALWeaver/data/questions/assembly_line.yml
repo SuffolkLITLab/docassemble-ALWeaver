@@ -617,7 +617,9 @@ question: |
   "Next steps" instructions
 subquestion: |
   By default, your interview will include a customizable "Next Steps"
-  document. Right now it looks like this:
+  document. 
+
+  This is the default uncustomized document:
 
   ${ next_steps_documents[interview.form_type]['attachment']["preview"].pdf }
 
