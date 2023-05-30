@@ -35,7 +35,7 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       interview.uploaded_templates
-      if all(not has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+      if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
       if im_feeling_lucky:
@@ -263,17 +263,6 @@ fields:
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  # - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
-  #   datatype: yesno
-  #   help: |
-  #     Use our experimental code to automatically identify boxes and lines. Form fields
-  #     will be added where we think the form author intended the user to type or write-in
-  #     information. If your document already has fields, you don't need this step.
-  # - Rename fields automatically (PDFs only): yes_normalize_fields
-  #   datatype: yesno
-  #   help: |
-  #     Use our experimental code to automatically apply AssemblyLine naming conventions.
-  #     If you already followed naming conventions, you might want to skip this.
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
@@ -297,10 +286,6 @@ subquestion: |
 fields:
   - Auto identify fields: yes_recognize_form_fields
     datatype: yesnoradio
----
-code: |
-  if any(has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
-    yes_recognize_form_fields = False
 ---
 code: |
   # HACK temporary LIT Con 2023
