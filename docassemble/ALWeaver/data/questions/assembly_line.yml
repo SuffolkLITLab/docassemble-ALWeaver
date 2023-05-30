@@ -41,7 +41,7 @@ code: |
       if im_feeling_lucky:
         process_im_feeling_lucky
       else:
-        if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
+        if interview.get_file_types() == "pdf":
           if yes_normalize_fields:
             process_field_normalization
           initial_get_fields
@@ -50,13 +50,13 @@ code: |
             warn_no_recognized_al_labels
           fields_checkup_status
           all_look_good
-        elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
+        elif interview.get_file_types() == "docx":
           initial_get_fields
           validate_field_names
           if no_recognized_docx_fields:
             warn_no_recognized_al_labels
           validate_docx
-        else: # mixed PDF and DOCX templates
+        elif interview.get_file_types() == "mixed":
           initial_get_fields
           validate_mixed_documents
  
