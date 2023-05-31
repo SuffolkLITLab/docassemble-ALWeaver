@@ -91,7 +91,7 @@ subject: |
 content: |
   % if interview.uploaded_templates[i].mimetype == "application/pdf":
   <iframe src="${ pdf_concatenate(overlay_pdf(interview.uploaded_templates[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf").url_for() }" height="400"></iframe>
-  % if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
+  % if interview.get_file_types() == "pdf":
   ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview.all_fields", interview.uploaded_templates[i].attr_name("pdf_field_preview")]} ]), label="Rename fields") }
   % endif
   % else:

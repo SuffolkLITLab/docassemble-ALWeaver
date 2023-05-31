@@ -35,13 +35,13 @@ code: |
     set_interview_type_vars 
     if have_template_to_load: 
       interview.uploaded_templates
-      if all(not has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
+      if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
       if im_feeling_lucky:
         process_im_feeling_lucky
       else:
-        if all(map(lambda y: True if y.filename.endswith(".pdf") else False, interview.uploaded_templates)):
+        if interview.get_file_types() == "pdf":
           if yes_normalize_fields:
             process_field_normalization
           initial_get_fields
@@ -50,13 +50,13 @@ code: |
             warn_no_recognized_al_labels
           fields_checkup_status
           all_look_good
-        elif all(map(lambda y: True if y.filename.endswith(".docx") else False, interview.uploaded_templates)):
+        elif interview.get_file_types() == "docx":
           initial_get_fields
           validate_field_names
           if no_recognized_docx_fields:
             warn_no_recognized_al_labels
           validate_docx
-        else: # mixed PDF and DOCX templates
+        elif interview.get_file_types() == "mixed":
           initial_get_fields
           validate_mixed_documents
  
@@ -267,17 +267,6 @@ fields:
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  # - Re-process and auto-identify form fields (PDFs, removes existing fields): yes_recognize_form_fields
-  #   datatype: yesno
-  #   help: |
-  #     Use our experimental code to automatically identify boxes and lines. Form fields
-  #     will be added where we think the form author intended the user to type or write-in
-  #     information. If your document already has fields, you don't need this step.
-  # - Rename fields automatically (PDFs only): yes_normalize_fields
-  #   datatype: yesno
-  #   help: |
-  #     Use our experimental code to automatically apply AssemblyLine naming conventions.
-  #     If you already followed naming conventions, you might want to skip this.
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
@@ -301,10 +290,6 @@ subquestion: |
 fields:
   - Auto identify fields: yes_recognize_form_fields
     datatype: yesnoradio
----
-code: |
-  if any(has_fields(f.path()) for f in interview.uploaded_templates if f.filename.lower().endswith(".pdf")):
-    yes_recognize_form_fields = False
 ---
 code: |
   # HACK temporary LIT Con 2023

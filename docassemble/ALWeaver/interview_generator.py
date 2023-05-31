@@ -1,6 +1,6 @@
 from .custom_values import get_matching_deps
 from .generator_constants import generator_constants
-from .validate_template_files import matching_reserved_names
+from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
 from docassemble.base.util import (
@@ -27,7 +27,7 @@ from itertools import zip_longest, chain
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable, Literal
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
@@ -1590,6 +1590,37 @@ class DAInterview(DAObject):
         self.all_fields.clear()
         self.all_fields.add_fields_from_file(self.uploaded_templates)
         self.all_fields.gathered = True
+
+    def get_file_types(self) -> Literal["pdf", "docx", "mixed"]:
+        """
+        Return the type of templates this interview assembles
+        """
+        kinds = set()
+        for f in self.uploaded_templates:
+            if f.filename.lower().endswith(".pdf"):
+                if "docx" in kinds:
+                    return "mixed"
+                kinds.add("pdf")
+            elif f.filename.lower().endswith(".docx"):
+                if "pdf" in kinds:
+                    return "mixed"
+                kinds.add("docx")
+        if len(kinds) == 1:
+            if "pdf" in kinds:
+                return "pdf"
+            return "docx"
+        return "mixed"
+
+    def has_all_unlabeled_pdfs(self) -> bool:
+        """
+        Returns true only if the uploaded templates are:
+         1. all PDFs
+         2. without form fields.
+        """
+        if self.get_file_types() in ["docx", "mixed"]:
+            return False
+
+        return not any(has_fields(f.path()) for f in self.uploaded_templates)
 
 
 def fix_id(string: str) -> str:

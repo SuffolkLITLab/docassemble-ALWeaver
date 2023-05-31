@@ -144,7 +144,7 @@ review:
       <div class="col mb-4">
         <div class="card h-100 weaver-builtin review-question">
           <div class="card-header">
-            <a href="{ url_action("interview.title") }" class="edit-link">${ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>
+            <a href="${ url_action("interview.title") }" class="edit-link">${ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>
           </div>
           <div class="card-body">
           % for line in interview.getting_started.split("\n"):
