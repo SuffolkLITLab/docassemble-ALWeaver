@@ -628,9 +628,15 @@ subquestion: |
 
   ${ collapse_template(how_to_customize_next_steps_template) }
 fields:
-  - Include a next steps instructions document: interview.include_next_steps
-    datatype: yesno
+  - Include a next steps instructions document?: interview.include_next_steps
+    datatype: yesnoradio
     default: True
+  - note: |
+      You can fully customize this file in the playground. You can
+      also make some simple customizations now.
+      
+      ${ collapse_template(how_to_customize_next_steps_template) }
+    show if: interview.include_next_steps
   - Customize some of the instructions now?: interview.customize_next_steps
     datatype: yesnoradio
     show if: interview.include_next_steps
@@ -727,7 +733,7 @@ content: |
   1. Navigate to Folders | Templates
   2. Download the ${ interview.interview_label}_next_steps.docx file to your computer
   1. Edit the file and make any necessary changes. Upload it back
-     to your playground, being careful to use exactly the same file name.
+     to your playground with the _exact same_ file name.
 ---
 id: add fields
 question: |
