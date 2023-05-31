@@ -20,7 +20,7 @@ ${ indent(interview.description, by=4) }
     % for category in set(interview.categories.true_values()) - {'Other'}:
     - "${ escape_double_quoted_yaml(oneline(category)) }"
     % endfor
-    % if interview.categories['Other']:
+    % if False:# if interview.categories['Other']:
     % for category in interview.other_categories.split(','):
     - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
     % endfor

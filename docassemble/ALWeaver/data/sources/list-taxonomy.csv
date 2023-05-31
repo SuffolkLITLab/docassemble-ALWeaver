@@ -1,0 +1,225 @@
+Code,Title
+BE-00-00-00-00,Public Benefits
+BE-01-00-00-00,Disability public benefits
+BE-02-00-00-00,Food and Cash benefits
+BE-03-00-00-00,Health public benefits and medical assistance programs
+BE-04-00-00-00,"Unemployment Benefits, Compensation, and Insurance"
+BE-05-00-00-00,"Utilities, Energy, and Heating benefits at home"
+BE-06-00-00-00,Public Benefits for Veterans and Military
+BE-07-00-00-00,Old Age Public Benefits
+BU-00-00-00-00,Small Business and IP
+BU-01-00-00-00,Business and Occupational Licenses
+BU-02-00-00-00,Economic Development
+BU-03-00-00-00,Running a farm business
+BU-04-00-00-00,Intellectual Property
+BU-05-00-00-00,Running a For-Profit Business
+BU-06-00-00-00,Running a Nonprofit
+BU-07-00-00-00,Help for Small Businesses after a Disaster
+BU-10-00-00-00,Running an Arts/Entertainment Business
+CO-00-00-00-00,Courts and Lawyers
+CO-01-00-00-00,Getting and having a lawyer
+CO-02-00-00-00,Legal Help Resources to deal with legal issues
+CO-03-00-00-00,Representing oneself without a lawyer
+CO-04-00-00-00,Administrative agency requests and hearings
+CO-05-00-00-00,Evidence for a court case
+CO-06-00-00-00,Legal Research
+CO-07-00-00-00,Going to court and dealing with procedure
+CO-08-00-00-00,Rule- and law-making procedures
+CO-09-00-00-00,Finding and hiring a lawyer
+CO-10-00-00-00,Class Action lawsuits
+CR-00-00-00-00,Crime and Prisons
+CR-01-00-00-00,Being a victim or witness to a crime
+CR-02-00-00-00,After being found guilty of a crime
+CR-03-00-00-00,Confessions and statements to the police
+CR-04-00-00-00,Having a lawyer in a criminal case
+CR-05-00-00-00,Line-ups and Identification
+CR-06-00-00-00,Criminal Records
+CR-07-00-00-00,Death Penalty
+CR-08-00-00-00,Going to criminal court and being on trial
+CR-09-00-00-00,Due Process rights in a criminal case
+CR-10-00-00-00,Juvenile Justice
+CR-11-00-00-00,Challenging detention through Habeas Corpus
+CR-12-00-00-00,Dealing with police and prosecutors
+CR-13-00-00-00,Understanding Specific Types of Crimes
+CR-14-00-00-00,Reentry after prison
+CR-15-00-00-00,"Prisoners' rights, services, and conditions"
+CR-16-00-00-00,Being investigated for a crime
+DI-00-00-00-00,Disaster Relief
+DI-01-00-00-00,Help for Farms after a Disaster
+DI-02-00-00-00,Public Benefits for individuals after a disaster
+DI-03-00-00-00,Finding Missing Persons after a Disaster
+DI-04-00-00-00,Insurance Claims after a disaster
+DI-05-00-00-00,Rebuilding and Reconstruction after a disaster
+DI-06-00-00-00,Replacing Lost Documents after a disaster
+DI-07-00-00-00,Tax Relief after a disaster
+DI-08-00-00-00,Public Health Emergency issues
+ED-00-00-00-00,Education
+ED-01-00-00-00,Adult continuing education
+ED-02-00-00-00,Public Benefits offered through schools
+ED-03-00-00-00,Paying for education
+ED-04-00-00-00,"Discipline, expulsion, or suspension from school"
+ED-05-00-00-00,Discrimination and rights around education
+ED-06-00-00-00,Privacy at school
+ED-07-00-00-00,Students with disabilities and special education
+ED-08-00-00-00,School residency or enrollment
+ED-09-00-00-00,"School standards, testing, and requirements"
+ED-10-00-00-00,Language access to education
+ED-11-00-00-00,Quality of education for student with disability
+ED-12-00-00-00,Students' Educational Records
+EN-00-00-00-00,Environmental Justice
+EN-01-00-00-00,Air Pollution
+EN-02-00-00-00,Environmental Protection
+EN-03-00-00-00,Hazardous Waste
+EN-04-00-00-00,Pesticides
+EN-05-00-00-00,Sustainable Agriculture
+EN-06-00-00-00,Water Pollution
+ES-00-00-00-00,"Estates, Wills, and Guardianships"
+ES-01-00-00-00,Making a Will and Estate Plan
+ES-02-00-00-00,Dealing with another person's estate after they die
+ES-03-00-00-00,Guardianship and Conservatorship
+ES-04-00-00-00,Trusts
+ES-05-00-00-00,Plans for if you are incapacitated or ill (Powers of Attorney and Advance Directives)
+ES-06-00-00-00,Funeral and Burial Issues
+ES-07-00-00-00,Estate Planning for Military
+FA-00-00-00-00,Family
+FA-01-00-00-00,Adoption
+FA-02-00-00-00,Birth Certificates and Identity Documents
+FA-03-00-00-00,Child Care Costs
+FA-04-00-00-00,"Child Custody, Parenting Plans, and Visitation"
+FA-05-00-00-00,Child Support
+FA-06-00-00-00,"Divorce, Separation, and Annulment"
+FA-07-00-00-00,Domestic Violence and Abuse
+FA-08-00-00-00,Emancipation of a minor
+FA-09-00-00-00,Foster Care
+FA-10-00-00-00,Marriages and civil unions
+FA-11-00-00-00,Name or Gender Change
+FA-12-00-00-00,Paternity
+FA-13-00-00-00,Mediation and Alternative Dispute Resolution for family
+FA-14-00-00-00,Parental Rights (and Termination)
+FA-15-00-00-00,Elder Abuse
+FA-16-00-00-00,Taking Care of Sick or Disabled Family
+FA-17-00-00-00,"Family members with money, criminal, and other issues"
+GO-00-00-00-00,Government Services
+GO-01-00-00-00,"Licenses for Driving, Business, Fishing, Guns, etc."
+GO-02-00-00-00,Getting information and records from the government
+GO-03-00-00-00,Voting and Elections
+GO-05-00-00-00,Dealing with different branches of government
+HE-00-00-00-00,Health
+HE-01-00-00-00,Care for a specific condition or disability
+HE-02-00-00-00,Rights and discrimination around health care
+HE-03-00-00-00,Problems with medical or nursing home care
+HE-04-00-00-00,Nursing Home Care and Assisted Living
+HE-05-00-00-00,Medical Records and Privacy
+HE-06-00-00-00,Health issues from living conditions
+HE-07-00-00-00,Workers with health or disability issues
+HO-00-00-00-00,Housing
+HO-01-00-00-00,Discrimination around housing
+HO-02-00-00-00,Eviction from a home
+HO-03-00-00-00,"Housing Assistance, Public Housing, and Subsidized Housing"
+HO-04-00-00-00,Buying a Home
+HO-05-00-00-00,Problems with living conditions
+HO-06-00-00-00,Renting or leasing a home
+HO-07-00-00-00,"Utilities, Energy, and Heating at home"
+HO-08-00-00-00,Foreclosure on a Home
+HO-09-00-00-00,Owning a Home
+HO-10-00-00-00,Housing after a Disaster
+HO-11-00-00-00,Housing issues after contact with police
+HO-12-00-00-00,Zoning issues related to housing
+HO-13-00-00-00,Homelessness and Housing Insecurity
+HO-14-00-00-00,Mobile Homes
+IM-00-00-00-00,Immigration
+IM-01-00-00-00,Deportation or Removal of immigrants
+IM-02-00-00-00,Detention of immigrants
+IM-03-00-00-00,Public Benefits for immigrants
+IM-04-00-00-00,"Options for immigration status, visas, permits, and travel papers"
+IM-05-00-00-00,Political asylum
+IM-06-00-00-00,Immigrants' rights
+IM-07-00-00-00,Sponsoring an immigrant
+IM-08-00-00-00,Border searches
+IM-09-00-00-00,Refugees
+IM-10-00-00-00,Going to immigration interviews and hearings
+IM-11-00-00-00,Undocumented immigrants
+IM-12-00-00-00,Immigration options for victims of domestic violence
+IM-13-00-00-00,Migrant and seasonal worker employment
+IM-14-00-00-00,Work as an immigrant
+MO-00-00-00-00,"Money, Debt, and Consumer Issues"
+MO-02-00-00-00,Paying for medical care
+MO-03-00-00-00,"Contracts, Warranties, and Deceptive Trade Practices"
+MO-04-00-00-00,Credit practices and Credit reports
+MO-05-00-00-00,Financial Literacy
+MO-06-00-00-00,Identity Theft and Lost Credit Cards
+MO-07-00-00-00,Insurance
+MO-08-00-00-00,Loans
+MO-09-00-00-00,Taxes
+MO-10-00-00-00,Small Claims lawsuits
+MO-11-00-00-00,Discrimination against a customer
+MO-12-00-00-00,Debt and Lending Money
+MO-13-00-00-00,Bankruptcy
+MO-14-00-00-00,"Door-to-door Sales, Telemarketing, and Spam"
+NA-00-00-00-00,Native American Issues and Tribal Law
+NA-01-00-00-00,Government and lands of Native Americans
+NA-02-00-00-00,Native-based legal services
+NA-03-00-00-00,Family and child support for Native Americans
+NA-04-00-00-00,Tribal enrollment
+NA-05-00-00-00,Native American crime victims
+NA-06-00-00-00,Education issues for Native Americans
+NA-07-00-00-00,Public Benefits for Native Americans
+NA-08-00-00-00,Rights and protections for Native Americans
+NA-09-00-00-00,Health Care for Native Americans
+NA-10-00-00-00,Criminal Tribal Courts
+RI-00-00-00-00,Civil and Human Rights
+RI-01-00-00-00,Discrimination by Government (Equal Protection)
+RI-02-00-00-00,Right to a free lawyer
+RI-03-00-00-00,Disability Rights and Discrimination
+RI-04-00-00-00,Voting Rights
+RI-05-00-00-00,First Amendment Rights
+RI-06-00-00-00,LGBTQ Rights
+RI-07-00-00-00,Human Rights
+RI-08-00-00-00,Workers' Rights
+RI-09-00-00-00,Mental Health Rights
+RI-10-00-00-00,Prisoners' Rights
+RI-11-00-00-00,Women's Rights
+RI-12-00-00-00,Privacy Rights and Protections
+RI-13-00-00-00,Rights against government searches or arrests
+RI-14-00-00-00,Right to Travel
+RI-15-00-00-00,Sex workers' Rights
+RI-16-00-00-00,Human Trafficking rights and protections
+RI-17-00-00-00,Religious Freedoms and Discrimination
+RI-18-00-00-00,Racial Justice and discrimination
+RI-19-00-00-00,Age Discrimination
+RI-20-00-00-00,Rights when dealing with the government
+RI-21-00-00-00,Language Access rights
+TO-00-00-00-00,Accidents and Torts
+TO-01-00-00-00,Being Physically injured or harmed by another
+TO-02-00-00-00,Personal data privacy breach and protections
+TO-03-00-00-00,Getting Care and Compensation for an injury
+TO-04-00-00-00,"Suing someone, or being sued"
+TO-05-00-00-00,Harassment by another person
+TR-00-00-00-00,Traffic and Cars
+TR-01-00-00-00,Car injuries to people or property
+TR-02-00-00-00,Dealing with traffic and parking tickets
+TR-03-00-00-00,Driver's licenses or permits
+TR-04-00-00-00,Issues with Owning a Car
+TR-05-00-00-00,Car insurance
+VE-00-00-00-00,Veterans and Military
+VE-01-00-00-00,Active Duty Claims
+VE-02-00-00-00,Discharge from military
+VE-03-00-00-00,Draft into military
+VE-04-00-00-00,Health benefits for military and veterans
+VE-05-00-00-00,Mental Health for military and veterans
+VE-06-00-00-00,Legal protections for military
+VE-07-00-00-00,Legal help for military
+VE-08-00-00-00,Deployment preparation and issues
+WO-00-00-00-00,Work and Employment Law
+WO-01-00-00-00,Applying and interviewing for a job
+WO-02-00-00-00,Problems at a Current Job
+WO-03-00-00-00,Problems regarding a Former Job
+WO-04-00-00-00,Retirement and Pensions
+WO-05-00-00-00,Unions
+WO-06-00-00-00,Volunteering or interning at a job
+WO-07-00-00-00,Being injured on the job
+WO-08-00-00-00,Discrimination around work and employment
+WO-09-00-00-00,Employment in prison
+WO-10-00-00-00,Veterans and Military members' Civilian Work
+WO-11-00-00-00,Suing an employer for a tort
+CO-07-05-00-00,"Judgments, Settlements, and Appeals of court cases"
