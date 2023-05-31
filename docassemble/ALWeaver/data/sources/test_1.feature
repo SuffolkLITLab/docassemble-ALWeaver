@@ -42,6 +42,8 @@ Scenario: I weave the civil docketing statement
     | people_quantities['users'] | more |  |
     | people_variables['decision_maker'] | True |  |
     | people_variables['have_served_other_party'] | False |  |
+    | interview.customize_next_steps | False | |
+    | preview_final_next_steps | True | |
     | interview.questions[i].field_list['interview.all_fields[0]'] | True | interview.questions[0].question_text |
     | interview.questions[i].field_list['interview.all_fields[10]'] | True | interview.questions[2].question_text |
     | interview.questions[i].field_list['interview.all_fields[11]'] | True | interview.questions[2].question_text |

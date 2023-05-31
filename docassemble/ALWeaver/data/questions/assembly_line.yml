@@ -70,7 +70,10 @@ code: |
     interview.title #intro screen
     interview.typical_role #people related questions
     process_people_variables
-    ask_people_quantity_question    
+    ask_people_quantity_question
+    preview_next_steps
+    if interview.customize_next_steps:
+      preview_final_next_steps
   if have_template_to_load: 
     ask_people_quantity_question  
     if len(interview.all_fields.custom()):
@@ -136,6 +139,7 @@ objects:
   - browse_library_image: DAStaticFile.using(filename="undraw_collecting_re_lp6p.svg")
   - keep_editing_image: DAStaticFile.using(filename="undraw_filing_system_re_56h6.svg")
   - interview: DAInterview.using(template_path='data/sources/output_patterns.yml')
+  - interview.custom_next_steps_instructions: DADict.using(auto_gather=False, gathered=True)
   - interview_package_download: DAFile
   - installer: DAWeb.using(base_url=get_config('url root',"https://" + get_config('external hostname',"")) + "/api" )
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
@@ -607,6 +611,129 @@ fields:
 ---
 code: |
   interview.short_title = interview.title
+---
+id: customize next steps
+question: |
+  "Next steps" instructions
+subquestion: |
+  By default, your interview will include a customizable "Next Steps"
+  document. 
+
+  This is the default uncustomized document:
+
+  ${ next_steps_documents[interview.form_type]['attachment']["preview"].pdf }
+
+  You can fully customize this file in the playground. You can
+  also make some simple customizations now.
+
+  ${ collapse_template(how_to_customize_next_steps_template) }
+fields:
+  - Include a next steps instructions document?: interview.include_next_steps
+    datatype: yesnoradio
+    default: True
+  - note: |
+      You can fully customize this file in the playground. You can
+      also make some simple customizations now.
+      
+      ${ collapse_template(how_to_customize_next_steps_template) }
+    show if: interview.include_next_steps
+  - Customize some of the instructions now?: interview.customize_next_steps
+    datatype: yesnoradio
+    show if: interview.include_next_steps
+  - note: |
+      [BR]
+      <h2 class="h4">Customize the instructions below</h2>
+      
+      This page allows you to make minor customizations to the "next step"
+      instructions. You can finish customizing in Microsoft Word later.
+    show if: interview.customize_next_steps
+  - "Add the missing word: 'The rest of the pages in this packet are your ...'": interview.next_steps_document_title
+    datatype: combobox
+    choices:
+      - answer
+      - complaint
+      - motion
+      - petition
+      - response
+      - affidavit
+      - appeal
+      - notice
+      - letter
+      - application
+      - form
+      - document
+    required: False
+    show if:
+      variable: interview.customize_next_steps
+      is: True
+  - "Add the missing word: 'if the decision maker grants your ...'": interview.next_steps_document_concept
+    datatype: combobox
+    choices:
+      - request
+      - motion
+      - petition
+      - application
+      - appeal
+    required: False
+    show if:
+      variable: interview.customize_next_steps
+      is: True
+      code: |
+        interview.form_type in {"starts_case", "existing_case", "appeal"}
+  - Name of organization who can provide more help: interview.next_steps_help_organization
+    show if: interview.customize_next_steps
+    required: False
+    help: |
+      For example, a legal aid program
+  - Website with more information about this topic: interview.next_steps_help_url
+    default: ${ interview.help_page_url }
+    show if: interview.customize_next_steps
+    required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+  - Add QR code with this link?: interview.generate_next_steps_qr_code
+    datatype: yesnoradio
+    js show if: |
+      val("interview.customize_next_steps") && val("interview.next_steps_help_url") && val("interview.next_steps_help_url").length > 0
+  - note: |
+      [BR]
+      **Write one instruction per line for each question below.**
+      Each line will be its own bullet in the final document.
+    show if: interview.customize_next_steps
+  - What happens next (e.g., at the hearing)?: interview.custom_next_steps_instructions["what_happens_next"]
+    datatype: area
+    show if: interview.customize_next_steps
+    required: False
+  - What can the decision maker do?: interview.custom_next_steps_instructions["what_can_decision_maker_do"]
+    datatype: area
+    show if: interview.customize_next_steps
+    required: False
+  - What happens if my request is granted?: interview.custom_next_steps_instructions["what_happens_if_i_win"]
+    datatype: area
+    show if: interview.customize_next_steps
+    required: False
+continue button field: preview_next_steps  
+---
+continue button field: preview_final_next_steps
+id: preview final next steps
+question: |
+  Here is what your next steps instructions will look like
+subquestion: |
+  ${ next_steps_documents[interview.form_type]['attachment']["final"].pdf }
+
+  If you need to make a change, click the "back" button. You can also 
+  edit the instructions later.
+---
+template: how_to_customize_next_steps_template
+subject: |
+  How do I customize next steps in the playground?
+content: |
+  In the playground:
+
+  1. Navigate to Folders | Templates
+  2. Download the ${ interview.interview_label}_next_steps.docx file to your computer
+  1. Edit the file and make any necessary changes. Upload it back
+     to your playground with the _exact same_ file name.
 ---
 id: add fields
 question: |
@@ -1319,38 +1446,52 @@ code: |
 code: |
   next_steps_documents['other']['attachment'] = next_steps_other
 ---
+objects:
+  - next_steps_starts_case: DADict
+  - next_steps_existing_case: DADict
+  - next_steps_appeal: DADict
+  - next_steps_letter: DADict
+  - next_steps_other_form: DADict
+  - next_steps_other: DADict
+---
 attachments:
-  - variable name: next_steps_starts_case
+  - variable name: next_steps_starts_case[i]
     docx template file: next_steps_starts_case.docx
     filename: ${ interview.interview_label + '_next_steps' }
+    skip undefined: True
 ---
 attachments:
-  - variable name: next_steps_existing_case
+  - variable name: next_steps_existing_case[i]
     docx template file: next_steps_existing_case.docx
     filename: ${ interview.interview_label + '_next_steps' }    
+    skip undefined: True
 ---
 attachments:
-  - variable name: next_steps_appeal
+  - variable name: next_steps_appeal[i]
     docx template file: next_steps_appeal.docx
     filename: ${ interview.interview_label + '_next_steps' }    
+    skip undefined: True
 ---
 attachments:
-  - variable name: next_steps_letter
+  - variable name: next_steps_letter[i]
     docx template file: next_steps_letter.docx
     filename: ${ interview.interview_label + '_next_steps' }    
+    skip undefined: True
 ---
 attachments:
-  - variable name: next_steps_other_form
+  - variable name: next_steps_other_form[i]
     docx template file:  next_steps_other_form.docx
     filename: ${ interview.interview_label + '_next_steps' }    
+    skip undefined: True
 ---
 attachments:
-  - variable name: next_steps_other
+  - variable name: next_steps_other[i]
     docx template file:  next_steps_other.docx
     filename: ${ interview.interview_label + '_next_steps' }
+    skip undefined: True
 ---
 code: |
-  interview.instructions = next_steps_documents[interview.form_type]['attachment'].docx  
+  interview.instructions = next_steps_documents[interview.form_type]['attachment']["final"].docx
 ---
 #######################################
 # Code to support github feedback form

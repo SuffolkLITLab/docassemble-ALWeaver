@@ -107,6 +107,7 @@ need:
   - mock_signature_choice
   - mock_signature_screen
   - mock_download_screen
+  - next_steps_documents[interview.form_type]['attachment']["final"]
 reconsider:
   - mock_download_screen
 usedefs:
@@ -218,6 +219,19 @@ review:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
   - note: |
+      <h2 class="h3">Next steps instructions</h2>
+  - edit:
+      - interview.customize_next_steps
+      - undefine:
+          - next_steps_documents[interview.form_type]['attachment']["preview"]
+          - next_steps_documents[interview.form_type]['attachment']["final"]
+    button: |
+      % if interview.include_next_steps:
+      ${ next_steps_documents[interview.form_type]['attachment']["final"] }
+      % else:
+      **You are not adding a next steps instructions document.**
+      % endif
+  - note: |
       <h2 class="h3">Style and metadata</h2>
   - Edit: 
     - interview.court_related
@@ -273,7 +287,7 @@ review:
     button: |
       **Use this template to create the Docassemble interview (YAML)**
 
-      ${ interview.output_mako_choice }
+      ${ interview.output_mako_choice }      
 ---
 event: |-
   install_step1_status.revisit
