@@ -725,7 +725,7 @@ content: |
   In the playground:
 
   1. Navigate to Folders | Templates
-  2. Download the ..._next_steps.docx file to your computer
+  2. Download the ${ interview.interview_label}_next_steps.docx file to your computer
   1. Edit the file and make any necessary changes. Upload it back
      to your playground, being careful to use exactly the same file name.
 ---
