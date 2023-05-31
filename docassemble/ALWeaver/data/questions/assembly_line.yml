@@ -628,9 +628,15 @@ subquestion: |
 
   ${ collapse_template(how_to_customize_next_steps_template) }
 fields:
-  - Include a next steps instructions document: interview.include_next_steps
-    datatype: yesno
+  - Include a next steps instructions document?: interview.include_next_steps
+    datatype: yesnoradio
     default: True
+  - note: |
+      You can fully customize this file in the playground. You can
+      also make some simple customizations now.
+      
+      ${ collapse_template(how_to_customize_next_steps_template) }
+    show if: interview.include_next_steps
   - Customize some of the instructions now?: interview.customize_next_steps
     datatype: yesnoradio
     show if: interview.include_next_steps
