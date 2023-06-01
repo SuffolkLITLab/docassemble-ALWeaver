@@ -85,6 +85,11 @@ css: |
   }  
   </style>
 ---
+only sets: interview._rescan_fields
+code: |
+  interview._auto_load_fields()
+  interview._rescan_fields = True
+---
 template: interview.uploaded_templates[i].preview_template
 subject: |
   Preview ${ interview.uploaded_templates[i].filename }
@@ -92,7 +97,7 @@ content: |
   % if interview.uploaded_templates[i].mimetype == "application/pdf":
   <iframe src="${ pdf_concatenate(overlay_pdf(interview.uploaded_templates[i].pdf_field_preview, quality_check_overlay.path()), filename="do_not_use.pdf").url_for() }" height="400"></iframe>
   % if interview.get_file_types() == "pdf":
-  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview.all_fields", interview.uploaded_templates[i].attr_name("pdf_field_preview")]} ]), label="Rename fields") }
+  ${ action_button_html(url_ask(["display_rename_field_choices", "renamed_fields", {"recompute": ["interview._rescan_fields", interview.uploaded_templates[i].attr_name("pdf_field_preview")]} ]), label="Rename fields") }
   % endif
   % else:
   <iframe src="${ pdf_concatenate(interview.uploaded_templates[i]).url_for() }" height="400"></iframe>
@@ -426,7 +431,7 @@ right: |
 continue button field: display_rename_field_choices
 ---
 code: |
-  rename_pdf_fields(interview.uploaded_templates[0].path(), rename_fields)
+  formfyxer.rename_pdf_fields(interview.uploaded_templates[0].path(), interview.uploaded_templates[0].path(), rename_fields)
   
   renamed_fields = True
 ---
