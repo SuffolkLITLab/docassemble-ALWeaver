@@ -399,11 +399,6 @@ fields:
     required: True
     js show if: |
       val("interview.allowed_courts['Other']") && val("interview.court_related")
-  #- Other categories (separate with a comma): interview.other_categories
-  #  datatype: area
-  #  rows: 2
-  #  js show if: |
-  #    val("interview.categories['Other']") && val("interview.court_related")
 script: |
   <script type="text/javascript">
     /* Need to activate the multiselect JavaScript on each input, after base64 encoding the name
