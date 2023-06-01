@@ -240,6 +240,12 @@ review:
     button: |
       **Information about the original form**
 
+      Topics: ${ interview.categories.true_values() }
+      
+      % if interview.other_categories:
+      Other topics : ${ showifdef('interview.other_categories') }
+      % endif
+
       Is your form court-related?: ${ word(yesno(interview.court_related)) }
 
       What kind of form is this?: ${ showifdef('interview.form_type') }
@@ -251,11 +257,6 @@ review:
       Alternate Allowed Courts: ${ showifdef('interview.allowed_courts_text') }
       % endif
 
-      Categories: ${ interview.categories.true_values() }
-      
-      % if interview.categories["other"]:
-      Other categories : ${ showifdef('interview.other_categories') }
-      % endif
       % endif
 
       Label used to prefix variable names: ${ showifdef('interview_label_draft') }

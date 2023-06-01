@@ -347,10 +347,19 @@ fields:
     datatype: multiselect
     required: False
     code: |
-      get_LIST_codes(LIST_csv.path()) # + [{"label":"Other", "value": "Other", "group": "Other"}]
+      get_LIST_codes(LIST_csv.path())
     help: |
       The categories listed above are a subset of the law types described 
-      in the [LIST taxonomy](https://taxonomy.legal) (formerly NSMIv2)
+      in the [LIST taxonomy](https://taxonomy.legal) (formerly NSMIv2).
+
+      This metadata is used to help people find your interview when
+      it is published.
+  - Add other topics: interview.has_other_categories
+    datatype: yesno
+  - Other topics ([LIST code, like HE-00-00-00-00](https://taxonomy.legal) preferred, separate with commas): interview.other_categories
+    show if: interview.has_other_categories
+    datatype: area
+    rows: 2
   - Is the form court-related?: interview.court_related
     datatype: yesnoradio
     help: |
@@ -500,7 +509,6 @@ help:
 code: |    
   if not interview.court_related:   
     interview.allowed_courts = DAEmpty()             
-    interview.categories = DAEmpty()
 ---
 id: action-oriented splash title
 question: |
