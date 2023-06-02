@@ -19,28 +19,53 @@ default screen parts:
   logo: |
     <img src="${ weaver_logo.url_for() }" class="ma_icon" alt="Assembly Line Weaver Logo" title="ALWeaver">
 ---
+features:
+  navigation: True
+---
+sections:
+  - nav_upload: Upload a template
+  - nav_validation: Validate your template
+  - nav_metadata: Describe your form
+  - nav_describe_people: Describe people on your form
+  - nav_next_steps: Describe next steps
+  - nav_fields: Assign labels to fields
+  - nav_questions: Assign fields to screens
+  - nav_review: Review your answers
+  - nav_package: Download your Docassemble package
+---
 mandatory: True
 id: Interview Order
 code: |
+  nav.hide()
   process_url_args  
   # Check to see if we are launched from the form explorer, and
   # skip the file validation if so
-  if has_safe_pdf_in_url:   
+  if has_safe_pdf_in_url:
     if im_feeling_lucky:
       process_im_feeling_lucky
-  else:   
+  else:
     weaver_intro
     # skip the file validation if no template input
     interview_type
-    set_interview_type_vars 
-    if have_template_to_load: 
+    set_interview_type_vars
+    nav.unhide()
+    nav.set_section("nav_upload")
+    if have_template_to_load:
       interview.uploaded_templates
       if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
       if im_feeling_lucky:
+        nav.set_sections([
+          {"nav_generate_interview": "Generate your interview"},
+          {"nav_review": "Review your answers"},
+          {"nav_package": "Download your Docassemble package"}
+        ]
+        )
+        nav.set_section("nav_generate_interview")
         process_im_feeling_lucky
       else:
+        nav.set_section("nav_validation")
         if interview.get_file_types() == "pdf":
           if yes_normalize_fields:
             process_field_normalization
@@ -63,24 +88,30 @@ code: |
   if have_template_to_load:  
     interview.all_fields.gathered
   # Display Weaver question screens
+  nav.set_section("nav_metadata")
   interview.jurisdiction_choices
   interview.form_type
   if generate_download_screen:
     interview.intro_prompt #branding screen
     interview.title #intro screen
+    nav.set_section("nav_describe_people")
     interview.typical_role #people related questions
     process_people_variables
     ask_people_quantity_question
+    nav.set_section("nav_next_steps")
     preview_next_steps
     if interview.customize_next_steps:
       preview_final_next_steps
-  if have_template_to_load: 
-    ask_people_quantity_question  
+  if have_template_to_load:
+    nav.set_section("nav_describe_people")
+    ask_people_quantity_question
     if len(interview.all_fields.custom()):
+      nav.set_section("nav_fields")
       choose_field_types
   if not generate_download_screen:    
-    no_template_default_values    
+    no_template_default_values  
   review_fields_after_labeling
+  nav.set_section("nav_questions")
   interview.questions.gather()
   
   # Review field order and screen order
@@ -89,6 +120,7 @@ code: |
   #  show_screen_order
   #  screen_tbl_done
 
+  nav.set_section("nav_review")
   review_weaver
   # Generate draft interview yaml file
   add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
@@ -97,6 +129,7 @@ code: |
   wrote_interview    
 
   # Display output download screen
+  nav.set_section("nav_package")
   show_interview  
 ---
 features:
