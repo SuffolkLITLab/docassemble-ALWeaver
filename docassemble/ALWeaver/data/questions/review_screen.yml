@@ -1,4 +1,8 @@
 def: preview_questions
+sets:
+  - preview_question_screen
+  - preview_field
+  - preview_dafield_screen
 mako: |
   <%def name="preview_field(field)">\
           <div class="row">
@@ -443,33 +447,6 @@ subquestion: |-
   ${ weaverdata.table }
 ---
 event: |-
-  jurisdiction_choices.revisit
-id: |-
-  revisit jurisdiction_choices
-question: |-
-  Edit your answers about Jurisdiction Choices
-subquestion: |-
-  ${ jurisdiction_choices.table }
----
-event: |-
-  generic_report.revisit
-id: |-
-  revisit generic_report
-question: |-
-  Edit your answers about Generic Report
-subquestion: |-
-  ${ generic_report.table }
----
-event: |-
-  placeholder_signature.revisit
-id: |-
-  revisit placeholder_signature
-question: |-
-  Edit your answers about Placeholder Signature
-subquestion: |-
-  ${ placeholder_signature.table }
----
-event: |-
   quality_check_overlay.revisit
 id: |-
   revisit quality_check_overlay
@@ -509,17 +486,3 @@ rows: |-
   interview
 table: |-
   interview.table
----
-columns:
-  - 'Descriptive name': |-
-      row_item.description if hasattr(row_item, 'description') else ''
-  - 'Dependency to add to setup.py': |-
-      row_item.dependency_name if hasattr(row_item, 'dependency_name') else ''
-  - 'YAML file name to add to `include` statement (optional)': |-
-      row_item.include_name if hasattr(row_item, 'include_name') else ''
-  - 'Enable by default': |-
-      row_item.default if hasattr(row_item, 'default') else ''
-rows: |-
-  jurisdiction_choices
-table: |-
-  jurisdiction_choices.table

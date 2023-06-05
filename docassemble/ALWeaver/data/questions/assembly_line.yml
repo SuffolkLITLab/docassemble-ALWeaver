@@ -129,10 +129,11 @@ code: |
   menu_items = [ action_menu_item('Configure Weaver', 'configure_weaver') ]
 ---
 objects:
-  - install_step1_status: DAEmpty
+  - install_step1_status: DAEmpty # This and below are to avoid playground error highlighting
   - task_complete: DAEmpty
   - task_status: DAEmpty
   - task_succeeded: DAEmpty
+  - question: DAEmpty
   - weaverdata: DAStore.using(base="docassemble.ALWeaver")
   - upload_template_image: DAStaticFile.using(filename="undraw_upload_re_pasx.svg")
   - start_from_scratch_image: DAStaticFile.using(filename="undraw_start_building_re_xani.svg")
@@ -954,7 +955,14 @@ content: |
 comment: |
   Get the list of fields, and check for any possible labeling errors
   right away
-only sets: initial_get_fields
+only sets: 
+  - initial_get_fields
+  - pdf_variable_name_in_docx_matches
+  - reserved_names_in_docx
+  - keywords_in_docx
+  - mako_matches
+  - jinja_errors
+  - parsing_ex
 code: |
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
