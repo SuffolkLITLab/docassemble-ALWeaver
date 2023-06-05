@@ -17,10 +17,10 @@ metadata:
 ${ indent(interview.description, by=4) }
   % if interview.categories.any_true():
   tags:
-    % for category in set(interview.categories.true_values()) - {'Other'}:
+    % for category in sorted(set(interview.categories.true_values())):
     - "${ escape_double_quoted_yaml(oneline(category)) }"
     % endfor
-    % if interview.categories['Other']:
+    % if interview.has_other_categories:
     % for category in interview.other_categories.split(','):
     - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
     % endfor

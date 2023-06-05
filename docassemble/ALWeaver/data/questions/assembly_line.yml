@@ -1,5 +1,6 @@
 ---
 include:
+  - docassemble.ALToolbox:multiselect.yml
   - template_validation.yml
   - visual.yml
   - docassemble.ALToolbox:display_template.yml
@@ -152,6 +153,7 @@ modules:
   - .draggable_table
   - .interview_generator
   - .validate_template_files
+  - .list_taxonomy
   - collections
   - docassemble.ALToolbox.misc #collapse_template()
   - docassemble.AssemblyLine.sessions
@@ -179,6 +181,7 @@ objects:
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
   - people_quantities: DADict.using(auto_gather=False, gathered=True)
   - next_steps_documents: DADict.using(object_type=DADict)
+  - LIST_csv: DAStaticFile.using(filename="data/sources/list-taxonomy.csv")
 ---
 images:
   branding_extra: branding_extra.png
@@ -371,6 +374,23 @@ fields:
     js show if: |
       val("interview.help_page_url").length > 0
     maxlength: 40
+  - Topics (optional): interview.categories
+    datatype: multiselect
+    required: False
+    code: |
+      get_LIST_codes(LIST_csv.path())
+    help: |
+      The categories listed above are a subset of the law types described 
+      in the [LIST taxonomy](https://taxonomy.legal) (formerly NSMIv2).
+
+      This metadata is used to help people find your interview when
+      it is published.
+  - Add other topics: interview.has_other_categories
+    datatype: yesno
+  - Other topics ([LIST code, like HE-00-00-00-00](https://taxonomy.legal) preferred, separate with commas): interview.other_categories
+    show if: interview.has_other_categories
+    datatype: area
+    rows: 2
   - Is the form court-related?: interview.court_related
     datatype: yesnoradio
     help: |
@@ -410,50 +430,15 @@ fields:
     required: True
     js show if: |
       val("interview.allowed_courts['Other']") && val("interview.court_related")
-  - Categories: interview.categories
-    datatype: checkboxes
-    choices:
-      - Family: FA-00-00-00-00
-      - Domestic Violence and Abuse: FA-07-00-00-00
-      - Housing: HO-00-00-00-00
-      - Money, Debt, and Consumer Issues: MO-00-00-00-00
-      - Work and Employment Law: WO-00-00-00-00
-      - Crime and Prisons: CR-00-00-00-00
-      - Immigration: IM-00-00-00-00
-      - Estates, Wills, and Guardianships: ES-00-00-00-00
-      - Health: HE-00-00-00-00
-      - Traffic and Cars: TR-00-00-00-00
-      - Public Benefits: BE-00-00-00-00
-      - Unemployment Benefits, Compensation, and Insurance: BE-04-00-00-00
-      - Courts and Lawyers: CO-00-00-00-00
-      - Accidents and Torts: TO-00-00-00-00
-      - Education: ED-00-00-00-00
-      - Government Services: GO-00-00-00-00
-      - Native American Issues and Tribal Law: NA
-      - Veterans and Military: VE-00-00-00-00
-      - Disaster Relief: DI-00-00-00-00
-      - Small Business and IP: BU-00-00-00-00
-      - Environmental Justice: EN-00-00-00-00
-      - Civil and Human Rights: RI-00-00-00-00
-      - Prisoners' Rights: RI-10-00-00-00
-      - Other: Other
-    help: |
-      The categories listed above are a subset of the law types described 
-      in the [LIST taxonomy](taxonomy.legal) (formerly NSMIv2)
-    none of the above: False
-    show if: interview.court_related
-  - Other categories (separate with a comma): interview.other_categories
-    datatype: area
-    rows: 2
-    js show if: |
-      val("interview.categories['Other']") && val("interview.court_related")
-#  - Unique label for this interview: interview_label_draft
-#    default: ${interview.short_filename}
-#    maxlength: 35
-#    help: |
-#      This label should be short but unique. It will be used to name your
-#      package, the main YAML file, and give a unique label to variables inside
-#      your document.
+script: |
+  <script type="text/javascript">
+    /* Need to activate the multiselect JavaScript on each input, after base64 encoding the name
+     of the input (it is "example_select" here)
+     */  
+     $(document).ready(function() {
+       $("#${ base64.b64encode(str('interview.categories').encode()).decode().replace('=', '') }").multiselect({enableCaseInsensitiveFiltering: true, inheritClass: true, enableCollapsibleOptGroups: true, collapseOptGroupsByDefault: true});
+      });
+  </script>
 ---
 code: |
   interview_label_draft = interview.short_filename[:35]
@@ -550,7 +535,6 @@ help:
 code: |    
   if not interview.court_related:   
     interview.allowed_courts = DAEmpty()             
-    interview.categories = DAEmpty()
 ---
 id: action-oriented splash title
 question: |
