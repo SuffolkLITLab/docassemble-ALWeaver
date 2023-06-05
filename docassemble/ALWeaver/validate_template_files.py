@@ -10,11 +10,13 @@ from docassemble.base.parse import (
     DAExtension,
     registered_jinja_filters,
 )
+
 try:
     # Pre 1.4.56
     from docassemble.base.parse import builtin_jinja_filters
 except:
     from docassemble.base.parse import get_builtin_jinja_filters
+
     builtin_jinja_filters = get_builtin_jinja_filters()
 import docassemble.base.util
 import keyword
