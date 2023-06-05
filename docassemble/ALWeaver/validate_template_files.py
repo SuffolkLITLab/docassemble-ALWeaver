@@ -200,6 +200,9 @@ def has_fields(pdf_file: str) -> bool:
         for page in pdf.pages:
             if "/Annots" in page:
                 for annot in page.Annots:  # type: ignore
-                    if annot.Type == "/Annot" and annot.Subtype == "/Widget":
-                        return True
+                    try:
+                        if annot.Type == "/Annot" and annot.Subtype == "/Widget":
+                            return True
+                    except:
+                        continue
     return False
