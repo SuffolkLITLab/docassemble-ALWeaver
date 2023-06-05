@@ -96,7 +96,7 @@ code: |
     card_footer_text = "Signature screen"
   )
 
-  mock_download_screen = DAObject(
+  mock_download_screen = DAObject("mock_download_screen",
     question_text = "All done.",
     subquestion_text = "Thank you. Your form is ready to download and deliver. ...",
     field_list = [],
@@ -257,12 +257,24 @@ review:
       <h2 class="h3 mt-4">Next steps instructions</h2>
   - edit:
       - interview.customize_next_steps
-      - undefine:
-          - next_steps_documents[interview.form_type]['attachment']["preview"]
-          - next_steps_documents[interview.form_type]['attachment']["final"]
     button: |
       % if interview.include_next_steps:
-      ${ next_steps_documents[interview.form_type]['attachment']["final"] }
+      % if interview.customize_next_steps:
+      You are customizing the following values of the next steps document:
+
+      * "Add the missing word: 'The rest of the pages in this packet are your ...'": ${ interview.next_steps_document_title }
+      * "Add the missing word: 'if the decision maker grants your ...'": ${ interview.next_steps_document_concept }
+      * Name of organization who can provide more help: ${ interview.next_steps_help_organization }
+      * Website with more information about this topic: ${ interview.next_steps_help_url }
+      % if interview.next_steps_help_url:
+      * Add QR code with this link?: ${ interview.generate_next_steps_qr_code }
+      % endif
+      * What happens next (e.g., at the hearing)?: ${ interview.custom_next_steps_instructions["what_happens_next"] }
+      * What can the decision maker do?: ${ interview.custom_next_steps_instructions["what_can_decision_maker_do"] }
+      * What happens if my request is granted?: ${ interview.custom_next_steps_instructions["what_happens_if_i_win"] }
+      % else:
+      You selected not to customize the next steps document.
+      % endif
       % else:
       **You are not adding a next steps instructions document.**
       % endif
