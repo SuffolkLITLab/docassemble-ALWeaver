@@ -315,9 +315,6 @@ code: |
     interview.short_filename = ''
   interview.short_filename_with_spaces = interview.short_filename.replace('_',' ').capitalize()
 ---
-code: |
-  list_code_debug = get_LIST_codes(LIST_csv.path())
----
 id: information about court-related info
 question: |
   What kind of form is this?
