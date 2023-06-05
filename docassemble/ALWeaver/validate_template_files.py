@@ -9,8 +9,15 @@ from docassemble.base.parse import (
     DAEnvironment,
     DAExtension,
     registered_jinja_filters,
-    builtin_jinja_filters,
 )
+
+try:
+    # Pre 1.4.56
+    from docassemble.base.parse import builtin_jinja_filters
+except:
+    from docassemble.base.parse import get_builtin_jinja_filters
+
+    builtin_jinja_filters = get_builtin_jinja_filters()
 import docassemble.base.util
 import keyword
 import docassemble.AssemblyLine.al_general
@@ -193,6 +200,9 @@ def has_fields(pdf_file: str) -> bool:
         for page in pdf.pages:
             if "/Annots" in page:
                 for annot in page.Annots:  # type: ignore
-                    if annot.Type == "/Annot" and annot.Subtype == "/Widget":
-                        return True
+                    try:
+                        if annot.Type == "/Annot" and annot.Subtype == "/Widget":
+                            return True
+                    except:
+                        continue
     return False

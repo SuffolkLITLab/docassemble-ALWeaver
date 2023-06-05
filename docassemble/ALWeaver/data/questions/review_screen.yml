@@ -1,4 +1,8 @@
 def: preview_questions
+sets:
+  - preview_question_screen
+  - preview_field
+  - preview_dafield_screen
 mako: |
   <%def name="preview_field(field)">\
           <div class="row">
@@ -115,17 +119,17 @@ usedefs:
 question: |
   Review and edit your interview
 continue button field: review_weaver
-css: |
-  <style>
-  .question-review-weaver #daquestion {
-        flex: 0 0 auto;
-        width: 83.33333333%;
-        margin-left: 8.33333333%;  
-  }
-  </style>
+#css: |
+#  <style>
+#  .question-review-weaver #daquestion {
+#        flex: 0 0 auto;
+#        width: 83.33333333%;
+#        margin-left: 8.33333333%;  
+#  }
+#  </style>
 review:
   - note: |
-      <h2 class="h3">Preview of interview screens</h2>
+      <h2 class="h3 mt-4">Preview of interview screens</h2>
       Review the screens below. 
       
       1. Click "<a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a>" to
@@ -168,6 +172,36 @@ review:
       </div>
 
       <a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }"><i class="fa-solid fa-bars-staggered"></i> Change screen order</a>
+  - note: |
+      <h2 class="h3 mt-4">Information about your form</h2>
+  - Edit: 
+    - interview.court_related
+    - recompute:
+        - interview.interview_label
+    button: |
+      **Information about the original form**
+
+      Is your form court-related?: ${ word(yesno(interview.court_related)) }
+
+      What kind of form is this?: ${ showifdef('interview.form_type') }
+
+      % if interview.court_related:
+      Allowed courts (MA only): ${ interview.allowed_courts.true_values() }
+
+      % if interview.allowed_courts["other"]:
+      Alternate Allowed Courts: ${ showifdef('interview.allowed_courts_text') }
+      % endif
+
+      Categories: ${ interview.categories.true_values() }
+      
+      % if interview.categories["other"]:
+      Other categories : ${ showifdef('interview.other_categories') }
+      % endif
+      % endif
+
+      Label used to prefix variable names: ${ showifdef('interview_label_draft') }
+
+      Link to original form: ${ showifdef('interview.original_form') }
   - Edit: |-
       interview.title
     button: |
@@ -181,8 +215,7 @@ review:
 
       **Getting started page**
       
-      ${ single_to_double_newlines(showifdef('interview.getting_started')) }
-      
+      ${ single_to_double_newlines(showifdef('interview.getting_started')) }      
   - Edit: |-
       interview.intro_prompt
     button: |
@@ -194,6 +227,8 @@ review:
       **Review field labels and prompts**
 
       ${ collapse_template(review_fields_to_add_template) }
+  - note: |
+      <h2 class="h3 mt-4">Information about people</h2>
   - Edit: interview.typical_role
     button: |
       **User's role on this form**
@@ -219,7 +254,7 @@ review:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
   - note: |
-      <h2 class="h3">Next steps instructions</h2>
+      <h2 class="h3 mt-4">Next steps instructions</h2>
   - edit:
       - interview.customize_next_steps
       - undefine:
@@ -232,36 +267,7 @@ review:
       **You are not adding a next steps instructions document.**
       % endif
   - note: |
-      <h2 class="h3">Style and metadata</h2>
-  - Edit: 
-    - interview.court_related
-    - recompute:
-        - interview.interview_label
-    button: |
-      **Information about the original form**
-
-      Topics: ${ interview.categories.true_values() }
-      
-      % if interview.other_categories:
-      Other topics : ${ showifdef('interview.other_categories') }
-      % endif
-
-      Is your form court-related?: ${ word(yesno(interview.court_related)) }
-
-      What kind of form is this?: ${ showifdef('interview.form_type') }
-
-      % if interview.court_related:
-      Allowed courts (MA only): ${ interview.allowed_courts.true_values() }
-
-      % if interview.allowed_courts["other"]:
-      Alternate Allowed Courts: ${ showifdef('interview.allowed_courts_text') }
-      % endif
-
-      % endif
-
-      Label used to prefix variable names: ${ showifdef('interview_label_draft') }
-
-      Link to original form: ${ showifdef('interview.original_form') }
+      <h2 class="h3 mt-4">Style and metadata</h2>
   - Edit: |-
       interview.author
     button: |
@@ -444,33 +450,6 @@ subquestion: |-
   ${ weaverdata.table }
 ---
 event: |-
-  jurisdiction_choices.revisit
-id: |-
-  revisit jurisdiction_choices
-question: |-
-  Edit your answers about Jurisdiction Choices
-subquestion: |-
-  ${ jurisdiction_choices.table }
----
-event: |-
-  generic_report.revisit
-id: |-
-  revisit generic_report
-question: |-
-  Edit your answers about Generic Report
-subquestion: |-
-  ${ generic_report.table }
----
-event: |-
-  placeholder_signature.revisit
-id: |-
-  revisit placeholder_signature
-question: |-
-  Edit your answers about Placeholder Signature
-subquestion: |-
-  ${ placeholder_signature.table }
----
-event: |-
   quality_check_overlay.revisit
 id: |-
   revisit quality_check_overlay
@@ -510,17 +489,3 @@ rows: |-
   interview
 table: |-
   interview.table
----
-columns:
-  - 'Descriptive name': |-
-      row_item.description if hasattr(row_item, 'description') else ''
-  - 'Dependency to add to setup.py': |-
-      row_item.dependency_name if hasattr(row_item, 'dependency_name') else ''
-  - 'YAML file name to add to `include` statement (optional)': |-
-      row_item.include_name if hasattr(row_item, 'include_name') else ''
-  - 'Enable by default': |-
-      row_item.default if hasattr(row_item, 'default') else ''
-rows: |-
-  jurisdiction_choices
-table: |-
-  jurisdiction_choices.table
