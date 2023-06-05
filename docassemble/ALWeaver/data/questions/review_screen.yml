@@ -119,17 +119,17 @@ usedefs:
 question: |
   Review and edit your interview
 continue button field: review_weaver
-css: |
-  <style>
-  .question-review-weaver #daquestion {
-        flex: 0 0 auto;
-        width: 83.33333333%;
-        margin-left: 8.33333333%;  
-  }
-  </style>
+#css: |
+#  <style>
+#  .question-review-weaver #daquestion {
+#        flex: 0 0 auto;
+#        width: 83.33333333%;
+#        margin-left: 8.33333333%;  
+#  }
+#  </style>
 review:
   - note: |
-      <h2 class="h3">Preview of interview screens</h2>
+      <h2 class="h3 mt-4">Preview of interview screens</h2>
       Review the screens below. 
       
       1. Click "<a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a>" to
@@ -172,71 +172,8 @@ review:
       </div>
 
       <a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }"><i class="fa-solid fa-bars-staggered"></i> Change screen order</a>
-  - Edit: |-
-      interview.title
-    button: |
-      **Draft title and "Getting Started" page**
-
-      **Title**: ${ showifdef('interview.title') }
-
-      **Mobile device title**: ${ showifdef('interview.short_title') }
-
-      **Description**: ${ showifdef('interview.description') }
-
-      **Getting started page**
-      
-      ${ single_to_double_newlines(showifdef('interview.getting_started')) }
-      
-  - Edit: |-
-      interview.intro_prompt
-    button: |
-      **What does this form do?**
-
-      ${ showifdef('interview.intro_prompt') }
-  - Edit: review_fields_after_labeling
-    button: |
-      **Review field labels and prompts**
-
-      ${ collapse_template(review_fields_to_add_template) }
-  - Edit: interview.typical_role
-    button: |
-      **User's role on this form**
-
-      % if defined('interview.typical_role'):
-      % if interview.typical_role == "plaintiff":
-      Person who started the process
-      % elif interview.typical_role == "defendant":
-      Person responding to a process started by someone else
-      % else:
-      Unknown
-      % endif
-      % endif
-    show if: |
-      interview.form_type != "starts_case"
-      
-  - Edit: |-
-      ask_people_quantity_question
-    button: |-
-      **How many of each person can appear on the form?**
-
-      % for item in people_quantities:
-      - ${ item }: ${ people_quantities[item]  }
-      % endfor
   - note: |
-      <h2 class="h3">Next steps instructions</h2>
-  - edit:
-      - interview.customize_next_steps
-      - undefine:
-          - next_steps_documents[interview.form_type]['attachment']["preview"]
-          - next_steps_documents[interview.form_type]['attachment']["final"]
-    button: |
-      % if interview.include_next_steps:
-      ${ next_steps_documents[interview.form_type]['attachment']["final"] }
-      % else:
-      **You are not adding a next steps instructions document.**
-      % endif
-  - note: |
-      <h2 class="h3">Style and metadata</h2>
+      <h2 class="h3 mt-4">Information about your form</h2>
   - Edit: 
     - interview.court_related
     - recompute:
@@ -265,6 +202,72 @@ review:
       Label used to prefix variable names: ${ showifdef('interview_label_draft') }
 
       Link to original form: ${ showifdef('interview.original_form') }
+  - Edit: |-
+      interview.title
+    button: |
+      **Draft title and "Getting Started" page**
+
+      **Title**: ${ showifdef('interview.title') }
+
+      **Mobile device title**: ${ showifdef('interview.short_title') }
+
+      **Description**: ${ showifdef('interview.description') }
+
+      **Getting started page**
+      
+      ${ single_to_double_newlines(showifdef('interview.getting_started')) }      
+  - Edit: |-
+      interview.intro_prompt
+    button: |
+      **What does this form do?**
+
+      ${ showifdef('interview.intro_prompt') }
+  - Edit: review_fields_after_labeling
+    button: |
+      **Review field labels and prompts**
+
+      ${ collapse_template(review_fields_to_add_template) }
+  - note: |
+      <h2 class="h3 mt-4">Information about people</h2>
+  - Edit: interview.typical_role
+    button: |
+      **User's role on this form**
+
+      % if defined('interview.typical_role'):
+      % if interview.typical_role == "plaintiff":
+      Person who started the process
+      % elif interview.typical_role == "defendant":
+      Person responding to a process started by someone else
+      % else:
+      Unknown
+      % endif
+      % endif
+    show if: |
+      interview.form_type != "starts_case"
+      
+  - Edit: |-
+      ask_people_quantity_question
+    button: |-
+      **How many of each person can appear on the form?**
+
+      % for item in people_quantities:
+      - ${ item }: ${ people_quantities[item]  }
+      % endfor
+  - note: |
+      <h2 class="h3 mt-4">Next steps instructions</h2>
+  - edit:
+      - interview.customize_next_steps
+      - undefine:
+          - next_steps_documents[interview.form_type]['attachment']["preview"]
+          - next_steps_documents[interview.form_type]['attachment']["final"]
+    button: |
+      % if interview.include_next_steps:
+      ${ next_steps_documents[interview.form_type]['attachment']["final"] }
+      % else:
+      **You are not adding a next steps instructions document.**
+      % endif
+  - note: |
+      <h2 class="h3 mt-4">Style and metadata</h2>
   - Edit: |-
       interview.author
     button: |
