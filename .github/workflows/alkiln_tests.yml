@@ -25,6 +25,7 @@ jobs:
         with:
           SERVER_URL: "${{ secrets.SERVER_URL }}"
           DOCASSEMBLE_DEVELOPER_API_KEY: "${{ secrets.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+          SERVER_RELOAD_TIMEOUT_SECONDS: 120
       - run: echo "Finished running ALKiln end-to-end tests"
       
       ## To make a new issue in your repository when a test fails,
