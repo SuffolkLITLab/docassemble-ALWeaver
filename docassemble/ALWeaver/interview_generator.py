@@ -51,9 +51,10 @@ mako.runtime.UNDEFINED = DAEmpty()
 
 
 def formfyxer_available():
-    if get_config("assembly line",{}).get("tools.suffolklitlab.org api key"):
+    if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
         return True
     return spacy.util.is_package("en_core_web_lg")
+
 
 TypeType = type(type(None))
 
@@ -127,9 +128,11 @@ digit_start = re.compile(r"^[0-9]+")
 newlines = re.compile(r"\n")
 remove_u = re.compile(r"^u")
 
-def install_spacy_model(model = "en_core_web_lg"):
+
+def install_spacy_model(model="en_core_web_lg"):
     if not spacy.util.is_package(model):
         spacy.cli.download(model)
+
 
 class ParsingException(Exception):
     """Throws an error if we can't understand the labels somehow, so we can tell the user"""
@@ -1570,20 +1573,24 @@ class DAInterview(DAObject):
         return "unknown"
 
     def _null_group_fields(self):
-        return { "Screen 1": [field.variable for field in self.all_fields.custom()] }
+        return {"Screen 1": [field.variable for field in self.all_fields.custom()]}
 
     def auto_group_fields(self):
         """
         Use FormFyxer to assign fields to screens.
         To assist with "I'm feeling lucky" button
         """
-        try: 
+        try:
             field_grouping = formfyxer.cluster_screens(
                 [field.variable for field in self.all_fields.custom()],
-                tools_token = get_config("assembly line",{}).get("tools.suffolklitlab.org api key", None)
+                tools_token=get_config("assembly line", {}).get(
+                    "tools.suffolklitlab.org api key", None
+                ),
             )
         except:
-            log(f"Auto field grouping failed. Tried using tools.suffolklitlab.org api key {get_config('assembly line',{}).get('tools.suffolklitlab.org api key', None)}")
+            log(
+                f"Auto field grouping failed. Tried using tools.suffolklitlab.org api key {get_config('assembly line',{}).get('tools.suffolklitlab.org api key', None)}"
+            )
             field_grouping = self._null_group_fields()
         self.questions.auto_gather = False
         for group in field_grouping:
