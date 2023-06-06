@@ -101,7 +101,7 @@ code: |
     ask_people_quantity_question
     nav.set_section("nav_next_steps")
     preview_next_steps
-    if interview.customize_next_steps:
+    if interview.include_next_steps and interview.customize_next_steps:
       preview_final_next_steps
   if have_template_to_load:
     nav.set_section("nav_describe_people")

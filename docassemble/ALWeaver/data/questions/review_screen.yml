@@ -256,7 +256,7 @@ review:
   - note: |
       <h2 class="h3 mt-4">Next steps instructions</h2>
   - edit:
-      - interview.customize_next_steps
+      - interview.include_next_steps
     button: |
       % if interview.include_next_steps:
       % if interview.customize_next_steps:
