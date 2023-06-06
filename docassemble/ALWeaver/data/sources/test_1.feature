@@ -14,6 +14,7 @@ Scenario: I weave the civil docketing statement
     | var | value | trigger |
     | interview_type | regular | |
     | im_feeling_lucky | False | |
+    | install_en_core_web_lg| False | |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | all_look_good['all_checkboxes_checked'] | True |  |
     | all_look_good['no_unusual_size_text'] | True |  |
@@ -114,6 +115,7 @@ Scenario: I weave the civil docketing statement
     | var | value | trigger |
     | interview_type | regular | |
     | im_feeling_lucky | False | |
+    | install_en_core_web_lg| False | |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | all_look_good['all_checkboxes_checked'] | True |  |
     | all_look_good['no_unusual_size_text'] | True |  |

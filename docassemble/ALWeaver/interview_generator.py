@@ -15,6 +15,7 @@ from docassemble.base.util import (
     DAList,
     DAObject,
     DAStaticFile,
+    get_config,
     log,
     pdf_concatenate,
     space_to_underscore,
@@ -44,9 +45,15 @@ import os
 import re
 import uuid
 import zipfile
-
+import spacy
 
 mako.runtime.UNDEFINED = DAEmpty()
+
+
+def formfyxer_available():
+    if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
+        return True
+    return spacy.util.is_package("en_core_web_lg")
 
 
 TypeType = type(type(None))
@@ -63,8 +70,9 @@ __all__ = [
     "DAQuestionList",
     "escape_double_quoted_yaml",
     "escape_quotes",
-    "fix_id",
     "field_type_options",
+    "fix_id",
+    "formfyxer_available",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -74,8 +82,10 @@ __all__ = [
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
     "indent_by",
+    "install_spacy_model",
     "is_reserved_docx_label",
     "is_reserved_label",
+    "is_url",
     "is_valid_python",
     "map_raw_to_final_display",
     "oneline",
@@ -86,7 +96,6 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
-    "is_url",
 ]
 
 always_defined = set(
@@ -118,6 +127,11 @@ invalid_var_characters = re.compile(r"[^A-Za-z0-9_]+")
 digit_start = re.compile(r"^[0-9]+")
 newlines = re.compile(r"\n")
 remove_u = re.compile(r"^u")
+
+
+def install_spacy_model(model="en_core_web_lg"):
+    if not spacy.util.is_package(model):
+        spacy.cli.download(model)
 
 
 class ParsingException(Exception):
@@ -1558,14 +1572,26 @@ class DAInterview(DAObject):
 
         return "unknown"
 
+    def _null_group_fields(self):
+        return {"Screen 1": [field.variable for field in self.all_fields.custom()]}
+
     def auto_group_fields(self):
         """
         Use FormFyxer to assign fields to screens.
         To assist with "I'm feeling lucky" button
         """
-        field_grouping = formfyxer.cluster_screens(
-            [field.variable for field in self.all_fields.custom()]
-        )
+        try:
+            field_grouping = formfyxer.cluster_screens(
+                [field.variable for field in self.all_fields.custom()],
+                tools_token=get_config("assembly line", {}).get(
+                    "tools.suffolklitlab.org api key", None
+                ),
+            )
+        except:
+            log(
+                f"Auto field grouping failed. Tried using tools.suffolklitlab.org api key {get_config('assembly line',{}).get('tools.suffolklitlab.org api key', None)}"
+            )
+            field_grouping = self._null_group_fields()
         self.questions.auto_gather = False
         for group in field_grouping:
             new_screen = self.questions.appendObject()
