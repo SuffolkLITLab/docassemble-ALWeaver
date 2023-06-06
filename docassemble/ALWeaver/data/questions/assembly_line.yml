@@ -1790,6 +1790,8 @@ fields:
       auto field grouping without installing `en_core_web_lg`.
     datatype: yesnoradio
     show if:
+      variable: im_feeling_lucky
+      is: True
       code: |
         not formfyxer_available() and user_logged_in() and user_has_privilege(["admin"])
 ---
