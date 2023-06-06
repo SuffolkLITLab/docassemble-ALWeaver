@@ -1806,8 +1806,8 @@ id: waiting screen
 question: |
   Installing `en_core_web_lg`
 subquestion: |
-  Please wait while we install `en_core_web_lg`. This can take about
-  a minute to complete.
+  Please wait while we install `en_core_web_lg`. This can take a
+  few minutes to complete.
 
   <div class="spinner-border" role="status">
     <span class="visually-hidden">Loading...</span>

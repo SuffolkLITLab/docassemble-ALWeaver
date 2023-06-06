@@ -48,8 +48,17 @@ Nharika Singh
 
 ## Installation requirements
 
-* Create a Docassemble API key and add it your configuration like this:
+### Using auto drafting mode
 
-```yml
-install packages api key: 123458abcdefghijlklmno99A
-```
+As of June 2023, the Weaver includes auto drafting mode.
+
+To use the automatic field grouping feature of auto drafting mode,
+you need to install either:
+
+1. The `en_core_web_lg` model on your server, or
+2. An API token for tools.suffolklitlab.org.
+
+You can request an API token by emailing massaccess@suffolklitlab.org. If you
+prefer to install your own copy of the `en_core_web_lg` model, you can
+access it the first time you select to use auto drafting mode when logged
+in as an administrator.
