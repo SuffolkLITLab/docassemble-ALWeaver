@@ -1,4 +1,4 @@
-Feature: Not sure of the purpose yet
+Feature: Ensure the Weaver can run through to the end
 
 Notes:
 - Can't compare YML till ALKiln #479 is approved, merged, and published
@@ -141,3 +141,16 @@ Scenario: I weave the civil docketing statement
     | interview.state | MA |  |
     | interview_label_draft | test_civil_docketing_statement |  |
   And I should not see the phrase "is the user of the form typically the Plaintiff"
+
+
+@weaver3 @weaver @auto_drafting_mode
+Scenario: I weave the civil docketing statement
+  Given the max seconds for each Step is 90
+  And I start the interview at "assembly_line.yml"
+  Then I tap the "#upload" element and wait 5 seconds
+  And I get to the question id "download-your-interview" with this data:
+    | var | value | trigger |
+    | interview_type | regular | |
+    | im_feeling_lucky | True | |
+    | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
+    | show_screen_order | True |  |

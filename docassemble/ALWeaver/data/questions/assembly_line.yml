@@ -105,7 +105,7 @@ code: |
     ask_people_quantity_question
     nav.set_section("nav_next_steps")
     preview_next_steps
-    if interview.customize_next_steps:
+    if interview.include_next_steps and interview.customize_next_steps:
       preview_final_next_steps
   if have_template_to_load:
     nav.set_section("nav_describe_people")
@@ -1842,8 +1842,8 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
-    interview.auto_assign_attributes()
-    interview_label_draft = interview.short_filename
+      interview.auto_assign_attributes()
+      interview_label_draft = interview.short_filename
 
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.
@@ -1854,12 +1854,27 @@ code: |
   people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
   process_people_variables = True
   interview.categories = DAEmpty()
+  interview.allowed_courts = DAEmpty()
   interview.state = DAEmpty()
   for field in interview.all_fields:
-    if field.field_type == "multiple choice radio":
-      field.choices = "\n".join([f"{opt.capitalize().replace('_', ' ')}: {opt}" for opt in field.choice_options])
+      if field.field_type == "multiple choice radio":
+          field.choices = "\n".join(
+              [
+                  f"{opt.capitalize().replace('_', ' ')}: {opt}"
+                  for opt in field.choice_options
+              ]
+          )
   # Skip some screens we don't need
-  ask_people_quantity_question = choose_field_types = show_screen_order = review_fields_to_add_template = review_fields_after_labeling = validate_field_names = True
+  ask_people_quantity_question = (
+      choose_field_types
+  ) = (
+      show_screen_order
+  ) = (
+      review_fields_to_add_template
+  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = True
+  interview.include_next_steps = True
+  interview.customize_next_steps = False
+  interview.help_page_url = ""
 
   process_im_feeling_lucky = True
 ---
