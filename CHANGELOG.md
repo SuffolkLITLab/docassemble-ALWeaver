@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## For revisions after v1.9.0, see https://github.com/SuffolkLITLab/docassemble-ALWeaver/releases/
+
 ## Version v1.9.0
 
 ### New
