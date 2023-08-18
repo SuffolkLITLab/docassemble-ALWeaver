@@ -1347,6 +1347,110 @@ fields:
     datatype: draggable_tbl_json_string
     required: False
 ---
+########################### Code for sections ##########################
+---
+objects:
+  - interview.sections: DAList.using(object_type=DAObject, auto_gather=False)
+  - default_sections: DADict
+---
+code: |
+  interview.sections.clear()
+  for item in default_sections[interview.form_type].items():
+    new_item = interview.sections.appendObject()
+    new_item.key = item[0]
+    new_item.value = item[1]
+  interview.sections.gathered = True
+---
+table: interview.sections.table
+rows: interview.sections
+columns:
+  - Name: |
+      next(iter(row_item.values()))
+  - Keyword: |
+      next(iter(row_item.keys()))
+---
+id: add sections
+question: |
+  Left navigation
+subquestion: |
+  Left navigation is optional, although it can help orient
+  users even in shorter interviews.
+fields:
+  - Use left navigation?: interview.enable_navigation
+    datatype: yesnoradio
+  - note: |
+      <h2 class="h4">Left navigation sections</h2>
+      
+      ${ interview.sections.table }
+
+      ${ interview.sections.add_action() }
+    show if: interview.enable_navigation
+---
+variable name: default_sections['starts_case']
+data:
+  - getting_started: Getting started
+  - screener: Can you ${ interview.intro_prompt.lower() }?
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - claims: Your claims
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps
+---
+variable name: default_sections['existing_case']
+data:
+  - getting_started: Getting started
+  - screener: Can you ${ interview.intro_prompt.lower() }?
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - claims: Your defenses and counterclaims
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps
+---
+variable name: default_sections['appeal']
+data:
+  - getting_started: Getting started
+  - screener: Can you ${ interview.intro_prompt.lower() }?
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - appeal: Your appeal
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps  
+---
+variable name: default_sections['letter']
+data:
+  - getting_started: Getting started
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - claims: Your letter
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps
+---
+variable name: default_sections['other_form']
+data:
+  - getting_started: Getting started
+  - screener: Can you ${ interview.intro_prompt.lower() }?
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - claims: About your ${ interview.intro_prompt }
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps
+---
+variable name: default_sections['other']
+data:
+  - getting_started: Getting started
+  - screener: Can you ${ interview.intro_prompt.lower() }?
+  - about_you: Information about you
+  - about_op: Information about the other party
+  - claims: About your ${ interview.intro_prompt }
+  - review: Review your answers
+  - signature: Signature
+  - download: Download and next steps  
+---
 continue button field: show_screen_order
 question: |
   Review your screen order
