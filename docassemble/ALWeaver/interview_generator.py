@@ -1399,9 +1399,12 @@ class DAInterview(DAObject):
         }
 
         if generate_download_screen:
-            folders_and_files["templates"] = [
-                self.instructions
-            ] + self.uploaded_templates
+            if self.include_next_steps:
+                folders_and_files["templates"] = [
+                    self.instructions
+                ] + self.uploaded_templates
+            else:
+                folders_and_files["templates"] = self.uploaded_templates
         else:
             folders_and_files["templates"] = []
 
