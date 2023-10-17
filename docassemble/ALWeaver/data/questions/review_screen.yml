@@ -255,10 +255,16 @@ review:
       % endfor
   - note: |
       <h2 class="h3 mt-4">Next steps instructions</h2>
-  - edit:
-      - interview.include_next_steps
+    show if: |
+      interview_type != "survey_with_template"
+  - edit: interview.include_next_steps
     button: |
-      % if interview.include_next_steps:
+      Include next steps: ${ word(yesno(interview.include_next_steps)) }
+  - edit:
+      - interview.customize_next_steps
+    show if: |
+      interview.include_next_steps
+    button: |
       % if interview.customize_next_steps:
       You are customizing the following values of the next steps document:
 
@@ -274,9 +280,6 @@ review:
       * What happens if my request is granted?: ${ interview.custom_next_steps_instructions["what_happens_if_i_win"] }
       % else:
       You selected not to customize the next steps document.
-      % endif
-      % else:
-      **You are not adding a next steps instructions document.**
       % endif
   - note: |
       <h2 class="h3 mt-4">Style and metadata</h2>
