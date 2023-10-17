@@ -364,6 +364,7 @@ objects:
 # Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
 # used for "preview" and "final" keys, and logic in the template checks the value of 
 # `i` to show or hide the user's signature
+% if interview.include_next_steps:
 attachment:
   name: Post-interview-Instructions
   filename: ${ interview.interview_label }_next_steps
@@ -371,6 +372,7 @@ attachment:
   variable name: ${ interview.interview_label }_Post_interview_instructions[i]
   skip undefined: True
   tagged pdf: True
+% endif
 % for document in interview.uploaded_templates:
 ---
 attachment:
