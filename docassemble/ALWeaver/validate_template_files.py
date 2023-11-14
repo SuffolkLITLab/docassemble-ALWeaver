@@ -197,12 +197,5 @@ def has_fields(pdf_file: str) -> bool:
         bool: True if the PDF has at least one form field, False otherwise.
     """
     with pikepdf.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            if "/Annots" in page:
-                for annot in page.Annots:  # type: ignore
-                    try:
-                        if annot.Type == "/Annot" and annot.Subtype == "/Widget":
-                            return True
-                    except:
-                        continue
+        return hasattr(pdf.Root, "AcroForm") and hasattr(pdf.Root.AcroForm, "Fields")
     return False

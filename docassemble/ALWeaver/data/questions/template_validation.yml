@@ -195,7 +195,7 @@ buttons:
 code: |
   for document in interview.uploaded_templates:
     if document.filename.endswith("pdf"):
-      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1)
+      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1, tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"))
       document.commit()
   process_field_normalization = True
 ---
@@ -207,7 +207,7 @@ code: |
       formfyxer.auto_add_fields(document.path(), temp_new_pdf.path())
   
       # also normalize field names after newly recognizing them
-      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1)
+      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1, tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"))
   
       temp_new_pdf.commit()
       document.copy_into(temp_new_pdf)
