@@ -1269,7 +1269,15 @@ class DAQuestionList(DAList):
             if set_progress and index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
-            if isinstance(question, DAQuestion) and question.type == "question":
+            if (
+                isinstance(question, DAQuestion) 
+                and question.type == "question" 
+                and question.needs_continue_button_field
+                and (
+                    question.needs_continue_button_field
+                    or hasattr(question, "field_list") and question.field_list
+                )
+            ):
                 # TODO(bryce): make OOP: don't refer to question.type
                 # Add the first field in every question to our logic tree
                 # This can be customized to control the order of questions later
