@@ -127,8 +127,6 @@ code: |
 
   nav.set_section("nav_review")
   review_weaver
-  # Generate draft interview yaml file
-  add_metadata # keep to trigger allowed_court parsing # TODO(qs): fix in output.mako, we shouldn't need to manually trigger
   
   # Assemble output package
   wrote_interview    
@@ -1048,25 +1046,6 @@ code: |
     built_in_people_vars_used = interview.all_fields.get_person_candidates(custom_only=False) - interview.all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
-
----
-need:
-  - interview.categories
-  - interview.title
-  - interview.short_title
-  - interview.interview_label
-  - interview.description
-  - interview.typical_role
-code: |
-  # TODO(qs): move this into output.mako
-  # HACK(brycew): could be a better place to put it, but can't find one :/
-  if defined('interview.allowed_courts_text') and len(interview.allowed_courts_text) > 0:
-    # 'Other' had to marked true, but is itself useless
-    interview.allowed_courts['Other'] = False
-    for allowed_court in interview.allowed_courts_text.split(','):
-      interview.allowed_courts[allowed_court.strip()] = True
-
-  add_metadata = True
 ---
 generic object: DAObject
 code: |
@@ -1957,9 +1936,14 @@ code: |
   # HACK Litcon 2023
   people_quantities = DADict("people_quantities", auto_gather=False, gathered=True)
   process_people_variables = True
-  interview.categories = DAEmpty()
-  interview.allowed_courts = DAEmpty()
-  interview.state = DAEmpty()
+  interview.categories = DADict("interview.categories", auto_gather=False, gathered=True)
+  interview.allowed_courts = DADict(
+    "interview.allowed_courts", 
+    auto_gather=False, 
+    gathered=True,
+    elements = {"Other": False}
+  )
+  interview.state = ""
   for field in interview.all_fields:
       if field.field_type == "multiple choice radio":
           field.choices = "\n".join(

@@ -46,7 +46,7 @@ ${ indent(interview.help_page_title, by=4) }
   allowed_courts: []
   % else:
   allowed_courts: 
-    % for court in sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])):
+    % for court in sorted(set(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])) - {"Other"}):
     - "${ escape_double_quoted_yaml(oneline(court)) }"
     % endfor
   % endif
