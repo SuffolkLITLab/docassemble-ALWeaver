@@ -25,6 +25,7 @@ from docassemble.base.util import (
 from docx2python import docx2python
 from enum import Enum
 from itertools import zip_longest, chain
+from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
@@ -1535,22 +1536,37 @@ class DAInterview(DAObject):
 
     def _guess_posture(self, title: str):
         """
-        Guess posture of the case using simple heuristics
+        Guess posture of the case using simple heuristics.
         """
         title = title.lower()
-        if "petition" in title or "complaint" in title:
+        
+        starts_case_keywords = ["petition", "complaint", "initiation", "application", "claim", "suit", "filing"]
+        existing_case_keywords = ["motion", "response", "reply", "answer", "counterclaim", "rejoinder", "objection", "brief", "memorandum", "declaration", "affidavit"]
+        appeal_keywords = ["appeal", "appellate", "review", "reversal", "circuit"]
+        letter_keywords = ["letter", "correspondence", "notice", "communication"]
+        other_form_keywords = ["form", "certificate", "record"]
+
+        if any(keyword in title for keyword in starts_case_keywords):
             return "starts_case"
-        if "motion" in title:
+        if any(keyword in title for keyword in existing_case_keywords):
             return "existing_case"
-        if "appeal" in title or "appellate" in title:
+        if any(keyword in title for keyword in appeal_keywords):
             return "appeal"
-        if "letter" in title:
+        if any(keyword in title for keyword in letter_keywords):
             return "letter"
-        if "form" in title:
+        if any(keyword in title for keyword in other_form_keywords):
             return "other_form"
+        
         return "other"
 
+
     def _guess_intro_prompt(self, title: str):
+        """Create a reasonable opening prompt for the form based on its title
+
+        Args:
+            title (str): The title of the form
+        """
+
         if self.form_type == "starts_case":
             return "Ask the court for a " + title
         elif self.form_type == "existing_case":
@@ -1560,20 +1576,87 @@ class DAInterview(DAObject):
         return "Get a " + title
 
     def _guess_role(self, title: str):
-        """
-        Guess role from the form's title, using some simple heuristics.
+        """Guess role from the form's title, using some simple heuristics.
+
+        Args:
+            title (str): The title of the form
         """
         title = title.lower()
-        if "answer" in title:
+        
+        defendant_keywords = ["answer", "defendant", "respondent", "rebuttal", "counterclaim", "objection"]
+        plaintiff_keywords = ["complaint", "petition", "plaintiff", "probate", "guardian", "application", "appeal", "claim", "suit", "action"]
+
+        if any(keyword in title for keyword in defendant_keywords):
             return "defendant"
-        if "complaint" in title or "petition" in title:
-            return "plaintiff"
-        if "defendant" in title or "respondent" in title:
-            return "defendant"
-        if "plaintiff" in title or "probate" in title or "guardian" in title:
+        if any(keyword in title for keyword in plaintiff_keywords):
             return "plaintiff"
 
         return "unknown"
+    
+    def _guess_categories(self, title) -> List[str]:
+        """
+        Use the SPOT API to predict the form's categories. If SPOT is not available,
+        use basic heuristics applied on the title.
+
+        Returns:
+            List[str]: A list of categories
+        """
+        if formfyxer_available():
+            # Get the full text of all templates
+            full_text = ""
+            for template in self.uploaded_templates:
+                if template.filename.lower().endswith(".pdf"):
+                    full_text += extract_text(template.path())
+                elif template.filename.lower().endswith(".docx"):
+                    docx_data = docx2python(template.path())  # Will error with invalid value
+                    full_text += docx_data.text
+            categories = formfyxer.spot(
+                title + ": " + full_text, 
+                token=get_config("assembly line", {}).get(
+                    "tools.suffolklitlab.org api key", 
+                    None
+                ),
+            )
+            if categories and not "401" in categories:
+                return categories
+        # Top hits: Housing, Family, Consumer, Probate, Criminal, Traffic, Consumer, Health, Immigration, Employment
+        if any(keyword in title.lower() for keyword in [
+            "eviction", "foreclosure", "housing", "landlord", "tenant", "rent", "lease", "housing court", "unlawful detainer", "holdover", "evict"
+        ]) in title.lower():
+            return ["HO-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "divorce", "custody", "child", "family", "marriage", "marital", "parent", "guardian", "adoption"
+        ]) in title.lower():
+            return ["FA-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "consumer", "debt", "credit", "loan", "bankruptcy", "small claims"
+        ]) in title.lower():
+            return ["MO-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "probate", "estate", "will", "trust", "inheritance", "executor", "administrator", "personal representative", "guardian", "conservator", "power of attorney",
+        ]) in title.lower():
+            return ["ES-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "criminal", "crime", "misdemeanor", "felony"
+        ]) in title.lower():
+            return ["CR-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "traffic", "ticket", "speeding", "speed", "driving", "license", "suspension", "revocation", "revoked", "suspended", "violation", "violate", "infraction", "fine", "fee", "court costs", "court fee", "court fine",
+        ]) in title.lower():
+            return ["TR-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "disability", "health", "medical", "medicaid", "medicare", "insurance", "benefits", "benefit", "social security", "ssi", "ssdi", "disability insurance", "disability benefits", "disability insurance benefits", "disability insurance benefit", "ssi", "social security"
+        ]) in title.lower():
+            return ["HE-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "visa", "asylum", "refugee", "naturalization", "citizenship", "alien", "deportation", "adjustment of status", "i-130", "n-400", "immigration", "immigrant"
+        ]) in title.lower():
+            return ["IM-00-00-00-00"]
+        elif any(keyword in title.lower() for keyword in [
+            "employment", "unemployment", "insurance", "claim", "benefit", "wage", "jobless", "compensation", "workforce", "layoff"
+        ]) in title.lower():
+            return ["WO-00-00-00-00"]
+        return []
 
     def _null_group_fields(self):
         return {"Screen 1": [field.variable for field in self.all_fields.custom()]}

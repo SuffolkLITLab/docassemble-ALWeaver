@@ -52,14 +52,14 @@ def get_LIST_codes(
 
     # Define a function to create the desired dictionary for each row
     def create_dict(row: pd.Series) -> Optional[Dict[str, str]]:
-        if row["Suffix"] != "-00-00-00-00":
+        # row["Suffix"] != "-00-00-00-00":
             return {
                 "label": row["Title"],
                 "value": row["Code"],
                 "group": group_dict.get(row["Prefix"], "MISC"),
             }
-        else:
-            return None  # We'll drop these None rows later
+        #else:
+        #    return None  # We'll drop these None rows later
 
     # Apply the function to all rows
     df["YAML"] = df.apply(create_dict, axis=1)
@@ -72,7 +72,7 @@ def get_LIST_codes(
     # Add a column that represents the custom order of prefixes
     df["Order"] = df["Prefix"].apply(get_order)
 
-    # Sort the dataframe first by the custom order, then alphabetically by group and finally by label
-    df = df.sort_values(by=["Order", "group", "label"])
+    # Sort the dataframe first by the custom order, then alphabetically by group and finally by value
+    df = df.sort_values(by=["Order", "group"])
 
     return df["YAML"].tolist()

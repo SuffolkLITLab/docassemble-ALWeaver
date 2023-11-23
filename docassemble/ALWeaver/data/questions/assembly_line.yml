@@ -389,6 +389,9 @@ fields:
 
       This metadata is used to help people find your interview when
       it is published.
+    default:
+      code: |
+        interview._guess_categories(interview.short_filename_with_spaces)
   - Add other topics: interview.has_other_categories
     datatype: yesno
   - Other topics ([LIST code, like HE-00-00-00-00](https://taxonomy.legal) preferred, separate with commas): interview.other_categories
