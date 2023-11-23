@@ -188,13 +188,13 @@ review:
       % if interview.court_related:
       Allowed courts (MA only): ${ interview.allowed_courts.true_values() }
 
-      % if interview.allowed_courts["other"]:
+      % if interview.allowed_courts.get("Other"):
       Alternate Allowed Courts: ${ showifdef('interview.allowed_courts_text') }
       % endif
 
       Categories: ${ interview.categories.true_values() }
       
-      % if interview.categories["other"]:
+      % if showifdef("interview.has_other_categories"):
       Other categories : ${ showifdef('interview.other_categories') }
       % endif
       % endif

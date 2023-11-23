@@ -18,11 +18,11 @@ ${ indent(interview.description, by=4) }
   % if interview.categories.any_true():
   tags:
     % for category in sorted(set(interview.categories.true_values())):
-    - "${ escape_double_quoted_yaml(oneline(category)) }"
+    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
     % if interview.has_other_categories:
     % for category in interview.other_categories.split(','):
-    - "${ escape_double_quoted_yaml(oneline(category.strip())) }"
+    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
     % endif
   % else:
@@ -46,8 +46,8 @@ ${ indent(interview.help_page_title, by=4) }
   allowed_courts: []
   % else:
   allowed_courts: 
-    % for court in sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])):
-    - "${ escape_double_quoted_yaml(oneline(court)) }"
+    % for court in sorted(set(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])) - {"Other"}):
+    - "${ escape_double_quoted_yaml(oneline(court)).strip() }"
     % endfor
   % endif
   % if interview.typical_role:

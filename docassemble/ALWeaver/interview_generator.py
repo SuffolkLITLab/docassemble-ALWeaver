@@ -804,10 +804,25 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
-    def find_parent_collections(self) -> List[ParentCollection]:
-        """Gets all of the individual ParentCollections from the DAFields in this list."""
+    def find_parent_collections(
+        self, skip_skipped_and_code_fields: bool = True
+    ) -> List[ParentCollection]:
+        """Gets all of the individual ParentCollections from the DAFields in this list.
+
+        Args:
+            skip_skipped_and_code_fields: if True, skips fields that are marked as "skip this field" or "code",
+                which are not fields that should be on the review screen
+        """
         parent_coll_map = defaultdict(list)
-        for field in self.elements:
+        for field in [
+            field
+            for field in self.elements
+            if not hasattr(field, "field_type")
+            or (
+                not skip_skipped_and_code_fields
+                or not field.field_type in ["skip this field", "code"]
+            )
+        ]:
             parent_var_and_type = DAField._get_parent_variable(
                 field.final_display_var,
                 custom_plurals=self.custom_people_plurals.values(),
@@ -1269,7 +1284,15 @@ class DAQuestionList(DAList):
             if set_progress and index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
-            if isinstance(question, DAQuestion) and question.type == "question":
+            if (
+                isinstance(question, DAQuestion)
+                and question.type == "question"
+                and (
+                    question.needs_continue_button_field
+                    or hasattr(question, "field_list")
+                    and question.field_list
+                )
+            ):
                 # TODO(bryce): make OOP: don't refer to question.type
                 # Add the first field in every question to our logic tree
                 # This can be customized to control the order of questions later
