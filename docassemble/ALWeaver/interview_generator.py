@@ -1539,9 +1539,29 @@ class DAInterview(DAObject):
         Guess posture of the case using simple heuristics.
         """
         title = title.lower()
-        
-        starts_case_keywords = ["petition", "complaint", "initiation", "application", "claim", "suit", "filing"]
-        existing_case_keywords = ["motion", "response", "reply", "answer", "counterclaim", "rejoinder", "objection", "brief", "memorandum", "declaration", "affidavit"]
+
+        starts_case_keywords = [
+            "petition",
+            "complaint",
+            "initiation",
+            "application",
+            "claim",
+            "suit",
+            "filing",
+        ]
+        existing_case_keywords = [
+            "motion",
+            "response",
+            "reply",
+            "answer",
+            "counterclaim",
+            "rejoinder",
+            "objection",
+            "brief",
+            "memorandum",
+            "declaration",
+            "affidavit",
+        ]
         appeal_keywords = ["appeal", "appellate", "review", "reversal", "circuit"]
         letter_keywords = ["letter", "correspondence", "notice", "communication"]
         other_form_keywords = ["form", "certificate", "record"]
@@ -1556,9 +1576,8 @@ class DAInterview(DAObject):
             return "letter"
         if any(keyword in title for keyword in other_form_keywords):
             return "other_form"
-        
-        return "other"
 
+        return "other"
 
     def _guess_intro_prompt(self, title: str):
         """Create a reasonable opening prompt for the form based on its title
@@ -1582,9 +1601,27 @@ class DAInterview(DAObject):
             title (str): The title of the form
         """
         title = title.lower()
-        
-        defendant_keywords = ["answer", "defendant", "respondent", "rebuttal", "counterclaim", "objection"]
-        plaintiff_keywords = ["complaint", "petition", "plaintiff", "probate", "guardian", "application", "appeal", "claim", "suit", "action"]
+
+        defendant_keywords = [
+            "answer",
+            "defendant",
+            "respondent",
+            "rebuttal",
+            "counterclaim",
+            "objection",
+        ]
+        plaintiff_keywords = [
+            "complaint",
+            "petition",
+            "plaintiff",
+            "probate",
+            "guardian",
+            "application",
+            "appeal",
+            "claim",
+            "suit",
+            "action",
+        ]
 
         if any(keyword in title for keyword in defendant_keywords):
             return "defendant"
@@ -1592,7 +1629,7 @@ class DAInterview(DAObject):
             return "plaintiff"
 
         return "unknown"
-    
+
     def _guess_categories(self, title) -> List[str]:
         """
         Use the SPOT API to predict the form's categories. If SPOT is not available,
@@ -1608,53 +1645,192 @@ class DAInterview(DAObject):
                 if template.filename.lower().endswith(".pdf"):
                     full_text += extract_text(template.path())
                 elif template.filename.lower().endswith(".docx"):
-                    docx_data = docx2python(template.path())  # Will error with invalid value
+                    docx_data = docx2python(
+                        template.path()
+                    )  # Will error with invalid value
                     full_text += docx_data.text
             categories = formfyxer.spot(
-                title + ": " + full_text, 
+                title + ": " + full_text,
                 token=get_config("assembly line", {}).get(
-                    "tools.suffolklitlab.org api key", 
-                    None
+                    "tools.suffolklitlab.org api key", None
                 ),
             )
             if categories and not "401" in categories:
                 return categories
         # Top hits: Housing, Family, Consumer, Probate, Criminal, Traffic, Consumer, Health, Immigration, Employment
-        if any(keyword in title.lower() for keyword in [
-            "eviction", "foreclosure", "housing", "landlord", "tenant", "rent", "lease", "housing court", "unlawful detainer", "holdover", "evict"
-        ]) in title.lower():
+        if (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "eviction",
+                    "foreclosure",
+                    "housing",
+                    "landlord",
+                    "tenant",
+                    "rent",
+                    "lease",
+                    "housing court",
+                    "unlawful detainer",
+                    "holdover",
+                    "evict",
+                ]
+            )
+            in title.lower()
+        ):
             return ["HO-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "divorce", "custody", "child", "family", "marriage", "marital", "parent", "guardian", "adoption"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "divorce",
+                    "custody",
+                    "child",
+                    "family",
+                    "marriage",
+                    "marital",
+                    "parent",
+                    "guardian",
+                    "adoption",
+                ]
+            )
+            in title.lower()
+        ):
             return ["FA-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "consumer", "debt", "credit", "loan", "bankruptcy", "small claims"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "consumer",
+                    "debt",
+                    "credit",
+                    "loan",
+                    "bankruptcy",
+                    "small claims",
+                ]
+            )
+            in title.lower()
+        ):
             return ["MO-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "probate", "estate", "will", "trust", "inheritance", "executor", "administrator", "personal representative", "guardian", "conservator", "power of attorney",
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "probate",
+                    "estate",
+                    "will",
+                    "trust",
+                    "inheritance",
+                    "executor",
+                    "administrator",
+                    "personal representative",
+                    "guardian",
+                    "conservator",
+                    "power of attorney",
+                ]
+            )
+            in title.lower()
+        ):
             return ["ES-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "criminal", "crime", "misdemeanor", "felony"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in ["criminal", "crime", "misdemeanor", "felony"]
+            )
+            in title.lower()
+        ):
             return ["CR-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "traffic", "ticket", "speeding", "speed", "driving", "license", "suspension", "revocation", "revoked", "suspended", "violation", "violate", "infraction", "fine", "fee", "court costs", "court fee", "court fine",
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "traffic",
+                    "ticket",
+                    "speeding",
+                    "speed",
+                    "driving",
+                    "license",
+                    "suspension",
+                    "revocation",
+                    "revoked",
+                    "suspended",
+                    "violation",
+                    "violate",
+                    "infraction",
+                    "fine",
+                    "fee",
+                    "court costs",
+                    "court fee",
+                    "court fine",
+                ]
+            )
+            in title.lower()
+        ):
             return ["TR-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "disability", "health", "medical", "medicaid", "medicare", "insurance", "benefits", "benefit", "social security", "ssi", "ssdi", "disability insurance", "disability benefits", "disability insurance benefits", "disability insurance benefit", "ssi", "social security"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "disability",
+                    "health",
+                    "medical",
+                    "medicaid",
+                    "medicare",
+                    "insurance",
+                    "benefits",
+                    "benefit",
+                    "social security",
+                    "ssi",
+                    "ssdi",
+                    "disability insurance",
+                    "disability benefits",
+                    "disability insurance benefits",
+                    "disability insurance benefit",
+                    "ssi",
+                    "social security",
+                ]
+            )
+            in title.lower()
+        ):
             return ["HE-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "visa", "asylum", "refugee", "naturalization", "citizenship", "alien", "deportation", "adjustment of status", "i-130", "n-400", "immigration", "immigrant"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "visa",
+                    "asylum",
+                    "refugee",
+                    "naturalization",
+                    "citizenship",
+                    "alien",
+                    "deportation",
+                    "adjustment of status",
+                    "i-130",
+                    "n-400",
+                    "immigration",
+                    "immigrant",
+                ]
+            )
+            in title.lower()
+        ):
             return ["IM-00-00-00-00"]
-        elif any(keyword in title.lower() for keyword in [
-            "employment", "unemployment", "insurance", "claim", "benefit", "wage", "jobless", "compensation", "workforce", "layoff"
-        ]) in title.lower():
+        elif (
+            any(
+                keyword in title.lower()
+                for keyword in [
+                    "employment",
+                    "unemployment",
+                    "insurance",
+                    "claim",
+                    "benefit",
+                    "wage",
+                    "jobless",
+                    "compensation",
+                    "workforce",
+                    "layoff",
+                ]
+            )
+            in title.lower()
+        ):
             return ["WO-00-00-00-00"]
         return []
 

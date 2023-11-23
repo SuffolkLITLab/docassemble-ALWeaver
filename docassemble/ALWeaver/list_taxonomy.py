@@ -53,13 +53,14 @@ def get_LIST_codes(
     # Define a function to create the desired dictionary for each row
     def create_dict(row: pd.Series) -> Optional[Dict[str, str]]:
         # row["Suffix"] != "-00-00-00-00":
-            return {
-                "label": row["Title"],
-                "value": row["Code"],
-                "group": group_dict.get(row["Prefix"], "MISC"),
-            }
-        #else:
-        #    return None  # We'll drop these None rows later
+        return {
+            "label": row["Title"],
+            "value": row["Code"],
+            "group": group_dict.get(row["Prefix"], "MISC"),
+        }
+
+    # else:
+    #    return None  # We'll drop these None rows later
 
     # Apply the function to all rows
     df["YAML"] = df.apply(create_dict, axis=1)
