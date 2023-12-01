@@ -948,6 +948,10 @@ css: |
     margin-top: 2em;
     margin-bottom: 0em!important;
   }
+  .aligndown-container {
+    display: flex;
+    align-items: flex-end;
+  }
   </style>
 ---
 template: example_of_question_screen

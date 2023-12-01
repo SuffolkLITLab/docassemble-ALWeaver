@@ -438,17 +438,34 @@ class DAField(DAObject):
                 # "label above field": True,
                 "field": self.attr_name("label"),
                 "default": self.variable_name_guess,
+                "label above field": True,
+                "grid": 6,
+                "js hide if": f"val('{ self.attr_name('field_type') }') === 'skip this field' || val('{ self.attr_name('field_type') }') === 'code'",
             }
         )
         field_questions.append(
             {
-                "label": f"Type",
+                "label": "Type",
                 # "label above field": True,
                 "field": self.attr_name("field_type"),
+                "label above field": True,
+                "grid": 3,
                 "code": "field_type_options()",
                 "default": self.field_type_guess
                 if hasattr(self, "field_type_guess")
                 else None,
+            }
+        )
+        field_questions.append(
+            {
+                "label": "Optional",
+                "field": self.attr_name("is_optional"),
+                "datatype": "yesnowide",
+                "label above field": True,
+                "grid": 3,
+                "help": "Check the box if this field is not required",
+                "js hide if": f"val('{ self.attr_name('field_type') }') === 'skip this field' || val('{ self.attr_name('field_type') }') === 'code'",
+                "css class": "aligndown",
             }
         )
         field_questions.append(
