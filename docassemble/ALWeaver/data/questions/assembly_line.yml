@@ -445,9 +445,6 @@ script: |
       });
   </script>
 ---
-code: |
-  interview_label_draft = interview.title
----
 event: update_state_list
 code: |
   if action_argument('interview.default_country_code') and action_argument('interview.default_country_code') != interview.default_country_code:          
@@ -591,7 +588,7 @@ fields:
       file that are shown only internally.
   - Custom filename: interview_label_draft
     show if: interview.customize_file_name
-    default: ${ varname(interview.short_filename_with_spaces) }
+    default: ${ varname(interview.short_filename_with_spaces[:35]) }
   - Description of the form for metadata: interview.description
     default: |
       This interview helps someone in ${ state_name(interview.state, country_code=interview.default_country_code) } ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
@@ -626,6 +623,9 @@ fields:
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+---
+code: |
+  interview_label_draft = interview.title[:35]
 ---
 code: |
   interview.short_title = interview.title
