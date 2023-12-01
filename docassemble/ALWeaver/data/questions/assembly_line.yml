@@ -1279,16 +1279,32 @@ subquestion: |
   calculate a value, for example.
   % endif
 fields:
-  - Docassemble variable name, in `snake_case`: interview.all_fields[i].variable
+  - On-screen label or prompt: interview.all_fields[i].label
+    label above field: True
+    grid: 6
+    js hide if: |
+      val("interview.all_fields[i].field_type") === 'code' || val("interview.all_fields[i].field_type") === 'skip this field'
+  - Variable name: interview.all_fields[i].variable
     show if:
       code: |
         not hasattr(interview.all_fields[i], 'label')
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")
-  - On-screen label or prompt: interview.all_fields[i].label
+    label above field: True
+    grid: 3
+    help: |
+      Must be a valid Python variable name, preferably in `snake_case`
   - Field type: interview.all_fields[i].field_type
     code: |
       field_type_options()
+    label above field: True
+    grid: 3
+  - Optional: interview.all_fields[i].is_optional
+    datatype: yesno
+    grid: 6
+    label above field: True
+    js hide if: |
+      val("interview.all_fields[i].field_type") === 'code' || val("interview.all_fields[i].field_type") === 'skip this field'
   - Send overflow text to addendum: interview.all_fields[i].send_to_addendum
     datatype: yesno
     show if:
@@ -1296,6 +1312,8 @@ fields:
       is: area
       code: |
         hasattr(interview.all_fields[i], "maxlength")
+    grid: 6
+    label above field: True
   - label: |
       Complete the Python expression: `${ interview.all_fields[i].final_display_var if hasattr(interview.all_fields[i], 'final_display_var') else "x" } =`
     field: interview.all_fields[i].code
@@ -1306,11 +1324,12 @@ fields:
   - Options (one per line): interview.all_fields[i].choices
     datatype: area
     js show if: |
-      val('interview.all_fields[i].field_type') === 'multiple choice radio' || val('interview.all_fields[i].field_type') === 'multiple choice checkboxes'
+      val('interview.all_fields[i].field_type') === 'multiple choice radio' || val('interview.all_fields[i].field_type') === 'multiple choice checkboxes' || val('interview.all_fields[i].field_type') === 'multiple choice dropdown' || val('interview.all_fields[i].field_type') === 'multiple choice combobox' || val('interview.all_fields[i].field_type') === 'multiselect'
     help: |
-      Like 'Descriptive name: key_name', or just 'Descriptive name'
+      Write one option per line. Optionally, you can write a label and a value separated by a colon. For example:
+      `Descriptive label: value`
     hint: |
-      Descriptive name: key_name
+      Descriptive label: value
 validation code: |
   for field in interview.all_fields:
     if not hasattr(field, 'final_display_var'):
