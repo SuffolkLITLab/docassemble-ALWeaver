@@ -37,6 +37,7 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
+  multi_user
   nav.hide()
   process_url_args
   # Check to see if we are launched from the form explorer, and
