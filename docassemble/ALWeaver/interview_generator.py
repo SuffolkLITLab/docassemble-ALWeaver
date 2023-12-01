@@ -1681,178 +1681,151 @@ class DAInterview(DAObject):
             if categories and not "401" in categories:
                 return categories
         # Top hits: Housing, Family, Consumer, Probate, Criminal, Traffic, Consumer, Health, Immigration, Employment
-        if (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "eviction",
-                    "foreclosure",
-                    "housing",
-                    "landlord",
-                    "tenant",
-                    "rent",
-                    "lease",
-                    "housing court",
-                    "unlawful detainer",
-                    "holdover",
-                    "evict",
-                ]
-            )
-            in title.lower()
+        if any(
+            keyword in title.lower()
+            for keyword in [
+                "eviction",
+                "foreclosure",
+                "housing",
+                "landlord",
+                "tenant",
+                "rent",
+                "lease",
+                "housing court",
+                "unlawful detainer",
+                "holdover",
+                "evict",
+            ]
         ):
             return ["HO-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "divorce",
-                    "custody",
-                    "child",
-                    "family",
-                    "marriage",
-                    "marital",
-                    "parent",
-                    "guardian",
-                    "adoption",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "divorce",
+                "custody",
+                "child",
+                "family",
+                "marriage",
+                "marital",
+                "parent",
+                "guardian",
+                "adoption",
+            ]
         ):
             return ["FA-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "consumer",
-                    "debt",
-                    "credit",
-                    "loan",
-                    "bankruptcy",
-                    "small claims",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "consumer",
+                "debt",
+                "credit",
+                "loan",
+                "bankruptcy",
+                "small claims",
+            ]
         ):
             return ["MO-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "probate",
-                    "estate",
-                    "will",
-                    "trust",
-                    "inheritance",
-                    "executor",
-                    "administrator",
-                    "personal representative",
-                    "guardian",
-                    "conservator",
-                    "power of attorney",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "probate",
+                "estate",
+                "will",
+                "trust",
+                "inheritance",
+                "executor",
+                "administrator",
+                "personal representative",
+                "guardian",
+                "conservator",
+                "power of attorney",
+            ]
         ):
             return ["ES-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in ["criminal", "crime", "misdemeanor", "felony"]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in ["criminal", "crime", "misdemeanor", "felony"]
         ):
             return ["CR-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "traffic",
-                    "ticket",
-                    "speeding",
-                    "speed",
-                    "driving",
-                    "license",
-                    "suspension",
-                    "revocation",
-                    "revoked",
-                    "suspended",
-                    "violation",
-                    "violate",
-                    "infraction",
-                    "fine",
-                    "fee",
-                    "court costs",
-                    "court fee",
-                    "court fine",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "traffic",
+                "ticket",
+                "speeding",
+                "speed",
+                "driving",
+                "license",
+                "suspension",
+                "revocation",
+                "revoked",
+                "suspended",
+                "violation",
+                "violate",
+                "infraction",
+                "fine",
+                "fee",
+                "court costs",
+                "court fee",
+                "court fine",
+            ]
         ):
             return ["TR-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "disability",
-                    "health",
-                    "medical",
-                    "medicaid",
-                    "medicare",
-                    "insurance",
-                    "benefits",
-                    "benefit",
-                    "social security",
-                    "ssi",
-                    "ssdi",
-                    "disability insurance",
-                    "disability benefits",
-                    "disability insurance benefits",
-                    "disability insurance benefit",
-                    "ssi",
-                    "social security",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "disability",
+                "health",
+                "medical",
+                "medicaid",
+                "medicare",
+                "insurance",
+                "benefits",
+                "benefit",
+                "social security",
+                "ssi",
+                "ssdi",
+                "disability insurance",
+                "disability benefits",
+                "disability insurance benefits",
+                "disability insurance benefit",
+                "ssi",
+                "social security",
+            ]
         ):
             return ["HE-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "visa",
-                    "asylum",
-                    "refugee",
-                    "naturalization",
-                    "citizenship",
-                    "alien",
-                    "deportation",
-                    "adjustment of status",
-                    "i-130",
-                    "n-400",
-                    "immigration",
-                    "immigrant",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "visa",
+                "asylum",
+                "refugee",
+                "naturalization",
+                "citizenship",
+                "alien",
+                "deportation",
+                "adjustment of status",
+                "i-130",
+                "n-400",
+                "immigration",
+                "immigrant",
+            ]
         ):
             return ["IM-00-00-00-00"]
-        elif (
-            any(
-                keyword in title.lower()
-                for keyword in [
-                    "employment",
-                    "unemployment",
-                    "insurance",
-                    "claim",
-                    "benefit",
-                    "wage",
-                    "jobless",
-                    "compensation",
-                    "workforce",
-                    "layoff",
-                ]
-            )
-            in title.lower()
+        elif any(
+            keyword in title.lower()
+            for keyword in [
+                "employment",
+                "unemployment",
+                "insurance",
+                "claim",
+                "benefit",
+                "wage",
+                "jobless",
+                "compensation",
+                "workforce",
+                "layoff",
+            ]
         ):
             return ["WO-00-00-00-00"]
         return []
