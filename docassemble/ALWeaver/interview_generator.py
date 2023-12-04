@@ -465,7 +465,6 @@ class DAField(DAObject):
                 "grid": 3,
                 "help": "Check the box if this field is not required",
                 "js hide if": f"val('{ self.attr_name('field_type') }') === 'skip this field' || val('{ self.attr_name('field_type') }') === 'code'",
-                "css class": "aligndown",
             }
         )
         field_questions.append(
