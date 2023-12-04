@@ -37,6 +37,7 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
+  multi_user = True
   nav.hide()
   process_url_args
   # Check to see if we are launched from the form explorer, and
@@ -53,6 +54,7 @@ code: |
     nav.set_section("nav_upload")
     if have_template_to_load:
       interview.uploaded_templates
+      set_name_of_current_session_from_filename
       if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
@@ -96,6 +98,9 @@ code: |
   nav.set_section("nav_metadata")
   interview.jurisdiction_choices
   interview.form_type
+  interview.intro_prompt
+  interview.title
+  set_name_of_current_session
   if generate_download_screen:
     interview.intro_prompt #branding screen
     interview.title #intro screen
@@ -134,6 +139,14 @@ code: |
   # Display output download screen
   nav.set_section("nav_package")
   show_interview  
+---
+code: |
+  rename_current_session(interview.uploaded_templates[0].filename)
+  set_name_of_current_session_from_filename = True
+---
+code: |
+  rename_current_session(interview.title)
+  set_name_of_current_session = True  
 ---
 features:
   question help button: True
@@ -284,7 +297,7 @@ event: browse_weaver_sessions
 question: |
   Existing Weaver sessions
 subquestion: |
-  ${ session_list_html(filename=user_info().filename, exclude_current_filename=False) }
+  ${ session_list_html(filename=user_info().filename, exclude_current_filename=False, exclude_newly_started_sessions=True) }
 ---
 id: file upload screen
 question: |
