@@ -51,6 +51,9 @@
     maxlength: ${ field.maxlength }
     % endif
   % endif
+  % if hasattr(field, "is_optional") and field.is_optional:
+    required: False
+  % endif
 </%def>\
 <%def name="review_yaml(collection)">\
   % if collection.var_type == "list":
