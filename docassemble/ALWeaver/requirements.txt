@@ -1,8 +1,8 @@
-docassemble.base>=1.4.88
-docassemble.webapp==1.4.88
+docassemble.base==1.4.65
+docassemble.webapp==1.4.65
 more_itertools
 pyyaml
 docx2python
-boto3==1.28.63
+boto3==1.26.64
 pandas-stubs
 mypy
