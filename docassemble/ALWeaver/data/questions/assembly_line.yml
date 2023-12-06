@@ -319,6 +319,18 @@ fields:
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  - Upload JSON file with draft screen arrangement (advanced): interview.start_with_json
+    help: |
+      If you have a JSON file that has a draft of the screens and their order, you can upload
+      it now. This is intended to make it possible to draft the screens in another tool, such
+      as with the help of GPT-4.
+    datatype: yesno
+  - JSON file: interview.uploaded_json
+    datatype: file
+    file css class: None
+    show if: interview.start_with_json
+    accept: |
+      "application/json"
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
@@ -1970,8 +1982,15 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
-      interview.auto_assign_attributes()
-      interview_label_draft = interview.short_filename
+      if hasattr(interview, "start_with_json") and interview.start_with_json:
+        try:
+          interview.parsed_json = json.loads(interview.uploaded_json.path())
+          interview.auto_assign_attributes(screens=interview.parsed_json["screens"], interview_logic = interview.parsed_json["interview_logic"])
+        except:
+          interview.auto_assign_attributes()
+      else:
+        interview.auto_assign_attributes()
+      interview_label_draft = varname(interview.title)
 
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.

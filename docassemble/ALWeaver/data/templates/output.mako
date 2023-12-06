@@ -181,7 +181,11 @@ ${ field_entry_yaml(field) }\
   % endfor
 % endif
 % if question.needs_continue_button_field:
+  % if hasattr(question, "continue_button_field"):
+continue button field: ${ question.continue_button_field }
+  % else:
 continue button field: ${ varname(question.question_text) }
+  % endif
 % endif
 % endfor
 <%doc>
