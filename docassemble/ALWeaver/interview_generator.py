@@ -47,6 +47,7 @@ import re
 import uuid
 import zipfile
 import spacy
+from dataclasses import dataclass
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -1242,7 +1243,7 @@ class DAQuestion(DAObject):
 
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
-        self.field_list = DAFieldList()
+        self.initializeAttribute("field_list", DAFieldList)
 
     @property
     def complete(self) -> bool:
@@ -1374,6 +1375,27 @@ class DAQuestionList(DAList):
                         saved_answer_name_flag = True
 
         return list(more_itertools.unique_everseen(logic_list))
+
+
+@dataclass
+class Field:
+    label: Optional[str] = None
+    field: Optional[str] = None
+    datatype: Optional[str] = None
+    input_type: Optional[str] = None
+    maxlength: Optional[int] = None
+    choices: Optional[List[str]] = None
+    min: Optional[int] = None
+    max: Optional[int] = None
+    step: Optional[int] = None
+    required: Optional[bool] = None
+
+@dataclass
+class Screen:
+    continue_button_field: Optional[str] = None
+    question: Optional[str] = None
+    subquestion: Optional[str] = None
+    fields: List[Field] = None
 
 
 class DAInterview(DAObject):
@@ -1535,7 +1557,7 @@ class DAInterview(DAObject):
             categories (Optional[str]): Categories of the interview
             default_country_code (str): Default country code for the interview. Defaults to "US".
             interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
-            screens (Optional[DAList[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
+            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
         """
         try:
             if user_logged_in():
@@ -1899,7 +1921,7 @@ class DAInterview(DAObject):
     def _null_group_fields(self):
         return {"Screen 1": [field.variable for field in self.all_fields.custom()]}
 
-    def create_questions_from_screen_list(self, screen_list: List[Dict]):
+    def create_questions_from_screen_list(self, screen_list: List[Screen]):
         """
         Create a question for each screen in the screen list. This is an alternative to
         allow an author to upload a list of fields and then create a question for each
@@ -1918,7 +1940,6 @@ class DAInterview(DAObject):
                 new_screen.is_informational = False
             new_screen.question_text = screen.get("question", "")
             new_screen.subquestion_text = screen.get("subquestion", "")
-            new_screen.field_list = []
             for field in screen.get("fields", []):
                 new_field = new_screen.field_list.appendObject()
                 
@@ -1957,7 +1978,7 @@ class DAInterview(DAObject):
                     new_field.range_step = field.get("step", None)
                 if field.get("required") == False:
                     new_field.is_optional = True
-
+            new_screen.field_list.gathered = True
         self.questions.gathered = True
 
 

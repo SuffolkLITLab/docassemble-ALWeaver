@@ -1983,11 +1983,11 @@ code: |
   interview_type = "regular"
   if not has_safe_pdf_in_url:
       if hasattr(interview, "start_with_json") and interview.start_with_json:
-        try:
-          interview.parsed_json = json.loads(interview.uploaded_json.path())
-          interview.auto_assign_attributes(screens=interview.parsed_json["screens"], interview_logic = interview.parsed_json["interview_logic"])
-        except:
-          interview.auto_assign_attributes()
+          # try
+          interview.parsed_json = json.loads(interview.uploaded_json.slurp())
+          interview.auto_assign_attributes(screens=interview.parsed_json["questions"], interview_logic = interview.parsed_json["interview order"])
+          # except
+          # interview.auto_assign_attributes()
       else:
         interview.auto_assign_attributes()
       interview_label_draft = varname(interview.title)
