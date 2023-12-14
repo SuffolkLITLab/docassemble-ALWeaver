@@ -47,6 +47,7 @@ import re
 import uuid
 import zipfile
 import spacy
+from dataclasses import dataclass
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -79,6 +80,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_docx_variables",
     "get_fields",
+    "get_question_file_variables",
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
@@ -97,6 +99,7 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
+    "logic_to_code_block",
 ]
 
 always_defined = set(
@@ -202,6 +205,39 @@ def varname(var_name: str) -> str:
         var_name = digit_start.sub(r"", var_name)
         return var_name
     return var_name
+
+
+def logic_to_code_block(items: List[Union[Dict, str]], indent_level=0) -> str:
+    """Converts a list of logic items to a code block with the given indentation level
+
+    Args:
+        items (list): A list of logic items, of the form ['var0', {'condition': '...', 'children': ['var1']}, 'var2', 'var3', ...]
+        indent_level (int, optional): The indentation level to use. Defaults to 0. Used for recursion.
+
+    Returns:
+        str: The code block, as a string
+    """
+    code_lines = []
+    indent = "  " * indent_level  # Define the indentation (e.g., 2 spaces per level)
+    for item in items:
+        if isinstance(item, str):  # If the item is a string, it's a variable
+            code_lines.append(f"{indent}{item}")
+        elif isinstance(item, dict):  # If the item is a dictionary, it's a condition
+            # Add the condition line with the current indentation
+            condition_line = item["condition"]
+            if not condition_line.startswith("if "):
+                condition_line = (
+                    "if " + condition_line
+                )  # Add 'if' if it's not already there
+            if not condition_line.endswith(":"):
+                condition_line += ":"
+            code_lines.append(f"{indent}{condition_line}")
+
+            # Recursively process the children with increased indentation
+            children_code = logic_to_code_block(item["children"], indent_level + 1)
+            code_lines.append(children_code)
+
+    return "\n".join(code_lines)
 
 
 class DAFieldGroup(Enum):
@@ -1210,7 +1246,7 @@ class DAQuestion(DAObject):
 
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
-        self.field_list = DAFieldList()
+        self.initializeAttribute("field_list", DAFieldList)
 
     @property
     def complete(self) -> bool:
@@ -1342,6 +1378,48 @@ class DAQuestionList(DAList):
                         saved_answer_name_flag = True
 
         return list(more_itertools.unique_everseen(logic_list))
+
+
+class DADataType(Enum):
+    TEXT = "text"
+    AREA = "area"
+    YESNO = "yesno"
+    NOYES = "noyes"
+    YESNORADIO = "yesnoradio"
+    NOYESRADIO = "noyesradio"
+    YESNOWIDE = "yesnowide"
+    NOYESWIDE = "noyeswide"
+    NUMBER = "number"
+    INTEGER = "integer"
+    CURRENCY = "currency"
+    EMAIL = "email"
+    DATE = "date"
+    FILE = "file"
+    RADIO = "radio"
+    COMBOBOX = "combobox"
+    CHECKBOXES = "checkboxes"
+
+
+@dataclass
+class Field:
+    label: Optional[str] = None
+    field: Optional[str] = None
+    datatype: Optional[DADataType] = None
+    input_type: Optional[str] = None
+    maxlength: Optional[int] = None
+    choices: Optional[List[str]] = None
+    min: Optional[int] = None
+    max: Optional[int] = None
+    step: Optional[int] = None
+    required: Optional[bool] = None
+
+
+@dataclass
+class Screen:
+    continue_button_field: Optional[str] = None
+    question: Optional[str] = None
+    subquestion: Optional[str] = None
+    fields: List[Field] = None
 
 
 class DAInterview(DAObject):
@@ -1486,11 +1564,24 @@ class DAInterview(DAObject):
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
         default_country_code: str = "US",
+        interview_logic: Optional[List[Union[Dict, str]]] = None,
+        screens: Optional[List[Dict]] = None,
     ):
         """
         Automatically assign interview attributes based on the template
         assigned to the interview object.
         To assist with "I'm feeling lucky" button.
+
+        Args:
+            url (Optional[str]): URL to a template file
+            input_file (Optional[Union[DAFileList, DAFile, DAStaticFile]]): A file
+                object
+            title (Optional[str]): Title of the interview
+            jurisdiction (Optional[str]): Jurisdiction of the interview
+            categories (Optional[str]): Categories of the interview
+            default_country_code (str): Default country code for the interview. Defaults to "US".
+            interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
+            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
         """
         try:
             if user_logged_in():
@@ -1540,7 +1631,14 @@ class DAInterview(DAObject):
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
-        self.auto_group_fields()
+        if interview_logic:
+            self.interview_logic = interview_logic
+        if screens:
+            if not interview_logic:
+                self.interview_logic = get_question_file_variables(screens)
+            self.create_questions_from_screen_list(screens)
+        else:
+            self.auto_group_fields()
 
     def _set_title(self, url=None, input_file=None):
         if url:
@@ -1849,6 +1947,70 @@ class DAInterview(DAObject):
     def _null_group_fields(self):
         return {"Screen 1": [field.variable for field in self.all_fields.custom()]}
 
+    def create_questions_from_screen_list(self, screen_list: List[Screen]):
+        """
+        Create a question for each screen in the screen list. This is an alternative to
+        allow an author to upload a list of fields and then create a question for each
+        without using FormFyxer's auto field creation.
+
+        Args:
+            screen_list (list): A list of dictionaries, each representing a screen
+        """
+        self.questions.auto_gather = False
+        for screen in screen_list:
+            if not screen.get("question"):
+                continue
+            new_screen = self.questions.appendObject()
+            if screen.get("continue button field"):
+                new_screen.continue_button_field = screen.get("continue button field")
+                new_screen.is_informational = True
+            else:
+                new_screen.is_informational = False
+            new_screen.question_text = screen.get("question", "")
+            new_screen.subquestion_text = screen.get("subquestion", "")
+            for field in screen.get("fields", []):
+                new_field = new_screen.field_list.appendObject()
+
+                if field.get("label") and field.get("field"):
+                    new_field.variable = field.get("field")
+                    new_field.label = field.get("label")
+                else:
+                    first_item = next(iter(field.items()))
+                    new_field.variable = first_item[1]
+                    new_field.label = first_item[0]
+                # For some reason we made the field_type not exactly the same as the datatype in Docassemble
+                # TODO: consider refactoring this
+                if field.get("datatype") or field.get("input type"):
+                    if field.get("datatype", "") == "radio":
+                        new_field.field_type = "multiple choice radio"
+                    elif field.get("datatype", "") == "checkboxes":
+                        new_field.field_type = "multiple choice checkboxes"
+                    elif field.get("datatype", "") == "dropdown":
+                        new_field.field_type = "multiple choice dropdown"
+                    elif field.get("datatype", "") == "combobox":
+                        new_field.field_type = "multiple choice combobox"
+                    else:
+                        new_field.field_type = field.get(
+                            "datatype", field.get("input type", "text")
+                        )
+                else:
+                    new_field.field_type = "text"
+                if field.get("maxlength"):
+                    new_field.maxlength = field.get("maxlength", None)
+                if field.get("choices"):
+                    # We turn choices into a newline separated string
+                    new_field.choices = "\n".join(field.get("choices", []))
+                if field.get("min"):
+                    new_field.range_min = field.get("min", None)
+                if field.get("max"):
+                    new_field.range_max = field.get("max", None)
+                if field.get("step"):
+                    new_field.range_step = field.get("step", None)
+                if field.get("required") == False:
+                    new_field.is_optional = True
+            new_screen.field_list.gathered = True
+        self.questions.gathered = True
+
     def auto_group_fields(self):
         """
         Use FormFyxer to assign fields to screens.
@@ -2001,6 +2163,30 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     docx_data = docx2python(document.path())  # Will error with invalid value
     text = docx_data.text
     return get_docx_variables(text)
+
+
+def get_question_file_variables(screens: List[Screen]) -> List[str]:
+    """Extract the fields from a list of screens representing a Docassemble interview,
+    such as might be supplied as an input to the Weaver in JSON format.
+
+    Args:
+        screens (List[Screen]): A list of screens, each represented as a dictionary
+
+    Returns:
+        List[str]: A list of variables
+    """
+    fields = []
+    for screen in screens:
+        if screen.get("continue button field"):
+            fields.append(screen.get("continue button field"))
+        if screen.get("fields"):
+            for field in screen.get("fields"):
+                if field.get("field"):
+                    fields.append(field.get("field"))
+                else:
+                    fields.append(next(iter(field.values())))
+    # remove duplicates without changing order
+    return list(dict.fromkeys(fields))
 
 
 def get_docx_variables(text: str) -> set:
