@@ -209,7 +209,7 @@ def varname(var_name: str) -> str:
 
 def logic_to_code_block(items: List[Union[Dict, str]], indent_level=0) -> str:
     """Converts a list of logic items to a code block with the given indentation level
-    
+
     Args:
         items (list): A list of logic items, of the form ['var0', {'condition': '...', 'children': ['var1']}, 'var2', 'var3', ...]
         indent_level (int, optional): The indentation level to use. Defaults to 0. Used for recursion.
@@ -218,24 +218,26 @@ def logic_to_code_block(items: List[Union[Dict, str]], indent_level=0) -> str:
         str: The code block, as a string
     """
     code_lines = []
-    indent = '  ' * indent_level  # Define the indentation (e.g., 2 spaces per level)
+    indent = "  " * indent_level  # Define the indentation (e.g., 2 spaces per level)
     for item in items:
         if isinstance(item, str):  # If the item is a string, it's a variable
-            code_lines.append(f"{indent}{item}")            
+            code_lines.append(f"{indent}{item}")
         elif isinstance(item, dict):  # If the item is a dictionary, it's a condition
             # Add the condition line with the current indentation
-            condition_line = item['condition']
-            if not condition_line.startswith('if '):
-                condition_line = 'if ' + condition_line  # Add 'if' if it's not already there
-            if not condition_line.endswith(':'):
-                condition_line += ':'
+            condition_line = item["condition"]
+            if not condition_line.startswith("if "):
+                condition_line = (
+                    "if " + condition_line
+                )  # Add 'if' if it's not already there
+            if not condition_line.endswith(":"):
+                condition_line += ":"
             code_lines.append(f"{indent}{condition_line}")
 
             # Recursively process the children with increased indentation
-            children_code = logic_to_code_block(item['children'], indent_level + 1)
+            children_code = logic_to_code_block(item["children"], indent_level + 1)
             code_lines.append(children_code)
 
-    return '\n'.join(code_lines)
+    return "\n".join(code_lines)
 
 
 class DAFieldGroup(Enum):
@@ -1377,6 +1379,7 @@ class DAQuestionList(DAList):
 
         return list(more_itertools.unique_everseen(logic_list))
 
+
 class DADataType(Enum):
     TEXT = "text"
     AREA = "area"
@@ -1396,6 +1399,7 @@ class DADataType(Enum):
     COMBOBOX = "combobox"
     CHECKBOXES = "checkboxes"
 
+
 @dataclass
 class Field:
     label: Optional[str] = None
@@ -1408,6 +1412,7 @@ class Field:
     max: Optional[int] = None
     step: Optional[int] = None
     required: Optional[bool] = None
+
 
 @dataclass
 class Screen:
@@ -1965,7 +1970,7 @@ class DAInterview(DAObject):
             new_screen.subquestion_text = screen.get("subquestion", "")
             for field in screen.get("fields", []):
                 new_field = new_screen.field_list.appendObject()
-                
+
                 if field.get("label") and field.get("field"):
                     new_field.variable = field.get("field")
                     new_field.label = field.get("label")
@@ -1974,7 +1979,7 @@ class DAInterview(DAObject):
                     new_field.variable = first_item[1]
                     new_field.label = first_item[0]
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
-                #TODO: consider refactoring this
+                # TODO: consider refactoring this
                 if field.get("datatype") or field.get("input type"):
                     if field.get("datatype", "") == "radio":
                         new_field.field_type = "multiple choice radio"
@@ -1985,7 +1990,9 @@ class DAInterview(DAObject):
                     elif field.get("datatype", "") == "combobox":
                         new_field.field_type = "multiple choice combobox"
                     else:
-                        new_field.field_type = field.get("datatype", field.get("input type", "text"))
+                        new_field.field_type = field.get(
+                            "datatype", field.get("input type", "text")
+                        )
                 else:
                     new_field.field_type = "text"
                 if field.get("maxlength"):
@@ -2003,7 +2010,6 @@ class DAInterview(DAObject):
                     new_field.is_optional = True
             new_screen.field_list.gathered = True
         self.questions.gathered = True
-
 
     def auto_group_fields(self):
         """
@@ -2158,10 +2164,11 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     text = docx_data.text
     return get_docx_variables(text)
 
-def get_question_file_variables(screens:List[Screen]) -> List[str]:
+
+def get_question_file_variables(screens: List[Screen]) -> List[str]:
     """Extract the fields from a list of screens representing a Docassemble interview,
     such as might be supplied as an input to the Weaver in JSON format.
-    
+
     Args:
         screens (List[Screen]): A list of screens, each represented as a dictionary
 
