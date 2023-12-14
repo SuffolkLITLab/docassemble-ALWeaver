@@ -1376,12 +1376,30 @@ class DAQuestionList(DAList):
 
         return list(more_itertools.unique_everseen(logic_list))
 
+class DADataType(Enum):
+    TEXT = "text"
+    AREA = "area"
+    YESNO = "yesno"
+    NOYES = "noyes"
+    YESNORADIO = "yesnoradio"
+    NOYESRADIO = "noyesradio"
+    YESNOWIDE = "yesnowide"
+    NOYESWIDE = "noyeswide"
+    NUMBER = "number"
+    INTEGER = "integer"
+    CURRENCY = "currency"
+    EMAIL = "email"
+    DATE = "date"
+    FILE = "file"
+    RADIO = "radio"
+    COMBOBOX = "combobox"
+    CHECKBOXES = "checkboxes"
 
 @dataclass
 class Field:
     label: Optional[str] = None
     field: Optional[str] = None
-    datatype: Optional[str] = None
+    datatype: Optional[DADataType] = None
     input_type: Optional[str] = None
     maxlength: Optional[int] = None
     choices: Optional[List[str]] = None
@@ -2134,6 +2152,28 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     docx_data = docx2python(document.path())  # Will error with invalid value
     text = docx_data.text
     return get_docx_variables(text)
+
+def get_question_file_variables(screens:List[Screen]) -> Set[str]:
+    """Extract the fields from a list of screens representing a Docassemble interview,
+    such as might be supplied as an input to the Weaver in JSON format.
+    
+    Args:
+        screens (List[Screen]): A list of screens, each represented as a dictionary
+
+    Returns:
+        List[str]: A list of variables
+    """
+    fields = set()
+    for screen in screens:
+        if screen.get("continue button field"):
+            fields.add(screen.get("continue button field"))
+        if screen.get("fields"):
+            for field in screen.get("fields"):
+                if field.get("field"):
+                    fields.add(field.get("field"))
+                else:
+                    fields.add(next(iter(field.values())))
+    return fields
 
 
 def get_docx_variables(text: str) -> set:
