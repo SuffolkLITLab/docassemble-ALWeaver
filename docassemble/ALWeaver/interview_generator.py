@@ -80,6 +80,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_docx_variables",
     "get_fields",
+    "get_question_file_variables",
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
@@ -98,7 +99,7 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
-    "logic_to_code_block",    
+    "logic_to_code_block",
 ]
 
 always_defined = set(
@@ -1628,6 +1629,8 @@ class DAInterview(DAObject):
         if interview_logic:
             self.interview_logic = interview_logic
         if screens:
+            if not interview_logic:
+                self.interview_logic = get_question_file_variables(screens)
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()
@@ -1950,9 +1953,11 @@ class DAInterview(DAObject):
         """
         self.questions.auto_gather = False
         for screen in screen_list:
+            if not screen.get("question"):
+                continue
             new_screen = self.questions.appendObject()
             if screen.get("continue button field"):
-                new_screen.continue_button_field = screen.get("continue_button_field")
+                new_screen.continue_button_field = screen.get("continue button field")
                 new_screen.is_informational = True
             else:
                 new_screen.is_informational = False
@@ -2153,7 +2158,7 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     text = docx_data.text
     return get_docx_variables(text)
 
-def get_question_file_variables(screens:List[Screen]) -> Set[str]:
+def get_question_file_variables(screens:List[Screen]) -> List[str]:
     """Extract the fields from a list of screens representing a Docassemble interview,
     such as might be supplied as an input to the Weaver in JSON format.
     
@@ -2163,17 +2168,18 @@ def get_question_file_variables(screens:List[Screen]) -> Set[str]:
     Returns:
         List[str]: A list of variables
     """
-    fields = set()
+    fields = []
     for screen in screens:
         if screen.get("continue button field"):
-            fields.add(screen.get("continue button field"))
+            fields.append(screen.get("continue button field"))
         if screen.get("fields"):
             for field in screen.get("fields"):
                 if field.get("field"):
-                    fields.add(field.get("field"))
+                    fields.append(field.get("field"))
                 else:
-                    fields.add(next(iter(field.values())))
-    return fields
+                    fields.append(next(iter(field.values())))
+    # remove duplicates without changing order
+    return list(dict.fromkeys(fields))
 
 
 def get_docx_variables(text: str) -> set:

@@ -319,18 +319,6 @@ fields:
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  - Upload JSON file with draft screen arrangement (advanced): interview.start_with_json
-    help: |
-      If you have a JSON file that has a draft of the screens and their order, you can upload
-      it now. This is intended to make it possible to draft the screens in another tool, such
-      as with the help of GPT-4.
-    datatype: yesno
-  - JSON file: interview.uploaded_json
-    datatype: file
-    file css class: None
-    show if: interview.start_with_json
-    accept: |
-      "application/json"
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
@@ -1905,6 +1893,29 @@ fields:
     choices:
       - Build step by step: False
       - Use auto-drafting mode: True
+  - Upload JSON file with draft screen arrangement (advanced): interview.start_with_json
+    help: |
+      If you have a JSON file that has a draft of the screens and their order, you can upload
+      it now. This is intended to make it possible to draft the screens in another tool, such
+      as with the help of GPT-4. You still get the benefit of the Weaver's templates
+      and pre-built questions.
+
+      Your uploaded JSON file should be a dictionary with two keys:
+
+      1. `questions` should be a list of dictionaries, each of which represents a screen with
+         "custom" fields.
+      2. `interview order` should be a list of strings, each of which is the name of a screen. It
+         can include "built-in" screens you want to let the Weaver control, such as users.gather().
+    datatype: yesno
+    show if: 
+      variable: im_feeling_lucky
+      is: True
+  - JSON file: interview.uploaded_json
+    datatype: file
+    file css class: None
+    show if: interview.start_with_json
+    accept: |
+      "application/json"
   - Try to install the `en_core_web_lg` package before using auto drafting mode: install_en_core_web_lg
     help: |
       Installing `en_core_web_lg` will allow you to use automatic field
@@ -1982,15 +1993,29 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
-      if hasattr(interview, "start_with_json") and interview.start_with_json:
-          # try
-          interview.parsed_json = json.loads(interview.uploaded_json.slurp())
-          interview.auto_assign_attributes(screens=interview.parsed_json["questions"], interview_logic = interview.parsed_json["interview order"])
-          # except
-          # interview.auto_assign_attributes()
+    if hasattr(interview, "start_with_json") and interview.start_with_json:
+      #try: # Don't know yet why this always raises an exception. A name error that DA silently fixes?
+      interview.parsed_json = json.loads(interview.uploaded_json.slurp())
+      #except:
+      #  log("Unable to parse JSON file with json.loads", "error")
+      #  interview.parsed_json = None
+      if isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json and "interview order" in interview.parsed_json:
+        interview.auto_assign_attributes(
+          screens=interview.parsed_json["questions"], 
+          interview_logic = interview.parsed_json["interview order"]
+        )
+      if isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json:
+        # Let author upload just the "questions" dict without "interview order"
+        interview.auto_assign_attributes(screens=interview.parsed_json["questions"])
+      elif isinstance(interview.parsed_json, list) and next(iter(interview.parsed_json), None) and isinstance(next(iter(interview.parsed_json)), dict):
+        # Assume the author uploaded a list of screens, without interview order
+        interview.auto_assign_attributes(screens=interview.parsed_json)
       else:
+        log("Not using JSON file because it has an unexpected format: should be a dict with 'questions' and 'interview order' keys, or a list of question dicts", "error")
         interview.auto_assign_attributes()
-      interview_label_draft = varname(interview.title)
+    else:
+      interview.auto_assign_attributes()
+    interview_label_draft = varname(interview.title)
 
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.
