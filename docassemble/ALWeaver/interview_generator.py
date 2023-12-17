@@ -79,6 +79,7 @@ __all__ = [
     "get_court_choices",
     "get_docx_validation_errors",
     "get_docx_variables",
+    "get_document_text",
     "get_fields",
     "get_question_file_variables",
     "get_pdf_validation_errors",
@@ -2147,6 +2148,17 @@ def docx_variable_fix(variable: str) -> str:
     variable = re.sub(r"^([A-Za-z\_][A-Za-z\_0-9]*).*", r"\1", variable)
     return variable
 
+
+def get_document_text(document: Union[DAFile, DAFileList]) -> str:
+    if isinstance(document, DAFileList):
+        if document[0].mimetype == "application/pdf":
+            return formfyxer.extract_text(document[0].path())
+        return docx2python(document.path()).text
+    else:
+        if document.mimetype == "application/pdf":
+            return formfyxer.extract_text(document.path())
+        return docx2python(document.path()).text
+    
 
 def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     """Get the list of fields needed inside a template file (PDF or Docx Jinja

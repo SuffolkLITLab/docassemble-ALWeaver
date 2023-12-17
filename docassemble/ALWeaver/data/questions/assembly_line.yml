@@ -1893,6 +1893,10 @@ fields:
     choices:
       - Build step by step: False
       - Use auto-drafting mode: True
+  - Use experimental GPT auto-drafting: interview.use_gpt_to_draft_json
+    datatype: yesno
+    disable others:
+      - interview.start_with_json
   - Upload JSON file with draft screen arrangement (advanced): interview.start_with_json
     help: |
       If you have a JSON file that has a draft of the screens and their order, you can upload
@@ -1993,6 +1997,13 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
+    if hasattr(interview, "use_gpt_to_draft_json") and interview.use_gpt_to_draft_json:
+      document_text = get_document_text(interview.uploaded_templates)
+      document_fields = get_fields(interview.uploaded_templates)
+      draft_screens = formfyxer.draft_interview_questions(document_fields, document_text)
+      interview.auto_assign_attributes(
+        screens=draft_screens
+      )
     if hasattr(interview, "start_with_json") and interview.start_with_json:
       #try: # Don't know yet why this always raises an exception. A name error that DA silently fixes?
       interview.parsed_json = json.loads(interview.uploaded_json.slurp())
@@ -2004,7 +2015,7 @@ code: |
           screens=interview.parsed_json["questions"], 
           interview_logic = interview.parsed_json["interview order"]
         )
-      if isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json:
+      elif isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json:
         # Let author upload just the "questions" dict without "interview order"
         interview.auto_assign_attributes(screens=interview.parsed_json["questions"])
       elif isinstance(interview.parsed_json, list) and next(iter(interview.parsed_json), None) and isinstance(next(iter(interview.parsed_json)), dict):
