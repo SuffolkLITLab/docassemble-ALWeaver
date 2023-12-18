@@ -2000,7 +2000,7 @@ code: |
     if hasattr(interview, "use_gpt_to_draft_json") and interview.use_gpt_to_draft_json:
       document_text = get_document_text(interview.uploaded_templates)
       document_fields = get_fields(interview.uploaded_templates)
-      draft_screens = formfyxer.draft_interview_questions(document_fields, document_text)
+      draft_screens = formfyxer.draft_interview_questions(document_fields, document_text, openai_api=get_config("open ai",{}).get("key"))
       interview.auto_assign_attributes(
         screens=draft_screens
       )
