@@ -1,3 +1,4 @@
+import json
 from .custom_values import get_matching_deps
 from .generator_constants import generator_constants
 from .validate_template_files import matching_reserved_names, has_fields
@@ -2177,16 +2178,30 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     return get_docx_variables(text)
 
 
-def get_question_file_variables(screens: List[Screen]) -> List[str]:
+def get_question_file_variables(screens: Union[str, List[Screen], Dict[str, List[Screen]]]) -> List[str]:
     """Extract the fields from a list of screens representing a Docassemble interview,
     such as might be supplied as an input to the Weaver in JSON format.
 
     Args:
-        screens (List[Screen]): A list of screens, each represented as a dictionary
+        screens (Union[str, List[Screen], Dict[str, List[Screen]]]): A list of screens, each represented as a dictionary
 
     Returns:
         List[str]: A list of variables
     """
+    if isinstance(screens, str):
+        screens = json.loads(screens)
+    if isinstance(screens, dict):
+        if screens.get("questions"):
+            screens = screens.get("questions", [])
+        elif screens.get("screens"):
+            screens = screens.get("screens", [])
+        else:
+            raise("If the input is a dictionary it must include a key labeled 'screens' or 'questions'")
+    elif isinstance(screens, list):
+        pass
+    else:
+        raise("Input must be a list of screens or dictionary containing a key labeled 'screens' or 'questions'")
+        
     fields = []
     for screen in screens:
         if screen.get("continue button field"):
