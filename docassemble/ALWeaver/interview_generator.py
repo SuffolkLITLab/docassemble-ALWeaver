@@ -1959,6 +1959,20 @@ class DAInterview(DAObject):
             screen_list (list): A list of dictionaries, each representing a screen
         """
         self.questions.auto_gather = False
+        if isinstance(screen_list, str):
+            screen_list = json.loads(screen_list)
+        if isinstance(screen_list, dict):
+            if screen_list.get("questions"):
+                screen_list = screen_list.get("questions", [])
+            elif screen_list.get("screens"):
+                screen_list = screen_list.get("screens", [])
+            else:
+                raise("If the input is a dictionary it must include a key labeled 'screens' or 'questions'")
+        elif isinstance(screen_list, list):
+            pass
+        else:
+            raise("Input must be a list of screens or dictionary containing a key labeled 'screens' or 'questions'")
+
         for screen in screen_list:
             if not screen.get("question"):
                 continue
