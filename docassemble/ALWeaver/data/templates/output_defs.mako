@@ -7,9 +7,28 @@
     from more_itertools import unique_everseen
 %>\
 <%def name="field_entry_yaml(field)">\
+  % if hasattr(field, "field_type") and field.field_type in ("name_person", "name_any", "name_business", "address", "gender", "pronouns", "language"):
+  - code: |
+    % if field.field_type == "name_person":
+      ${ field.get_parent_variable_with_index() }.name_fields(person_or_business="person")
+    % elif field.field_type == "name_any":
+      ${ field.get_parent_variable_with_index() }.name_fields(person_or_business="unknown")
+    % elif field.field_type == "name_business":
+      ${ field.get_parent_variable_with_index() }.name_fields(person_or_business="business")
+    % elif field.field_type == "address":
+      ${ field.get_parent_variable_with_index() }.address_fields(country_code=AL_DEFAULT_COUNTRY, default_state=AL_DEFAULT_STATE)
+    % elif field.field_type == "gender":
+      ${ field.get_parent_variable_with_index() }.gender_fields()
+    % elif field.field_type == "pronouns":
+      ${ field.get_parent_variable_with_index() }.pronoun_fields(show_help=True, required=False)
+    % elif field.field_type == "language":
+      ${ field.get_parent_variable_with_index() }.language_fields(choices=al_language_user_choices)
+    % endif
+  % else:
   - "${ escape_double_quoted_yaml(field.label) if field.has_label else "no label" }": ${ field.get_settable_var() }
+  % endif
   % if hasattr(field, "field_type"):
-    % if field.field_type in ["yesno", "yesnomaybe","file","yesnoradio","noyes","noyesradio", "integer","currency","email","range","number","date"]:
+    % if field.field_type in ["yesno", "yesnomaybe","file","yesnoradio","noyes","noyesradio", "integer","currency","email","range","number","date", "BirthDate"]:
     datatype: ${ field.field_type }
     % elif field.field_type == "multiple choice radio":
     input type: radio
@@ -23,9 +42,9 @@
     datatype: multiselect
     % elif field.field_type == "area":
     input type: area
-    % if field.need_maxlength():
+      % if field.need_maxlength():
     maxlength: ${ field.maxlength }
-    % endif
+      % endif
     % endif
     % if field.field_type in ["integer", "currency"]:
     min: 0

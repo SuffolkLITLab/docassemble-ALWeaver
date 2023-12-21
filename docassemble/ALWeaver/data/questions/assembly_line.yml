@@ -2004,7 +2004,7 @@ code: |
       interview.auto_assign_attributes(
         screens=draft_screens
       )
-    if hasattr(interview, "start_with_json") and interview.start_with_json:
+    elif hasattr(interview, "start_with_json") and interview.start_with_json:
       #try: # Don't know yet why this always raises an exception. A name error that DA silently fixes?
       interview.parsed_json = json.loads(interview.uploaded_json.slurp())
       #except:

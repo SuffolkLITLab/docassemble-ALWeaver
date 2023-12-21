@@ -249,28 +249,44 @@ class DAFieldGroup(Enum):
     CUSTOM = "custom"
 
 
-def field_type_options() -> List[Dict[str, str]]:
-    return [
-        {"text": "Text"},
-        {"area": "Area"},
+def field_type_options(include_object_options:bool=False) -> List[Dict[str, str]]:
+    options = [
+        {"text": "Short answer"},
+        {"area": "Long answer"},
         {"yesno": "Yes/no checkbox"},
         {"noyes": "No/yes checkbox"},
         {"yesnoradio": "Yes/no radio"},
         {"noyesradio": "No/yes radio"},
         {"integer": "Whole number"},
         {"number": "Number"},
+        {"range", "Number range"}
         {"currency": "Currency"},
         {"date": "Date"},
         {"email": "Email"},
-        {"multiple choice dropdown": "Drop-down"},
-        {"multiple choice combobox": "Combobox"},
-        {"multiple choice radio": "Radio buttons"},
-        {"multiple choice checkboxes": "Checkboxes"},
-        {"multiselect": "Multi-select"},
+        {"multiple choice dropdown": "Drop-down (multiple choice)"},
+        {"multiple choice combobox": "Combobox (multiple choice)"},
+        {"multiple choice radio": "Radio buttons (multiple choice)"},
+        {"multiple choice checkboxes": "Checkboxes (multiple choice)"},
+        {"multiselect": "Multi-select (multiple choice)"},
         {"file": "Uploaded file"},
+    ]
+    object_options = [
+        {"name_any": "Name (person or business)"},
+        {"name_person": "Name (individual)"},
+        {"name_business": "Name (business)"},
+        {"address": "Address"},
+        {"BirthDate": "Birthdate"},
+        {"gender": "Gender"},
+        {"pronouns": "Pronouns"},
+        {"language": "Language"},
+    ]
+    extras = [
         {"code": "Python code"},
         {"skip this field": "[Skip this field]"},
     ]
+    if include_object_options:
+        return options + object_options + extras
+    return options + extras
 
 
 class DAField(DAObject):
@@ -324,12 +340,20 @@ class DAField(DAObject):
         if self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
+        elif self.variable.endswith("_range"):
+            self.field_type_guess = "range"
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
         elif self.variable.endswith("_value"):
             self.field_type_guess = "currency"
         elif self.variable.endswith(".signature"):
             self.field_type_guess = "signature"
+        elif self.variable.endswith(".gender"):
+            self.field_type_guess = "gender"
+        elif self.variable.endswith(".pronouns"):
+            self.field_type_guess = "pronouns"
+        elif self.variable.endswith(".language"):
+            self.field_type_guess = "language"
         else:
             self.field_type_guess = "text"
 
@@ -488,7 +512,11 @@ class DAField(DAObject):
                 "field": self.attr_name("field_type"),
                 "label above field": True,
                 "grid": 3,
-                "code": "field_type_options()",
+                "code": (
+                    "field_type_options(include_object_options=True)"
+                    if self.is_object_or_list()
+                    else "field_type_options()"
+                ),
                 "default": self.field_type_guess
                 if hasattr(self, "field_type_guess")
                 else None,
@@ -530,6 +558,33 @@ class DAField(DAObject):
                 "help": "Like `Descriptive name: key_name`, or just `Descriptive name`",
                 "hint": "Descriptive name: key_name",
             }
+        )
+        field_questions.append(
+            "label": "Min",
+            "datatype": "number",
+            "label above field": True,
+            "field": self.attr_name("range_min"),
+            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
+            "grid": 4,
+            "default": 0,
+        )
+        field_questions.append(
+            "label": "Max",
+            "datatype": "number",
+            "label above field": True,
+            "field": self.attr_name("range_max"),
+            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
+            "grid": 4,
+        )
+        field_questions.append(
+            "label": "Step",
+            "datatype": "number",
+            "label above field": True,
+            "field": self.attr_name("range_step"),
+            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
+            "grid": 4,
+            "help": "Amount that dragging the slider will increase or decrease by (defaults to 1)"
+            "default": 1
         )
         if hasattr(self, "maxlength"):
             field_questions.append(
@@ -696,11 +751,37 @@ class DAField(DAObject):
             return prefix, "object"
         return var_with_attribute, "primitive"
 
+    def get_parent_variable_with_index(
+        self,
+    ) -> str:
+        """If the variable has an index variable (like users[0].name.first),
+        this acts like _get_parent_variable except that it keeps the [index]
+        part of the variable name.
+
+        It always returns the variable "furthest to the left" (e.g., it ignores
+        anything coming after a .)
+        """
+        # Parse the original variable name. it could look like 
+        # users[0].name.first or users[0].name.full()
+        # we want to return just users[0].
+        # For now, we won't deal with nested lists, like
+        # users[0].attorneys[0]
+        var_parts = re.findall(r"([^.]+)(\.[^.]*)?", self.variable)
+        if not var_parts:
+            return self.variable
+        return var_parts[0][0]
+
+    def is_object_or_list(self) -> bool:
+        """Returns true only if the variable represents an
+        object in a list"""
+        return self._get_parent_variable(self.variable)[1] in ("object", "list")
+
     def __str__(self) -> str:
         return self.variable
 
     def __repr__(self) -> str:
         return f"{self.variable} ({self.raw_field_names}, {self.final_display_var})"
+    
 
 
 class ParentCollection(object):

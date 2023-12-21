@@ -177,6 +177,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_gender_nonbinary": ".gender_nonbinary",
     "_gender_undisclosed": ".gender_undisclosed",
     "_gender_self_described": ".gender_self_described",
+    "_pronouns": ".pronouns",
     "_birthdate": ".birthdate.format()",
     "_age": ".age_in_years()",
     "_email": ".email",
