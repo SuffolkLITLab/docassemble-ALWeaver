@@ -292,7 +292,9 @@ subquestion: |
   <%text>${</%text> action_button_html(url_action('review_${ interview.interview_label }'), label='Edit answers', color='info') <%text>}</%text>
   
   <%text>
+  <p>
   ${ al_user_bundle.download_list_html() }
+  </p>
   </%text>
 
   <%text>${</%text> al_user_bundle.send_button_html(show_editable_checkbox=${False if any(map(lambda templ: templ.mimetype == "application/pdf", interview.uploaded_templates)) else True}) <%text>}</%text>
