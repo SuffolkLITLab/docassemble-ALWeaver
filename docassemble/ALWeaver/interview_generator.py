@@ -259,7 +259,7 @@ def field_type_options(include_object_options:bool=False) -> List[Dict[str, str]
         {"noyesradio": "No/yes radio"},
         {"integer": "Whole number"},
         {"number": "Number"},
-        {"range", "Number range"}
+        {"range", "Number range"},
         {"currency": "Currency"},
         {"date": "Date"},
         {"email": "Email"},
@@ -560,31 +560,40 @@ class DAField(DAObject):
             }
         )
         field_questions.append(
-            "label": "Min",
-            "datatype": "number",
-            "label above field": True,
-            "field": self.attr_name("range_min"),
-            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
-            "grid": 4,
-            "default": 0,
+            {
+                "label": "Min",
+                "datatype": "number",
+                "label above field": True,
+                "field": self.attr_name("range_min"),
+                "show if": {"variable": self.attr_name("field_type"), "is": "range"},
+                "grid": 4,
+                "default": 0,
+            }
         )
         field_questions.append(
-            "label": "Max",
-            "datatype": "number",
-            "label above field": True,
-            "field": self.attr_name("range_max"),
-            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
-            "grid": 4,
+            {
+                "label": "Max",
+                "datatype": "number",
+                "label above field": True,
+                "field": self.attr_name("range_max"),
+                "show if": {
+                            "variable": self.attr_name("field_type"), 
+                            "is": "range"
+                },
+                "grid": 4,
+            }
         )
         field_questions.append(
-            "label": "Step",
-            "datatype": "number",
-            "label above field": True,
-            "field": self.attr_name("range_step"),
-            "show if": {"variable": self.attr_name("field_type"), "is": "range"}
-            "grid": 4,
-            "help": "Amount that dragging the slider will increase or decrease by (defaults to 1)"
-            "default": 1
+            {
+                "label": "Step",
+                "datatype": "number",
+                "label above field": True,
+                "field": self.attr_name("range_step"),
+                "show if": {"variable": self.attr_name("field_type"), "is": "range"},
+                "grid": 4,
+                "help": "Amount that dragging the slider will increase or decrease by (defaults to 1)",
+                "default": 1,
+            }
         )
         if hasattr(self, "maxlength"):
             field_questions.append(
