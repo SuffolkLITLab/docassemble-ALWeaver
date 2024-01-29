@@ -2068,9 +2068,14 @@ class DAInterview(DAObject):
                 continue
             new_screen = self.questions.appendObject()
             if screen.get("continue button field") or not screen.get("fields"):
-                new_screen.continue_button_field = screen.get("continue button field")
+                if screen.get("continue button field"):
+                    new_screen.continue_button_field = screen.get("continue button field")
+                else:
+                    new_screen.continue_button_field = varname(screen.get("question"))
+                new_screen.needs_continue_button_field = True
                 new_screen.is_informational = True
             else:
+                new_screen.needs_continue_button_field = False
                 new_screen.is_informational = False
             new_screen.question_text = screen.get("question", "")
             new_screen.subquestion_text = screen.get("subquestion", "")
@@ -2084,6 +2089,8 @@ class DAInterview(DAObject):
                     first_item = next(iter(field.items()))
                     new_field.variable = first_item[1]
                     new_field.label = first_item[0]
+                new_field.has_label = True # HACK
+                new_field.final_display_var = new_field.variable
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
                 # TODO: consider refactoring this
                 if field.get("datatype") or field.get("input type"):
