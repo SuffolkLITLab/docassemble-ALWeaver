@@ -2058,7 +2058,7 @@ class DAInterview(DAObject):
             if not screen.get("question"):
                 continue
             new_screen = self.questions.appendObject()
-            if screen.get("continue button field"):
+            if screen.get("continue button field") or not screen.get("fields"):
                 new_screen.continue_button_field = screen.get("continue button field")
                 new_screen.is_informational = True
             else:
