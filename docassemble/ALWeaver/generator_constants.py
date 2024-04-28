@@ -1,6 +1,7 @@
 """
 Constants for interview_generator.py
 """
+
 from typing import Dict, List
 
 
