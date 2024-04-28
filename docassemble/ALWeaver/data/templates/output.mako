@@ -16,8 +16,13 @@ metadata:
   description: |-
 ${ indent(interview.description, by=4) }
   can_I_use_this_form: |
+% if interview.can_I_use_this_form:
+${ indent(interview.can_I_use_this_form, by=4) }
+% endif
   before_you_start: |
-${ indent(interview.getting_started, by=4 }
+% if interview.getting_started:
+${ indent(interview.getting_started, by=4) }
+% endif
   maturity: production
   estimated_completion_minutes: 60
   estimated_completion_delta: 30
@@ -189,14 +194,16 @@ code: |
       - just use interview_label instead of varname(interview.title)
 </%doc>\
 ---
-comment: |
-  This question is used to introduce your interview. Please customize
 id: ${ varname(interview.title) }
 continue button field: ${ interview.interview_label }_intro
 question: |
   ${ interview.title }
 subquestion: |
 ${ indent(interview.getting_started, 2) }
+
+${ indent(interview.can_I_use_this_form, by=2)}
+
+  Most people take about ${ interview.estimated_completion_minutes or "_______________"} minutes to complete this interview.
 <%doc>
     Main question loop
 </%doc>\
