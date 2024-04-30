@@ -487,9 +487,9 @@ class DAField(DAObject):
                 "label above field": True,
                 "grid": 3,
                 "code": "field_type_options()",
-                "default": self.field_type_guess
-                if hasattr(self, "field_type_guess")
-                else None,
+                "default": (
+                    self.field_type_guess if hasattr(self, "field_type_guess") else None
+                ),
             }
         )
         field_questions.append(
@@ -517,14 +517,16 @@ class DAField(DAObject):
                 "field": self.attr_name("choices"),
                 "datatype": "area",
                 "js show if": f"['multiple choice dropdown','multiple choice combobox','multiselect', 'multiple choice radio', 'multiple choice checkboxes'].includes(val('{ self.attr_name('field_type') }'))",
-                "default": "\n".join(
-                    [
-                        f"{opt.capitalize().replace('_', ' ')}: {opt}"
-                        for opt in self.choice_options
-                    ]
-                )
-                if hasattr(self, "choice_options")
-                else None,
+                "default": (
+                    "\n".join(
+                        [
+                            f"{opt.capitalize().replace('_', ' ')}: {opt}"
+                            for opt in self.choice_options
+                        ]
+                    )
+                    if hasattr(self, "choice_options")
+                    else None
+                ),
                 "help": "Like `Descriptive name: key_name`, or just `Descriptive name`",
                 "hint": "Descriptive name: key_name",
             }

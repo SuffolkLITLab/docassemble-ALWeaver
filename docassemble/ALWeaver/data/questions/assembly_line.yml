@@ -375,6 +375,9 @@ fields:
     required: False
     validate: |
       lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+  - Date original form was last published (optional): interview.original_form_published_on
+    datatype: date
+    required: False
   - Web page with related resources (optional): interview.help_page_url
     help: |
       Include a link to a resource that explains the topic of this form. For example,
@@ -498,7 +501,10 @@ fields:
         states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
     default: ${ "MA" if interview.default_country_code == 'US' else '' }
     required: False
-    
+  - Jurisdiction: interview.jurisdiction
+    default: NAM-US-US+MA
+    help: |
+      Use the [LMSS](https://www.sali.org/) standard for jurisdiction codes. For example, "NAM-US-US+MA" for Massachusetts.
   - note: |
       ---
       <h2 class="h5">Optional packages to include</h2>
@@ -602,6 +608,13 @@ fields:
   - Custom filename: interview_label_draft
     show if: interview.customize_file_name
     default: ${ varname(interview.short_filename_with_spaces[:35]) }
+  - Court-assigned form number (optional): interview.form_number
+    required: False
+    help: |
+      For example, "CJ-P 1234"
+  - Filing fee (optional): interview.filing_fee
+    datatype: currency
+    required: False
   - Description of the form for metadata: interview.description
     default: |
       This interview helps someone in ${ state_name(interview.state, country_code=interview.default_country_code) } ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
@@ -610,6 +623,14 @@ fields:
     help: |
       This description can help people find your form. It is not
       displayed inside the interview.
+  - "Answer this question: you can use this form if": interview.can_I_use_this_form
+    datatype: area
+    rows: 2
+    default: |
+      If you are a _____________, you can use this interview to ____________.
+    help: |
+      It's important to explain to the user when they can and cannot use
+      your form. Write any conditions, such as age, status of their case, etc.
   - label: |
       What does your user need to know before they start this interview?
     field: interview.getting_started
@@ -625,17 +646,27 @@ fields:
       When you are finished, you will need to:
 
       1. 
-      1. 
-      
-      Most people take about _______ minutes to finish this interview.
+      1.       
     datatype: area
-    rows: 17
+    rows: 14
     help: |
       Tell your user what they need to know before they start the form.
       This helps your user feel prepared and
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+  - To complete this form, most people take about: interview.estimated_completion_minutes
+    grid: 2
+    datatype: integer
+    under text: |
+      minutes
+    default: 10
+  - plus or minus: interview.estimated_completion_delta
+    grid: 2
+    datatype: integer
+    default: 5
+    under text: |
+      minutes
 ---
 code: |
   interview_label_draft = interview.title[:35]

@@ -39,6 +39,7 @@ Scenario: I weave the civil docketing statement
     | interview.original_form | http://an-online-form.com |  |
     | interview.state | MA |  |
     | interview_label_draft | test_civil_docketing_statement |  |
+    | interview.short_title | Civil docketing | |
     | people_quantities['decision_maker'] | any |  |
     | people_quantities['users'] | more |  |
     | people_variables['decision_maker'] | True |  |

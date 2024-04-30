@@ -15,7 +15,27 @@ metadata:
     ${ interview.short_title }
   description: |-
 ${ indent(interview.description, by=4) }
+  can_I_use_this_form: |
+% if interview.can_I_use_this_form:
+${ indent(interview.can_I_use_this_form, by=4) }
+% endif
+  before_you_start: |
+% if interview.getting_started:
+${ indent(interview.getting_started, by=4) }
+% endif
+  maturity: production
+  estimated_completion_minutes: 60
+  estimated_completion_delta: 30
   % if interview.categories.any_true():
+  LIST_topics: 
+    % for category in sorted(set(interview.categories.true_values())):
+    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
+    % endfor
+    % if interview.has_other_categories:
+    % for category in interview.other_categories.split(','):
+    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
+    % endfor
+    % endif
   tags:
     % for category in sorted(set(interview.categories.true_values())):
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
@@ -35,7 +55,10 @@ ${ indent(interview.description, by=4) }
   % if interview.original_form:
   original_form:
     - ${ interview.original_form }
+  % else:
+  original_form: []
   % endif
+  original_form_published_on: ${ interview.original_form_published_on.format("yyyy-MM-dd") or '""'}
   % if interview.help_page_url:
   help_page_url: >-
 ${ indent(interview.help_page_url, by=4) }
@@ -55,6 +78,23 @@ ${ indent(interview.help_page_title, by=4) }
   % endif
   al_weaver_version: "${ package_version_number }"
   generated_on: "${ today().format("yyyy-MM-dd") }"
+  languages:
+    - en
+  jurisdiction: ${ interview.jurisdiction }
+  review_date: ${ today().format("yyyy-MM-dd")}
+  form_titles:
+    - ${ interview.title }
+  % if interview.form_number:
+  form_numbers:
+    - ${ interview.form_number }
+  % else:
+  form_numbers: []
+  % endif
+  % if interview.filing_fee:
+  fees:
+    - Filing fee: ${ currency(interview.filing_fee) }
+  % endif
+  update_notes: |
 ---
 code: |
   # This controls the default country and list of states in address field questions
@@ -154,14 +194,16 @@ code: |
       - just use interview_label instead of varname(interview.title)
 </%doc>\
 ---
-comment: |
-  This question is used to introduce your interview. Please customize
 id: ${ varname(interview.title) }
 continue button field: ${ interview.interview_label }_intro
 question: |
   ${ interview.title }
 subquestion: |
 ${ indent(interview.getting_started, 2) }
+
+${ indent(interview.can_I_use_this_form, by=2)}
+
+  Most people take about ${ interview.estimated_completion_minutes or "_______________"} minutes to complete this interview.
 <%doc>
     Main question loop
 </%doc>\
