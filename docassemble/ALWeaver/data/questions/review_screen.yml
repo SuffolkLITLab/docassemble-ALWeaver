@@ -1,3 +1,7 @@
+---
+modules:
+  - docassemble.demo.accordion
+---
 def: preview_questions
 sets:
   - preview_question_screen
@@ -128,8 +132,9 @@ continue button field: review_weaver
 #  }
 #  </style>
 review:
+  - raw html: |
+      ${ start_accordion("Preview interview screens", showing=True)}
   - note: |
-      <h2 class="h3 mt-4">Preview of interview screens</h2>
       Review the screens below. 
       
       1. Click "<a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a>" to
@@ -172,8 +177,8 @@ review:
       </div>
 
       <a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }"><i class="fa-solid fa-bars-staggered"></i> Change screen order</a>
-  - note: |
-      <h2 class="h3 mt-4">Information about your form</h2>
+  - raw html: |
+      ${ next_accordion("Information about your form") }
   - Edit: 
     - interview.court_related
     - recompute:
@@ -227,8 +232,8 @@ review:
       **Review field labels and prompts**
 
       ${ collapse_template(review_fields_to_add_template) }
-  - note: |
-      <h2 class="h3 mt-4">Information about people</h2>
+  - raw html: |
+      ${ next_accordion("Information about people") }
   - Edit: interview.typical_role
     button: |
       **User's role on this form**
@@ -253,8 +258,8 @@ review:
       % for item in people_quantities:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
-  - note: |
-      <h2 class="h3 mt-4">Next steps instructions</h2>
+  - raw html: |
+      ${ next_accordion("Next steps instructions") }
     show if: |
       interview_type != "survey_with_template"
   - edit: interview.include_next_steps
@@ -281,8 +286,8 @@ review:
       % else:
       You selected not to customize the next steps document.
       % endif
-  - note: |
-      <h2 class="h3 mt-4">Style and metadata</h2>
+  - raw html: |
+      ${ next_accordion("Style and metadata") }
   - Edit: |-
       interview.author
     button: |
@@ -309,7 +314,9 @@ review:
     button: |
       **Use this template to create the Docassemble interview (YAML)**
 
-      ${ interview.output_mako_choice }      
+      ${ interview.output_mako_choice }
+  - raw html: |
+      ${ end_accordion() }
 ---
 event: |-
   install_step1_status.revisit
