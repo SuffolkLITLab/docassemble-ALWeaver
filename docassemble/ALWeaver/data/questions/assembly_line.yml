@@ -607,7 +607,7 @@ fields:
       file that are shown only internally.
   - Custom filename: interview_label_draft
     show if: interview.customize_file_name
-    default: ${ varname(interview.short_filename_with_spaces[:35]) }
+    default: ${ varname(interview.short_filename_with_spaces[:35]).lower() }
   - Court-assigned form number (optional): interview.form_number
     required: False
     help: |
@@ -669,7 +669,7 @@ fields:
       minutes
 ---
 code: |
-  interview_label_draft = interview.title[:35]
+  interview_label_draft = interview.title[:35].lower()
 ---
 code: |
   interview.short_title = interview.title
@@ -1530,7 +1530,7 @@ code: |
   # metadata
   # We removed random ID, so make sure the file names are unique
   # varname will strip leading numbers--but they may be valid at the end of the label
-  interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft))
+  interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft)).lower()
 ---
 code: |
   attachment_variable_name = interview.interview_label + '_attachment'
@@ -1867,7 +1867,7 @@ code: |
     interview.all_fields.gathered = True
   interview.original_form = 'NA'
   interview.typical_role = 'anonymous'
-  interview_label_draft = interview.short_title
+  interview_label_draft = interview.short_title.lower()
   
   no_template_default_values = True
 ---
@@ -2013,7 +2013,7 @@ code: |
                                      categories=url_args.get('nsmi'),
                                      jurisdiction=url_args.get('jur'),
     )
-    interview_label_draft = interview.short_filename
+    interview_label_draft = interview.short_filename.lower()
     url_args.clear()
   process_url_args = True
 ---
@@ -2046,7 +2046,7 @@ code: |
         interview.auto_assign_attributes()
     else:
       interview.auto_assign_attributes()
-    interview_label_draft = varname(interview.title)
+    interview_label_draft = varname(interview.title).lower()
 
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.
