@@ -405,7 +405,7 @@ fields:
       it is published.
     default:
       code: |
-        interview._guess_categories(interview.short_filename_with_spaces)
+        interview._guess_categories(interview.short_filename_with_spaces) if have_template_to_load else []
   - Add other topics: interview.has_other_categories
     datatype: yesno
   - Other topics ([LIST code, like HE-00-00-00-00](https://taxonomy.legal) preferred, separate with commas): interview.other_categories
@@ -436,7 +436,7 @@ fields:
     show if:
       variable: interview.court_related
       is: False
-  - What court department can this filed in? (Massachusetts only): interview.allowed_courts
+  - What court department can this be filed in? (Massachusetts only): interview.allowed_courts
     help: |
       The current list of courts only applies to Massachusetts. Skip this
       if your form is not filed in Massachusetts.
