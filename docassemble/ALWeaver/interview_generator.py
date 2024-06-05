@@ -1801,7 +1801,7 @@ class DAInterview(DAObject):
             categories = formfyxer.spot(
                 title + ": " + full_text,
                 token=get_config("assembly line", {}).get(
-                    "tools.suffolklitlab.org api key", None
+                    "spot api key", None
                 ),
             )
             if categories and not "401" in categories:

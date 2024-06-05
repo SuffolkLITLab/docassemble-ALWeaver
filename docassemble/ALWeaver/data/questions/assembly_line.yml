@@ -2048,6 +2048,10 @@ code: |
       interview.auto_assign_attributes()
     interview_label_draft = varname(interview.title).lower()
 
+  # Check for an empty file
+  if not len(interview.all_fields):
+    force_ask('empty_pdf')
+
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.
   # person_candidates = interview.all_fields.get_person_candidates()
