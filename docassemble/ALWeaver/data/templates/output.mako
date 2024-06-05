@@ -16,16 +16,16 @@ metadata:
   description: |-
 ${ indent(interview.description, by=4) }
   can_I_use_this_form: |
-% if interview.can_I_use_this_form:
+% if showifdef("interview.can_I_use_this_form"):
 ${ indent(interview.can_I_use_this_form, by=4) }
 % endif
   before_you_start: |
-% if interview.getting_started:
+% if showifdef("interview.getting_started"):
 ${ indent(interview.getting_started, by=4) }
 % endif
   maturity: production
-  estimated_completion_minutes: 60
-  estimated_completion_delta: 30
+  estimated_completion_minutes: ${ showifdef("interview.estimated_completion_minutes",'""')}
+  estimated_completion_delta: ${ showifdef("interview.estimated_completion_delta", '""')}
   % if interview.categories.any_true():
   LIST_topics: 
     % for category in sorted(set(interview.categories.true_values())):
@@ -58,7 +58,11 @@ ${ indent(interview.getting_started, by=4) }
   % else:
   original_form: []
   % endif
+  % if defined("interview.original_form_published_on"):
   original_form_published_on: ${ interview.original_form_published_on.format("yyyy-MM-dd") or '""'}
+  % else:
+  original_form_published_on: ""
+  % endif
   % if interview.help_page_url:
   help_page_url: >-
 ${ indent(interview.help_page_url, by=4) }
@@ -80,17 +84,17 @@ ${ indent(interview.help_page_title, by=4) }
   generated_on: "${ today().format("yyyy-MM-dd") }"
   languages:
     - en
-  jurisdiction: ${ interview.jurisdiction }
+  jurisdiction: ${ showifdef("interview.jurisdiction", '""') }
   review_date: ${ today().format("yyyy-MM-dd")}
   form_titles:
     - ${ interview.title }
-  % if interview.form_number:
+  % if showifdef("interview.form_number"):
   form_numbers:
     - ${ interview.form_number }
   % else:
   form_numbers: []
   % endif
-  % if interview.filing_fee:
+  % if showifdef("interview.filing_fee"):
   fees:
     - Filing fee: ${ currency(interview.filing_fee) }
   % endif
@@ -201,9 +205,13 @@ question: |
 subquestion: |
 ${ indent(interview.getting_started, 2) }
 
+% if defined("interview.can_I_use_this_form"):
 ${ indent(interview.can_I_use_this_form, by=2)}
+% endif
 
+% if defined("interview.estimated_completion_minutes"):
   Most people take about ${ interview.estimated_completion_minutes or "_______________"} minutes to complete this interview.
+% endif
 <%doc>
     Main question loop
 </%doc>\

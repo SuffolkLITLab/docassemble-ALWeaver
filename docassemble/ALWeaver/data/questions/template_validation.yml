@@ -230,12 +230,18 @@ code: |
   ]
 ---
 event: empty_pdf
-question: You uploaded an empty PDF
+question: |
+  % if interview.get_file_types() == "pdf":
+  You uploaded a PDF without any fields
+  % elif interview.get_file_types() == "docx":
+  You uploaded a DOCX file without any Jinja2 syntax
+  % endif
 subquestion: |
-  The PDF you uploaded (${ interview.uploaded_templates[0].filename }) does not have any 
+  The document you uploaded (${ interview.uploaded_templates[0].filename }) does not have any 
   fillable fields. To make a new interview with the Weaver, we need to have a 
   document that has fillable fields.
   
+  % if interview.get_file_types() == "pdf":
   If you saved a DOCX file as a PDF, you will need to add fillable fields in a 
   tool like [Adobe Acrobat](https://acrobat.adobe.com). 
   For more info, see the [documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs).
@@ -244,6 +250,7 @@ subquestion: |
   or XFA form), you may need to flatten it first. You can flatten an XFA form
   using [iText PDF's free 
   tool](https://itextpdf.com/en/demos/flatten-dynamic-xfa-pdf-free-online).
+  % endif
 buttons:
   - Restart: restart
 ---

@@ -48,6 +48,7 @@ import uuid
 import zipfile
 import spacy
 from dataclasses import dataclass
+import pycountry
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -1608,7 +1609,19 @@ class DAInterview(DAObject):
         )
 
         if jurisdiction:
-            self.state = jurisdiction
+            try:
+                if jurisdiction.upper() in {
+                    subdivision.code.split("-")[1]
+                    for subdivision in pycountry.subdivisions.get(country_code="US")
+                }:
+                    self.jurisdiction = "NAM-US-US+" + jurisdiction.upper()
+                    self.state = jurisdiction.upper()
+                else:
+                    self.jurisdiction = jurisdiction
+                    self.state = jurisdiction
+            except:
+                self.jurisdiction = jurisdiction
+                self.state = jurisdiction
         if categories:
             nsmi_tmp = (
                 categories[1:-1].replace("'", "").strip()
@@ -1790,9 +1803,7 @@ class DAInterview(DAObject):
                     full_text += docx_data.text
             categories = formfyxer.spot(
                 title + ": " + full_text,
-                token=get_config("assembly line", {}).get(
-                    "tools.suffolklitlab.org api key", None
-                ),
+                token=get_config("assembly line", {}).get("spot api key", None),
             )
             if categories and not "401" in categories:
                 return categories
@@ -2025,11 +2036,14 @@ class DAInterview(DAObject):
                     "tools.suffolklitlab.org api key", None
                 ),
             )
+            if not field_grouping:
+                field_grouping = self._null_group_fields()
         except:
             log(
                 f"Auto field grouping failed. Tried using tools.suffolklitlab.org api key {get_config('assembly line',{}).get('tools.suffolklitlab.org api key', None)}"
             )
             field_grouping = self._null_group_fields()
+        self.field_grouping = field_grouping
         self.questions.auto_gather = False
         for group in field_grouping:
             new_screen = self.questions.appendObject()
