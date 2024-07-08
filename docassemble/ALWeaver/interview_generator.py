@@ -29,7 +29,7 @@ from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable, Literal
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable, Literal, TypedDict, cast
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
@@ -1403,26 +1403,24 @@ class DADataType(Enum):
     CHECKBOXES = "checkboxes"
 
 
-@dataclass
-class Field:
-    label: Optional[str] = None
-    field: Optional[str] = None
-    datatype: Optional[DADataType] = None
-    input_type: Optional[str] = None
-    maxlength: Optional[int] = None
-    choices: Optional[List[str]] = None
-    min: Optional[int] = None
-    max: Optional[int] = None
-    step: Optional[int] = None
-    required: Optional[bool] = None
+class Field(TypedDict, total=False):
+    label: Optional[str]
+    field: Optional[str]
+    datatype: Optional[DADataType]
+    input_type: Optional[str]
+    maxlength: Optional[int]
+    choices: Optional[List[str]]
+    min: Optional[int]
+    max: Optional[int]
+    step: Optional[int]
+    required: Optional[bool]
 
 
-@dataclass
-class Screen:
-    continue_button_field: Optional[str] = None
-    question: Optional[str] = None
-    subquestion: Optional[str] = None
-    fields: List[Field] = None
+class Screen(TypedDict, total=False):
+    continue_button_field: Optional[str]
+    question: Optional[str]
+    subquestion: Optional[str]
+    fields: Optional[List[Field]]
 
 
 class DAInterview(DAObject):
@@ -1568,7 +1566,7 @@ class DAInterview(DAObject):
         categories: Optional[str] = None,
         default_country_code: str = "US",
         interview_logic: Optional[List[Union[Dict, str]]] = None,
-        screens: Optional[List[Dict]] = None,
+        screens: Optional[List[Screen]] = None,
     ):
         """
         Automatically assign interview attributes based on the template
@@ -1650,7 +1648,8 @@ class DAInterview(DAObject):
             self.interview_logic = interview_logic
         if screens:
             if not interview_logic:
-                self.interview_logic = get_question_file_variables(screens)
+                # using typing.cast to explicitly indicate a list of strings is OK for the interview_logic
+                self.interview_logic = cast(List[Union[Dict, str]], get_question_file_variables(screens))
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()
@@ -1981,7 +1980,7 @@ class DAInterview(DAObject):
                 new_screen.is_informational = False
             new_screen.question_text = screen.get("question", "")
             new_screen.subquestion_text = screen.get("subquestion", "")
-            for field in screen.get("fields", []):
+            for field in screen.get("fields", []) or []:
                 new_field = new_screen.field_list.appendObject()
 
                 if field.get("label") and field.get("field"):
@@ -2012,7 +2011,7 @@ class DAInterview(DAObject):
                     new_field.maxlength = field.get("maxlength", None)
                 if field.get("choices"):
                     # We turn choices into a newline separated string
-                    new_field.choices = "\n".join(field.get("choices", []))
+                    new_field.choices = "\n".join(field.get("choices") or [])
                 if field.get("min"):
                     new_field.range_min = field.get("min", None)
                 if field.get("max"):
@@ -2196,13 +2195,16 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
         if screen.get("continue button field"):
             fields.append(screen.get("continue button field"))
         if screen.get("fields"):
-            for field in screen.get("fields"):
-                if field.get("field"):
+            for field in screen.get("fields", []) or []:
+                if field.get("field") and isinstance(field.get("field"), str):
                     fields.append(field.get("field"))
                 else:
-                    fields.append(next(iter(field.values())))
+                    # Append the first value in the field dictionary, which is the variable name
+                    fld_tmp = next(iter(field.values()))
+                    if isinstance(fld_tmp, str):
+                        fields.append(fld_tmp)
     # remove duplicates without changing order
-    return list(dict.fromkeys(fields))
+    return list(dict.fromkeys(cast(List[str], fields)))
 
 
 def get_docx_variables(text: str) -> set:
