@@ -29,7 +29,19 @@ from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterable, Literal, TypedDict, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+    Iterable,
+    Literal,
+    TypedDict,
+    cast,
+)
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
@@ -1649,7 +1661,9 @@ class DAInterview(DAObject):
         if screens:
             if not interview_logic:
                 # using typing.cast to explicitly indicate a list of strings is OK for the interview_logic
-                self.interview_logic = cast(List[Union[Dict, str]], get_question_file_variables(screens))
+                self.interview_logic = cast(
+                    List[Union[Dict, str]], get_question_file_variables(screens)
+                )
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()

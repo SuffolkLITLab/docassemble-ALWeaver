@@ -1,4 +1,5 @@
 docassemble.base
+docassemble.webapp
 more_itertools
 pyyaml
 docx2python
