@@ -58,7 +58,6 @@ import os
 import re
 import uuid
 import zipfile
-import spacy
 from dataclasses import dataclass
 import pycountry
 
@@ -66,9 +65,13 @@ mako.runtime.UNDEFINED = DAEmpty()
 
 
 def formfyxer_available():
-    if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
-        return True
-    return spacy.util.is_package("en_core_web_lg")
+    try:
+        import spacy
+        if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
+            return True
+        return spacy.util.is_package("en_core_web_lg")
+    except Exception as ex:
+        return False
 
 
 TypeType = type(type(None))
@@ -147,8 +150,13 @@ remove_u = re.compile(r"^u")
 
 
 def install_spacy_model(model="en_core_web_lg"):
-    if not spacy.util.is_package(model):
-        spacy.cli.download(model)
+    try:
+        import spacy
+        if not spacy.util.is_package(model):
+            spacy.cli.download(model)
+    except Exception as ex:
+        log(f"Can't install spacy model: {ex}")
+        return
 
 
 class ParsingException(Exception):
