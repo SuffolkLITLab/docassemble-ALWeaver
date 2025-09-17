@@ -20,18 +20,51 @@ $(document).on('daPageLoad', function(){
 
 // Drag and drop functions - only screens with a draggable table will call them
 var row;
+var blankDragImage;
 function start(){
-  row = event.target;
+  var e = event;
+  row = e.target;
+  while (row && row.tagName !== 'TR') {
+    row = row.parentNode;
+  }
+  if (!row) {
+    return;
+  }
+  var currentRow = row;
+  currentRow.classList.add('dragging');
+  currentRow.style.setProperty('opacity', '1', 'important');
+  if (!blankDragImage) {
+    blankDragImage = document.createElement('canvas');
+    blankDragImage.width = blankDragImage.height = 1;
+  }
+  if (e.dataTransfer && e.dataTransfer.setDragImage) {
+    e.dataTransfer.setDragImage(blankDragImage, 0, 0);
+  }
+
+  currentRow.addEventListener('dragend', function handleDragEnd(){
+    currentRow.classList.remove('dragging');
+    currentRow.style.removeProperty('opacity');
+    if (row === currentRow) {
+      row = null;
+    }
+  }, { once: true });
 }
 function dragover(){
   var e = event;
   e.preventDefault();
-
-  let children= Array.from(e.target.parentNode.parentNode.children);
-  if(children.indexOf(e.target.parentNode)>children.indexOf(row))
-    e.target.parentNode.after(row);
+  if (!row) {
+    return;
+  }
+  var targetRow = e.target.closest('tr');
+  if (!targetRow || targetRow === row) {
+    return;
+  }
+  var body = targetRow.parentNode;
+  let children = Array.from(body.children);
+  if(children.indexOf(targetRow) > children.indexOf(row))
+    targetRow.after(row);
   else
-    e.target.parentNode.before(row);
+    targetRow.before(row);
 
   // Save the adjusted order data to the backend for later use
   SaveReorder(row);    
