@@ -105,8 +105,12 @@ def make_json(order: str, old_html: str) -> str:
 
     # 2. Prepare for json string
     collections: List[Dict[str, str]] = []
-    headings: List[Tag] = [tag for tag in old_soup.find_all("th") if isinstance(tag, Tag)]
-    table_rows: List[Tag] = [tr for tr in old_soup.find_all("tr") if isinstance(tr, Tag)]
+    headings: List[Tag] = [
+        tag for tag in old_soup.find_all("th") if isinstance(tag, Tag)
+    ]
+    table_rows: List[Tag] = [
+        tr for tr in old_soup.find_all("tr") if isinstance(tr, Tag)
+    ]
     data_rows = table_rows[1:]
 
     # 3. Loop thru the adjusted order and copy data from old_soup to collections
