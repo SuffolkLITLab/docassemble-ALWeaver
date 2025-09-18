@@ -1,29 +1,98 @@
 /*---------------------------------------------------------*/
-/* Header row
+/* Table shell
 /*---------------------------------------------------------*/
-.draggable-table thead {
-  background-color: #394b69;
-  color: white;
+.draggable-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 14px 32px rgba(13, 57, 112, 0.08);
+  background: #ffffff;
 }
+
+.draggable-table thead {
+  background-color: #0d3970;
+  color: #ffffff;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
+.draggable-table th,
+.draggable-table td {
+  padding: 0.85rem 1rem;
+  vertical-align: middle;
+}
+
+.draggable-table tbody tr + tr {
+  border-top: 1px solid #e1e7f0;
+}
+
 /*---------------------------------------------------------*/
-/* Table row
+/* Row states
 /*---------------------------------------------------------*/
 .drag {
-  cursor:all-scroll;
+  cursor: grab;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  will-change: transform;
 }
-.drag:nth-child(odd) {
-  background-color: #ccdcf066;
+
+.drag:active {
+  cursor: grabbing;
 }
+
 .drag:hover {
-  background-color: lightblue;
+  background-color: #f4f7fb;
 }
+
+.drag.dragging {
+  cursor: grabbing;
+  background-color: #eef3fb;
+  box-shadow: 0 16px 36px rgba(13, 57, 112, 0.18);
+  transform: scale(1.01);
+  z-index: 10;
+  opacity: 1;
+}
+
+.drag-image {
+  opacity: 1 !important;
+  pointer-events: none;
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  box-shadow: 0 16px 36px rgba(13, 57, 112, 0.18);
+}
+
 /*---------------------------------------------------------*/
-/* First column visuals
+/* Grab handle column
 /*---------------------------------------------------------*/
-.draggable-table tr td:first-child {  
-  background-image: url("drag.png");
+.draggable-table tr td:first-child {
+  width: 3rem;
+  text-align: center;
+  font-size: 0;
+  padding-right: 0.5rem;
+}
+
+.draggable-table tr td:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 18px;
+  background-image: url("data:image/svg+xml,%3Csvg%20width='6'%20height='18'%20viewBox='0%200%206%2018'%20xmlns='http://www.w3.org/2000/svg'%3E%3Crect%20x='0'%20y='1'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3Crect%20x='4'%20y='1'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3Crect%20x='0'%20y='7'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3Crect%20x='4'%20y='7'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3Crect%20x='0'%20y='13'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3Crect%20x='4'%20y='13'%20width='2'%20height='2'%20rx='1'%20fill='%235b6a82'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-size: cover;
-  background-clip: content-box;
-  text-align: center;    
+  background-position: center;
+  background-size: contain;
+}
+
+@media (max-width: 576px) {
+  .draggable-table th,
+  .draggable-table td {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .draggable-table tr td:first-child {
+    width: 2.5rem;
+  }
 }
