@@ -4,6 +4,7 @@ docassemble/assemblylinewizard/docassemble*
 .vscode/
 .hypothesis/
 *.egg-info
+.code/
 
 # alkiln testing
 tests/chromedriver
