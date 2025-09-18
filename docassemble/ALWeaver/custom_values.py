@@ -79,7 +79,7 @@ def load_capabilities(
         weaverdata.get("published_configuration_capabilities") or {}
     )
     try:
-        yaml_loader = yaml.YAML(typ='safe', pure=True)
+        yaml_loader = yaml.YAML(typ="safe", pure=True)
         with open(this_yaml) as f:
             first_file = yaml_loader.load(f)
 
@@ -107,7 +107,7 @@ def load_capabilities(
                 f"{package_name}:data/sources/{published_configuration_capabilities[package_name][0]}"
             )[0]
             try:
-                yaml_loader = yaml.YAML(typ='safe', pure=True)
+                yaml_loader = yaml.YAML(typ="safe", pure=True)
                 with open(path) as f:
                     capabilities[package_name] = yaml_loader.load(f)
             except:
@@ -138,18 +138,14 @@ def get_possible_deps_as_choices(dep_category=None):
             dep_choices.extend(
                 [
                     {item.get("include_name"): item.get("description")}
-                    for item in capabilities[capability].get(
-                        "organization_choices", []
-                    )
+                    for item in capabilities[capability].get("organization_choices", [])
                 ]
             )
         elif dep_category == "jurisdiction":
             dep_choices.extend(
                 [
                     {item.get("include_name"): item.get("description")}
-                    for item in capabilities[capability].get(
-                        "jurisdiction_choices", []
-                    )
+                    for item in capabilities[capability].get("jurisdiction_choices", [])
                 ]
             )
 
@@ -171,9 +167,7 @@ def get_pypi_deps_from_choices(choices: Union[List[str], DADict]):
         pypi_deps.extend(
             [
                 choice.get("dependency")
-                for choice in capabilities[capability].get(
-                    "organization_choices", []
-                )
+                for choice in capabilities[capability].get("organization_choices", [])
                 + capabilities[capability].get("jurisdiction_choices", [])
                 if choice.get("dependency")
                 and choice.get("include_name") in choice_list
@@ -204,13 +198,9 @@ def get_full_dep_details(dep_category: Optional[str] = None) -> List:
     # TODO: do we want to prefix the choice with the package name?
     for capability in capabilities:
         if dep_category == "organization":
-            dep_choices.extend(
-                capabilities[capability].get("organization_choices", [])
-            )
+            dep_choices.extend(capabilities[capability].get("organization_choices", []))
         elif dep_category == "jurisdiction":
-            dep_choices.extend(
-                capabilities[capability].get("jurisdiction_choices", [])
-            )
+            dep_choices.extend(capabilities[capability].get("jurisdiction_choices", []))
 
     return list(unique_everseen(dep_choices))
 
