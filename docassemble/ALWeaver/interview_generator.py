@@ -1,8 +1,10 @@
 from .custom_values import get_matching_deps
 from .generator_constants import generator_constants
 from .validate_template_files import matching_reserved_names, has_fields
+from .extract_docx_vars import extract_docx_vars, _normalize_docxtpl_blocks
 from collections import defaultdict
 from dataclasses import field
+from pathlib import Path
 from docassemble.base.util import (
     bold,
     comma_list,
@@ -92,6 +94,7 @@ __all__ = [
     "get_court_choices",
     "get_docx_validation_errors",
     "get_docx_variables",
+    "normalize_docx_variables",
     "get_fields",
     "get_question_file_variables",
     "get_pdf_validation_errors",
@@ -521,7 +524,7 @@ class DAField(DAObject):
                 "label": f"Complete the expression, `{self.final_display_var} = `",
                 "field": self.attr_name("code"),
                 "show if": {"variable": self.attr_name("field_type"), "is": "code"},
-                "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[0].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
+                "help": f"Enter a valid Python expression, such as `'Hello World'` or `users[i].birthdate.plus(days=10)`. This will create a code block like `{self.final_display_var} = expression`",
             }
         )
         field_questions.append(
@@ -580,9 +583,8 @@ class DAField(DAObject):
             return self.final_display_var
         if self.final_display_var.endswith("previous_names"):
             return self.final_display_var + GATHER_CALL
-        if re.search("previous_names\[\d\]$", self.final_display_var):
-            return self.final_display_var[: -len("[0]")] + GATHER_CALL
-        # NOTE: this only works through previous_names[9]
+        if re.search(r"previous_names\[[^\]]+\]$", self.final_display_var):
+            return _strip_trailing_index(self.final_display_var) + GATHER_CALL
 
         if not custom_plurals:
             custom_plurals = []
@@ -616,14 +618,7 @@ class DAField(DAObject):
                 # HACK LITCon 2023 - hardcode previous_names list
                 first_attribute == ""
                 or first_attribute == ".name"
-                or first_attribute
-                in [
-                    ".previous_names[0]",
-                    ".previous_names[1]",
-                    ".previous_names[2]",
-                    ".previous_names[3]",
-                    ".previous_names[4]",
-                ]
+                or first_attribute.startswith(".previous_names[")
             ):
                 return prefix + GATHER_CALL
             elif first_attribute == ".address" or first_attribute == ".mailing_address":
@@ -1082,7 +1077,7 @@ class DAFieldList(DAList):
                         # This will be reached only for a DOCX and we decided to make
                         # custom people all be plural. So we ALWAYS strip off the leading
                         # index, like [0].name.first
-                        possible_suffix = re.sub("^\[\d+\]", "", matches.groups()[1])
+                        possible_suffix = re.sub(r"^\[[^\]]+\]", "", matches.groups()[1])
                         # Look for suffixes normally associated with people like .name.first for a DOCX
                         if possible_suffix in people_suffixes:
                             people.add(matches.groups()[0])
@@ -1463,8 +1458,8 @@ class DAInterview(DAObject):
         unique_fields = set()
         has_user = False
         for field in self.all_fields.builtins():
-            # Don't add the users[0].signature field to this list
-            if field.final_display_var == "users[0].signature":
+            # Don't add any users[i].signature field to this list
+            if re.fullmatch(r"users\[[^\]]+\]\.signature", field.final_display_var):
                 continue
             if field.trigger_gather() == "users.gather()":
                 has_user = True
@@ -2171,27 +2166,22 @@ def repr_str(text: str) -> str:
     return remove_u.sub(r"", repr(text))
 
 
-def docx_variable_fix(variable: str) -> str:
-    variable = re.sub(r"\\", "", variable)
-    variable = re.sub(r"^([A-Za-z\_][A-Za-z\_0-9]*).*", r"\1", variable)
-    return variable
-
-
 def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
     """Get the list of fields needed inside a template file (PDF or Docx Jinja
     tags). This will include attributes referenced. Assumes a file that
     has a valid and exiting filepath."""
     # TODO(qs): refactor to use DAField object at this stage
     if isinstance(document, DAFileList):
-        if document[0].mimetype == "application/pdf":
-            return document[0].get_pdf_fields()
+        first_file = document[0]
+        if first_file.mimetype == "application/pdf":
+            return first_file.get_pdf_fields()
+        docx_source: Union[DAFile, str, Path] = first_file
     else:
         if document.mimetype == "application/pdf":
             return document.get_pdf_fields()
+        docx_source = document
 
-    docx_data = docx2python(document.path())  # Will error with invalid value
-    text = docx_data.text
-    return get_docx_variables(text)
+    return get_docx_variables(docx_source)
 
 
 def get_question_file_variables(screens: List[Screen]) -> List[str]:
@@ -2221,89 +2211,130 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
     return list(dict.fromkeys(cast(List[str], fields)))
 
 
-def get_docx_variables(text: str) -> set:
-    """
-    Given the string from a docx file with fairly simple
-    code), returns a list of everything that looks like a jinja variable in the string.
+def get_docx_variables(docx_source: Union[str, Path, DAFile, DAStaticFile]) -> Set[str]:
+    """Extract Jinja variables from a DOCX template using the AST-based parser."""
 
-    Limits: some attributes and methods might not be designed to be directly
-    assigned in docassemble. Methods are stripped, but you may be left with
-    something you didn't intend. This is only going to help reach a draft interview.
+    docx_path = _coerce_docx_path(docx_source)
+    raw_variables = extract_docx_vars(docx_path, keep_calls=True)
+    template_text = _load_docx_text(docx_path)
+    normalized_text = _normalize_docxtpl_blocks(template_text) if template_text else None
+    return normalize_docx_variables(raw_variables, template_text=normalized_text)
 
-    Special handling for methods that look like they belong to Individual/Address classes.
-    """
-    #   Can be easily tested in a repl using the libs keyword and re
-    minimally_filtered = set()
-    for possible_variable in re.findall(
-        r"{{ *([^\} ]+) *}}", text
-    ):  # Simple single variable use
-        minimally_filtered.add(possible_variable)
-    # Variables in the second parts of for loops (allow paragraph and whitespace flags)
-    for possible_variable in re.findall(
-        r"\{%[^ \t]* +for [A-Za-z\_][A-Za-z0-9\_]* in ([^\} ]+) +[^ \t]*%}", text
-    ):
-        minimally_filtered.add(possible_variable)
-    # Variables in very simple `if` statements (allow paragraph and whitespace flags)
-    for possible_variable in re.findall(r"{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}", text):
-        minimally_filtered.add(possible_variable)
-    # Capture variables in `if` statements that contain a comparison
-    for possible_variable in re.findall(
-        r"{%[^ \t]* +if ([^\} ]+) ==|is|>|<|!=|<=|>= .* +[^ \t]*%}", text
-    ):
-        minimally_filtered.add(possible_variable)
 
-    fields = set()
+def _coerce_docx_path(docx_source: Union[str, Path, DAFile, DAStaticFile]) -> Path:
+    if isinstance(docx_source, Path):
+        return docx_source
+    if isinstance(docx_source, str):
+        return Path(docx_source)
+    if hasattr(docx_source, "path"):
+        return Path(docx_source.path())
+    raise TypeError(
+        f"Unsupported DOCX source type: {type(docx_source)!r}. Expected str, Path, or a docassemble file."
+    )
 
-    for possible_var in minimally_filtered:
-        # If no suffix exists, it's just the whole string
-        prefix = re.findall(r"([^.]*)(?:\..+)*", possible_var)
-        if not prefix[0]:
-            continue  # This should never occur as they're all strings
-        prefix_with_key = prefix[0]  # might have brackets
 
-        prefix_root = re.sub(r"\[.+\]", "", prefix_with_key)  # no brackets
-        # Filter out non-identifiers (invalid variable names), like functions
-        if not prefix_root.isidentifier():
+def normalize_docx_variables(
+    raw_variables: Iterable[str], *, template_text: Optional[str] = None
+) -> Set[str]:
+    records: List[Tuple[str, str]] = []
+    for raw_var in raw_variables:
+        normalized_var = _normalize_docx_variable(raw_var)
+        if normalized_var:
+            records.append((raw_var, normalized_var))
+
+    raw_set = {raw for raw, _ in records}
+    normalized: Set[str] = set()
+    for raw_var, normalized_var in records:
+        if _should_exclude_raw_var(raw_var, raw_set, template_text):
             continue
+        normalized.add(normalized_var)
+    return normalized
 
-        if ".mailing_address" in possible_var:  # a mailing address
-            if ".mailing_address.county" in possible_var:  # a county is special
-                fields.add(possible_var)
-            else:  # all other mailing addresses (replaces .zip and such)
-                fields.add(
-                    re.sub(
-                        r"\.mailing_address.*", ".mailing_address.address", possible_var
-                    )
-                )
+
+def _normalize_docx_variable(raw_var: str) -> Optional[str]:
+    var = raw_var.strip()
+    if not var:
+        return None
+
+    prefix_matches = re.findall(r"([^.]*)(?:\..+)*", var)
+    if not prefix_matches or not prefix_matches[0]:
+        return None
+
+    prefix_with_key = prefix_matches[0]
+    prefix_root = re.sub(r"\[.+\]", "", prefix_with_key)
+    if not prefix_root or not prefix_root.isidentifier():
+        return None
+
+    if ".mailing_address" in var:
+        if ".mailing_address.county" in var:
+            return var
+        return re.sub(r"\.mailing_address.*", ".mailing_address.address", var)
+
+    if ".address" in var:
+        if ".address.county" in var:
+            return var
+        return re.sub(r"\.address.*", ".address.address", var)
+
+    if ".name" in var:
+        if ".name.text" in var:
+            return var
+        return re.sub(r"\.name.*", ".name.first", var)
+
+    substituted = substitute_suffix(
+        var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX
+    )
+    return re.sub(r"(.*)\..*\(.*\)", r"\1", substituted)
+
+
+_INDEX_SUFFIX_RE = re.compile(r"\[[^\]]+\]$")
+
+
+def _strip_trailing_index(value: str) -> str:
+    return _INDEX_SUFFIX_RE.sub("", value)
+
+
+def _load_docx_text(docx_path: Path) -> Optional[str]:
+    try:
+        with docx2python(docx_path) as doc:
+            return doc.text
+    except Exception:
+        return None
+
+
+def _should_exclude_raw_var(
+    raw_var: str, raw_variables: Set[str], template_text: Optional[str]
+) -> bool:
+    if template_text and _appears_directly_in_template(raw_var, template_text):
+        return False
+
+    for other in raw_variables:
+        if other == raw_var:
             continue
+        if _is_more_specific_var(other, raw_var):
+            return True
+    return False
 
-        # Help gathering actual address as an attribute when document says something
-        # like address.block()
-        if ".address" in possible_var:  # an address
-            if ".address.county" in possible_var:  # a county is special
-                fields.add(possible_var)
-            else:  # all other addresses and methods on addresses (replaces .address_block() and .address.block())
-                fields.add(re.sub(r"\.address.*", ".address.address", possible_var))
-            # fields.add( prefix_with_key ) # Can't recall who added or what was this supposed to do?
-            # It will add an extra, erroneous entry of the object root, which usually doesn't
-            # make sense for a docassemble question
-            continue
 
-        if ".name" in possible_var:  # a name
-            if ".name.text" in possible_var:  # Names for non-Individuals
-                fields.add(possible_var)
-            else:  # Names for Individuals
-                fields.add(re.sub(r"\.name.*", ".name.first", possible_var))
-            continue
+def _is_more_specific_var(candidate: str, base: str) -> bool:
+    if not candidate.startswith(base):
+        return False
+    remainder = candidate[len(base) :]
+    if not remainder:
+        return False
+    return remainder[0] in ".["
 
-        # Replace any methods at the end of the variable with the attributes they use
-        possible_var = substitute_suffix(
-            possible_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX
-        )
-        methods_removed = re.sub(r"(.*)\..*\(.*\)", "\\1", possible_var)
-        fields.add(methods_removed)
 
-    return fields
+def _appears_directly_in_template(raw_var: str, template_text: str) -> bool:
+    if not template_text:
+        return False
+
+    escaped = re.escape(raw_var)
+    pattern = re.compile(
+        rf"(\{{\{{\s*{escaped}(?![\w\[\.\(]))|"  # direct output {{ var }} or with filters
+        rf"(\{{\%[^%]*?(?<![\w\.\[]){escaped}(?![\w\.\[]))",
+        re.MULTILINE,
+    )
+    return bool(pattern.search(template_text))
 
 
 ########################################################
@@ -2671,12 +2702,12 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     Identify any variable names that look like they are intended to be for a PDF
     in a DOCX template.
     """
+    docx_source: Union[str, Path, DAFile, DAStaticFile]
     if isinstance(document, DAFile):
-        docx_data = docx2python(document.path())
+        docx_source = document
     else:
-        docx_data = docx2python(document)
-    text = docx_data.text
-    fields = get_docx_variables(text)
+        docx_source = document
+    fields = get_docx_variables(docx_source)
     res = set()
     for field in fields:
         # See if the docx fields would change at all if they were actually in a PDF.

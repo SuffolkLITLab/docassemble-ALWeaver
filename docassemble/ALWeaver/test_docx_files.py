@@ -8,7 +8,6 @@ from .interview_generator import (
 )
 from .validate_template_files import matching_reserved_names
 from docassemble.base.util import DAStaticFile
-from docx2python import docx2python
 from pathlib import Path
 
 import docassemble.base.functions
@@ -36,9 +35,7 @@ class MockDAStaticFile(DAStaticFile):
 class test_docxs(unittest.TestCase):
     def test_unmap_suffixes(self):
         unmap_suffixes_file = Path(__file__).parent / "test/unmap_suffixes.docx"
-        docx_data = docx2python(unmap_suffixes_file)
-        text = docx_data.text
-        all_vars = get_docx_variables(text)
+        all_vars = get_docx_variables(unmap_suffixes_file)
         self.assertEqual(len(all_vars), 9, str(all_vars))
         self.assertIn("children[0].phone_number", all_vars)
         self.assertIn("children[1].birthdate", all_vars)
@@ -55,9 +52,7 @@ class test_docxs(unittest.TestCase):
         reserved_labels_files = (
             Path(__file__).parent / "test/reserved_docx_variables.docx"
         )
-        docx_data = docx2python(reserved_labels_files)
-        text = docx_data.text
-        all_vars = get_docx_variables(text)
+        all_vars = get_docx_variables(reserved_labels_files)
         reserved_labels = []
         for label in all_vars:
             if is_reserved_docx_label(label):
