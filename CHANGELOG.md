@@ -1,8 +1,10 @@
-# CHANGELOG
+# CHANGELOG (Deprecated)
 
-## For revisions after v1.9.0, see https://github.com/SuffolkLITLab/docassemble-ALWeaver/releases/
+## For releases after v1.9.0 (i.e. anything after 2023), see https://github.com/SuffolkLITLab/docassemble-ALWeaver/releases/
 
 ## Version v1.9.0
+
+May 15th, 2023.
 
 ### New
 
