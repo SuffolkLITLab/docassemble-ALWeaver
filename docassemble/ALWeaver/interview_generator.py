@@ -58,17 +58,10 @@ import os
 import re
 import uuid
 import zipfile
-import spacy
 from dataclasses import dataclass
 import pycountry
 
 mako.runtime.UNDEFINED = DAEmpty()
-
-
-def formfyxer_available():
-    if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
-        return True
-    return spacy.util.is_package("en_core_web_lg")
 
 
 TypeType = type(type(None))
@@ -87,7 +80,6 @@ __all__ = [
     "escape_quotes",
     "field_type_options",
     "fix_id",
-    "formfyxer_available",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -98,7 +90,6 @@ __all__ = [
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
     "indent_by",
-    "install_spacy_model",
     "is_reserved_docx_label",
     "is_reserved_label",
     "is_url",
@@ -144,11 +135,6 @@ invalid_var_characters = re.compile(r"[^A-Za-z0-9_]+")
 digit_start = re.compile(r"^[0-9]+")
 newlines = re.compile(r"\n")
 remove_u = re.compile(r"^u")
-
-
-def install_spacy_model(model="en_core_web_lg"):
-    if not spacy.util.is_package(model):
-        spacy.cli.download(model)
 
 
 class ParsingException(Exception):
@@ -1803,23 +1789,22 @@ class DAInterview(DAObject):
         Returns:
             List[str]: A list of categories
         """
-        if formfyxer_available():
-            # Get the full text of all templates
-            full_text = ""
-            for template in self.uploaded_templates:
-                if template.filename.lower().endswith(".pdf"):
-                    full_text += extract_text(template.path())
-                elif template.filename.lower().endswith(".docx"):
-                    docx_data = docx2python(
-                        template.path()
-                    )  # Will error with invalid value
-                    full_text += docx_data.text
-            categories = formfyxer.spot(
-                title + ": " + full_text,
-                token=get_config("assembly line", {}).get("spot api key", None),
-            )
-            if categories and not "401" in categories:
-                return categories
+        # Get the full text of all templates
+        full_text = ""
+        for template in self.uploaded_templates:
+            if template.filename.lower().endswith(".pdf"):
+                full_text += extract_text(template.path())
+            elif template.filename.lower().endswith(".docx"):
+                docx_data = docx2python(
+                    template.path()
+                )  # Will error with invalid value
+                full_text += docx_data.text
+        categories = formfyxer.spot(
+            title + ": " + full_text,
+            token=get_config("assembly line", {}).get("spot api key", None),
+        )
+        if categories and not "401" in categories:
+            return categories
         # Top hits: Housing, Family, Consumer, Probate, Criminal, Traffic, Consumer, Health, Immigration, Employment
         if any(
             keyword in title.lower()
