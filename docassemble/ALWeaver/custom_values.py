@@ -74,7 +74,7 @@ def load_capabilities(
     this_yaml = path_and_mimetype(
         f"{current_package_name}:data/sources/configuration_capabilities.yml"
     )[0]
-    weaverdata = DAStore(base=base)
+    weaverdata = DAStore("weaverdata", base=base)
     published_configuration_capabilities = (
         weaverdata.get("published_configuration_capabilities") or {}
     )
@@ -310,7 +310,7 @@ def advertise_capabilities(
       advertise_capabilities(__name__, minimum_version="1.5")
     ```
     """
-    weaverdata = DAStore(base=base)
+    weaverdata = DAStore("weaverdata", base=base)
     if not package_name:
         package_name = _package_name()
     elif isinstance(package_name, str):
