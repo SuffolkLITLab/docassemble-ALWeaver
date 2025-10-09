@@ -288,30 +288,30 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
 ]
 
 generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
-    "\.address.block\(\)$": ".address.address",
-    "\.address.line_one\(\)$": ".address.address",
-    "\.address.line_two\(\)$": ".address.address",
-    "\.address.on_one_line\(\)$": ".address.address",
-    "\.age_in_years\(\)$": ".birthdate",
-    "\.birthdate.format\(.*\)$": ".birthdate",
-    "\.familiar_or\(\)$": ".name.first",
-    "\.familiar\(\)$": ".name.first",
-    "\.formatted_age\(.*\)$": ".birthdate",
-    "\.mailing_address.block\(\)$": ".mailing_address.address",
-    "\.mailing_address.line_one\(\)$": ".mailing_address.address",
-    "\.mailing_address.line_two\(\)$": ".mailing_address.address",
-    "\.mailing_address.on_one_line\(\)$": ".mailing_address.address",
-    "\.name.middle_initial\(\)$": ".name.first",
-    "\.phone_numbers\(\)$": ".phone_number",
-    "\.preferred_name$": ".preferred_name.first",
+    r"\.address.block\(\)$": ".address.address",
+    r"\.address.line_one\(\)$": ".address.address",
+    r"\.address.line_two\(\)$": ".address.address",
+    r"\.address.on_one_line\(\)$": ".address.address",
+    r"\.age_in_years\(\)$": ".birthdate",
+    r"\.birthdate.format\(.*\)$": ".birthdate",
+    r"\.familiar_or\(\)$": ".name.first",
+    r"\.familiar\(\)$": ".name.first",
+    r"\.formatted_age\(.*\)$": ".birthdate",
+    r"\.mailing_address.block\(\)$": ".mailing_address.address",
+    r"\.mailing_address.line_one\(\)$": ".mailing_address.address",
+    r"\.mailing_address.line_two\(\)$": ".mailing_address.address",
+    r"\.mailing_address.on_one_line\(\)$": ".mailing_address.address",
+    r"\.name.middle_initial\(\)$": ".name.first",
+    r"\.phone_numbers\(\)$": ".phone_number",
+    r"\.preferred_name$": ".preferred_name.first",
 }
 
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
 # not `.name.full()` in the review screen displayed value
 generator_constants.FULL_DISPLAY = {
-    "\.name$": ".name.full()",
-    "\.address$": ".address.block()",
-    "\.mailing_address$": ".mailing_address.block()",
+    r"\.name$": ".name.full()",
+    r"\.address$": ".address.block()",
+    r"\.mailing_address$": ".mailing_address.block()",
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to
