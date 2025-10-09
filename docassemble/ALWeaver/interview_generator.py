@@ -566,7 +566,7 @@ class DAField(DAObject):
             return self.final_display_var
         if self.final_display_var.endswith("previous_names"):
             return self.final_display_var + GATHER_CALL
-        if re.search("previous_names\[\d\]$", self.final_display_var):
+        if re.search(r"previous_names\[\d\]$", self.final_display_var):
             return self.final_display_var[: -len("[0]")] + GATHER_CALL
         # NOTE: this only works through previous_names[9]
 
@@ -1068,7 +1068,7 @@ class DAFieldList(DAList):
                         # This will be reached only for a DOCX and we decided to make
                         # custom people all be plural. So we ALWAYS strip off the leading
                         # index, like [0].name.first
-                        possible_suffix = re.sub("^\[\d+\]", "", matches.groups()[1])
+                        possible_suffix = re.sub(r"^\[\d+\]", "", matches.groups()[1])
                         # Look for suffixes normally associated with people like .name.first for a DOCX
                         if possible_suffix in people_suffixes:
                             people.add(matches.groups()[0])
@@ -1499,7 +1499,7 @@ class DAInterview(DAObject):
 
     @property
     def package_title(self):
-        return re.sub("\W|_", "", self.interview_label.title())
+        return re.sub(r"\W|_", "", self.interview_label.title())
 
     def create_package(
         self,
@@ -2495,7 +2495,7 @@ def get_reserved_label_parts(prefixes: list, label: str):
     Return an re.matches object for all matching variable names,
     like user1_something, etc.
     """
-    return re.search(r"^(" + "|".join(prefixes) + ")(\d*)(.*)", label)
+    return re.search(r"^(" + "|".join(prefixes) + r")(\d*)(.*)", label)
 
 
 def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
@@ -2578,7 +2578,7 @@ def bad_name_reason(field: DAField) -> Optional[str]:
             if len(field.raw_field_names) > 0:
                 start += (
                     comma_and_list(
-                        [n.replace("`", "\`") for n in field.raw_field_names]
+                        [n.replace("`", r"\`") for n in field.raw_field_names]
                     )
                     + ". "
                 )
