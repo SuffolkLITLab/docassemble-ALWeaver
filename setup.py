@@ -1,6 +1,6 @@
 import os
 import sys
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 from fnmatch import fnmatchcase
 from distutils.util import convert_path
 
@@ -51,8 +51,7 @@ setup(name='docassemble.ALWeaver',
       author_email='qsteenhuis@suffolk.edu',
       license='MIT',
       url='https://docassemble.org',
-      packages=find_packages(),
-      namespace_packages=['docassemble'],
+      packages=find_namespace_packages(),
       install_requires=['PyYAML>=5.1.2', 'beautifulsoup4>=4.11.1', 'docassemble.ALToolbox>=0.4.2', 'docassemble.AssemblyLine>=2.11.3', 'docx2python>=1.27.1', 'more-itertools>=8.6.0', 'numpy>=1.0.4', 'pikepdf>=5.1.1', 'formfyxer>=0.3.0a1'],
       zip_safe=False,
       package_data=find_package_data(where='docassemble/ALWeaver/', package='docassemble.ALWeaver'),
