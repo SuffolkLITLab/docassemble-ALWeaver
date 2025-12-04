@@ -1,10 +1,12 @@
 # do not pre-load
 import unittest
+import pathlib
 
 from .interview_generator import map_raw_to_final_display, DAField
+from .list_taxonomy import get_LIST_codes
 from docassemble.base.util import log
 
-__all__ = ["TestMapNames"]
+__all__ = ["TestMapNames", "TestListTaxonomy"]
 
 # Some basic test input pdf label strings (left) with desired results (right)
 attachment_scenarios = {
@@ -230,6 +232,20 @@ class TestMapNames(unittest.TestCase):
                 log("~~~~~~~~~~\n", "console")
                 errored.append({"test": scenario_input, "result": error})
         return passed, errored
+
+
+taxonomy_file = pathlib.Path(__file__).parent / "data" / "sources" / "list-taxonomy.csv"
+
+
+class TestListTaxonomy(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_taxonomy(self):
+        codes = get_LIST_codes(taxonomy_file)
+        self.assertEqual(len(codes), 224)
+        self.assertEqual(len(set(c["group"] for c in codes)), 20)
+        self.assertEqual(len(set(c["label"] for c in codes)), 224)
 
 
 if __name__ == "__main__":
