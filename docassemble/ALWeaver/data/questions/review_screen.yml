@@ -9,55 +9,78 @@ sets:
   - preview_dafield_screen
 mako: |
   <%def name="preview_field(field)">\
-          <div class="row">
-              <div class="col-md">
-              ${ field.label }
-              </div>
-              <div class="col-md">
-              <a href="${ url_action(field.attr_name("edit_field")) }" class="edit-link"><i>${ field.field_type }</i>
-              <i class="fa-solid fa-pencil edit-icon"></i></a>
-              </div>
-          </div>
+    <% field_type_label = getattr(field, 'field_type', '') or '' %>
+    <% field_type_pretty = field_type_label.replace('_', ' ').strip().title() if field_type_label else '' %>
+    <li class="weaver-preview-field d-flex align-items-start justify-content-between">
+      <div class="weaver-field-text">
+        ${ field.label }
+      </div>
+      <div class="weaver-field-meta text-end">
+        % if field_type_pretty:
+        <span class="badge weaver-field-type">${ field_type_pretty }</span>
+        % endif
+        <a href="${ url_action(field.attr_name("edit_field")) }" class="edit-link weaver-field-edit">
+          Edit field
+          <i class="fas fa-pencil-alt edit-icon"></i>
+        </a>
+      </div>
+    </li>
   </%def>
   <%def name="preview_question_screen(question)">\
-  <div class="card h-100 review-question">
+  <div class="card h-100 review-question weaver-preview-card">
     <div class="card-header">
-      ${ question.question_text }
+      <div class="weaver-card-heading">
+        <span class="weaver-card-icon" aria-hidden="true"><i class="fas fa-list-ul"></i></span>
+        <div class="weaver-card-title">${ question.question_text }</div>
+      </div>
     </div>
     <div class="card-body">
-      <p>${ question.subquestion_text }</p>
-      <div class="container">
-      % for field in question.field_list:
-      ${ preview_field(field) }
-      % endfor
+      % if question.subquestion_text:
+      <div class="weaver-preview-subtext">
+        ${ question.subquestion_text }
       </div>
+      % endif
+      % if len(question.field_list) > 0:
+      <ul class="list-unstyled weaver-preview-field-list">
+        % for field in question.field_list:
+        ${ preview_field(field) }
+        % endfor
+      </ul>
+      % else:
+      <p class="weaver-preview-empty text-muted">No form fields on this screen yet.</p>
+      % endif
     </div>
     <div class="card-footer">
     % if isinstance(question, DAQuestion):
-        <a href="${ url_ask([question.attr_name("edit_question"), {"recompute": [question.attr_name("field_tbl_done")]}]) }" class="card-link edit-link">
-            Edit screen
-            <i class="fas fa-pencil-alt edit-icon"></i>
+        <a href="${ url_ask([question.attr_name("edit_question"), {"recompute": [question.attr_name("field_tbl_done")]}]) }" class="edit-link weaver-card-action">
+            <i class="fas fa-pencil-alt" aria-hidden="true"></i>
+            <span>Edit screen</span>
         </a>
     % else:
-    <i>${ question.card_footer_text }</i>
+    <span class="text-muted">${ question.card_footer_text }</span>
     % endif
     </div>
   </div>
   </%def>
   <%def name="preview_dafield_screen(field)">\
-  <div class="card h-100 weaver-builtin review-question">
+  <div class="card h-100 weaver-builtin review-question weaver-preview-card">
     <div class="card-header">
+      <div class="weaver-card-heading">
+        <span class="weaver-card-icon" aria-hidden="true"><i class="fas fa-magic"></i></span>
+        <div class="weaver-card-title">
       % if field.trigger_gather().endswith(".gather()"):
-      Names of ${ field.trigger_gather().replace(".gather()", "").capitalize().replace("_", " ") }
+          Names of ${ field.trigger_gather().replace(".gather()", "").capitalize().replace("_", " ") }
       % else:
-      ${ field.variable_name_guess }
+          ${ field.variable_name_guess }
       % endif
+        </div>
+      </div>
     </div>
     <div class="card-body">
-      <p></p>
+      <p class="weaver-preview-empty text-muted mb-0">This is a built-in screen provided by Weaver.</p>
     </div>
     <div class="card-footer">
-    <p><i>Built-in screen</i></p>
+      <span class="text-muted">Built-in screen</span>
     </div>
   </div>
   </%def>
@@ -135,25 +158,24 @@ review:
   - raw html: |
       ${ start_accordion("Preview interview screens", showing=True)}
   - note: |
-      Review the screens below. 
-      
-      1. Click "<a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a>" to
-      change the order of question screens.
-      1. Click the "Edit screen" button to edit the text or order of fields on a screen.
-      1. Click on a dotted line to edit an individual field.
-
-      <i>Note: this preview shows the default
-      look and feel of a Weaver-generated interview. Your output may 
-      be different and can be customized later.</i>
-
-      <div class="card-deck row row-cols-1 row-cols-md-3">
-      <div class="col mb-4">
-      ${ preview_question_screen(mock_intro_screen) }
+      <div class="weaver-preview-guide">
+        <h4>How to use this preview</h4>
+        <ol class="weaver-preview-steps">
+          <li><a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">Change screen order</a> to rearrange question screens.</li>
+          <li>Select <span class="weaver-chip">Edit screen</span> to update the text or fields on a card.</li>
+          <li>Use the <span class="weaver-chip">Edit field</span> links inside each card to tweak individual prompts.</li>
+        </ol>
+        <p class="text-muted small mb-0">Note: this preview shows the default look and feel of a Weaver-generated interview. Your output can be customized later.</p>
       </div>
-      <div class="col mb-4">
-        <div class="card h-100 weaver-builtin review-question">
+
+      <div class="weaver-preview-grid">
+      ${ preview_question_screen(mock_intro_screen) }
+        <div class="card h-100 weaver-builtin review-question weaver-preview-card">
           <div class="card-header">
-            <a href="${ url_action("interview.title") }" class="edit-link">${ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a>
+            <div class="weaver-card-heading">
+              <span class="weaver-card-icon" aria-hidden="true"><i class="fas fa-info-circle"></i></span>
+              <div class="weaver-card-title"><a href="${ url_action("interview.title") }" class="edit-link">${ interview.title }<i class="fas fa-pencil-alt edit-icon"></i></a></div>
+            </div>
           </div>
           <div class="card-body">
           % for line in interview.getting_started.split("\n"):
@@ -161,22 +183,27 @@ review:
           % endfor
           </div>
           <div class="card-footer">
-          <a href="${ url_action("interview.getting_started") }" class="edit-link">Edit getting started screen<i class="fas fa-pencil-alt edit-icon"></i></a>
+            <a href="${ url_action("interview.getting_started") }" class="edit-link weaver-card-action">
+              <i class="fas fa-pencil-alt" aria-hidden="true"></i>
+              <span>Edit getting started screen</span>
+            </a>
           </div>
         </div>
-      </div>
       % for question in (screen_order if not defined("screen_tbl_done") else screen_reordered) + [mock_preview_screen, mock_signature_choice, mock_signature_screen, mock_download_screen]:
-      <div class="col mb-4">
       % if isinstance(question, DAField):
       ${ preview_dafield_screen(question) }
       % else:
       ${ preview_question_screen(question) }
       % endif
-      </div>
       % endfor
       </div>
 
-      <a href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }"><i class="fa-solid fa-bars-staggered"></i> Change screen order</a>
+      <div class="weaver-preview-actions">
+        <a class="btn btn-outline-primary btn-sm" href="${ url_ask(['show_screen_order', {"recompute": ["screen_tbl_done"]}]) }">
+          <i class="fas fa-stream" aria-hidden="true"></i>
+          <span>Change screen order</span>
+        </a>
+      </div>
   - raw html: |
       ${ next_accordion("Information about your form") }
   - Edit: 

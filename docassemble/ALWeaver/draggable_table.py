@@ -1,4 +1,7 @@
+from typing import Dict, List, Tuple
+
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 import copy
 import json
 
@@ -15,7 +18,7 @@ import json
 """
 
 
-def make_it_draggable(tbl_data) -> list:
+def make_it_draggable(tbl_data) -> Tuple[List[str], str]:
     """
     This function makes a markdown template table draggable:
     1. Add required class name and attributes required to activate the drag-and-drop js functions.
@@ -26,23 +29,42 @@ def make_it_draggable(tbl_data) -> list:
 
     # Add a class name to the table
     soup = BeautifulSoup(original, "html.parser")
-    tag = soup.table["class"]
-    tag.append("draggable-table")
+    table_tag = soup.find("table")
+    if not isinstance(table_tag, Tag):
+        empty_order: List[str] = []
+        return (empty_order, original)
+
+    existing_classes_attr = table_tag.get("class")
+    classes_list: List[str]
+    if isinstance(existing_classes_attr, list):
+        classes_list = list(existing_classes_attr)
+    elif isinstance(existing_classes_attr, str):
+        classes_list = existing_classes_attr.split()
+    else:
+        classes_list = []
+
+    if "draggable-table" not in classes_list:
+        classes_list.append("draggable-table")
+
+    table_tag["class"] = " ".join(classes_list)
+
+    rows: List[Tag] = [tr for tr in soup.find_all("tr") if isinstance(tr, Tag)]
 
     # Add attributes to <tr> elements but skip the title row
-    for row in soup.find_all("tr")[1:]:
+    for row in rows[1:]:
         row["class"] = "drag"
         row["draggable"] = "true"
         row["ondragstart"] = "start()"
         row["ondragover"] = "dragover()"
 
     # Save the screen name column into a list
-    original_order = []
-    for row in soup.find_all("tr")[1:]:
-        cell = row.find_all("td")[1].get_text()
-        original_order.append(cell)
+    original_order: List[str] = []
+    for row in rows[1:]:
+        cells = [td for td in row.find_all("td") if isinstance(td, Tag)]
+        if len(cells) > 1:
+            original_order.append(cells[1].get_text())
 
-    return [original_order, str(soup)]
+    return (original_order, str(soup))
 
 
 def update_table_order_var(old_table_order, new_table_order, old_object):
@@ -70,7 +92,7 @@ def update_table_order_var(old_table_order, new_table_order, old_object):
     return new_object
 
 
-def make_json(order, old_html):
+def make_json(order: str, old_html: str) -> str:
     """
     This function saves the adjusted table data as a json string, so that it can be passed to a hidden field on the table screen.
     1. Use the reordered index (order) saved by JS to copy matching rows from the original table old_soup to a list
@@ -79,22 +101,26 @@ def make_json(order, old_html):
 
     old_soup = BeautifulSoup(old_html, "html.parser")
     # 1. Convert adjusted table order from string to list
-    adjusted_order = []
-    adjusted_order = order.split(",")
+    adjusted_order: List[str] = [item for item in order.split(",") if item]
 
     # 2. Prepare for json string
-    collections = list()
-    headings = list()
-    headings = old_soup.find_all("th")
+    collections: List[Dict[str, str]] = []
+    headings: List[Tag] = [
+        tag for tag in old_soup.find_all("th") if isinstance(tag, Tag)
+    ]
+    table_rows: List[Tag] = [
+        tr for tr in old_soup.find_all("tr") if isinstance(tr, Tag)
+    ]
+    data_rows = table_rows[1:]
 
     # 3. Loop thru the adjusted order and copy data from old_soup to collections
     for j, row_name in enumerate(adjusted_order):
-        # Handle one row at a time.
-        old_tbl_rows = old_soup.find_all("tr")[1:]  # skip heading row
-        for old_row in old_tbl_rows:
-            old_cells = old_row.find_all("td")
+        if not row_name:
+            continue
+        for old_row in data_rows:  # skip heading row already accounted for
+            old_cells = [td for td in old_row.find_all("td") if isinstance(td, Tag)]
 
-            if row_name in old_cells[1].get_text():  # found a matching row (field name)
+            if len(old_cells) > 1 and row_name in old_cells[1].get_text():
                 # Create a dict record using heading as its keys.
                 record = copy_one_row(headings, j + 1, old_row)
                 # 3.3 Save the record dict to a list
@@ -104,15 +130,16 @@ def make_json(order, old_html):
     return json.dumps(collections)
 
 
-def copy_one_row(heading, index, row):
-    record = dict()
-    tds = row.find_all("td")
+def copy_one_row(heading: List[Tag], index: int, row: Tag) -> Dict[str, str]:
+    record: Dict[str, str] = dict()
+    tds = [td for td in row.find_all("td") if isinstance(td, Tag)]
 
     # 1. Save adjusted table order as the 1st pair in the json record
-    record.update({str(heading[0].text): str(index)})
+    if heading:
+        record.update({str(heading[0].text): str(index)})
 
     # 2. Copy the rest of the columns
-    for k in range(1, len(heading)):
+    for k in range(1, min(len(heading), len(tds))):
         # Save links differently. Not all rows have a link.
         a_tag = tds[k].find("a")
         if a_tag is not None:

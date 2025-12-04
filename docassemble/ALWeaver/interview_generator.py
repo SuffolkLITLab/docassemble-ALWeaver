@@ -58,17 +58,10 @@ import os
 import re
 import uuid
 import zipfile
-import spacy
 from dataclasses import dataclass
 import pycountry
 
 mako.runtime.UNDEFINED = DAEmpty()
-
-
-def formfyxer_available():
-    if get_config("assembly line", {}).get("tools.suffolklitlab.org api key"):
-        return True
-    return spacy.util.is_package("en_core_web_lg")
 
 
 TypeType = type(type(None))
@@ -87,7 +80,6 @@ __all__ = [
     "escape_quotes",
     "field_type_options",
     "fix_id",
-    "formfyxer_available",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -98,7 +90,6 @@ __all__ = [
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
     "indent_by",
-    "install_spacy_model",
     "is_reserved_docx_label",
     "is_reserved_label",
     "is_url",
@@ -144,11 +135,6 @@ invalid_var_characters = re.compile(r"[^A-Za-z0-9_]+")
 digit_start = re.compile(r"^[0-9]+")
 newlines = re.compile(r"\n")
 remove_u = re.compile(r"^u")
-
-
-def install_spacy_model(model="en_core_web_lg"):
-    if not spacy.util.is_package(model):
-        spacy.cli.download(model)
 
 
 class ParsingException(Exception):
@@ -580,7 +566,7 @@ class DAField(DAObject):
             return self.final_display_var
         if self.final_display_var.endswith("previous_names"):
             return self.final_display_var + GATHER_CALL
-        if re.search("previous_names\[\d\]$", self.final_display_var):
+        if re.search(r"previous_names\[\d\]$", self.final_display_var):
             return self.final_display_var[: -len("[0]")] + GATHER_CALL
         # NOTE: this only works through previous_names[9]
 
@@ -1082,7 +1068,7 @@ class DAFieldList(DAList):
                         # This will be reached only for a DOCX and we decided to make
                         # custom people all be plural. So we ALWAYS strip off the leading
                         # index, like [0].name.first
-                        possible_suffix = re.sub("^\[\d+\]", "", matches.groups()[1])
+                        possible_suffix = re.sub(r"^\[\d+\]", "", matches.groups()[1])
                         # Look for suffixes normally associated with people like .name.first for a DOCX
                         if possible_suffix in people_suffixes:
                             people.add(matches.groups()[0])
@@ -1513,7 +1499,7 @@ class DAInterview(DAObject):
 
     @property
     def package_title(self):
-        return re.sub("\W|_", "", self.interview_label.title())
+        return re.sub(r"\W|_", "", self.interview_label.title())
 
     def create_package(
         self,
@@ -1803,23 +1789,22 @@ class DAInterview(DAObject):
         Returns:
             List[str]: A list of categories
         """
-        if formfyxer_available():
-            # Get the full text of all templates
-            full_text = ""
-            for template in self.uploaded_templates:
-                if template.filename.lower().endswith(".pdf"):
-                    full_text += extract_text(template.path())
-                elif template.filename.lower().endswith(".docx"):
-                    docx_data = docx2python(
-                        template.path()
-                    )  # Will error with invalid value
-                    full_text += docx_data.text
-            categories = formfyxer.spot(
-                title + ": " + full_text,
-                token=get_config("assembly line", {}).get("spot api key", None),
-            )
-            if categories and not "401" in categories:
-                return categories
+        # Get the full text of all templates
+        full_text = ""
+        for template in self.uploaded_templates:
+            if template.filename.lower().endswith(".pdf"):
+                full_text += extract_text(template.path())
+            elif template.filename.lower().endswith(".docx"):
+                docx_data = docx2python(
+                    template.path()
+                )  # Will error with invalid value
+                full_text += docx_data.text
+        categories = formfyxer.spot(
+            title + ": " + full_text,
+            token=get_config("assembly line", {}).get("spot api key", None),
+        )
+        if categories and not "401" in categories:
+            return categories
         # Top hits: Housing, Family, Consumer, Probate, Criminal, Traffic, Consumer, Health, Immigration, Employment
         if any(
             keyword in title.lower()
@@ -2510,7 +2495,7 @@ def get_reserved_label_parts(prefixes: list, label: str):
     Return an re.matches object for all matching variable names,
     like user1_something, etc.
     """
-    return re.search(r"^(" + "|".join(prefixes) + ")(\d*)(.*)", label)
+    return re.search(r"^(" + "|".join(prefixes) + r")(\d*)(.*)", label)
 
 
 def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
@@ -2593,7 +2578,7 @@ def bad_name_reason(field: DAField) -> Optional[str]:
             if len(field.raw_field_names) > 0:
                 start += (
                     comma_and_list(
-                        [n.replace("`", "\`") for n in field.raw_field_names]
+                        [n.replace("`", r"\`") for n in field.raw_field_names]
                     )
                     + ". "
                 )

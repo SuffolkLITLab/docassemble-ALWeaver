@@ -51,7 +51,7 @@ def get_LIST_codes(
     )
 
     # Define a function to create the desired dictionary for each row
-    def create_dict(row: pd.Series) -> Optional[Dict[str, str]]:
+    def create_dict(row: pd.Series) -> Dict[str, str]:
         # row["Suffix"] != "-00-00-00-00":
         return {
             "label": row["Title"],

@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Union, Optional
-from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
 import ruamel.yaml as yaml
 from docassemble.base.util import log, DADict, DAList, DAStore, path_and_mimetype
 from packaging.version import Version
@@ -19,6 +19,16 @@ __all__ = [
     "get_output_mako_choices",
     "get_output_mako_package_and_path",
 ]
+
+
+_CAPABILITY_LOAD_DEFAULTS: Dict[str, Any] = {
+    "base": "docassemble.ALWeaver",
+    "minimum_version": "1.5",
+    "include_playground": False,
+}
+
+
+_capability_cache: Optional[Dict[str, Any]] = None
 
 
 def _package_name(package_name: Optional[str] = None):
@@ -49,8 +59,10 @@ class SettingsList(DAList):
 
 
 def load_capabilities(
-    base: str = "docassemble.ALWeaver", minimum_version="1.5", include_playground=False
-):
+    base: str = "docassemble.ALWeaver",
+    minimum_version: str = "1.5",
+    include_playground: bool = False,
+) -> Dict[str, Any]:
     """
     Load and return a dictionary containing all advertised capabilities matching
     the specified minimum version, and optionally include capabilities that were
@@ -67,10 +79,9 @@ def load_capabilities(
         weaverdata.get("published_configuration_capabilities") or {}
     )
     try:
+        yaml_loader = yaml.YAML(typ="safe", pure=True)
         with open(this_yaml) as f:
-            this_yaml_contents = f.read()
-
-        first_file = list(yaml.safe_load_all(this_yaml_contents))[0]
+            first_file = yaml_loader.load(f)
 
         capabilities = {"Default configuration": first_file}
     except:
@@ -96,16 +107,22 @@ def load_capabilities(
                 f"{package_name}:data/sources/{published_configuration_capabilities[package_name][0]}"
             )[0]
             try:
+                yaml_loader = yaml.YAML(typ="safe", pure=True)
                 with open(path) as f:
-                    yaml_contents = f.read()
-                capabilities[package_name] = list(yaml.safe_load_all(yaml_contents))[0]
+                    capabilities[package_name] = yaml_loader.load(f)
             except:
                 log(f"Unable to load published Weaver configuration file {path}")
 
     return capabilities
 
 
-_al_weaver_capabilities = load_capabilities()
+def _get_capabilities(refresh: bool = False) -> Dict[str, Any]:
+    """Return cached capabilities, optionally refreshing from the datastore."""
+
+    global _capability_cache
+    if refresh or _capability_cache is None:
+        _capability_cache = load_capabilities(**_CAPABILITY_LOAD_DEFAULTS)
+    return _capability_cache
 
 
 def get_possible_deps_as_choices(dep_category=None):
@@ -113,24 +130,22 @@ def get_possible_deps_as_choices(dep_category=None):
 
     dep_choices = []
 
+    capabilities = _get_capabilities()
+
     # TODO: do we want to prefix the choice with the package name?
-    for capability in _al_weaver_capabilities:
+    for capability in capabilities:
         if dep_category == "organization":
             dep_choices.extend(
                 [
                     {item.get("include_name"): item.get("description")}
-                    for item in _al_weaver_capabilities[capability].get(
-                        "organization_choices", []
-                    )
+                    for item in capabilities[capability].get("organization_choices", [])
                 ]
             )
         elif dep_category == "jurisdiction":
             dep_choices.extend(
                 [
                     {item.get("include_name"): item.get("description")}
-                    for item in _al_weaver_capabilities[capability].get(
-                        "jurisdiction_choices", []
-                    )
+                    for item in capabilities[capability].get("jurisdiction_choices", [])
                 ]
             )
 
@@ -146,14 +161,14 @@ def get_pypi_deps_from_choices(choices: Union[List[str], DADict]):
     else:  # List
         choice_list = choices
 
-    for capability in _al_weaver_capabilities:
+    capabilities = _get_capabilities()
+
+    for capability in capabilities:
         pypi_deps.extend(
             [
                 choice.get("dependency")
-                for choice in _al_weaver_capabilities[capability].get(
-                    "organization_choices", []
-                )
-                + _al_weaver_capabilities[capability].get("jurisdiction_choices", [])
+                for choice in capabilities[capability].get("organization_choices", [])
+                + capabilities[capability].get("jurisdiction_choices", [])
                 if choice.get("dependency")
                 and choice.get("include_name") in choice_list
             ]
@@ -178,16 +193,14 @@ def get_full_dep_details(dep_category: Optional[str] = None) -> List:
     filtered and used as needed."""
     dep_choices = []
 
+    capabilities = _get_capabilities()
+
     # TODO: do we want to prefix the choice with the package name?
-    for capability in _al_weaver_capabilities:
+    for capability in capabilities:
         if dep_category == "organization":
-            dep_choices.extend(
-                _al_weaver_capabilities[capability].get("organization_choices", [])
-            )
+            dep_choices.extend(capabilities[capability].get("organization_choices", []))
         elif dep_category == "jurisdiction":
-            dep_choices.extend(
-                _al_weaver_capabilities[capability].get("jurisdiction_choices", [])
-            )
+            dep_choices.extend(capabilities[capability].get("jurisdiction_choices", []))
 
     return list(unique_everseen(dep_choices))
 
@@ -200,7 +213,9 @@ def get_matching_deps(
     dep_choices = []
 
     # TODO: do we want to prefix the choice with the package name?
-    for capability in _al_weaver_capabilities.values():
+    capabilities = _get_capabilities()
+
+    for capability in capabilities.values():
         if dep_category == "organization":
             dep_choices.extend(
                 [
@@ -234,7 +249,9 @@ def get_output_mako_choices() -> Dict[str, str]:
     the interview YAML file. It will be one deep.
     """
     choices = {}
-    for key, capability in _al_weaver_capabilities.items():
+    capabilities = _get_capabilities()
+
+    for key, capability in capabilities.items():
         if capability.get("output_mako"):
             if isinstance(capability["output_mako"], str):
                 choices[key] = capability["output_mako"]
@@ -309,3 +326,10 @@ def advertise_capabilities(
     weaverdata.set(
         "published_configuration_capabilities", published_configuration_capabilities
     )
+    global _CAPABILITY_LOAD_DEFAULTS
+    _CAPABILITY_LOAD_DEFAULTS = {
+        **_CAPABILITY_LOAD_DEFAULTS,
+        "base": base,
+        "minimum_version": minimum_version,
+    }
+    _get_capabilities(refresh=True)

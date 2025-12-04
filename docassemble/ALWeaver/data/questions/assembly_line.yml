@@ -59,10 +59,6 @@ code: |
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
       if im_feeling_lucky:
-        if not formfyxer_available() and user_logged_in() and user_has_privilege(["admin"]) and install_en_core_web_lg:
-          install_spacy_background_task
-          if not install_spacy_background_task.ready():
-            install_spacy_background_waiting_screen
         nav.set_sections([
           {"nav_generate_interview": "Generate your interview"},
           {"nav_review": "Review your answers"},
@@ -1904,20 +1900,6 @@ subquestion: |
 
   % endfor
 
-  % if not formfyxer_available():
-  <div class="alert alert-warning" role="alert">
-  Automatic field grouping isn't set up. To use it, you need:
-
-  <ol>
-  <li>The `en_core_web_lg` installed, or</li>
-  <li>An API token for tools.suffolklitlab.org installed in your configuration.</li>
-  </ol>
-
-  You can still use auto drafting mode but all questions will be
-  placed on one screen. You can edit them in your playground later.
-  </div>
-  % endif
-
 fields: 
   - Do you want us to draft the interview for you?: im_feeling_lucky
     datatype: radio
@@ -1947,40 +1929,6 @@ fields:
     show if: interview.start_with_json
     accept: |
       "application/json"
-  - Try to install the `en_core_web_lg` package before using auto drafting mode: install_en_core_web_lg
-    help: |
-      Installing `en_core_web_lg` will allow you to use automatic field
-      grouping but it may use more memory on your server.
-
-      If you are a nonprofit, you can request an API token to use
-      auto field grouping without installing `en_core_web_lg`.
-    datatype: yesnoradio
-    show if:
-      variable: im_feeling_lucky
-      is: True
-      code: |
-        not formfyxer_available() and user_logged_in() and user_has_privilege(["admin"])
----
-code: |
-  install_spacy_background_task = background_action("install_spacy_background_action")
----
-code: |
-  install_spacy_model()
-  background_response()
-  install_spacy_background_action = True
----
-event: install_spacy_background_waiting_screen
-id: waiting screen
-question: |
-  Installing `en_core_web_lg`
-subquestion: |
-  Please wait while we install `en_core_web_lg`. This can take a
-  few minutes to complete.
-
-  <div class="spinner-border" role="status">
-    <span class="visually-hidden">Loading...</span>
-  </div>
-reload: True
 ---
 template: explain_auto_drafting
 subject: |
