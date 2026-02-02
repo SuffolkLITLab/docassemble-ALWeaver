@@ -262,7 +262,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
 
 generator_constants.PEOPLE_SUFFIXES = list(
     generator_constants.PEOPLE_SUFFIXES_MAP.values()
-) + [".name.full()", ".name"]
+) + [".name.full()", ".name", ".name_full()"]
 
 # reserved_suffixes_map
 generator_constants.RESERVED_SUFFIXES_MAP = {
@@ -307,9 +307,9 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
 }
 
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
-# not `.name.full()` in the review screen displayed value
+# not `.name_full()` in the review screen displayed value
 generator_constants.FULL_DISPLAY = {
-    r"\.name$": ".name.full()",
+    r"\.name$": ".name_full()",
     r"\.address$": ".address.block()",
     r"\.mailing_address$": ".mailing_address.block()",
 }
