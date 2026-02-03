@@ -33,6 +33,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Mapping,
     Optional,
     Set,
     Tuple,
@@ -1417,7 +1418,11 @@ class Field(TypedDict, total=False):
     label: Optional[str]
     field: Optional[str]
     datatype: Optional[DADataType]
+    field_type: Optional[str]
     input_type: Optional[str]
+    default: Optional[Any]
+    value: Optional[Any]
+    code: Optional[Any]
     maxlength: Optional[int]
     choices: Optional[List[str]]
     min: Optional[int]
@@ -1426,11 +1431,14 @@ class Field(TypedDict, total=False):
     required: Optional[bool]
 
 
+FieldDefinition = Union[Field, Mapping[str, Any]]
+
+
 class Screen(TypedDict, total=False):
     continue_button_field: Optional[str]
     question: Optional[str]
     subquestion: Optional[str]
-    fields: Optional[List[Field]]
+    fields: Optional[List[FieldDefinition]]
 
 
 class DAInterview(DAObject):
@@ -3072,12 +3080,14 @@ def _resolve_template_path(template_ref: str) -> str:
     if ":" in template_ref:
         package_name, template_name = template_ref.split(":", 1)
         module = importlib.import_module(package_name)
-        package_dir = os.path.dirname(module.__file__)
-        return os.path.join(package_dir, "data", "templates", template_name)
+        package_file = module.__file__
+        if package_file:
+            package_dir = os.path.dirname(package_file)
+            return os.path.join(package_dir, "data", "templates", template_name)
     return os.path.join(os.path.dirname(__file__), "data", "templates", template_ref)
 
 
-def _field_type_from_definition(field_def: Dict[str, Any]) -> Optional[str]:
+def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
     raw = (
         field_def.get("datatype")
         or field_def.get("field_type")
@@ -3102,7 +3112,7 @@ def _field_type_from_definition(field_def: Dict[str, Any]) -> Optional[str]:
     return raw if isinstance(raw, str) else str(raw)
 
 
-def _apply_field_definition(field: DAField, field_def: Dict[str, Any]) -> None:
+def _apply_field_definition(field: DAField, field_def: FieldDefinition) -> None:
     field_type = _field_type_from_definition(field_def)
     if field_def.get("label") is not None:
         field.label = field_def.get("label")
@@ -3167,7 +3177,7 @@ def _ensure_field_in_interview(
 
 
 def _apply_field_definitions_to_interview(
-    interview: DAInterview, field_definitions: Optional[List[Dict[str, Any]]]
+    interview: DAInterview, field_definitions: Optional[List[FieldDefinition]]
 ) -> bool:
     if not field_definitions:
         return False
@@ -3184,7 +3194,7 @@ def _apply_field_definitions_to_interview(
     return added_fields
 
 
-def _normalize_screen_field(field_entry: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_screen_field(field_entry: FieldDefinition) -> Dict[str, Any]:
     if "field" in field_entry:
         return dict(field_entry)
     if len(field_entry) == 1:
@@ -3194,19 +3204,19 @@ def _normalize_screen_field(field_entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _merge_field_definitions_into_screens(
-    screen_definitions: List[Dict[str, Any]],
-    field_definitions: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
-    definitions_by_field = {}
+    screen_definitions: List[Screen],
+    field_definitions: Optional[List[FieldDefinition]] = None,
+) -> List[Screen]:
+    definitions_by_field: Dict[str, FieldDefinition] = {}
     for field_def in field_definitions or []:
         field_name = field_def.get("field")
         if field_name:
             definitions_by_field[field_name] = field_def
 
-    merged_screens = []
+    merged_screens: List[Screen] = []
     for screen in screen_definitions or []:
-        merged_screen = dict(screen)
-        merged_fields = []
+        merged_screen: Dict[str, Any] = dict(screen)
+        merged_fields: List[FieldDefinition] = []
         for field_entry in screen.get("fields", []) or []:
             normalized = _normalize_screen_field(field_entry)
             field_name = normalized.get("field")
@@ -3219,7 +3229,7 @@ def _merge_field_definitions_into_screens(
                 continue
             merged_fields.append(merged)
         merged_screen["fields"] = merged_fields
-        merged_screens.append(merged_screen)
+        merged_screens.append(cast(Screen, merged_screen))
     return merged_screens
 
 
@@ -3474,8 +3484,8 @@ def generate_interview_from_path(
     include_next_steps: bool = True,
     include_download_screen: bool = True,
     interview_overrides: Optional[Dict[str, Any]] = None,
-    field_definitions: Optional[List[Dict[str, Any]]] = None,
-    screen_definitions: Optional[List[Dict[str, Any]]] = None,
+    field_definitions: Optional[List[FieldDefinition]] = None,
+    screen_definitions: Optional[List[Screen]] = None,
 ) -> WeaverGenerationResult:
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
