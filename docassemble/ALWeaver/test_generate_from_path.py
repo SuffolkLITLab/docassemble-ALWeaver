@@ -23,8 +23,7 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
 
     def test_generate_from_pdf(self):
         pdf_path = (
-            Path(__file__).parent
-            / "test/test_petition_to_enforce_sanitary_code.pdf"
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_interview_from_path(
@@ -39,7 +38,11 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
                         "datatype": "text",
                         "default": "Example",
                     },
-                    {"field": "skipped_field", "datatype": "skip", "value": "'skipped'"},
+                    {
+                        "field": "skipped_field",
+                        "datatype": "skip",
+                        "value": "'skipped'",
+                    },
                     {
                         "field": "computed_field",
                         "datatype": "code",

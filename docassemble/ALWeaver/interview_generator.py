@@ -77,6 +77,7 @@ class WeaverGenerationResult:
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
 
+
 __all__ = [
     "attachment_download_html",
     "base_name",
@@ -3534,7 +3535,8 @@ def generate_interview_from_path(
     for field in interview.all_fields:
         if (
             hasattr(field, "field_type")
-            and field.field_type in [
+            and field.field_type
+            in [
                 "multiple choice radio",
                 "multiple choice checkboxes",
                 "multiple choice dropdown",
@@ -3593,7 +3595,9 @@ def generate_interview_from_path(
                 f"docassemble-{interview.package_title}.zip",
             )
         folders_and_files = {
-            "questions": [_LocalFile(path=yaml_path, filename=os.path.basename(yaml_path))],
+            "questions": [
+                _LocalFile(path=yaml_path, filename=os.path.basename(yaml_path))
+            ],
             "modules": [],
             "static": [],
             "sources": [],
@@ -3601,15 +3605,17 @@ def generate_interview_from_path(
         }
         if include_download_screen:
             if include_next_steps and hasattr(interview, "instructions"):
-                folders_and_files["templates"] = [
-                    interview.instructions
-                ] + list(interview.uploaded_templates)
+                folders_and_files["templates"] = [interview.instructions] + list(
+                    interview.uploaded_templates
+                )
             else:
                 folders_and_files["templates"] = list(interview.uploaded_templates)
 
         package_info = interview.package_info()
         if interview.author and str(interview.author).splitlines():
-            default_vals = {"author name and email": str(interview.author).splitlines()[0]}
+            default_vals = {
+                "author name and email": str(interview.author).splitlines()[0]
+            }
             package_info["author_name"] = default_vals["author name and email"]
         else:
             default_vals = {"author name and email": "author@example.com"}
