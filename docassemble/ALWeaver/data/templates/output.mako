@@ -280,7 +280,11 @@ signature: ${ custom_signature }
 % for field in interview.all_fields.skip_fields():
 ---
 code: |
+  % if hasattr(field, "value"):
+  ${ field.variable } = ${ field.value }
+  % else:
   ${ field.variable } = DAEmpty()
+  % endif
 % endfor
 % for field in interview.all_fields.code_fields():
 ---

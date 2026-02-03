@@ -8,6 +8,9 @@
 %>\
 <%def name="field_entry_yaml(field)">\
   - "${ escape_double_quoted_yaml(field.label) if field.has_label else "no label" }": ${ field.get_settable_var() }
+  % if hasattr(field, "default"):
+    default: ${ repr(field.default) }
+  % endif
   % if hasattr(field, "field_type"):
     % if field.field_type in ["yesno", "yesnomaybe","file","yesnoradio","noyes","noyesradio", "integer","currency","email","range","number","date"]:
     datatype: ${ field.field_type }

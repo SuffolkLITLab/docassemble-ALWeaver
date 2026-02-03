@@ -1,4 +1,4 @@
-from .custom_values import get_matching_deps
+from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
@@ -51,11 +51,14 @@ import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
 import formfyxer
+import importlib
 import mako.runtime
 import mako.template
 import more_itertools
 import os
 import re
+import shutil
+import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -65,6 +68,13 @@ mako.runtime.UNDEFINED = DAEmpty()
 
 
 TypeType = type(type(None))
+
+
+@dataclass
+class WeaverGenerationResult:
+    yaml_text: str
+    yaml_path: Optional[str] = None
+    package_zip_path: Optional[str] = None
 
 __all__ = [
     "attachment_download_html",
@@ -80,6 +90,7 @@ __all__ = [
     "escape_quotes",
     "field_type_options",
     "fix_id",
+    "generate_interview_from_path",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -104,6 +115,7 @@ __all__ = [
     "using_string",
     "varname",
     "logic_to_code_block",
+    "WeaverGenerationResult",
 ]
 
 always_defined = set(
@@ -1681,8 +1693,16 @@ class DAInterview(DAObject):
     def _set_template_from_file(
         self, input_file: Union[DAFileList, DAFile, DAStaticFile]
     ):
-        self.uploaded_templates = input_file.copy_deep(
-            self.attr_name("uploaded_templates")
+        if isinstance(input_file, DAFileList):
+            self.uploaded_templates = input_file.copy_deep(
+                self.attr_name("uploaded_templates")
+            )
+            return
+        self.uploaded_templates = DAFileList(
+            self.attr_name("uploaded_templates"), auto_gather=False, gathered=True
+        )
+        self.uploaded_templates[0] = input_file.copy_deep(
+            self.attr_name("uploaded_templates") + "[0]"
         )
 
     def _guess_posture(self, title: str):
@@ -1975,11 +1995,17 @@ class DAInterview(DAObject):
             if screen.get("continue button field"):
                 new_screen.continue_button_field = screen.get("continue button field")
                 new_screen.is_informational = True
+                new_screen.needs_continue_button_field = True
             else:
                 new_screen.is_informational = False
+                new_screen.needs_continue_button_field = False
+            new_screen.type = "question"
             new_screen.question_text = screen.get("question", "")
             new_screen.subquestion_text = screen.get("subquestion", "")
             for field in screen.get("fields", []) or []:
+                field_type = _field_type_from_definition(field)
+                if field_type in ["skip this field", "code"]:
+                    continue
                 new_field = new_screen.field_list.appendObject()
 
                 if field.get("label") and field.get("field"):
@@ -1991,19 +2017,8 @@ class DAInterview(DAObject):
                     new_field.label = first_item[0]
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
                 # TODO: consider refactoring this
-                if field.get("datatype") or field.get("input type"):
-                    if field.get("datatype", "") == "radio":
-                        new_field.field_type = "multiple choice radio"
-                    elif field.get("datatype", "") == "checkboxes":
-                        new_field.field_type = "multiple choice checkboxes"
-                    elif field.get("datatype", "") == "dropdown":
-                        new_field.field_type = "multiple choice dropdown"
-                    elif field.get("datatype", "") == "combobox":
-                        new_field.field_type = "multiple choice combobox"
-                    else:
-                        new_field.field_type = field.get(
-                            "datatype", field.get("input type", "text")
-                        )
+                if field_type:
+                    new_field.field_type = field_type
                 else:
                     new_field.field_type = "text"
                 if field.get("maxlength"):
@@ -2011,6 +2026,8 @@ class DAInterview(DAObject):
                 if field.get("choices"):
                     # We turn choices into a newline separated string
                     new_field.choices = "\n".join(field.get("choices") or [])
+                if field.get("default") is not None:
+                    new_field.default = field.get("default")
                 if field.get("min"):
                     new_field.range_min = field.get("min", None)
                 if field.get("max"):
@@ -2020,6 +2037,8 @@ class DAInterview(DAObject):
                 if field.get("required") == False:
                     new_field.is_optional = True
             new_screen.field_list.gathered = True
+            if not screen.get("fields"):
+                new_screen.needs_continue_button_field = True
         self.questions.gathered = True
 
     def auto_group_fields(self):
@@ -2047,6 +2066,8 @@ class DAInterview(DAObject):
             new_screen = self.questions.appendObject()
             new_screen.is_informational_screen = False
             new_screen.has_mandatory_field = True
+            new_screen.type = "question"
+            new_screen.needs_continue_button_field = False
             new_screen.question_text = (
                 next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
             )
@@ -2056,6 +2077,8 @@ class DAInterview(DAObject):
                 for field in self.all_fields
                 if field.variable in field_grouping[group]
             ]
+            if not new_screen.field_list:
+                new_screen.needs_continue_button_field = True
         self.questions.gathered = True
 
     def _auto_load_fields(self):
@@ -3005,3 +3028,589 @@ This directory is used to store templates.
     zip_obj.close()
     zip_download.commit()
     return zip_download
+
+
+def _ensure_current_question_package(package_name: str = "ALWeaver") -> None:
+    try:
+        current_question = docassemble.base.functions.this_thread.current_question
+    except Exception:
+        return
+    if not current_question:
+        docassemble.base.functions.this_thread.current_question = type("", (), {})()
+    docassemble.base.functions.this_thread.current_question.package = package_name
+
+
+class _LocalDAStaticFile(DAStaticFile):
+    def init(self, *pargs, **kwargs):
+        if "full_path" in kwargs:
+            full_path = kwargs["full_path"]
+            self.full_path = str(full_path)
+            filename = os.path.basename(self.full_path)
+            extension = os.path.splitext(filename)[1][1:]
+            kwargs.setdefault("filename", filename)
+            kwargs.setdefault("extension", extension)
+            if extension.lower() == "pdf":
+                kwargs.setdefault("mimetype", "application/pdf")
+            elif extension.lower() == "docx":
+                kwargs.setdefault(
+                    "mimetype",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+        super().init(*pargs, **kwargs)
+
+    def path(self):
+        return self.full_path
+
+
+def _make_static_file_from_path(path: str) -> DAStaticFile:
+    return _LocalDAStaticFile(full_path=path)
+
+
+def _resolve_template_path(template_ref: str) -> str:
+    if os.path.isabs(template_ref) and os.path.exists(template_ref):
+        return template_ref
+    if ":" in template_ref:
+        package_name, template_name = template_ref.split(":", 1)
+        module = importlib.import_module(package_name)
+        package_dir = os.path.dirname(module.__file__)
+        return os.path.join(package_dir, "data", "templates", template_name)
+    return os.path.join(os.path.dirname(__file__), "data", "templates", template_ref)
+
+
+def _field_type_from_definition(field_def: Dict[str, Any]) -> Optional[str]:
+    raw = (
+        field_def.get("datatype")
+        or field_def.get("field_type")
+        or field_def.get("input type")
+        or field_def.get("input_type")
+    )
+    if not raw:
+        return None
+    raw_normalized = str(raw).strip().lower()
+    if raw_normalized in ["skip", "skip this field", "skip_this_field"]:
+        return "skip this field"
+    if raw_normalized == "code":
+        return "code"
+    if raw_normalized == "radio":
+        return "multiple choice radio"
+    if raw_normalized == "checkboxes":
+        return "multiple choice checkboxes"
+    if raw_normalized == "dropdown":
+        return "multiple choice dropdown"
+    if raw_normalized == "combobox":
+        return "multiple choice combobox"
+    return raw if isinstance(raw, str) else str(raw)
+
+
+def _apply_field_definition(field: DAField, field_def: Dict[str, Any]) -> None:
+    field_type = _field_type_from_definition(field_def)
+    if field_def.get("label") is not None:
+        field.label = field_def.get("label")
+        field.has_label = True
+    if field_type:
+        field.field_type = field_type
+    if field_def.get("maxlength") is not None:
+        field.maxlength = field_def.get("maxlength")
+    if field_def.get("choices") is not None:
+        field.choices = "\n".join(field_def.get("choices") or [])
+    if field_def.get("min") is not None:
+        field.range_min = field_def.get("min")
+    if field_def.get("max") is not None:
+        field.range_max = field_def.get("max")
+    if field_def.get("step") is not None:
+        field.range_step = field_def.get("step")
+    if field_def.get("required") is False:
+        field.is_optional = True
+    if field_def.get("required") is True:
+        field.is_optional = False
+    if field_def.get("default") is not None:
+        field.default = field_def.get("default")
+    if field_type == "code":
+        code_value = field_def.get("value", field_def.get("code"))
+        if code_value is not None:
+            field.code = code_value
+    if field_type == "skip this field":
+        if field_def.get("value") is not None:
+            field.value = field_def.get("value")
+
+
+def _field_matches_name(field: DAField, field_name: str) -> bool:
+    if field_name == field.get_settable_var():
+        return True
+    if field_name == field.final_display_var:
+        return True
+    if field_name == field.variable:
+        return True
+    if hasattr(field, "raw_field_names") and field_name in field.raw_field_names:
+        return True
+    return False
+
+
+def _ensure_field_in_interview(
+    interview: DAInterview, field_name: str
+) -> Tuple[DAField, bool]:
+    for field in interview.all_fields:
+        if _field_matches_name(field, field_name):
+            return field, False
+    new_field = interview.all_fields.appendObject()
+    new_field.source_document_type = "docx"
+    new_field.raw_field_names = [field_name]
+    new_field.variable = field_name
+    new_field.final_display_var = field_name
+    new_field.has_label = True
+    new_field.variable_name_guess = field_name.replace("_", " ").capitalize()
+    new_field.field_type_guess = "text"
+    new_field.field_type = "text"
+    new_field.group = DAFieldGroup.CUSTOM
+    new_field.label = new_field.variable_name_guess
+    return new_field, True
+
+
+def _apply_field_definitions_to_interview(
+    interview: DAInterview, field_definitions: Optional[List[Dict[str, Any]]]
+) -> bool:
+    if not field_definitions:
+        return False
+    added_fields = False
+    for field_def in field_definitions:
+        field_name = field_def.get("field")
+        if not field_name:
+            continue
+        field, created = _ensure_field_in_interview(interview, field_name)
+        if created:
+            added_fields = True
+        _apply_field_definition(field, field_def)
+    interview.all_fields.gathered = True
+    return added_fields
+
+
+def _normalize_screen_field(field_entry: Dict[str, Any]) -> Dict[str, Any]:
+    if "field" in field_entry:
+        return dict(field_entry)
+    if len(field_entry) == 1:
+        label, field_name = next(iter(field_entry.items()))
+        return {"label": label, "field": field_name}
+    return dict(field_entry)
+
+
+def _merge_field_definitions_into_screens(
+    screen_definitions: List[Dict[str, Any]],
+    field_definitions: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    definitions_by_field = {}
+    for field_def in field_definitions or []:
+        field_name = field_def.get("field")
+        if field_name:
+            definitions_by_field[field_name] = field_def
+
+    merged_screens = []
+    for screen in screen_definitions or []:
+        merged_screen = dict(screen)
+        merged_fields = []
+        for field_entry in screen.get("fields", []) or []:
+            normalized = _normalize_screen_field(field_entry)
+            field_name = normalized.get("field")
+            if not field_name:
+                continue
+            merged = dict(definitions_by_field.get(field_name, {}))
+            merged.update(normalized)
+            field_type = _field_type_from_definition(merged)
+            if field_type in ["skip this field", "code"]:
+                continue
+            merged_fields.append(merged)
+        merged_screen["fields"] = merged_fields
+        merged_screens.append(merged_screen)
+    return merged_screens
+
+
+def _render_interview_yaml(
+    interview: DAInterview,
+    include_download_screen: bool,
+    output_mako_choice: str,
+    objects: Optional[List[Any]] = None,
+    screen_reordered: Optional[List[Any]] = None,
+) -> str:
+    from . import __version__
+    from .custom_values import get_yml_deps_from_choices
+    from docassemble.base.util import (
+        action_button_html,
+        currency,
+        indent,
+        single_paragraph,
+        showifdef,
+        today,
+        url_action,
+        word,
+        yesno,
+    )
+
+    output_defs_path = _resolve_template_path("output_defs.mako")
+    output_mako_ref = get_output_mako_package_and_path(output_mako_choice)
+    output_mako_path = _resolve_template_path(output_mako_ref)
+    with open(output_defs_path, "r", encoding="utf-8") as defs_handle:
+        output_defs_text = defs_handle.read()
+    with open(output_mako_path, "r", encoding="utf-8") as mako_handle:
+        output_mako_text = mako_handle.read()
+
+    template_text = output_defs_text + "\n" + output_mako_text
+    template = mako.template.Template(template_text, input_encoding="utf-8")
+
+    if screen_reordered is None:
+        screen_reordered = list(interview.questions)
+    for question in screen_reordered:
+        if isinstance(question, DAQuestion) and not hasattr(question, "type"):
+            question.type = "question"
+
+    context = {
+        "interview": interview,
+        "objects": objects or [],
+        "generate_download_screen": include_download_screen,
+        "screen_reordered": screen_reordered,
+        "package_version_number": __version__,
+        "action_button_html": action_button_html,
+        "currency": currency,
+        "indent": indent,
+        "showifdef": showifdef,
+        "today": today,
+        "url_action": url_action,
+        "word": word,
+        "yesno": yesno,
+        "single_paragraph": single_paragraph,
+        "escape_double_quoted_yaml": escape_double_quoted_yaml,
+        "oneline": oneline,
+        "indent_by": indent_by,
+        "base_name": base_name,
+        "using_string": using_string,
+        "fix_id": fix_id,
+        "varname": varname,
+        "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
+        "get_yml_deps_from_choices": get_yml_deps_from_choices,
+    }
+    return template.render(**context)
+
+
+def _assign_next_steps_template(interview: DAInterview) -> None:
+    template_map = {
+        "starts_case": "next_steps_starts_case.docx",
+        "existing_case": "next_steps_existing_case.docx",
+        "appeal": "next_steps_appeal.docx",
+        "letter": "next_steps_letter.docx",
+        "other_form": "next_steps_other_form.docx",
+        "other": "next_steps_other.docx",
+    }
+    template_name = template_map.get(interview.form_type, "next_steps_other.docx")
+    template_path = _resolve_template_path(template_name)
+    instructions_filename = f"{interview.interview_label}_next_steps.docx"
+    interview.instructions = _LocalFile(
+        path=template_path, filename=instructions_filename
+    )
+
+
+class _LocalFile:
+    def __init__(self, path: str, filename: Optional[str] = None):
+        self._path = path
+        self.filename = filename or os.path.basename(path)
+
+    def path(self):
+        return self._path
+
+
+def _create_package_zip_local(
+    pkgname: str,
+    info: dict,
+    author_info: dict,
+    folders_and_files: dict,
+    output_path: str,
+) -> str:
+    pkgname = space_to_underscore(pkgname)
+    pkg_path_prefix = "docassemble-" + pkgname
+    pkg_path_init_prefix = os.path.join(pkg_path_prefix, "docassemble")
+    pkg_path_deep_prefix = os.path.join(pkg_path_init_prefix, pkgname)
+    pkg_path_data_prefix = os.path.join(pkg_path_deep_prefix, "data")
+    pkg_path_questions_prefix = os.path.join(pkg_path_data_prefix, "questions")
+    pkg_path_sources_prefix = os.path.join(pkg_path_data_prefix, "sources")
+    pkg_path_static_prefix = os.path.join(pkg_path_data_prefix, "static")
+    pkg_path_templates_prefix = os.path.join(pkg_path_data_prefix, "templates")
+
+    zip_obj = zipfile.ZipFile(output_path, "w")
+
+    dependencies = ",".join(["'" + dep + "'" for dep in info["dependencies"]])
+
+    initpy = """\
+try:
+    __import__('pkg_resources').declare_namespace(__name__)
+except ImportError:
+    __path__ = __import__('pkgutil').extend_path(__path__, __name__)
+"""
+    licensetext = str(info["license"])
+    if re.search(r"MIT License", licensetext):
+        licensetext += (
+            "\n\nCopyright (c) "
+            + str(datetime.datetime.now().year)
+            + " "
+            + str(info.get("author_name", ""))
+            + """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+        )
+    if info["readme"] and re.search(r"[A-Za-z]", info["readme"]):
+        readme = str(info["readme"])
+    else:
+        readme = (
+            "# docassemble."
+            + str(pkgname)
+            + "\n\n"
+            + info["description"]
+            + "\n\n## Author\n\n"
+            + author_info["author name and email"]
+            + "\n\n"
+        )
+    manifestin = """\
+include README.md
+"""
+    setupcfg = """\
+[metadata]
+description_file = README.md
+"""
+    setuppy = f"""\
+from setuptools import setup
+import sys
+
+if sys.version_info < (3, 8):
+    sys.exit("This package requires Python 3.8 or higher")
+
+setup(
+    name='docassemble.{pkgname}',
+    version='{info.get("version", "")}',
+    description='{info.get("description", "")}',
+    long_description='',
+    long_description_content_type='text/plain',
+    author='{author_info.get("author name and email", "")}',
+    author_email='',
+    license='{info.get("license", "")}',
+    url='{info.get("url", "")}',
+    packages=['docassemble', 'docassemble.{pkgname}'],
+    namespace_packages=['docassemble'],
+    install_requires=[{dependencies}],
+    zip_safe=False,
+    package_data={{'docassemble.{pkgname}': ['data/questions/*', 'data/templates/*', 'data/static/*', 'data/sources/*']}},
+)
+"""
+    templatereadme = """\
+Put YAML files in this directory to make them available to Docassemble.
+"""
+    sourcesreadme = """\
+Put source files in this directory.
+"""
+    staticreadme = """\
+Put static files in this directory.
+"""
+    templatesreadme = """\
+Put templates in this directory.
+"""
+
+    zip_obj.writestr(os.path.join(pkg_path_prefix, "LICENSE"), licensetext)
+    zip_obj.writestr(os.path.join(pkg_path_prefix, "README.md"), readme)
+    zip_obj.writestr(os.path.join(pkg_path_prefix, "MANIFEST.in"), manifestin)
+    zip_obj.writestr(os.path.join(pkg_path_prefix, "setup.cfg"), setupcfg)
+    zip_obj.writestr(os.path.join(pkg_path_prefix, "setup.py"), setuppy)
+    zip_obj.writestr(os.path.join(pkg_path_init_prefix, "__init__.py"), initpy)
+    zip_obj.writestr(
+        os.path.join(pkg_path_deep_prefix, "__init__.py"),
+        ("__version__ = " + repr(info.get("version", "")) + "\n"),
+    )
+    zip_obj.writestr(
+        os.path.join(pkg_path_questions_prefix, "README.md"), templatereadme
+    )
+    zip_obj.writestr(os.path.join(pkg_path_sources_prefix, "README.md"), sourcesreadme)
+    zip_obj.writestr(os.path.join(pkg_path_static_prefix, "README.md"), staticreadme)
+    zip_obj.writestr(
+        os.path.join(pkg_path_templates_prefix, "README.md"), templatesreadme
+    )
+
+    for file in folders_and_files.get("modules", []):
+        zip_obj.write(file.path(), os.path.join(pkg_path_deep_prefix, file.filename))
+    for file in folders_and_files.get("templates", []):
+        zip_obj.write(
+            file.path(), os.path.join(pkg_path_templates_prefix, file.filename)
+        )
+    for file in folders_and_files.get("sources", []):
+        zip_obj.write(file.path(), os.path.join(pkg_path_sources_prefix, file.filename))
+    for file in folders_and_files.get("static", []):
+        zip_obj.write(file.path(), os.path.join(pkg_path_static_prefix, file.filename))
+    for file in folders_and_files.get("questions", []):
+        zip_obj.write(
+            file.path(), os.path.join(pkg_path_questions_prefix, file.filename)
+        )
+
+    zip_obj.close()
+    return output_path
+
+
+def generate_interview_from_path(
+    input_path: str,
+    *,
+    output_dir: Optional[str] = None,
+    title: Optional[str] = None,
+    jurisdiction: Optional[str] = None,
+    categories: Optional[str] = None,
+    default_country_code: str = "US",
+    output_mako_choice: str = "Default configuration:standard AssemblyLine",
+    create_package_zip: bool = True,
+    include_next_steps: bool = True,
+    include_download_screen: bool = True,
+    interview_overrides: Optional[Dict[str, Any]] = None,
+    field_definitions: Optional[List[Dict[str, Any]]] = None,
+    screen_definitions: Optional[List[Dict[str, Any]]] = None,
+) -> WeaverGenerationResult:
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Template file not found: {input_path}")
+    _ensure_current_question_package()
+    da_file = _make_static_file_from_path(input_path)
+
+    merged_screens = None
+    if screen_definitions:
+        merged_screens = _merge_field_definitions_into_screens(
+            screen_definitions, field_definitions
+        )
+
+    interview = DAInterview()
+    interview.auto_assign_attributes(
+        input_file=da_file,
+        title=title,
+        jurisdiction=jurisdiction,
+        categories=categories,
+        default_country_code=default_country_code,
+        screens=merged_screens,
+    )
+
+    interview.output_mako_choice = output_mako_choice
+    interview.include_next_steps = include_next_steps
+
+    if interview_overrides:
+        for key, value in interview_overrides.items():
+            setattr(interview, key, value)
+
+    if not hasattr(interview, "categories"):
+        interview.categories = DADict(elements={}, auto_gather=False, gathered=True)
+    if not hasattr(interview, "has_other_categories"):
+        interview.has_other_categories = False
+    if not hasattr(interview, "other_categories"):
+        interview.other_categories = ""
+    if not hasattr(interview, "original_form"):
+        interview.original_form = ""
+    if not hasattr(interview, "help_page_url"):
+        interview.help_page_url = ""
+    if not hasattr(interview, "help_page_title"):
+        interview.help_page_title = ""
+    if not hasattr(interview, "state"):
+        interview.state = ""
+
+    added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
+    for field in interview.all_fields:
+        if (
+            hasattr(field, "field_type")
+            and field.field_type in [
+                "multiple choice radio",
+                "multiple choice checkboxes",
+                "multiple choice dropdown",
+                "multiple choice combobox",
+                "multiselect",
+            ]
+            and not hasattr(field, "choices")
+        ):
+            if hasattr(field, "choice_options"):
+                field.choices = "\n".join(field.choice_options)
+            else:
+                field.choices = ""
+    if screen_definitions:
+        for screen in merged_screens or []:
+            for field_entry in screen.get("fields", []) or []:
+                field_name = field_entry.get("field")
+                if field_name:
+                    _ensure_field_in_interview(interview, field_name)
+    elif added_fields:
+        interview.auto_group_fields()
+
+    interview_label = varname(interview.title)
+    if not interview_label:
+        interview_label = varname("ending_variable_" + interview.title)
+    interview.interview_label = interview_label.lower()
+
+    if include_next_steps:
+        _assign_next_steps_template(interview)
+
+    yaml_text = _render_interview_yaml(
+        interview=interview,
+        include_download_screen=include_download_screen,
+        output_mako_choice=output_mako_choice,
+        objects=[],
+        screen_reordered=None,
+    )
+
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        yaml_path = os.path.join(output_dir, f"{interview.interview_label}.yml")
+    else:
+        tmp_dir = tempfile.mkdtemp()
+        yaml_path = os.path.join(tmp_dir, f"{interview.interview_label}.yml")
+    with open(yaml_path, "w", encoding="utf-8") as handle:
+        handle.write(yaml_text)
+
+    package_zip_path = None
+    if create_package_zip:
+        if output_dir:
+            package_zip_path = os.path.join(
+                output_dir, f"docassemble-{interview.package_title}.zip"
+            )
+        else:
+            package_zip_path = os.path.join(
+                os.path.dirname(yaml_path),
+                f"docassemble-{interview.package_title}.zip",
+            )
+        folders_and_files = {
+            "questions": [_LocalFile(path=yaml_path, filename=os.path.basename(yaml_path))],
+            "modules": [],
+            "static": [],
+            "sources": [],
+            "templates": [],
+        }
+        if include_download_screen:
+            if include_next_steps and hasattr(interview, "instructions"):
+                folders_and_files["templates"] = [
+                    interview.instructions
+                ] + list(interview.uploaded_templates)
+            else:
+                folders_and_files["templates"] = list(interview.uploaded_templates)
+
+        package_info = interview.package_info()
+        if interview.author and str(interview.author).splitlines():
+            default_vals = {"author name and email": str(interview.author).splitlines()[0]}
+            package_info["author_name"] = default_vals["author name and email"]
+        else:
+            default_vals = {"author name and email": "author@example.com"}
+        _create_package_zip_local(
+            interview.package_title,
+            package_info,
+            default_vals,
+            folders_and_files,
+            package_zip_path,
+        )
+
+    return WeaverGenerationResult(
+        yaml_text=yaml_text, yaml_path=yaml_path, package_zip_path=package_zip_path
+    )

@@ -6,3 +6,4 @@ docx2python
 boto3
 pandas-stubs
 mypy
+dayamlchecker
