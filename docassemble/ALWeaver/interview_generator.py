@@ -474,13 +474,9 @@ class DAField(DAObject):
         else:
             field_title = self.final_display_var
 
-        field_questions.append(
-            {
-                "note": f"""
+        field_questions.append({"note": f"""
                                 <h2 class="h5 prompt-heading">{self.final_display_var}</h2>
-                                """
-            }
-        )
+                                """})
         field_questions.append(
             {
                 "label": f"Prompt",
