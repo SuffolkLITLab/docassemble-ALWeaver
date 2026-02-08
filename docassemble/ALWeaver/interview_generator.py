@@ -3321,7 +3321,11 @@ def _render_interview_yaml(
     template = mako.template.Template(template_text, input_encoding="utf-8")
 
     if screen_reordered is None:
-        screen_reordered = list(interview.questions)
+        # The interview order block needs both the authored question screens and any
+        # built-in fields (e.g., users.gather(), docket_number) so the generated
+        # interview actually asks for values it references in review/download screens.
+        # `draft_screen_order()` includes built-ins and signatures in a sensible order.
+        screen_reordered = list(interview.draft_screen_order())
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"

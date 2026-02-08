@@ -75,6 +75,16 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             )
             self.assertTrue(result.yaml_path)
             self.assertTrue(os.path.exists(result.yaml_path))
+            # Ensure built-in fields that Weaver references (and/or adds to review screens)
+            # are included in the interview order block so they are actually asked.
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn("id: interview_order_", yaml_text)
+            self.assertIn("users.gather()", yaml_text)
+            self.assertIn("docket_number", yaml_text)
+            # This specific DOCX template includes a reference to users[1].email.
+            # Ensure it shows up in the interview order so the generated interview
+            # actually collects it.
+            self.assertIn("users[1].email", yaml_text)
             self._run_dayamlchecker(result.yaml_path)
 
 
