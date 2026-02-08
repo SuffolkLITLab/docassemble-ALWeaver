@@ -33,8 +33,10 @@ from typing import (
     Any,
     Dict,
     List,
+    NotRequired,
     Mapping,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -1411,31 +1413,75 @@ class DADataType(Enum):
     CHECKBOXES = "checkboxes"
 
 
-class Field(TypedDict, total=False):
-    label: Optional[str]
-    field: Optional[str]
-    datatype: Optional[DADataType]
-    field_type: Optional[str]
-    input_type: Optional[str]
-    default: Optional[Any]
-    value: Optional[Any]
-    code: Optional[Any]
-    maxlength: Optional[int]
-    choices: Optional[List[str]]
-    min: Optional[int]
-    max: Optional[int]
-    step: Optional[int]
-    required: Optional[bool]
+FieldTypeToken = Literal[
+    "text",
+    "area",
+    "yesno",
+    "noyes",
+    "yesnoradio",
+    "noyesradio",
+    "yesnowide",
+    "noyeswide",
+    "number",
+    "integer",
+    "currency",
+    "email",
+    "date",
+    "file",
+    "radio",
+    "combobox",
+    "checkboxes",
+    "dropdown",
+    "multiple choice radio",
+    "multiple choice checkboxes",
+    "multiple choice dropdown",
+    "multiple choice combobox",
+    "code",
+    "skip",
+    "skip this field",
+    "skip_this_field",
+]
 
+FieldTypeInput = Union[DADataType, FieldTypeToken]
 
-FieldDefinition = Union[Field, Mapping[str, Any]]
+Field = TypedDict(
+    "Field",
+    {
+        "label": NotRequired[Optional[str]],
+        "field": NotRequired[Optional[str]],
+        "datatype": NotRequired[Optional[FieldTypeInput]],
+        "field_type": NotRequired[Optional[FieldTypeInput]],
+        "input_type": NotRequired[Optional[FieldTypeInput]],
+        "input type": NotRequired[Optional[FieldTypeInput]],
+        "default": NotRequired[Optional[Any]],
+        "value": NotRequired[Optional[Any]],
+        "code": NotRequired[Optional[Any]],
+        "maxlength": NotRequired[Optional[int]],
+        "choices": NotRequired[Optional[Sequence[str]]],
+        "min": NotRequired[Optional[Union[int, float]]],
+        "max": NotRequired[Optional[Union[int, float]]],
+        "step": NotRequired[Optional[Union[int, float]]],
+        "required": NotRequired[Optional[bool]],
+    },
+    total=False,
+)
 
+# Legacy shorthand shape: {"Label": "variable_name"}.
+LabeledFieldMapping = Mapping[str, str]
 
-class Screen(TypedDict, total=False):
-    continue_button_field: Optional[str]
-    question: Optional[str]
-    subquestion: Optional[str]
-    fields: Optional[List[FieldDefinition]]
+FieldDefinition = Union[Field, LabeledFieldMapping]
+
+Screen = TypedDict(
+    "Screen",
+    {
+        "continue_button_field": NotRequired[Optional[str]],
+        "continue button field": NotRequired[Optional[str]],
+        "question": NotRequired[Optional[str]],
+        "subquestion": NotRequired[Optional[str]],
+        "fields": NotRequired[Optional[List[FieldDefinition]]],
+    },
+    total=False,
+)
 
 
 class DAInterview(DAObject):
@@ -1997,8 +2043,9 @@ class DAInterview(DAObject):
             if not screen.get("question"):
                 continue
             new_screen = self.questions.appendObject()
-            if screen.get("continue button field"):
-                new_screen.continue_button_field = screen.get("continue button field")
+            continue_button_field = _get_continue_button_field(screen)
+            if continue_button_field:
+                new_screen.continue_button_field = continue_button_field
                 new_screen.is_informational = True
                 new_screen.needs_continue_button_field = True
             else:
@@ -2219,8 +2266,9 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
     """
     fields = []
     for screen in screens:
-        if screen.get("continue button field"):
-            fields.append(screen.get("continue button field"))
+        continue_button_field = _get_continue_button_field(screen)
+        if continue_button_field:
+            fields.append(continue_button_field)
         if screen.get("fields"):
             for field in screen.get("fields", []) or []:
                 if field.get("field") and isinstance(field.get("field"), str):
@@ -3036,6 +3084,8 @@ This directory is used to store templates.
 
 
 def _ensure_current_question_package(package_name: str = "ALWeaver") -> None:
+    # DAStaticFile.init expects this_thread.current_question.package even outside
+    # interview runtime; synthesize it for direct Python entry points.
     try:
         current_question = docassemble.base.functions.this_thread.current_question
     except Exception:
@@ -3093,6 +3143,8 @@ def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
     )
     if not raw:
         return None
+    if isinstance(raw, DADataType):
+        raw = raw.value
     raw_normalized = str(raw).strip().lower()
     if raw_normalized in ["skip", "skip this field", "skip_this_field"]:
         return "skip this field"
@@ -3200,6 +3252,10 @@ def _normalize_screen_field(field_entry: FieldDefinition) -> Dict[str, Any]:
     return dict(field_entry)
 
 
+def _get_continue_button_field(screen: Screen) -> Optional[str]:
+    return screen.get("continue_button_field") or screen.get("continue button field")
+
+
 def _merge_field_definitions_into_screens(
     screen_definitions: List[Screen],
     field_definitions: Optional[List[FieldDefinition]] = None,
@@ -3213,6 +3269,9 @@ def _merge_field_definitions_into_screens(
     merged_screens: List[Screen] = []
     for screen in screen_definitions or []:
         merged_screen: Dict[str, Any] = dict(screen)
+        continue_button_field = _get_continue_button_field(screen)
+        if continue_button_field:
+            merged_screen["continue button field"] = continue_button_field
         merged_fields: List[FieldDefinition] = []
         for field_entry in screen.get("fields", []) or []:
             normalized = _normalize_screen_field(field_entry)
