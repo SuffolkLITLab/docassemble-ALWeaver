@@ -2263,22 +2263,23 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
     Returns:
         List[str]: A list of variables
     """
-    fields = []
+    fields: List[str] = []
     for screen in screens:
         continue_button_field = _get_continue_button_field(screen)
         if continue_button_field:
             fields.append(continue_button_field)
         if screen.get("fields"):
             for field in screen.get("fields", []) or []:
-                if field.get("field") and isinstance(field.get("field"), str):
-                    fields.append(field.get("field"))
+                raw_field = field.get("field")
+                if isinstance(raw_field, str) and raw_field:
+                    fields.append(raw_field)
                 else:
                     # Append the first value in the field dictionary, which is the variable name
                     fld_tmp = next(iter(field.values()))
                     if isinstance(fld_tmp, str):
                         fields.append(fld_tmp)
     # remove duplicates without changing order
-    return list(dict.fromkeys(cast(List[str], fields)))
+    return list(dict.fromkeys(fields))
 
 
 def get_docx_variables(text: str) -> set:
@@ -3160,6 +3161,22 @@ def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
     return raw if isinstance(raw, str) else str(raw)
 
 
+def _coerce_optional_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped == "":
+            return None
+        try:
+            return int(stripped)
+        except ValueError:
+            return None
+    return None
+
+
 def _apply_field_definition(field: DAField, field_def: FieldDefinition) -> None:
     field_type = _field_type_from_definition(field_def)
     if field_def.get("label") is not None:
@@ -3167,8 +3184,10 @@ def _apply_field_definition(field: DAField, field_def: FieldDefinition) -> None:
         field.has_label = True
     if field_type:
         field.field_type = field_type
-    if field_def.get("maxlength") is not None:
-        field.maxlength = field_def.get("maxlength")
+    raw_maxlength = field_def.get("maxlength")
+    maxlength = _coerce_optional_int(raw_maxlength)
+    if maxlength is not None:
+        field.maxlength = maxlength
     if field_def.get("choices") is not None:
         field.choices = "\n".join(field_def.get("choices") or [])
     if field_def.get("min") is not None:
@@ -3251,6 +3270,46 @@ def _normalize_screen_field(field_entry: FieldDefinition) -> Dict[str, Any]:
     return dict(field_entry)
 
 
+def _as_field_definition(value: Mapping[str, Any]) -> Field:
+    """Filter an arbitrary mapping down to keys/types allowed by the Field TypedDict."""
+    out: Field = {}
+    if "label" in value and (value["label"] is None or isinstance(value["label"], str)):
+        out["label"] = value["label"]
+    if "field" in value and (value["field"] is None or isinstance(value["field"], str)):
+        out["field"] = value["field"]
+    if "datatype" in value:
+        out["datatype"] = value["datatype"]  # validated downstream
+    if "field_type" in value:
+        out["field_type"] = value["field_type"]  # validated downstream
+    if "input_type" in value:
+        out["input_type"] = value["input_type"]  # validated downstream
+    if "input type" in value:
+        out["input type"] = value["input type"]  # validated downstream
+    if "default" in value:
+        out["default"] = value["default"]
+    if "value" in value:
+        out["value"] = value["value"]
+    if "code" in value:
+        out["code"] = value["code"]
+    if "maxlength" in value:
+        out["maxlength"] = _coerce_optional_int(value["maxlength"])
+    if "choices" in value and (
+        value["choices"] is None or isinstance(value["choices"], (list, tuple))
+    ):
+        out["choices"] = value["choices"]
+    if "min" in value:
+        out["min"] = value["min"]
+    if "max" in value:
+        out["max"] = value["max"]
+    if "step" in value:
+        out["step"] = value["step"]
+    if "required" in value and (
+        value["required"] is None or isinstance(value["required"], bool)
+    ):
+        out["required"] = value["required"]
+    return out
+
+
 def _get_continue_button_field(screen: Screen) -> Optional[str]:
     return screen.get("continue_button_field") or screen.get("continue button field")
 
@@ -3275,10 +3334,15 @@ def _merge_field_definitions_into_screens(
         for field_entry in screen.get("fields", []) or []:
             normalized = _normalize_screen_field(field_entry)
             field_name = normalized.get("field")
-            if not field_name:
+            if not isinstance(field_name, str) or not field_name:
                 continue
-            merged = dict(definitions_by_field.get(field_name, {}))
-            merged.update(normalized)
+            base_def = definitions_by_field.get(field_name)
+            base: Dict[str, Any] = {}
+            # FieldDefinition allows a legacy {Label: "var"} mapping; ignore it here.
+            if isinstance(base_def, dict) and "field" in base_def:
+                base = dict(base_def)
+            base.update(normalized)
+            merged = _as_field_definition(base)
             field_type = _field_type_from_definition(merged)
             if field_type in ["skip this field", "code"]:
                 continue

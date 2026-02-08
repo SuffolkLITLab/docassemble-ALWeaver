@@ -26,7 +26,6 @@ from typing import Any, Dict, Optional
 import requests
 import yaml
 
-
 DEFAULT_BASE = "https://apps-dev.suffolklitlab.org/al/api/v1/weaver"
 
 
@@ -115,14 +114,18 @@ def submit_and_fetch(
                 "include_package_zip_base64": str(include_package_zip_base64).lower(),
                 "include_yaml_text": str(include_yaml_text).lower(),
             }
-            resp = session.post(base, headers=headers, files=files, data=data, timeout=300)
+            resp = session.post(
+                base, headers=headers, files=files, data=data, timeout=300
+            )
         # API uses 202 for async accepted; if config is wrong, we may get 503.
         try:
             post_body = resp.json()
         except Exception:
             raise SystemExit(f"{stem}: non-JSON response from POST: {resp.status_code}")
         if resp.status_code != 202:
-            raise SystemExit(f"{stem}: POST failed: {resp.status_code} body={post_body}")
+            raise SystemExit(
+                f"{stem}: POST failed: {resp.status_code} body={post_body}"
+            )
 
         job_id = str(post_body.get("job_id") or "")
         if not job_id:
@@ -140,7 +143,9 @@ def submit_and_fetch(
         )
 
     job_json_path = Path(f"/tmp/weaver_{stem}_job.json")
-    job_json_path.write_text(json.dumps(job, indent=2, sort_keys=True), encoding="utf-8")
+    job_json_path.write_text(
+        json.dumps(job, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     status = str(job.get("status") or "")
     celery_state = str(job.get("celery_state") or "")
@@ -233,7 +238,9 @@ def main(argv: list[str]) -> int:
             print(str(exc), file=sys.stderr)
             continue
 
-        print(f"{file_path.stem}: FINAL status={res.status} celery_state={res.celery_state}")
+        print(
+            f"{file_path.stem}: FINAL status={res.status} celery_state={res.celery_state}"
+        )
         print(f"{file_path.stem}: job_json={res.job_json_path}")
         if res.zip_path:
             print(f"{file_path.stem}: zip={res.zip_path}")
@@ -241,10 +248,14 @@ def main(argv: list[str]) -> int:
             print(f"{file_path.stem}: extracted={res.extract_dir}")
         if res.yml_path:
             print(f"{file_path.stem}: yml={res.yml_path}")
-            txt = res.yml_path.read_text(encoding='utf-8')
-            print(f"{file_path.stem}: contains users.gather()={'users.gather()' in txt}")
+            txt = res.yml_path.read_text(encoding="utf-8")
+            print(
+                f"{file_path.stem}: contains users.gather()={'users.gather()' in txt}"
+            )
             print(f"{file_path.stem}: contains docket_number={'docket_number' in txt}")
-            print(f"{file_path.stem}: contains users[0].email={'users[0].email' in txt}")
+            print(
+                f"{file_path.stem}: contains users[0].email={'users[0].email' in txt}"
+            )
         print()
 
     return 0

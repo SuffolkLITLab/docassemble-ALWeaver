@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Mapping, Optional
 
-from docassemble.webapp.worker_common import bg_context, workerapp
+from docassemble.webapp.worker_common import bg_context, workerapp  # type: ignore[import-untyped]
 
 from .api_utils import generate_interview_from_bytes
 
@@ -25,4 +25,3 @@ def weaver_generate_task(
             include_package_zip_base64=include_package_zip_base64,
             include_yaml_text=include_yaml_text,
         )
-

@@ -66,10 +66,15 @@ def _fetch_job_mapping(job_id: str) -> Optional[Dict[str, Any]]:
 def _parse_request_payload() -> (
     Tuple[str, Optional[str], bytes, Dict[str, Any], Dict[str, bool], bool]
 ):
+    mimetype: Optional[str]
     if "file" in request.files:
         upload = request.files["file"]
         filename = upload.filename or "upload"
-        mimetype = upload.mimetype
+        raw_upload_mimetype = upload.mimetype
+        if isinstance(raw_upload_mimetype, str) and raw_upload_mimetype.strip():
+            mimetype = raw_upload_mimetype
+        else:
+            mimetype = None
         content_bytes = upload.read()
 
         raw_options: Dict[str, Any] = dict(request.form)
@@ -94,7 +99,11 @@ def _parse_request_payload() -> (
             )
 
         filename = str(post_data.get("filename") or "upload")
-        mimetype = post_data.get("mimetype")
+        raw_json_mimetype = post_data.get("mimetype")
+        if isinstance(raw_json_mimetype, str) and raw_json_mimetype.strip():
+            mimetype = raw_json_mimetype
+        else:
+            mimetype = None
         content_bytes = decode_base64_content(post_data.get("file_content_base64"))
         merged_options = merge_raw_options(post_data)
         generation_options = coerce_generation_options(merged_options)

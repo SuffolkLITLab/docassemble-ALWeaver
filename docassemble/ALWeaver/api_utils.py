@@ -154,9 +154,7 @@ def coerce_async_flag(raw_options: Mapping[str, Any]) -> bool:
             return True
         if normalized_mode in {"sync", "synchronous"}:
             return False
-        raise WeaverAPIValidationError(
-            "mode must be either 'sync' or 'async'."
-        )
+        raise WeaverAPIValidationError("mode must be either 'sync' or 'async'.")
     if "async" in raw_options and raw_options.get("async") is not None:
         return parse_bool(raw_options.get("async"), default=False)
     return False
