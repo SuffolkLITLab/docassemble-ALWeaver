@@ -60,7 +60,6 @@ import mako.template
 import more_itertools
 import os
 import re
-import shutil
 import tempfile
 import uuid
 import zipfile
