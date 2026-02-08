@@ -1,4 +1,3 @@
----
 include:
   - docassemble.ALToolbox:multiselect.yml
   - template_validation.yml

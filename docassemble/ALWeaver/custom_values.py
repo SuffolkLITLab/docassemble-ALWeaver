@@ -5,7 +5,6 @@ from docassemble.base.util import log, DADict, DAList, DAStore, path_and_mimetyp
 from packaging.version import Version
 from more_itertools import unique_everseen
 
-
 __all__ = [
     "get_possible_deps_as_choices",
     "get_pypi_deps_from_choices",

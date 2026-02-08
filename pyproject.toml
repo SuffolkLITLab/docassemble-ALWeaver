@@ -21,6 +21,20 @@ module = "docassemble.base.*"
 ignore_missing_imports=true
 
 [[tool.mypy.overrides]]
+module = "docassemble.AssemblyLine"
+ignore_missing_imports=true
+disable_error_code=["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "docassemble.AssemblyLine.*"
+ignore_missing_imports=true
+disable_error_code=["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "docassemble.ALWeaver.validate_template_files"
+disable_error_code=["import-untyped"]
+
+[[tool.mypy.overrides]]
 module = "more_itertools"
 ignore_missing_imports=true
 
