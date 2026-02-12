@@ -33,6 +33,27 @@ Read more on our [documentation page](https://suffolklitlab.org/docassemble-Asse
 
 https://suffolklitlab.org/docassemble-AssemblyLine-documentation/
 
+## ALWeaver API
+
+When installed on a docassemble server, ALWeaver exposes a custom Flask API:
+
+- `POST /al/api/v1/weaver` (primary)
+- `GET /al/api/v1/weaver/jobs/{job_id}` (async job polling)
+- `DELETE /al/api/v1/weaver/jobs/{job_id}` (async job cleanup)
+- `GET /al/api/v1/weaver/openapi.json` (OpenAPI spec)
+- `GET /al/api/v1/weaver/docs` (human-readable docs)
+
+The API uses docassemble's API key authentication via `api_verify()`.
+The `POST` endpoint defaults to synchronous behavior, and supports optional
+asynchronous execution with `mode=async` (or `async=true`).
+
+To enable async mode, add this module to your docassemble configuration:
+
+```yaml
+celery modules:
+  - docassemble.ALWeaver.api_weaver_worker
+```
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.
