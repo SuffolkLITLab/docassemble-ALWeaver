@@ -3485,8 +3485,17 @@ def generate_interview_artifacts(
     package_output_file: Optional[Any] = None,
 ) -> WeaverInterviewArtifacts:
     yaml_filename = f"{interview.interview_label}.yml"
-    chosen_output_mako = output_mako_choice or getattr(
-        interview, "output_mako_choice", "Default configuration:standard AssemblyLine"
+    chosen_output_mako_raw = output_mako_choice
+    if chosen_output_mako_raw is None:
+        chosen_output_mako_raw = getattr(
+            interview,
+            "output_mako_choice",
+            "Default configuration:standard AssemblyLine",
+        )
+    chosen_output_mako = (
+        chosen_output_mako_raw
+        if isinstance(chosen_output_mako_raw, str)
+        else "Default configuration:standard AssemblyLine"
     )
     yaml_text = _render_interview_yaml(
         interview=interview,
