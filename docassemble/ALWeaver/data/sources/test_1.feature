@@ -47,65 +47,65 @@ Scenario: I weave the civil docketing statement
     | people_variables['have_served_other_party'] | False |  |
     | interview.customize_next_steps | False | |
     | preview_final_next_steps | True | |
-    | interview.questions[i].field_list['interview.all_fields[0]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[10]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[11]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[12]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[13]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[14]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[15]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[16]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[17]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[18]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[19]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[1]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[20]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[21]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[22]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[23]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[24]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[25]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[26]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[27]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[28]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[29]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[2]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[2]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[30]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[31]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[32]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[33]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[34]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[3]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[4]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[5]'] | True | interview.questions[0].question_text |
-    | interview.questions[i].field_list['interview.all_fields[6]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[7]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[8]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[9]'] | True | interview.questions[2].question_text |
-    | interview.questions[i].field_list['interview.all_fields[35]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[36]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[37]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[38]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[39]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[40]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[41]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[41]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[42]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[43]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].field_list['interview.all_fields[44]'] | True | interview.questions[3].question_text |
-    | interview.questions[i].has_mandatory_field | True | interview.questions[2].question_text |
-    | interview.questions[i].question_text | Screen 1 custom title | interview.questions[0].question_text |
-    | interview.questions[i].question_text | Screen 3 custom title | interview.questions[2].question_text |
-    | interview.questions[i].question_text | Screen 4 custom title | interview.questions[3].question_text |
-    | interview.questions[i].subquestion_text | Screen 1 text | interview.questions[0].question_text |
-    | interview.questions[i].subquestion_text | Screen 3 body | interview.questions[2].question_text |
-    | interview.questions[i].subquestion_text | Screen 4 body text | interview.questions[3].question_text |
-    | interview.questions[i].is_informational_screen | True | interview.questions[1].question_text |
-    | interview.questions[i].question_text | Screen 2 (informational) title | interview.questions[1].question_text |
-    | interview.questions[i].subquestion_text | Screen 2 informational only | interview.questions[1].question_text |
+    | interview.questions[i].field_list['interview.all_fields[0]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[10]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[11]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[12]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[13]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[14]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[15]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[16]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[17]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[18]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[19]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[1]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[20]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[21]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[22]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[23]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[24]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[25]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[26]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[27]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[28]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[29]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[2]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[2]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[30]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[31]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[32]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[33]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[34]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[3]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[4]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[5]'] | True | interview.questions[0].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[6]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[7]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[8]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[9]'] | True | interview.questions[2].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[35]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[36]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[37]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[38]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[39]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[40]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[41]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[41]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[42]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[43]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].field_list['interview.all_fields[44]'] | True | interview.questions[3].is_informational_screen |
+    | interview.questions[i].question_text | Screen 1 custom title | interview.questions[0].is_informational_screen |
+    | interview.questions[i].question_text | Screen 3 custom title | interview.questions[2].is_informational_screen |
+    | interview.questions[i].question_text | Screen 4 custom title | interview.questions[3].is_informational_screen |
+    | interview.questions[i].subquestion_text | Screen 1 text | interview.questions[0].is_informational_screen |
+    | interview.questions[i].subquestion_text | Screen 3 body | interview.questions[2].is_informational_screen |
+    | interview.questions[i].subquestion_text | Screen 4 body text | interview.questions[3].is_informational_screen |
+    | interview.questions[i].is_informational_screen | True | interview.questions[1].is_informational_screen |
+    | interview.questions[i].question_text | Screen 2 (informational) title | interview.questions[1].is_informational_screen |
+    | interview.questions[i].subquestion_text | Screen 2 informational only | interview.questions[1].is_informational_screen |
     | review_fields_after_labeling | True |  |
     | show_screen_order | True |  |
+    | review_weaver | True |  |
     | weaver_intro | True |  |
 
 @weaver2 @weaver @people_vars
@@ -156,3 +156,4 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | True | |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |  |
     | show_screen_order | True |  |
+    | review_weaver | True |  |

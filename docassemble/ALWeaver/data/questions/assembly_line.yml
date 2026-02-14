@@ -1526,6 +1526,7 @@ code: |
   # We removed random ID, so make sure the file names are unique
   # varname will strip leading numbers--but they may be valid at the end of the label
   interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft)).lower()
+---
 template: start_your_project
 subject: |
   To start your project after download:
@@ -1545,6 +1546,7 @@ content: |
   2. Download the "Next steps" template and customize the instructions. Upload it again with exactly the same file name.
   3. Customize the wording, reorder questions, and make the interview your
      own!
+---
 code: |
   sanitized_filename = f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
 ---
