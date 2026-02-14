@@ -13,6 +13,12 @@ default screen parts:
     [:comment-dots: Feedback](${ interview_url(i="docassemble.ALWeaver:feedback.yml", github_repo=github_repo_name, github_user=github_user, variable=user_info().variable, question_id=user_info().question_id, package_version=package_version_number, local=False,reset=1) } ){:target="_blank"}
     [:sync-alt: Restart](${ url_of('restart') } )
   post: |
+    <div id="alkiln_proxy_var_values"
+    data-generic_object="${ encode_name(str( x.instanceName if defined('x') else '' )) }"
+    % for letter in [ 'i', 'j', 'k', 'l', 'm', 'n' ]:
+    data-index_var_${ letter }="${ encode_name(str( value( letter ) if defined( letter ) else '' )) }"
+    % endfor
+    aria-hidden="true" style="display: none;"></div>
     <div data-variable="${ encode_name(str( user_info().variable )) }" id="trigger" aria-hidden="true" style="display: none;"></div>
 ---
 event: about_this_interview
