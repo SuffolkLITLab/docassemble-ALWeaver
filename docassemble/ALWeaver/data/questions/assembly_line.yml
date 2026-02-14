@@ -1193,7 +1193,7 @@ template: yaml_source
 subject: |
   Preview interview YAML
 content: |
-  ${ indent_by(interview_mako_output.raw.content, 4) }
+  ${ indent_by(generation_result.yaml_text, 4) }
 
 ---
 code: |
@@ -1527,9 +1527,6 @@ code: |
   # varname will strip leading numbers--but they may be valid at the end of the label
   interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft)).lower()
 ---
-code: |
-  attachment_variable_name = interview.interview_label + '_attachment'
----
 template: start_your_project
 subject: |
   To start your project after download:
@@ -1549,15 +1546,6 @@ content: |
   2. Download the "Next steps" template and customize the instructions. Upload it again with exactly the same file name.
   3. Customize the wording, reorder questions, and make the interview your
      own!
----
-attachment:
-  variable name: interview_mako_output
-  name: YAML output
-  filename: interview.yml
-  raw: True
-  content file:
-    code: |
-      ["output_defs.mako", get_output_mako_package_and_path(interview.output_mako_choice)]
 ---
 code: |
   sanitized_filename = f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
@@ -1580,16 +1568,14 @@ code: |
             interview.org_choices.true_values()
   )
 
-  #HACK: Docassemble bug:
-  # - stops us from using interview_label.yml as the original filename, and
-  # - stops us from just renaming the file instead of making a copy.
-  #TODO(#689) should fix this
-  temp_interview = DAFile(filename = f"{ interview.interview_label }.yml")
-  temp_interview.initialize()
-  temp_interview.copy_into(interview_mako_output.raw)
-  temp_interview.commit()
-
-  interview.create_package(temp_interview, generate_download_screen, output_file=interview_package_download)
+  generation_result = generate_interview_artifacts(
+    interview=interview,
+    include_download_screen=generate_download_screen,
+    create_package_archive=True,
+    output_mako_choice=interview.output_mako_choice,
+    package_output_file=interview_package_download,
+  )
+  temp_interview = generation_result.yaml_file
 
   wrote_interview = True
 ---
@@ -1716,7 +1702,7 @@ subquestion: |
   ${ collapse_template(yaml_source) }
   
   Download the YAML file only:  
-  [:download: Download YAML](${interview_mako_output.raw.url_for(attachment=True)})
+  [:download: Download YAML](${temp_interview.url_for(attachment=True)})
   
   Download the interview as a Docassemble package:  
   [:download: Download Package](${interview_package_download.url_for(attachment=True)})

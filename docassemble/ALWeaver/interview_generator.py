@@ -79,6 +79,13 @@ class WeaverGenerationResult:
     package_zip_path: Optional[str] = None
 
 
+@dataclass
+class WeaverInterviewArtifacts:
+    yaml_text: str
+    yaml_file: Any
+    package_file: Optional[Any] = None
+
+
 __all__ = [
     "attachment_download_html",
     "base_name",
@@ -94,6 +101,7 @@ __all__ = [
     "field_type_options",
     "fix_id",
     "generate_interview_from_path",
+    "generate_interview_artifacts",
     "get_character_limit",
     "get_court_choices",
     "get_docx_validation_errors",
@@ -119,6 +127,7 @@ __all__ = [
     "varname",
     "logic_to_code_block",
     "WeaverGenerationResult",
+    "WeaverInterviewArtifacts",
 ]
 
 always_defined = set(
@@ -3448,150 +3457,98 @@ class _LocalFile:
         return self._path
 
 
-def _create_package_zip_local(
-    pkgname: str,
-    info: dict,
-    author_info: dict,
-    folders_and_files: dict,
-    output_path: str,
-) -> str:
-    pkgname = space_to_underscore(pkgname)
-    pkg_path_prefix = "docassemble-" + pkgname
-    pkg_path_init_prefix = os.path.join(pkg_path_prefix, "docassemble")
-    pkg_path_deep_prefix = os.path.join(pkg_path_init_prefix, pkgname)
-    pkg_path_data_prefix = os.path.join(pkg_path_deep_prefix, "data")
-    pkg_path_questions_prefix = os.path.join(pkg_path_data_prefix, "questions")
-    pkg_path_sources_prefix = os.path.join(pkg_path_data_prefix, "sources")
-    pkg_path_static_prefix = os.path.join(pkg_path_data_prefix, "static")
-    pkg_path_templates_prefix = os.path.join(pkg_path_data_prefix, "templates")
+class _LocalDAFileAdapter:
+    def __init__(self, path: str):
+        self._path = path
+        self.filename = os.path.basename(path)
 
-    zip_obj = zipfile.ZipFile(output_path, "w")
+    def initialize(self, filename: Optional[str] = None, **kwargs):
+        if filename:
+            self.filename = filename
+            self._path = os.path.join(os.path.dirname(self._path), filename)
+        os.makedirs(os.path.dirname(self._path), exist_ok=True)
 
-    dependencies = ",".join(["'" + dep + "'" for dep in info["dependencies"]])
+    def path(self):
+        return self._path
 
-    initpy = """\
-try:
-    __import__('pkg_resources').declare_namespace(__name__)
-except ImportError:
-    __path__ = __import__('pkgutil').extend_path(__path__, __name__)
-"""
-    licensetext = str(info["license"])
-    if re.search(r"MIT License", licensetext):
-        licensetext += (
-            "\n\nCopyright (c) "
-            + str(datetime.datetime.now().year)
-            + " "
-            + str(info.get("author_name", ""))
-            + """
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
+    def commit(self):
+        return None
+
+
+def generate_interview_artifacts(
+    interview: DAInterview,
+    *,
+    include_download_screen: bool = True,
+    create_package_archive: bool = True,
+    output_mako_choice: Optional[str] = None,
+    yaml_output_file: Optional[Any] = None,
+    package_output_file: Optional[Any] = None,
+) -> WeaverInterviewArtifacts:
+    yaml_filename = f"{interview.interview_label}.yml"
+    chosen_output_mako_raw = output_mako_choice
+    if chosen_output_mako_raw is None:
+        chosen_output_mako_raw = getattr(
+            interview,
+            "output_mako_choice",
+            "Default configuration:standard AssemblyLine",
         )
-    if info["readme"] and re.search(r"[A-Za-z]", info["readme"]):
-        readme = str(info["readme"])
-    else:
-        readme = (
-            "# docassemble."
-            + str(pkgname)
-            + "\n\n"
-            + info["description"]
-            + "\n\n## Author\n\n"
-            + author_info["author name and email"]
-            + "\n\n"
-        )
-    manifestin = """\
-include README.md
-"""
-    setupcfg = """\
-[metadata]
-description_file = README.md
-"""
-    setuppy = f"""\
-from setuptools import setup
-import sys
-
-if sys.version_info < (3, 8):
-    sys.exit("This package requires Python 3.8 or higher")
-
-setup(
-    name='docassemble.{pkgname}',
-    version='{info.get("version", "")}',
-    description='{info.get("description", "")}',
-    long_description='',
-    long_description_content_type='text/plain',
-    author='{author_info.get("author name and email", "")}',
-    author_email='',
-    license='{info.get("license", "")}',
-    url='{info.get("url", "")}',
-    packages=['docassemble', 'docassemble.{pkgname}'],
-    namespace_packages=['docassemble'],
-    install_requires=[{dependencies}],
-    zip_safe=False,
-    package_data={{'docassemble.{pkgname}': ['data/questions/*', 'data/templates/*', 'data/static/*', 'data/sources/*']}},
-)
-"""
-    templatereadme = """\
-Put YAML files in this directory to make them available to Docassemble.
-"""
-    sourcesreadme = """\
-Put source files in this directory.
-"""
-    staticreadme = """\
-Put static files in this directory.
-"""
-    templatesreadme = """\
-Put templates in this directory.
-"""
-
-    zip_obj.writestr(os.path.join(pkg_path_prefix, "LICENSE"), licensetext)
-    zip_obj.writestr(os.path.join(pkg_path_prefix, "README.md"), readme)
-    zip_obj.writestr(os.path.join(pkg_path_prefix, "MANIFEST.in"), manifestin)
-    zip_obj.writestr(os.path.join(pkg_path_prefix, "setup.cfg"), setupcfg)
-    zip_obj.writestr(os.path.join(pkg_path_prefix, "setup.py"), setuppy)
-    zip_obj.writestr(os.path.join(pkg_path_init_prefix, "__init__.py"), initpy)
-    zip_obj.writestr(
-        os.path.join(pkg_path_deep_prefix, "__init__.py"),
-        ("__version__ = " + repr(info.get("version", "")) + "\n"),
+    chosen_output_mako = (
+        chosen_output_mako_raw
+        if isinstance(chosen_output_mako_raw, str)
+        else "Default configuration:standard AssemblyLine"
     )
-    zip_obj.writestr(
-        os.path.join(pkg_path_questions_prefix, "README.md"), templatereadme
-    )
-    zip_obj.writestr(os.path.join(pkg_path_sources_prefix, "README.md"), sourcesreadme)
-    zip_obj.writestr(os.path.join(pkg_path_static_prefix, "README.md"), staticreadme)
-    zip_obj.writestr(
-        os.path.join(pkg_path_templates_prefix, "README.md"), templatesreadme
+    yaml_text = _render_interview_yaml(
+        interview=interview,
+        include_download_screen=include_download_screen,
+        output_mako_choice=chosen_output_mako,
+        objects=[],
+        screen_reordered=None,
     )
 
-    for file in folders_and_files.get("modules", []):
-        zip_obj.write(file.path(), os.path.join(pkg_path_deep_prefix, file.filename))
-    for file in folders_and_files.get("templates", []):
-        zip_obj.write(
-            file.path(), os.path.join(pkg_path_templates_prefix, file.filename)
-        )
-    for file in folders_and_files.get("sources", []):
-        zip_obj.write(file.path(), os.path.join(pkg_path_sources_prefix, file.filename))
-    for file in folders_and_files.get("static", []):
-        zip_obj.write(file.path(), os.path.join(pkg_path_static_prefix, file.filename))
-    for file in folders_and_files.get("questions", []):
-        zip_obj.write(
-            file.path(), os.path.join(pkg_path_questions_prefix, file.filename)
+    yaml_file = yaml_output_file or DAFile(filename=yaml_filename)
+    yaml_file.initialize(filename=yaml_filename)
+    with open(yaml_file.path(), "w", encoding="utf-8") as handle:
+        handle.write(yaml_text)
+    yaml_file.commit()
+
+    package_file = None
+    if create_package_archive:
+        folders_and_files = {
+            "questions": [yaml_file],
+            "modules": [],
+            "static": [],
+            "sources": [],
+            "templates": [],
+        }
+        include_next_steps = getattr(interview, "include_next_steps", True)
+        if include_download_screen:
+            if include_next_steps and hasattr(interview, "instructions"):
+                folders_and_files["templates"] = [interview.instructions] + list(
+                    interview.uploaded_templates
+                )
+            else:
+                folders_and_files["templates"] = list(interview.uploaded_templates)
+
+        package_info = interview.package_info()
+        if interview.author and str(interview.author).splitlines():
+            default_vals = {
+                "author name and email": str(interview.author).splitlines()[0]
+            }
+            package_info["author_name"] = default_vals["author name and email"]
+        else:
+            default_vals = {"author name and email": "author@example.com"}
+
+        package_file = create_package_zip(
+            interview.package_title,
+            package_info,
+            default_vals,
+            folders_and_files,
+            fileobj=package_output_file,
         )
 
-    zip_obj.close()
-    return output_path
+    return WeaverInterviewArtifacts(
+        yaml_text=yaml_text, yaml_file=yaml_file, package_file=package_file
+    )
 
 
 def generate_interview_from_path(
@@ -3688,24 +3645,15 @@ def generate_interview_from_path(
     if include_next_steps:
         _assign_next_steps_template(interview)
 
-    yaml_text = _render_interview_yaml(
-        interview=interview,
-        include_download_screen=include_download_screen,
-        output_mako_choice=output_mako_choice,
-        objects=[],
-        screen_reordered=None,
-    )
-
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         yaml_path = os.path.join(output_dir, f"{interview.interview_label}.yml")
     else:
         tmp_dir = tempfile.mkdtemp()
         yaml_path = os.path.join(tmp_dir, f"{interview.interview_label}.yml")
-    with open(yaml_path, "w", encoding="utf-8") as handle:
-        handle.write(yaml_text)
+    yaml_output_file = _LocalDAFileAdapter(yaml_path)
 
-    package_zip_path = None
+    package_output_file = None
     if create_package_zip:
         if output_dir:
             package_zip_path = os.path.join(
@@ -3716,39 +3664,25 @@ def generate_interview_from_path(
                 os.path.dirname(yaml_path),
                 f"docassemble-{interview.package_title}.zip",
             )
-        folders_and_files = {
-            "questions": [
-                _LocalFile(path=yaml_path, filename=os.path.basename(yaml_path))
-            ],
-            "modules": [],
-            "static": [],
-            "sources": [],
-            "templates": [],
-        }
-        if include_download_screen:
-            if include_next_steps and hasattr(interview, "instructions"):
-                folders_and_files["templates"] = [interview.instructions] + list(
-                    interview.uploaded_templates
-                )
-            else:
-                folders_and_files["templates"] = list(interview.uploaded_templates)
+        package_output_file = _LocalDAFileAdapter(package_zip_path)
+    else:
+        package_zip_path = None
 
-        package_info = interview.package_info()
-        if interview.author and str(interview.author).splitlines():
-            default_vals = {
-                "author name and email": str(interview.author).splitlines()[0]
-            }
-            package_info["author_name"] = default_vals["author name and email"]
-        else:
-            default_vals = {"author name and email": "author@example.com"}
-        _create_package_zip_local(
-            interview.package_title,
-            package_info,
-            default_vals,
-            folders_and_files,
-            package_zip_path,
-        )
+    artifacts = generate_interview_artifacts(
+        interview=interview,
+        include_download_screen=include_download_screen,
+        create_package_archive=create_package_zip,
+        output_mako_choice=output_mako_choice,
+        yaml_output_file=yaml_output_file,
+        package_output_file=package_output_file,
+    )
+
+    yaml_path = artifacts.yaml_file.path()
+    if artifacts.package_file:
+        package_zip_path = artifacts.package_file.path()
 
     return WeaverGenerationResult(
-        yaml_text=yaml_text, yaml_path=yaml_path, package_zip_path=package_zip_path
+        yaml_text=artifacts.yaml_text,
+        yaml_path=yaml_path,
+        package_zip_path=package_zip_path,
     )
