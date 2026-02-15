@@ -107,6 +107,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_docx_variables",
     "get_fields",
+    "get_help_document_text",
     "get_question_file_variables",
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
@@ -2723,6 +2724,27 @@ def get_docx_validation_errors(document: DAFile) -> Optional[ValidationError]:
             "Unable to convert to PDF. Is this is a valid DOCX file?",
         )
     return None
+
+
+def get_help_document_text(document: DAFile) -> str:
+    """
+    Extract readable text from an uploaded PDF or DOCX help document.
+    Returns an empty string when text cannot be extracted.
+    """
+    if not document or not hasattr(document, "path"):
+        return ""
+
+    filename = str(getattr(document, "filename", "") or "").lower()
+    try:
+        if filename.endswith(".pdf"):
+            return extract_text(document.path()) or ""
+        if filename.endswith(".docx"):
+            return docx2python(document.path()).text or ""
+    except (PDFSyntaxError, PSEOF, BadZipFile, KeyError, ValueError):
+        return ""
+    except Exception:
+        return ""
+    return ""
 
 
 def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
