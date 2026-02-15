@@ -1,0 +1,63 @@
+form_type_choices:
+  starts_case: Starts a new court case
+  existing_case: Filed in or responding to an existing court case
+  appeal: Part of an appeal of a court case
+  letter: Letter/correspondence
+  other_form: Administrative or non-court form
+  other: Other or unknown
+
+role_choices:
+  plaintiff: Most likely user is the plaintiff/petitioner, starting the case/request, e.g. writing a letter or filing a petition
+  defendant: Most likely user is the defendant/respondent, responding to a case/request, e.g. writing an answer to a complaint
+  unknown: Cannot confidently determine role from available text
+
+metadata_system_prompt: |
+  Return a JSON object with keys:
+  - title (descriptive form title, <= 100 chars)
+  - intro_prompt (short action phrase, <= 60 chars)
+  - description (3-5 plain-language sentences)
+  - can_I_use_this_form (2-4 lines, plain language)
+  - getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+
+  Use this title: {{TITLE}}
+  Predicted form_type: {{FORM_TYPE}}
+  Predicted role: {{ROLE}}
+  Prefer evidence from uploaded form text over help-page text when they conflict.
+
+label_datatype_refinement_system_prompt: |
+  Rewrite each field label and suggest datatype.
+  Rules:
+  - keep legal meaning from context
+  - max 45 characters
+  - sentence fragment, not a sentence
+  - no variable names or underscores
+  - keep each key exactly the same
+  - simple vocabulary and plain language, targeting a 6th grade reading level
+
+  Return JSON object with shape:
+  {
+    "field_variable": {
+      "label": "Improved label",
+      "datatype": "text",
+      "choices": ["optional list of choices for dropdowns, radios, checkboxes" and other multiple choice options]
+    }
+  }
+
+  Allowed datatypes:
+  text, area, yesno, noyes, yesnoradio, noyesradio, integer, number, currency,
+  date, email, multiple choice dropdown, multiple choice combobox,
+  multiple choice radio, multiple choice checkboxes, multiselect
+
+grouping_system_prompt: |
+  Group fields into interview screens.
+  Return JSON object with this key:
+  - screens: list of objects, each with:
+    - question (short screen title)
+    - subquestion (optional short helper text)
+    - fields (list of field variable names)
+
+  Rules:
+  - Use each field at most once
+  - Prefer 2-8 fields per screen
+  - Keep related fields together
+  - Use simple vocabulary and plain language for question and subquestion, targeting a 6th grade reading level

@@ -55,6 +55,7 @@ import docassemble.base.parse
 import docassemble.base.pdftk
 import formfyxer
 import importlib
+import json
 import mako.runtime
 import mako.template
 import more_itertools
@@ -65,11 +66,15 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 import pycountry
+import yaml
+from bs4 import BeautifulSoup
+from urllib.request import Request, urlopen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
 
 TypeType = type(type(None))
+_PROMPTS_CACHE: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -262,6 +267,104 @@ def logic_to_code_block(items: List[Union[Dict, str]], indent_level=0) -> str:
             code_lines.append(children_code)
 
     return "\n".join(code_lines)
+
+
+def _load_llms_module():
+    """Load ALToolbox llms lazily so Weaver still works without it."""
+    try:
+        from docassemble.ALToolbox import llms
+
+        return llms
+    except Exception as exc:
+        log(f"Unable to load docassemble.ALToolbox.llms: {exc!r}")
+        return None
+
+
+def _safe_short_label(label: str, max_length: int = 45) -> str:
+    cleaned = re.sub(r"\s+", " ", str(label or "")).strip(" .:-")
+    if not cleaned:
+        return ""
+    return cleaned[:max_length].strip()
+
+
+def _load_prompts_config() -> Dict[str, Any]:
+    global _PROMPTS_CACHE
+    if _PROMPTS_CACHE is not None:
+        return _PROMPTS_CACHE
+    path = os.path.join(os.path.dirname(__file__), "data", "sources", "prompts.yml")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            loaded = yaml.safe_load(handle) or {}
+            if isinstance(loaded, dict):
+                _PROMPTS_CACHE = loaded
+            else:
+                _PROMPTS_CACHE = {}
+    except Exception as exc:
+        log(f"Unable to load Weaver prompts from {path}: {exc!r}")
+        _PROMPTS_CACHE = {}
+    return _PROMPTS_CACHE
+
+
+def _prompt_str(key: str, default: str) -> str:
+    value = _load_prompts_config().get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _prompt_dict(key: str, default: Dict[str, str]) -> Dict[str, str]:
+    value = _load_prompts_config().get(key, default)
+    return value if isinstance(value, dict) else default
+
+
+def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
+    if not url or not is_url(url):
+        return ""
+    try:
+        req = Request(
+            url,
+            headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
+        )
+        with urlopen(req, timeout=10) as response:
+            html_text = response.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
+        return ""
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+        for tag in soup(["script", "style", "noscript", "svg", "canvas", "nav", "footer"]):
+            tag.decompose()
+        text = soup.get_text("\n")
+        cleaned = re.sub(r"\n{3,}", "\n\n", text)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+        return cleaned[:max_chars]
+    except Exception as exc:
+        log(f"Unable to parse help page HTML for {url!r}: {exc!r}")
+        return ""
+
+
+def _normalize_field_type(value: str) -> Optional[str]:
+    if not value:
+        return None
+    normalized = str(value).strip().lower()
+    aliases = {
+        "radio": "multiple choice radio",
+        "checkbox": "yesno",
+        "checkboxes": "multiple choice checkboxes",
+        "dropdown": "multiple choice dropdown",
+        "combobox": "multiple choice combobox",
+        "multichoice": "multiple choice radio",
+        "multiple_choice_radio": "multiple choice radio",
+        "multiple_choice_checkboxes": "multiple choice checkboxes",
+        "multiple_choice_dropdown": "multiple choice dropdown",
+        "multiple_choice_combobox": "multiple choice combobox",
+    }
+    candidate = aliases.get(normalized, normalized)
+    allowed = {
+        option_key
+        for option in field_type_options()
+        for option_key in option.keys()
+        if option_key not in {"skip this field", "code"}
+    }
+    return candidate if candidate in allowed else None
 
 
 class DAFieldGroup(Enum):
@@ -1725,6 +1828,401 @@ class DAInterview(DAObject):
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()
+
+    def _llm_default_model(self) -> str:
+        return (
+            get_config("assembly line", {}).get("weaver llm model")
+            or get_config("open ai", {}).get("model")
+            or "gpt-4o-mini"
+        )
+
+    def _llm_context_text(self, max_chars: int = 18000) -> str:
+        chunks: List[str] = []
+        if hasattr(self, "uploaded_templates"):
+            for template in self.uploaded_templates:
+                try:
+                    if template.filename.lower().endswith(".pdf"):
+                        extracted = extract_text(template.path())
+                    elif template.filename.lower().endswith(".docx"):
+                        extracted = docx2python(template.path()).text
+                    else:
+                        extracted = ""
+                except Exception:
+                    extracted = ""
+                if extracted:
+                    chunks.append(extracted)
+        if hasattr(self, "help_source_text") and self.help_source_text:
+            chunks.append(str(self.help_source_text))
+        if hasattr(self, "help_page_url") and self.help_page_url:
+            if not hasattr(self, "help_page_text"):
+                self.help_page_text = _extract_help_page_text(str(self.help_page_url))
+            if self.help_page_text:
+                chunks.append(str(self.help_page_text))
+        full_text = "\n\n".join(chunks).strip()
+        if len(full_text) > max_chars:
+            return full_text[:max_chars]
+        return full_text
+
+    def llm_prefill_metadata(self, apply: bool = True) -> bool:
+        llms = _load_llms_module()
+        if not llms:
+            return False
+        context_text = self._llm_context_text()
+        if not context_text:
+            return False
+
+        try:
+            form_type_choices = _prompt_dict(
+                "form_type_choices",
+                {
+                    "starts_case": "Starts a new court case",
+                    "existing_case": "Filed in or responding to an existing court case",
+                    "appeal": "Part of an appeal of a court case",
+                    "letter": "Letter/correspondence",
+                    "other_form": "Administrative or non-court form",
+                    "other": "Other or unknown",
+                },
+            )
+            role_choices = _prompt_dict(
+                "role_choices",
+                {
+                    "plaintiff": "Most likely user is starting the case/request",
+                    "defendant": "Most likely user is responding to a case/request",
+                    "unknown": "Cannot confidently determine role from available text",
+                },
+            )
+            form_type = llms.classify_text(
+                text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                choices=form_type_choices,
+                default_response=getattr(self, "form_type", "other"),
+                model=self._llm_default_model(),
+            )
+            role = llms.classify_text(
+                text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                choices=role_choices,
+                default_response=getattr(self, "typical_role", "unknown"),
+                model=self._llm_default_model(),
+            )
+
+            prompt_template = _prompt_str(
+                "metadata_system_prompt",
+                """
+Return a JSON object with keys:
+- intro_prompt (short action phrase, <= 60 chars)
+- description (1-2 plain-language sentences)
+- can_I_use_this_form (2-4 lines, plain language)
+- getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+
+Use this title: {{TITLE}}
+Predicted form_type: {{FORM_TYPE}}
+Predicted role: {{ROLE}}
+""".strip(),
+            )
+            prompt = (
+                prompt_template.replace("{{TITLE}}", str(self.title))
+                .replace("{{FORM_TYPE}}", str(form_type))
+                .replace("{{ROLE}}", str(role))
+            )
+            drafted = llms.chat_completion(
+                system_message=prompt,
+                user_message=context_text[:12000],
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if isinstance(drafted, dict):
+                drafted_title = _safe_short_label(str(drafted.get("title", "")), 100)
+                intro_prompt = _safe_short_label(str(drafted.get("intro_prompt", "")), 60)
+                drafted_description = str(drafted.get("description") or "").strip()
+                drafted_can_use = str(drafted.get("can_I_use_this_form") or "").strip()
+                drafted_getting_started = str(drafted.get("getting_started") or "").strip()
+                if apply:
+                    if drafted_title:
+                        self.title = drafted_title
+                        self.short_title = drafted_title[:25]
+                        self.short_filename_with_spaces = drafted_title
+                        self.short_filename = space_to_underscore(varname(drafted_title))
+                    if intro_prompt:
+                        self.intro_prompt = intro_prompt
+                    if drafted_description:
+                        self.description = drafted_description
+                    if drafted_can_use:
+                        self.can_I_use_this_form = drafted_can_use
+                    if drafted_getting_started:
+                        self.getting_started = drafted_getting_started
+                else:
+                    if drafted_title:
+                        self.llm_draft_title = drafted_title
+                    if intro_prompt:
+                        self.llm_draft_intro_prompt = intro_prompt
+                    if drafted_description:
+                        self.llm_draft_description = drafted_description
+                    if drafted_can_use:
+                        self.llm_draft_can_i_use_this_form = drafted_can_use
+                    if drafted_getting_started:
+                        self.llm_draft_getting_started = drafted_getting_started
+
+            if form_type in {
+                "starts_case",
+                "existing_case",
+                "appeal",
+                "letter",
+                "other_form",
+                "other",
+            }:
+                if apply:
+                    self.form_type = form_type
+                    self.court_related = self.form_type in {
+                        "starts_case",
+                        "existing_case",
+                        "appeal",
+                    }
+                else:
+                    self.llm_draft_form_type = form_type
+                    self.llm_draft_court_related = form_type in {
+                        "starts_case",
+                        "existing_case",
+                        "appeal",
+                    }
+            if role in {"plaintiff", "defendant", "unknown"}:
+                if apply:
+                    self.typical_role = role
+                else:
+                    self.llm_draft_typical_role = role
+            return True
+        except Exception as exc:
+            log(f"LLM metadata prefill failed: {exc!r}")
+            return False
+
+    def llm_predict_state(self, apply: bool = True) -> bool:
+        llms = _load_llms_module()
+        if not llms:
+            return False
+        context_text = self._llm_context_text(max_chars=8000)
+        if not context_text:
+            return False
+
+        try:
+            us_subdivisions = pycountry.subdivisions.get(country_code="US") or []
+            choices = {
+                subdivision.code.split("-")[1]: subdivision.name
+                for subdivision in us_subdivisions
+                if subdivision.code.startswith("US-")
+            }
+            if not choices:
+                return False
+            predicted_state = llms.classify_text(
+                text=f"Title: {self.title}\nJurisdiction: {getattr(self, 'jurisdiction', '')}\n\n{context_text}",
+                choices=choices,
+                default_response=(getattr(self, "state", "") or "MA"),
+                model=self._llm_default_model(),
+            )
+            predicted_state = str(predicted_state or "").strip().upper()
+            if predicted_state not in choices:
+                return False
+            if apply:
+                self.default_country_code = "US"
+                self.state = predicted_state
+                self.jurisdiction = "NAM-US-US+" + predicted_state
+            else:
+                self.llm_draft_default_country_code = "US"
+                self.llm_draft_state = predicted_state
+                self.llm_draft_jurisdiction = "NAM-US-US+" + predicted_state
+            return True
+        except Exception as exc:
+            log(f"LLM state prediction failed: {exc!r}")
+            return False
+
+    def llm_refine_field_labels(self) -> int:
+        llms = _load_llms_module()
+        if not llms:
+            return 0
+
+        custom_fields = [
+            field
+            for field in self.all_fields.custom()
+            if not (hasattr(field, "field_type") and field.field_type in ["code", "skip this field"])
+        ]
+        if not custom_fields:
+            return 0
+
+        context_text = self._llm_context_text(max_chars=12000)
+        if not context_text:
+            return 0
+
+        try:
+            field_payload = {
+                field.variable: {
+                    "current_label": field.label if hasattr(field, "label") else field.variable_name_guess,
+                    "datatype": getattr(field, "field_type", getattr(field, "field_type_guess", "text")),
+                }
+                for field in custom_fields
+            }
+            prompt = _prompt_str(
+                "label_datatype_refinement_system_prompt",
+                """
+Rewrite each field label and suggest datatype.
+Rules:
+- keep legal meaning from context
+- max 45 characters
+- sentence fragment, not a sentence
+- no variable names or underscores
+- keep each key exactly the same
+Return JSON object with shape:
+{
+  "field_variable": {
+    "label": "Improved label",
+    "datatype": "text"
+  }
+}
+""".strip(),
+            )
+            response = llms.chat_completion(
+                system_message=prompt,
+                user_message="Context:\n"
+                + context_text
+                + "\n\nFields:\n"
+                + json.dumps(field_payload),
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if not isinstance(response, dict):
+                return 0
+
+            updated = 0
+            by_variable = {field.variable: field for field in custom_fields}
+            for variable, llm_value in response.items():
+                if variable not in by_variable:
+                    continue
+                if isinstance(llm_value, dict):
+                    new_label = llm_value.get("label", "")
+                    new_datatype = llm_value.get("datatype", "")
+                else:
+                    # Backward compatibility if prompt returns just a label string.
+                    new_label = llm_value
+                    new_datatype = ""
+                cleaned = _safe_short_label(str(new_label), 45)
+                if not cleaned:
+                    continue
+                by_variable[variable].label = cleaned
+                by_variable[variable].has_label = True
+                normalized_datatype = _normalize_field_type(str(new_datatype))
+                if normalized_datatype:
+                    by_variable[variable].field_type = normalized_datatype
+                updated += 1
+            return updated
+        except Exception as exc:
+            log(f"LLM field-label refinement failed: {exc!r}")
+            return 0
+
+    def llm_group_fields(self) -> bool:
+        llms = _load_llms_module()
+        if not llms:
+            return False
+
+        custom_fields = [
+            field
+            for field in self.all_fields.custom()
+            if not (hasattr(field, "field_type") and field.field_type in ["code", "skip this field"])
+        ]
+        if not custom_fields:
+            return False
+
+        try:
+            context_text = self._llm_context_text(max_chars=10000)
+            field_rows = [
+                {
+                    "field": field.variable,
+                    "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+                }
+                for field in custom_fields
+            ]
+            prompt = _prompt_str(
+                "grouping_system_prompt",
+                """
+Group fields into interview screens.
+Return JSON object with this key:
+- screens: list of objects, each with:
+  - question (short screen title)
+  - subquestion (optional short helper text)
+  - fields (list of field variable names)
+
+Rules:
+- Use each field at most once
+- Prefer 2-8 fields per screen
+- Keep related fields together
+""".strip(),
+            )
+            response = llms.chat_completion(
+                system_message=prompt,
+                user_message="Context:\n"
+                + context_text
+                + "\n\nFields:\n"
+                + json.dumps(field_rows),
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if not isinstance(response, dict) or not isinstance(response.get("screens"), list):
+                return False
+
+            by_variable = {field.variable: field for field in custom_fields}
+            used: Set[str] = set()
+            screen_list: List[Screen] = []
+            for raw_screen in response.get("screens", []):
+                if not isinstance(raw_screen, dict):
+                    continue
+                fields = raw_screen.get("fields")
+                if not isinstance(fields, list):
+                    continue
+                field_defs: List[FieldDefinition] = []
+                for variable in fields:
+                    if not isinstance(variable, str) or variable not in by_variable or variable in used:
+                        continue
+                    used.add(variable)
+                    field_obj = by_variable[variable]
+                    field_defs.append(
+                        {
+                            "field": variable,
+                            "label": field_obj.label if hasattr(field_obj, "label") else field_obj.variable_name_guess,
+                            "datatype": getattr(field_obj, "field_type", getattr(field_obj, "field_type_guess", "text")),
+                        }
+                    )
+                if field_defs:
+                    screen_list.append(
+                        {
+                            "question": str(raw_screen.get("question") or "More information"),
+                            "subquestion": str(raw_screen.get("subquestion") or ""),
+                            "fields": field_defs,
+                        }
+                    )
+
+            for field in custom_fields:
+                if field.variable in used:
+                    continue
+                screen_list.append(
+                    {
+                        "question": field.label if hasattr(field, "label") else field.variable_name_guess,
+                        "subquestion": "",
+                        "fields": [
+                            {
+                                "field": field.variable,
+                                "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+                                "datatype": getattr(
+                                    field,
+                                    "field_type",
+                                    getattr(field, "field_type_guess", "text"),
+                                ),
+                            }
+                        ],
+                    }
+                )
+
+            if not screen_list:
+                return False
+            self.create_questions_from_screen_list(screen_list)
+            return True
+        except Exception as exc:
+            log(f"LLM screen grouping failed: {exc!r}")
+            return False
 
     def _set_title(self, url=None, input_file=None):
         if url:

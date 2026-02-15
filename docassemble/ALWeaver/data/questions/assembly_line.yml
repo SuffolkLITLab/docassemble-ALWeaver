@@ -89,6 +89,8 @@ code: |
  
   if have_template_to_load:  
     interview.all_fields.gathered
+    if not im_feeling_lucky and interview.use_llm_assist:
+      process_llm_stepwise_prefill
   # Display Weaver question screens
   nav.set_section("nav_metadata")
   interview.jurisdiction_choices
@@ -423,12 +425,14 @@ fields:
     rows: 2
   - Is the form court-related?: interview.court_related
     datatype: yesnoradio
+    default: ${ interview.llm_draft_court_related if hasattr(interview, "llm_draft_court_related") else True }
     help: |
       Answer yes if the form lists the name of a court, even if it is not
       filed in a court. We will ask you
       questions that help you list the correct set of courts as options.
   - Kind of form: interview.form_type
     datatype: radio
+    default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "starts_case" }
     choices:
       - Starts a new court case: starts_case
       - Filed in or responding to an existing court case: existing_case
@@ -438,6 +442,7 @@ fields:
     show if: interview.court_related
   - Kind of form: interview.form_type
     datatype: radio
+    default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "other_form" }
     choices:
       - Administrative form or other form that is not filed in a court: other_form
       - Letter: letter
@@ -504,14 +509,14 @@ fields:
   - Default country: interview.default_country_code
     code: |
       countries_list()
-    default: ${ interview.default_country_code }
+    default: ${ interview.llm_draft_default_country_code if hasattr(interview, "llm_draft_default_country_code") else interview.default_country_code }
   - Default ${ safe_subdivision_type(interview.default_country_code) if safe_subdivision_type(interview.default_country_code) else 'State/Province'}: interview.state
     code: |
         states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
-    default: ${ "MA" if interview.default_country_code == 'US' else '' }
+    default: ${ interview.llm_draft_state if hasattr(interview, "llm_draft_state") else ("MA" if interview.default_country_code == 'US' else '') }
     required: False
   - Jurisdiction: interview.jurisdiction
-    default: NAM-US-US+MA
+    default: ${ interview.llm_draft_jurisdiction if hasattr(interview, "llm_draft_jurisdiction") else "NAM-US-US+MA" }
     help: |
       Use the [LMSS](https://www.sali.org/) standard for jurisdiction codes. For example, "NAM-US-US+MA" for Massachusetts.
   - note: |
@@ -582,7 +587,7 @@ fields:
     default: ${ interview_intro_prompt_default }
 ---
 code: |
-  interview_intro_prompt_default = interview._guess_intro_prompt(interview.short_filename_with_spaces)
+  interview_intro_prompt_default = interview.llm_draft_intro_prompt if hasattr(interview, "llm_draft_intro_prompt") else interview._guess_intro_prompt(interview.short_filename_with_spaces)
 ---
 id: form-specific intro page
 question: |
@@ -594,14 +599,14 @@ subquestion: |
   You can change these later in the Playground.
 fields:
   - Title in navigation bar: interview.title
-    default: ${ interview.short_filename_with_spaces }    
+    default: ${ interview.llm_draft_title if hasattr(interview, "llm_draft_title") else interview.short_filename_with_spaces }
   - note: |
       **Your title is a little long.** Write an alternate version that
       will be used on mobile screens.
     js show if: |
       val("interview.title").length > 25
   - Title for mobile devices: interview.short_title
-    default: ${ interview.short_filename_with_spaces[:25] }
+    default: ${ (interview.llm_draft_title if hasattr(interview, "llm_draft_title") else interview.short_filename_with_spaces)[:25] }
     maxlength: 25
     js show if: |
       val("interview.title").length > 25
@@ -626,7 +631,7 @@ fields:
     required: False
   - Description of the form for metadata: interview.description
     default: |
-      This interview helps someone in ${ state_name(interview.state, country_code=interview.default_country_code) } ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
+      ${ interview.llm_draft_description if hasattr(interview, "llm_draft_description") else "This interview helps someone in " + state_name(interview.state, country_code=interview.default_country_code) + " " + interview.intro_prompt[0:1].lower() + interview.intro_prompt[1:] + "." }
     datatype: area
     rows: 2
     help: |
@@ -636,7 +641,7 @@ fields:
     datatype: area
     rows: 2
     default: |
-      If you are a _____________, you can use this interview to ____________.
+      ${ interview.llm_draft_can_i_use_this_form if hasattr(interview, "llm_draft_can_i_use_this_form") else "If you are a _____________, you can use this interview to ____________." }
     help: |
       It's important to explain to the user when they can and cannot use
       your form. Write any conditions, such as age, status of their case, etc.
@@ -644,6 +649,9 @@ fields:
       What does your user need to know before they start this interview?
     field: interview.getting_started
     default: |
+      % if hasattr(interview, "llm_draft_getting_started"):
+      ${ interview.llm_draft_getting_started }
+      % else:
       This interview will help you ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
 
       Before you get started, please gather:
@@ -655,7 +663,8 @@ fields:
       When you are finished, you will need to:
 
       1. 
-      1.       
+      1.
+      % endif
     datatype: area
     rows: 14
     help: |
@@ -886,6 +895,7 @@ fields:
   #    will help you save time writing your interview.
   - What role will the person using this interview have?: interview.typical_role
     input type: radio
+    default: ${ interview.llm_draft_typical_role if hasattr(interview, "llm_draft_typical_role") else ("plaintiff" if interview.form_type == "starts_case" else "unknown") }
     choices:
       - label: |
           % if interview.court_related:
@@ -1905,6 +1915,12 @@ fields:
     choices:
       - Build step by step: False
       - Use auto-drafting mode: True
+  - Use LLM assistance for drafting?: interview.use_llm_assist
+    datatype: yesno
+    default: True
+    help: |
+      If selected, Weaver will draft metadata, labels, and screen groupings with LLM assistance.
+      If you choose "Build step by step," you will still review and edit each screen one at a time.
 ---
 template: explain_auto_drafting
 subject: |
@@ -1949,6 +1965,11 @@ code: |
   interview_type = "regular"
   if not has_safe_pdf_in_url:
     interview.auto_assign_attributes()
+    if hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+      interview.llm_prefill_metadata()
+      interview.llm_predict_state()
+      interview.llm_refine_field_labels()
+      interview.llm_group_fields()
     interview_label_draft = varname(interview.title).lower()
 
   # Check for an empty file
@@ -1991,6 +2012,16 @@ code: |
   interview.customize_next_steps = False
 
   process_im_feeling_lucky = True
+---
+only sets:
+  - process_llm_stepwise_prefill
+code: |
+  if not has_safe_pdf_in_url and hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+    interview.llm_prefill_metadata(apply=False)
+    interview.llm_predict_state(apply=False)
+    interview.llm_refine_field_labels()
+    interview.llm_group_fields()
+  process_llm_stepwise_prefill = True
 ---
 ##### Keep this block towards end of interview #############
 ---
