@@ -673,6 +673,58 @@ fields:
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+  - What should your user know when they are finished?: interview.when_you_are_finished
+    datatype: area
+    rows: 5
+    required: False
+    default: |
+      ${ interview.llm_draft_when_you_are_finished if hasattr(interview, "llm_draft_when_you_are_finished") else "" }
+    help: |
+      This text is used for metadata and can guide what users do after they complete the interview.
+  - Public landing page URL (optional): interview.landing_page_url
+    required: False
+    default: |
+      ${ interview.llm_draft_landing_page_url if hasattr(interview, "llm_draft_landing_page_url") else "" }
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://example.org/forms/my-form")
+    help: |
+      A public page about this form/interview. If known, this can help downstream publishing and indexing.
+  - Supports integrated e-filing right now?: interview.integrated_efiling
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Supports integrated email filing right now?: interview.integrated_email_filing
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - E-filing enabled for this form?: interview.efiling_enabled
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Requires notarization?: interview.requires_notarization
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Keep this interview unlisted?: interview.unlisted
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata for publishing; you can update this later.
+  - Footer text (optional): interview.footer
+    datatype: area
+    required: False
+    rows: 2
+    help: |
+      Optional metadata footer text shown in some publishing contexts.
   - To complete this form, most people take about: interview.estimated_completion_minutes
     grid: 2
     datatype: integer
@@ -743,6 +795,7 @@ fields:
       - form
       - document
     required: False
+    default: ${ interview.llm_draft_next_steps_document_title if hasattr(interview, "llm_draft_next_steps_document_title") else "" }
     show if:
       variable: interview.customize_next_steps
       is: True
@@ -755,6 +808,7 @@ fields:
       - application
       - appeal
     required: False
+    default: ${ interview.llm_draft_next_steps_document_concept if hasattr(interview, "llm_draft_next_steps_document_concept") else "" }
     show if:
       variable: interview.customize_next_steps
       is: True
@@ -763,10 +817,11 @@ fields:
   - Name of organization who can provide more help: interview.next_steps_help_organization
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_help_organization if hasattr(interview, "llm_draft_next_steps_help_organization") else "" }
     help: |
       For example, a legal aid program
   - Website with more information about this topic: interview.next_steps_help_url
-    default: ${ interview.help_page_url }
+    default: ${ interview.llm_draft_next_steps_help_url if hasattr(interview, "llm_draft_next_steps_help_url") else interview.help_page_url }
     show if: interview.customize_next_steps
     required: False
     validate: |
@@ -784,14 +839,17 @@ fields:
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_happens_next if hasattr(interview, "llm_draft_next_steps_what_happens_next") else (interview.llm_draft_when_you_are_finished if hasattr(interview, "llm_draft_when_you_are_finished") else "") }
   - What can the decision maker do?: interview.custom_next_steps_instructions["what_can_decision_maker_do"]
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_can_decision_maker_do if hasattr(interview, "llm_draft_next_steps_what_can_decision_maker_do") else "" }
   - What happens if my request is granted?: interview.custom_next_steps_instructions["what_happens_if_i_win"]
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_happens_if_i_win if hasattr(interview, "llm_draft_next_steps_what_happens_if_i_win") else "" }
 continue button field: preview_next_steps  
 ---
 continue button field: preview_final_next_steps
@@ -2015,7 +2073,7 @@ code: |
       review_fields_to_add_template
   ) = review_fields_after_labeling = validate_field_names = preview_next_steps = True
   interview.include_next_steps = True
-  interview.customize_next_steps = False
+  interview.customize_next_steps = hasattr(interview, "use_llm_assist") and interview.use_llm_assist
 
   process_im_feeling_lucky = True
 ---

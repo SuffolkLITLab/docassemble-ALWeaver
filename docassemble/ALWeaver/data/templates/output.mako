@@ -23,6 +23,23 @@ ${ indent(interview.can_I_use_this_form, by=4) }
 % if showifdef("interview.getting_started"):
 ${ indent(interview.getting_started, by=4) }
 % endif
+  when_you_are_finished: |
+% if showifdef("interview.when_you_are_finished"):
+${ indent(interview.when_you_are_finished, by=4) }
+% endif
+  efiling_enabled: ${ "true" if showifdef("interview.efiling_enabled", False) else "false" }
+  integrated_efiling: ${ "true" if showifdef("interview.integrated_efiling", False) else "false" }
+  integrated_email_filing: ${ "true" if showifdef("interview.integrated_email_filing", False) else "false" }
+  requires_notarization: ${ "true" if showifdef("interview.requires_notarization", False) else "false" }
+  unlisted: ${ "true" if showifdef("interview.unlisted", False) else "false" }
+  % if showifdef("interview.footer"):
+  footer: >-
+${ indent(interview.footer, by=4) }
+  % endif
+  % if showifdef("interview.landing_page_url"):
+  landing_page_url: >-
+${ indent(interview.landing_page_url, by=4) }
+  % endif
   maturity: production
   estimated_completion_minutes: ${ showifdef("interview.estimated_completion_minutes",'""')}
   estimated_completion_delta: ${ showifdef("interview.estimated_completion_delta", '""')}

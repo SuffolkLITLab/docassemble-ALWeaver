@@ -18,11 +18,21 @@ metadata_system_prompt: |
   - description (3-5 plain-language sentences)
   - can_I_use_this_form (2-4 lines, plain language)
   - getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+  - when_you_are_finished (2-5 plain-language lines about what to do after finishing)
+  - landing_page_url (optional https URL for the form's public landing page; return empty string if unknown)
+  - next_steps_document_title (single word like motion/petition/letter/form)
+  - next_steps_document_concept (single word like request/motion/petition/application/appeal)
+  - next_steps_help_organization (optional organization name)
+  - next_steps_help_url (optional https URL; may match help/landing page)
+  - next_steps_what_happens_next (2-5 lines; align with when_you_are_finished)
+  - next_steps_what_can_decision_maker_do (2-5 lines)
+  - next_steps_what_happens_if_i_win (2-5 lines)
 
   Use this title: {{TITLE}}
   Predicted form_type: {{FORM_TYPE}}
   Predicted role: {{ROLE}}
   Prefer evidence from uploaded form text over help-page text when they conflict.
+  Keep next_steps_what_happens_next consistent with when_you_are_finished.
 
 label_datatype_refinement_system_prompt: |
   Rewrite each field label and suggest datatype.

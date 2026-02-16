@@ -1837,6 +1837,14 @@ class DAInterview(DAObject):
         self.getting_started = "Before you get started, you need to..."
         self.intro_prompt = self._guess_intro_prompt(self.title)
         self.court_related = not (self.form_type == "letter")
+        self.landing_page_url = ""
+        self.efiling_enabled = False
+        self.integrated_efiling = False
+        self.integrated_email_filing = False
+        self.requires_notarization = False
+        self.unlisted = False
+        self.footer = ""
+        self.when_you_are_finished = ""
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
@@ -1938,6 +1946,15 @@ Return a JSON object with keys:
 - description (1-2 plain-language sentences)
 - can_I_use_this_form (2-4 lines, plain language)
 - getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+- when_you_are_finished (2-5 plain-language lines about what to do after finishing)
+- landing_page_url (optional https URL for the form's public landing page; return empty string if unknown)
+- next_steps_document_title (single word like motion/petition/letter/form)
+- next_steps_document_concept (single word like request/motion/petition/application/appeal)
+- next_steps_help_organization (optional organization name)
+- next_steps_help_url (optional https URL; may match help/landing page)
+- next_steps_what_happens_next (2-5 lines; should align with when_you_are_finished)
+- next_steps_what_can_decision_maker_do (2-5 lines)
+- next_steps_what_happens_if_i_win (2-5 lines)
 
 Use this title: {{TITLE}}
 Predicted form_type: {{FORM_TYPE}}
@@ -1961,6 +1978,46 @@ Predicted role: {{ROLE}}
                 drafted_description = str(drafted.get("description") or "").strip()
                 drafted_can_use = str(drafted.get("can_I_use_this_form") or "").strip()
                 drafted_getting_started = str(drafted.get("getting_started") or "").strip()
+                drafted_when_finished = str(
+                    drafted.get("when_you_are_finished") or ""
+                ).strip()
+                drafted_landing_page_url = str(
+                    drafted.get("landing_page_url") or ""
+                ).strip()
+                drafted_next_steps_document_title = str(
+                    drafted.get("next_steps_document_title") or ""
+                ).strip()
+                drafted_next_steps_document_concept = str(
+                    drafted.get("next_steps_document_concept") or ""
+                ).strip()
+                drafted_next_steps_help_organization = str(
+                    drafted.get("next_steps_help_organization") or ""
+                ).strip()
+                drafted_next_steps_help_url = str(
+                    drafted.get("next_steps_help_url") or ""
+                ).strip()
+                drafted_next_steps_what_happens_next = str(
+                    drafted.get("next_steps_what_happens_next") or ""
+                ).strip()
+                drafted_next_steps_what_can_decision_maker_do = str(
+                    drafted.get("next_steps_what_can_decision_maker_do") or ""
+                ).strip()
+                drafted_next_steps_what_happens_if_i_win = str(
+                    drafted.get("next_steps_what_happens_if_i_win") or ""
+                ).strip()
+                if drafted_landing_page_url and not is_url(drafted_landing_page_url):
+                    drafted_landing_page_url = ""
+                if drafted_next_steps_help_url and not is_url(drafted_next_steps_help_url):
+                    drafted_next_steps_help_url = ""
+
+                # Keep this aligned: next-steps "what happens next" should mirror
+                # "when you are finished" unless the model omitted one of them.
+                if drafted_when_finished and not drafted_next_steps_what_happens_next:
+                    drafted_next_steps_what_happens_next = drafted_when_finished
+                elif drafted_next_steps_what_happens_next and not drafted_when_finished:
+                    drafted_when_finished = drafted_next_steps_what_happens_next
+                elif drafted_when_finished and drafted_next_steps_what_happens_next:
+                    drafted_next_steps_what_happens_next = drafted_when_finished
                 if apply:
                     if drafted_title:
                         self.title = drafted_title
@@ -1975,6 +2032,36 @@ Predicted role: {{ROLE}}
                         self.can_I_use_this_form = drafted_can_use
                     if drafted_getting_started:
                         self.getting_started = drafted_getting_started
+                    if drafted_when_finished:
+                        self.when_you_are_finished = drafted_when_finished
+                    if drafted_landing_page_url:
+                        self.landing_page_url = drafted_landing_page_url
+                    if drafted_next_steps_document_title:
+                        self.next_steps_document_title = drafted_next_steps_document_title
+                    if drafted_next_steps_document_concept:
+                        self.next_steps_document_concept = (
+                            drafted_next_steps_document_concept
+                        )
+                    if drafted_next_steps_help_organization:
+                        self.next_steps_help_organization = (
+                            drafted_next_steps_help_organization
+                        )
+                    if drafted_next_steps_help_url:
+                        self.next_steps_help_url = drafted_next_steps_help_url
+                    if not hasattr(self, "custom_next_steps_instructions"):
+                        self.custom_next_steps_instructions = {}
+                    if drafted_next_steps_what_happens_next:
+                        self.custom_next_steps_instructions["what_happens_next"] = (
+                            drafted_next_steps_what_happens_next
+                        )
+                    if drafted_next_steps_what_can_decision_maker_do:
+                        self.custom_next_steps_instructions[
+                            "what_can_decision_maker_do"
+                        ] = drafted_next_steps_what_can_decision_maker_do
+                    if drafted_next_steps_what_happens_if_i_win:
+                        self.custom_next_steps_instructions[
+                            "what_happens_if_i_win"
+                        ] = drafted_next_steps_what_happens_if_i_win
                 else:
                     if drafted_title:
                         self.llm_draft_title = drafted_title
@@ -1986,6 +2073,36 @@ Predicted role: {{ROLE}}
                         self.llm_draft_can_i_use_this_form = drafted_can_use
                     if drafted_getting_started:
                         self.llm_draft_getting_started = drafted_getting_started
+                    if drafted_when_finished:
+                        self.llm_draft_when_you_are_finished = drafted_when_finished
+                    if drafted_landing_page_url:
+                        self.llm_draft_landing_page_url = drafted_landing_page_url
+                    if drafted_next_steps_document_title:
+                        self.llm_draft_next_steps_document_title = (
+                            drafted_next_steps_document_title
+                        )
+                    if drafted_next_steps_document_concept:
+                        self.llm_draft_next_steps_document_concept = (
+                            drafted_next_steps_document_concept
+                        )
+                    if drafted_next_steps_help_organization:
+                        self.llm_draft_next_steps_help_organization = (
+                            drafted_next_steps_help_organization
+                        )
+                    if drafted_next_steps_help_url:
+                        self.llm_draft_next_steps_help_url = drafted_next_steps_help_url
+                    if drafted_next_steps_what_happens_next:
+                        self.llm_draft_next_steps_what_happens_next = (
+                            drafted_next_steps_what_happens_next
+                        )
+                    if drafted_next_steps_what_can_decision_maker_do:
+                        self.llm_draft_next_steps_what_can_decision_maker_do = (
+                            drafted_next_steps_what_can_decision_maker_do
+                        )
+                    if drafted_next_steps_what_happens_if_i_win:
+                        self.llm_draft_next_steps_what_happens_if_i_win = (
+                            drafted_next_steps_what_happens_if_i_win
+                        )
 
             if form_type in {
                 "starts_case",
@@ -2270,6 +2387,15 @@ Rules:
             "llm_draft_description",
             "llm_draft_can_i_use_this_form",
             "llm_draft_getting_started",
+            "llm_draft_when_you_are_finished",
+            "llm_draft_landing_page_url",
+            "llm_draft_next_steps_document_title",
+            "llm_draft_next_steps_document_concept",
+            "llm_draft_next_steps_help_organization",
+            "llm_draft_next_steps_help_url",
+            "llm_draft_next_steps_what_happens_next",
+            "llm_draft_next_steps_what_can_decision_maker_do",
+            "llm_draft_next_steps_what_happens_if_i_win",
             "llm_draft_form_type",
             "llm_draft_court_related",
             "llm_draft_typical_role",
@@ -2293,6 +2419,15 @@ Rules:
             "llm_draft_description",
             "llm_draft_can_i_use_this_form",
             "llm_draft_getting_started",
+            "llm_draft_when_you_are_finished",
+            "llm_draft_landing_page_url",
+            "llm_draft_next_steps_document_title",
+            "llm_draft_next_steps_document_concept",
+            "llm_draft_next_steps_help_organization",
+            "llm_draft_next_steps_help_url",
+            "llm_draft_next_steps_what_happens_next",
+            "llm_draft_next_steps_what_can_decision_maker_do",
+            "llm_draft_next_steps_what_happens_if_i_win",
             "llm_draft_form_type",
             "llm_draft_court_related",
             "llm_draft_typical_role",
@@ -2302,6 +2437,33 @@ Rules:
         ]:
             if key in payload:
                 setattr(self, key, payload[key])
+
+        # Apply drafted next-steps values to live fields so lucky mode can use them
+        # even when skipping the step-by-step customization screen.
+        if hasattr(self, "llm_draft_next_steps_document_title"):
+            self.next_steps_document_title = self.llm_draft_next_steps_document_title
+        if hasattr(self, "llm_draft_next_steps_document_concept"):
+            self.next_steps_document_concept = self.llm_draft_next_steps_document_concept
+        if hasattr(self, "llm_draft_next_steps_help_organization"):
+            self.next_steps_help_organization = (
+                self.llm_draft_next_steps_help_organization
+            )
+        if hasattr(self, "llm_draft_next_steps_help_url"):
+            self.next_steps_help_url = self.llm_draft_next_steps_help_url
+        if not hasattr(self, "custom_next_steps_instructions"):
+            self.custom_next_steps_instructions = {}
+        if hasattr(self, "llm_draft_next_steps_what_happens_next"):
+            self.custom_next_steps_instructions["what_happens_next"] = (
+                self.llm_draft_next_steps_what_happens_next
+            )
+        if hasattr(self, "llm_draft_next_steps_what_can_decision_maker_do"):
+            self.custom_next_steps_instructions["what_can_decision_maker_do"] = (
+                self.llm_draft_next_steps_what_can_decision_maker_do
+            )
+        if hasattr(self, "llm_draft_next_steps_what_happens_if_i_win"):
+            self.custom_next_steps_instructions["what_happens_if_i_win"] = (
+                self.llm_draft_next_steps_what_happens_if_i_win
+            )
 
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):
@@ -4216,6 +4378,22 @@ def generate_interview_from_path(
         interview.help_page_title = ""
     if not hasattr(interview, "state"):
         interview.state = ""
+    if not hasattr(interview, "landing_page_url"):
+        interview.landing_page_url = ""
+    if not hasattr(interview, "efiling_enabled"):
+        interview.efiling_enabled = False
+    if not hasattr(interview, "integrated_efiling"):
+        interview.integrated_efiling = False
+    if not hasattr(interview, "integrated_email_filing"):
+        interview.integrated_email_filing = False
+    if not hasattr(interview, "requires_notarization"):
+        interview.requires_notarization = False
+    if not hasattr(interview, "unlisted"):
+        interview.unlisted = False
+    if not hasattr(interview, "footer"):
+        interview.footer = ""
+    if not hasattr(interview, "when_you_are_finished"):
+        interview.when_you_are_finished = ""
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
     for field in interview.all_fields:
