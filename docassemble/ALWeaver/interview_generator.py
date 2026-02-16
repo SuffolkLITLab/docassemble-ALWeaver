@@ -367,6 +367,32 @@ def _normalize_field_type(value: str) -> Optional[str]:
     return candidate if candidate in allowed else None
 
 
+def _field_updates_from_llm_response(
+    response: Dict[str, Any], custom_fields: List["DAField"]
+) -> Dict[str, Dict[str, str]]:
+    updates: Dict[str, Dict[str, str]] = {}
+    by_variable = {field.variable: field for field in custom_fields}
+    for variable, llm_value in response.items():
+        if variable not in by_variable:
+            continue
+        if isinstance(llm_value, dict):
+            new_label = llm_value.get("label", "")
+            new_datatype = llm_value.get("datatype", "")
+        else:
+            new_label = llm_value
+            new_datatype = ""
+        cleaned = _safe_short_label(str(new_label), 45)
+        normalized_datatype = _normalize_field_type(str(new_datatype))
+        if not cleaned and not normalized_datatype:
+            continue
+        updates[variable] = {}
+        if cleaned:
+            updates[variable]["label"] = cleaned
+        if normalized_datatype:
+            updates[variable]["datatype"] = normalized_datatype
+    return updates
+
+
 class DAFieldGroup(Enum):
     RESERVED = "reserved"
     BUILT_IN = "built in"
@@ -2032,7 +2058,9 @@ Predicted role: {{ROLE}}
             log(f"LLM state prediction failed: {exc!r}")
             return False
 
-    def llm_refine_field_labels(self) -> int:
+    def llm_refine_field_labels(
+        self, apply: bool = True
+    ) -> Union[int, Dict[str, Dict[str, str]]]:
         llms = _load_llms_module()
         if not llms:
             return 0
@@ -2086,35 +2114,19 @@ Return JSON object with shape:
                 model=self._llm_default_model(),
             )
             if not isinstance(response, dict):
-                return 0
+                return {} if not apply else 0
 
-            updated = 0
-            by_variable = {field.variable: field for field in custom_fields}
-            for variable, llm_value in response.items():
-                if variable not in by_variable:
-                    continue
-                if isinstance(llm_value, dict):
-                    new_label = llm_value.get("label", "")
-                    new_datatype = llm_value.get("datatype", "")
-                else:
-                    # Backward compatibility if prompt returns just a label string.
-                    new_label = llm_value
-                    new_datatype = ""
-                cleaned = _safe_short_label(str(new_label), 45)
-                if not cleaned:
-                    continue
-                by_variable[variable].label = cleaned
-                by_variable[variable].has_label = True
-                normalized_datatype = _normalize_field_type(str(new_datatype))
-                if normalized_datatype:
-                    by_variable[variable].field_type = normalized_datatype
-                updated += 1
-            return updated
+            updates = _field_updates_from_llm_response(response, custom_fields)
+            if not apply:
+                return updates
+
+            self.apply_llm_field_updates(updates)
+            return len(updates)
         except Exception as exc:
             log(f"LLM field-label refinement failed: {exc!r}")
-            return 0
+            return {} if not apply else 0
 
-    def llm_group_fields(self) -> bool:
+    def llm_group_fields(self, apply: bool = True) -> Union[bool, List[Screen]]:
         llms = _load_llms_module()
         if not llms:
             return False
@@ -2161,8 +2173,10 @@ Rules:
                 json_mode=True,
                 model=self._llm_default_model(),
             )
-            if not isinstance(response, dict) or not isinstance(response.get("screens"), list):
-                return False
+            if not isinstance(response, dict) or not isinstance(
+                response.get("screens"), list
+            ):
+                return [] if not apply else False
 
             by_variable = {field.variable: field for field in custom_fields}
             used: Set[str] = set()
@@ -2217,12 +2231,85 @@ Rules:
                 )
 
             if not screen_list:
-                return False
+                return [] if not apply else False
+            if not apply:
+                return screen_list
             self.create_questions_from_screen_list(screen_list)
             return True
         except Exception as exc:
             log(f"LLM screen grouping failed: {exc!r}")
-            return False
+            return [] if not apply else False
+
+    def apply_llm_field_updates(self, field_updates: Mapping[str, Mapping[str, str]]) -> int:
+        if not field_updates:
+            return 0
+        by_variable = {field.variable: field for field in self.all_fields.custom()}
+        updated = 0
+        for variable, update in field_updates.items():
+            if variable not in by_variable:
+                continue
+            field_obj = by_variable[variable]
+            label = _safe_short_label(str(update.get("label", "")), 45)
+            datatype = _normalize_field_type(str(update.get("datatype", "")))
+            if label:
+                field_obj.label = label
+                field_obj.has_label = True
+            if datatype:
+                field_obj.field_type = datatype
+            if label or datatype:
+                updated += 1
+        return updated
+
+    def llm_generate_draft_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        self.llm_prefill_metadata(apply=False)
+        self.llm_predict_state(apply=False)
+        for key in [
+            "llm_draft_title",
+            "llm_draft_intro_prompt",
+            "llm_draft_description",
+            "llm_draft_can_i_use_this_form",
+            "llm_draft_getting_started",
+            "llm_draft_form_type",
+            "llm_draft_court_related",
+            "llm_draft_typical_role",
+            "llm_draft_default_country_code",
+            "llm_draft_state",
+            "llm_draft_jurisdiction",
+        ]:
+            if hasattr(self, key):
+                payload[key] = getattr(self, key)
+
+        payload["field_updates"] = self.llm_refine_field_labels(apply=False)
+        payload["screen_list"] = self.llm_group_fields(apply=False)
+        return payload
+
+    def apply_llm_draft_payload(self, payload: Mapping[str, Any]) -> None:
+        if not payload:
+            return
+        for key in [
+            "llm_draft_title",
+            "llm_draft_intro_prompt",
+            "llm_draft_description",
+            "llm_draft_can_i_use_this_form",
+            "llm_draft_getting_started",
+            "llm_draft_form_type",
+            "llm_draft_court_related",
+            "llm_draft_typical_role",
+            "llm_draft_default_country_code",
+            "llm_draft_state",
+            "llm_draft_jurisdiction",
+        ]:
+            if key in payload:
+                setattr(self, key, payload[key])
+
+        field_updates = payload.get("field_updates")
+        if isinstance(field_updates, Mapping):
+            self.apply_llm_field_updates(field_updates)
+
+        screen_list = payload.get("screen_list")
+        if isinstance(screen_list, list) and screen_list:
+            self.create_questions_from_screen_list(cast(List[Screen], screen_list))
 
     def _set_title(self, url=None, input_file=None):
         if url:
