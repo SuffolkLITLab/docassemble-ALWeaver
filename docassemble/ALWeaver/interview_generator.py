@@ -330,7 +330,9 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
         return ""
     try:
         soup = BeautifulSoup(html_text, "html.parser")
-        for tag in soup(["script", "style", "noscript", "svg", "canvas", "nav", "footer"]):
+        for tag in soup(
+            ["script", "style", "noscript", "svg", "canvas", "nav", "footer"]
+        ):
             tag.decompose()
         text = soup.get_text("\n")
         cleaned = re.sub(r"\n{3,}", "\n\n", text)
@@ -1398,6 +1400,11 @@ class DAQuestion(DAObject):
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.initializeAttribute("field_list", DAFieldList)
+        # Ensure list-collect bookkeeping variables always exist, even before
+        # the question is complete or any fields are selected.
+        self.field_list.gathered = False
+        self.field_list.there_are_any = False
+        self.field_list.there_is_another = False
 
     @property
     def complete(self) -> bool:
@@ -1974,10 +1981,14 @@ Predicted role: {{ROLE}}
             )
             if isinstance(drafted, dict):
                 drafted_title = _safe_short_label(str(drafted.get("title", "")), 100)
-                intro_prompt = _safe_short_label(str(drafted.get("intro_prompt", "")), 60)
+                intro_prompt = _safe_short_label(
+                    str(drafted.get("intro_prompt", "")), 60
+                )
                 drafted_description = str(drafted.get("description") or "").strip()
                 drafted_can_use = str(drafted.get("can_I_use_this_form") or "").strip()
-                drafted_getting_started = str(drafted.get("getting_started") or "").strip()
+                drafted_getting_started = str(
+                    drafted.get("getting_started") or ""
+                ).strip()
                 drafted_when_finished = str(
                     drafted.get("when_you_are_finished") or ""
                 ).strip()
@@ -2007,7 +2018,9 @@ Predicted role: {{ROLE}}
                 ).strip()
                 if drafted_landing_page_url and not is_url(drafted_landing_page_url):
                     drafted_landing_page_url = ""
-                if drafted_next_steps_help_url and not is_url(drafted_next_steps_help_url):
+                if drafted_next_steps_help_url and not is_url(
+                    drafted_next_steps_help_url
+                ):
                     drafted_next_steps_help_url = ""
 
                 # Keep this aligned: next-steps "what happens next" should mirror
@@ -2023,7 +2036,9 @@ Predicted role: {{ROLE}}
                         self.title = drafted_title
                         self.short_title = drafted_title[:25]
                         self.short_filename_with_spaces = drafted_title
-                        self.short_filename = space_to_underscore(varname(drafted_title))
+                        self.short_filename = space_to_underscore(
+                            varname(drafted_title)
+                        )
                     if intro_prompt:
                         self.intro_prompt = intro_prompt
                     if drafted_description:
@@ -2037,7 +2052,9 @@ Predicted role: {{ROLE}}
                     if drafted_landing_page_url:
                         self.landing_page_url = drafted_landing_page_url
                     if drafted_next_steps_document_title:
-                        self.next_steps_document_title = drafted_next_steps_document_title
+                        self.next_steps_document_title = (
+                            drafted_next_steps_document_title
+                        )
                     if drafted_next_steps_document_concept:
                         self.next_steps_document_concept = (
                             drafted_next_steps_document_concept
@@ -2059,9 +2076,9 @@ Predicted role: {{ROLE}}
                             "what_can_decision_maker_do"
                         ] = drafted_next_steps_what_can_decision_maker_do
                     if drafted_next_steps_what_happens_if_i_win:
-                        self.custom_next_steps_instructions[
-                            "what_happens_if_i_win"
-                        ] = drafted_next_steps_what_happens_if_i_win
+                        self.custom_next_steps_instructions["what_happens_if_i_win"] = (
+                            drafted_next_steps_what_happens_if_i_win
+                        )
                 else:
                     if drafted_title:
                         self.llm_draft_title = drafted_title
@@ -2185,7 +2202,10 @@ Predicted role: {{ROLE}}
         custom_fields = [
             field
             for field in self.all_fields.custom()
-            if not (hasattr(field, "field_type") and field.field_type in ["code", "skip this field"])
+            if not (
+                hasattr(field, "field_type")
+                and field.field_type in ["code", "skip this field"]
+            )
         ]
         if not custom_fields:
             return 0
@@ -2197,8 +2217,14 @@ Predicted role: {{ROLE}}
         try:
             field_payload = {
                 field.variable: {
-                    "current_label": field.label if hasattr(field, "label") else field.variable_name_guess,
-                    "datatype": getattr(field, "field_type", getattr(field, "field_type_guess", "text")),
+                    "current_label": (
+                        field.label
+                        if hasattr(field, "label")
+                        else field.variable_name_guess
+                    ),
+                    "datatype": getattr(
+                        field, "field_type", getattr(field, "field_type_guess", "text")
+                    ),
                 }
                 for field in custom_fields
             }
@@ -2251,7 +2277,10 @@ Return JSON object with shape:
         custom_fields = [
             field
             for field in self.all_fields.custom()
-            if not (hasattr(field, "field_type") and field.field_type in ["code", "skip this field"])
+            if not (
+                hasattr(field, "field_type")
+                and field.field_type in ["code", "skip this field"]
+            )
         ]
         if not custom_fields:
             return False
@@ -2261,7 +2290,11 @@ Return JSON object with shape:
             field_rows = [
                 {
                     "field": field.variable,
-                    "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+                    "label": (
+                        field.label
+                        if hasattr(field, "label")
+                        else field.variable_name_guess
+                    ),
                 }
                 for field in custom_fields
             ]
@@ -2306,21 +2339,35 @@ Rules:
                     continue
                 field_defs: List[FieldDefinition] = []
                 for variable in fields:
-                    if not isinstance(variable, str) or variable not in by_variable or variable in used:
+                    if (
+                        not isinstance(variable, str)
+                        or variable not in by_variable
+                        or variable in used
+                    ):
                         continue
                     used.add(variable)
                     field_obj = by_variable[variable]
                     field_defs.append(
                         {
                             "field": variable,
-                            "label": field_obj.label if hasattr(field_obj, "label") else field_obj.variable_name_guess,
-                            "datatype": getattr(field_obj, "field_type", getattr(field_obj, "field_type_guess", "text")),
+                            "label": (
+                                field_obj.label
+                                if hasattr(field_obj, "label")
+                                else field_obj.variable_name_guess
+                            ),
+                            "datatype": getattr(
+                                field_obj,
+                                "field_type",
+                                getattr(field_obj, "field_type_guess", "text"),
+                            ),
                         }
                     )
                 if field_defs:
                     screen_list.append(
                         {
-                            "question": str(raw_screen.get("question") or "More information"),
+                            "question": str(
+                                raw_screen.get("question") or "More information"
+                            ),
                             "subquestion": str(raw_screen.get("subquestion") or ""),
                             "fields": field_defs,
                         }
@@ -2331,12 +2378,20 @@ Rules:
                     continue
                 screen_list.append(
                     {
-                        "question": field.label if hasattr(field, "label") else field.variable_name_guess,
+                        "question": (
+                            field.label
+                            if hasattr(field, "label")
+                            else field.variable_name_guess
+                        ),
                         "subquestion": "",
                         "fields": [
                             {
                                 "field": field.variable,
-                                "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+                                "label": (
+                                    field.label
+                                    if hasattr(field, "label")
+                                    else field.variable_name_guess
+                                ),
                                 "datatype": getattr(
                                     field,
                                     "field_type",
@@ -2357,7 +2412,9 @@ Rules:
             log(f"LLM screen grouping failed: {exc!r}")
             return [] if not apply else False
 
-    def apply_llm_field_updates(self, field_updates: Mapping[str, Mapping[str, str]]) -> int:
+    def apply_llm_field_updates(
+        self, field_updates: Mapping[str, Mapping[str, str]]
+    ) -> int:
         if not field_updates:
             return 0
         by_variable = {field.variable: field for field in self.all_fields.custom()}
@@ -2443,7 +2500,9 @@ Rules:
         if hasattr(self, "llm_draft_next_steps_document_title"):
             self.next_steps_document_title = self.llm_draft_next_steps_document_title
         if hasattr(self, "llm_draft_next_steps_document_concept"):
-            self.next_steps_document_concept = self.llm_draft_next_steps_document_concept
+            self.next_steps_document_concept = (
+                self.llm_draft_next_steps_document_concept
+            )
         if hasattr(self, "llm_draft_next_steps_help_organization"):
             self.next_steps_help_organization = (
                 self.llm_draft_next_steps_help_organization

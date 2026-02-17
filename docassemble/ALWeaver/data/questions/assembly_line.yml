@@ -97,6 +97,7 @@ code: |
  
   if have_template_to_load:  
     interview.all_fields.gathered
+    normalize_all_fields_final_display_var
     if not im_feeling_lucky and interview.use_llm_assist:
       process_llm_stepwise_prefill
   # Display Weaver question screens
@@ -1451,7 +1452,8 @@ fields:
 validation code: |
   for field in interview.all_fields.custom():
     if field.field_type == "code":
-        expression = f"{field.final_display_var} = {field.code}"
+        lhs = field.final_display_var if hasattr(field, "final_display_var") else (field.variable if hasattr(field, "variable") else "x")
+        expression = f"{lhs} = {field.code}"
         if not is_valid_python(expression):
             validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
 css: |
@@ -1581,6 +1583,15 @@ only sets:
   - normalize_question_field_list
 code: |
   for question in interview.questions:
+    # Ensure list-collect bookkeeping exists before question screen rendering.
+    # This prevents name lookup errors like
+    # "interview.questions[i].field_list.gathered is not defined".
+    if not hasattr(question.field_list, "gathered"):
+      question.field_list.gathered = True
+    if not hasattr(question.field_list, "there_are_any"):
+      question.field_list.there_are_any = len(question.field_list.elements) > 0
+    if not hasattr(question.field_list, "there_is_another"):
+      question.field_list.there_is_another = False
     for field in question.field_list:
       if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
         field.final_display_var = field.variable
@@ -1619,7 +1630,7 @@ fields:
     choices: interview.all_fields.custom()
     all of the above: True
     object labeler: |
-      lambda y: f"{ y.label } (`{ y.final_display_var }`)"
+      lambda y: f"{ y.label } (`{ getattr(y, 'final_display_var', getattr(y, 'variable', '')) }`)"
 #  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
 #    datatype: noyes
 #    hide if: interview.questions[i].is_informational_screen
@@ -1763,7 +1774,7 @@ columns:
   - Order: |
       int(interview.questions[i].field_list.index(row_item)) + 1  
   - Field name: |
-      row_item.final_display_var
+      row_item.final_display_var if hasattr(row_item, "final_display_var") else (row_item.variable if hasattr(row_item, "variable") else "x")
 ---
 code: |
   interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
@@ -2539,3 +2550,15 @@ code: |
   interview.default_country_code = 'US'
   # This is weird but needed for check-in logic that refreshes list of states
   # TODO(qs): adjust when we have a way to load in org defaults at runtime
+---
+only sets:
+  - normalize_all_fields_final_display_var
+code: |
+  for field in interview.all_fields:
+    if not hasattr(field, "final_display_var"):
+      if hasattr(field, "variable"):
+        field.final_display_var = field.variable
+      elif hasattr(field, "name"):
+        field.final_display_var = field.name
+  normalize_all_fields_final_display_var = True
+---

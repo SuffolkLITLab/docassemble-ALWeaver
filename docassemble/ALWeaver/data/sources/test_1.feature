@@ -28,6 +28,7 @@ Scenario: I weave the civil docketing statement
     | fields_checkup_status['interview.all_fields_present'] | True |
     | fields_checkup_status['correct_reserved_fields'] | True |
     | fields_checkup_status['no_unexpected_fields'] | True |
+    | interview.use_llm_assist | False |
     | interview.author | Very cool author |
     | interview.categories['HO-00-00-00-00'] | True |
     | interview.court_related | True |
@@ -131,6 +132,7 @@ Scenario: I weave the civil docketing statement
     | fields_checkup_status['interview.all_fields_present'] | True |
     | fields_checkup_status['correct_reserved_fields'] | True |
     | fields_checkup_status['no_unexpected_fields'] | True |
+    | interview.use_llm_assist | False |
     | interview.author | Very cool author |
     | interview.categories['HO-00-00-00-00'] | True |
     | interview.court_related | True |
@@ -158,5 +160,6 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | True |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
     | offer_auto_label_existing_fields | False |
+    | interview.use_llm_assist | False |
     | show_screen_order | True |
     | review_weaver | True |
