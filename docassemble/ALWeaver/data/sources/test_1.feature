@@ -17,6 +17,7 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | False |
     | install_en_core_web_lg | False |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
     | all_look_good['all_checkboxes_checked'] | True |
     | all_look_good['no_unusual_size_text'] | True |
     | all_look_good['signature_filled_in'] | True |
@@ -119,6 +120,7 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | False |
     | install_en_core_web_lg | False |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
     | all_look_good['all_checkboxes_checked'] | True |
     | all_look_good['no_unusual_size_text'] | True |
     | all_look_good['signature_filled_in'] | True |
@@ -155,5 +157,6 @@ Scenario: I weave the civil docketing statement
     | interview_type | regular |
     | im_feeling_lucky | True |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
     | show_screen_order | True |
     | review_weaver | True |
