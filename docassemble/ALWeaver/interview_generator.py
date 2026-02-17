@@ -2823,6 +2823,11 @@ Rules:
                     first_item = next(iter(field.items()))
                     new_field.variable = first_item[1]
                     new_field.label = first_item[0]
+                # Keep screen-list-created fields consistent with DAField objects
+                # produced by template scanning and manual field editing.
+                new_field.has_label = True
+                new_field.final_display_var = new_field.variable
+                new_field.source_document_type = "docx"
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
                 # TODO: consider refactoring this
                 if field_type:

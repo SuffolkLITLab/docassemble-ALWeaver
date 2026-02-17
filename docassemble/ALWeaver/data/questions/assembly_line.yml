@@ -57,6 +57,14 @@ code: |
       if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
+      if has_detected_fields_for_autolabel:
+        offer_auto_label_existing_fields
+        if offer_auto_label_existing_fields:
+          autolabel_existing_pdf_fields_task_done
+          if autolabel_target_document_type == "pdf":
+            apply_autolabel_field_name_changes
+          elif autolabel_target_document_type == "docx":
+            apply_autolabel_docx_label_changes
       if im_feeling_lucky:
         nav.set_sections([
           {"nav_generate_interview": "Generate your interview"},
@@ -109,7 +117,7 @@ code: |
     preview_next_steps
     if interview.include_next_steps and interview.customize_next_steps:
       preview_final_next_steps
-  if have_template_to_load:
+  if have_template_to_load and defined('interview.uploaded_templates'):
     nav.set_section("nav_describe_people")
     ask_people_quantity_question
     if len(interview.all_fields.custom()):
@@ -120,6 +128,7 @@ code: |
   review_fields_after_labeling
   nav.set_section("nav_questions")
   interview.questions.gather()
+  normalize_question_field_list
   
   # Review field order and screen order
   #if not (has_safe_pdf_in_url and im_feeling_lucky):
@@ -193,6 +202,8 @@ objects:
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
   - people_quantities: DADict.using(auto_gather=False, gathered=True)
   - next_steps_documents: DADict.using(object_type=DADict)
+  - autolabel_field_name_overrides: DADict.using(auto_gather=False, gathered=True)
+  - autolabel_docx_label_overrides: DADict.using(auto_gather=False, gathered=True)
   - LIST_csv: DAStaticFile.using(filename="data/sources/list-taxonomy.csv")
 ---
 images:
@@ -358,6 +369,15 @@ validation code: |
     interview.help_source_text = get_help_document_text(interview.help_source_document)
     if not interview.help_source_text.strip():
       validation_error("Unable to extract text from the uploaded help document. Please upload a valid PDF or DOCX file.", field="interview.help_source_document")
+  interview.autolabel_payload_loaded = False
+  if not defined('autolabel_field_name_overrides'):
+    autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+  else:
+    autolabel_field_name_overrides.clear()
+  if not defined('autolabel_docx_label_overrides'):
+    autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+  else:
+    autolabel_docx_label_overrides.clear()
 ---
 id: add fields?
 question: |
@@ -367,6 +387,367 @@ subquestion: |
 fields:
   - Auto identify fields: yes_recognize_form_fields
     datatype: yesnoradio
+---
+only sets:
+  - has_detected_fields_for_autolabel
+  - autolabel_target_document_type
+  - autolabel_target_document_index
+  - autolabel_detected_field_names
+code: |
+  autolabel_target_document_type = ""
+  autolabel_target_document_index = -1
+  autolabel_detected_field_names = []
+  has_detected_fields_for_autolabel = False
+  if have_template_to_load and defined('interview.uploaded_templates'):
+    for idx, document in enumerate(interview.uploaded_templates):
+      if document.mimetype == "application/pdf":
+        detected_fields = document.get_pdf_fields()
+        if len(detected_fields) > 0:
+          autolabel_target_document_type = "pdf"
+          autolabel_target_document_index = idx
+          autolabel_detected_field_names = [item[0] for item in detected_fields]
+          has_detected_fields_for_autolabel = True
+          break
+      elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        detected_fields = get_fields(document)
+        autolabel_target_document_type = "docx"
+        autolabel_target_document_index = idx
+        autolabel_detected_field_names = [str(item) for item in detected_fields]
+        has_detected_fields_for_autolabel = True
+        break
+---
+id: offer auto labeling for detected fields
+question: |
+  Auto-label your detected field names?
+subquestion: |
+  % if autolabel_target_document_type == "pdf":
+  We detected ${ len(autolabel_detected_field_names) } fillable field(s) in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  % else:
+  % if len(autolabel_detected_field_names):
+  We detected ${ len(autolabel_detected_field_names) } Jinja field(s) in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  % else:
+  We did not detect existing Jinja labels in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  Weaver can scan the document text and suggest labels for likely placeholders.
+  % endif
+  % endif
+
+  Weaver can suggest standardized field labels in the background using
+  ALDashboard's labeling tools. You will review and edit every suggestion
+  before applying it.
+fields:
+  - Auto-label field names in the background?: offer_auto_label_existing_fields
+    datatype: yesnoradio
+---
+code: |
+  autolabel_existing_fields_task = background_action('autolabel_existing_fields_event')
+---
+only sets:
+  - autolabel_existing_pdf_fields_task_done
+code: |
+  if autolabel_existing_fields_task.ready():
+    if autolabel_existing_fields_task.failed():
+      autolabel_existing_pdf_fields_failed
+      if autolabel_target_document_type == "pdf":
+        autolabel_fields_old = autolabel_detected_field_names
+        autolabel_fields_suggested = autolabel_detected_field_names
+      elif autolabel_target_document_type == "docx":
+        autolabel_docx_labels = []
+      interview.autolabel_payload_loaded = True
+    elif not getattr(interview, "autolabel_payload_loaded", False):
+      waiting_screen_autolabel_existing_pdf_fields
+    autolabel_existing_pdf_fields_task_done = True
+  else:
+    waiting_screen_autolabel_existing_pdf_fields
+---
+event: autolabel_existing_fields_event
+code: |
+  import tempfile
+  import os
+  background_error_action('autolabel_existing_pdf_fields_error')
+  if autolabel_target_document_type == "pdf":
+    fields_old = [item[0] for item in interview.uploaded_templates[autolabel_target_document_index].get_pdf_fields()]
+    fields_suggested = list(fields_old)
+    output_pdf_path = None
+    try:
+      from docassemble.ALDashboard.pdf_field_labeler import relabel_existing_pdf_fields
+      with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_out:
+        output_pdf_path = tmp_out.name
+      stats = relabel_existing_pdf_fields(
+        input_pdf_path=interview.uploaded_templates[autolabel_target_document_index].path(),
+        output_pdf_path=output_pdf_path,
+        relabel_with_ai=True,
+        jur=str(get_config("assembly line", {}).get("pdf relabel jurisdiction", "MA")),
+        tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"),
+        openai_api=get_config("open ai", {}).get("key"),
+      )
+      if isinstance(stats, dict) and isinstance(stats.get("fields"), list):
+        fields_suggested = [str(item) for item in stats.get("fields")]
+      if len(fields_suggested) != len(fields_old):
+        fields_suggested = list(fields_old)
+    except:
+      fields_suggested = list(fields_old)
+    finally:
+      if output_pdf_path and os.path.exists(output_pdf_path):
+        os.remove(output_pdf_path)
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      fields_old=fields_old,
+      fields_suggested=fields_suggested,
+    )
+  elif autolabel_target_document_type == "docx":
+    docx_labels = []
+    try:
+      from docassemble.ALDashboard.docx_wrangling import get_labeled_docx_runs
+      guessed_labels = get_labeled_docx_runs(
+        interview.uploaded_templates[autolabel_target_document_index].path(),
+        openai_api=get_config("open ai", {}).get("key"),
+        model="gpt-5-nano",
+      )
+      docx_labels = [
+        [int(item[0]), int(item[1]), str(item[2]), int(item[3])]
+        for item in guessed_labels
+      ]
+    except:
+      docx_labels = []
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      docx_labels=docx_labels,
+    )
+  else:
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      fields_old=[],
+      fields_suggested=[],
+    )
+---
+event: save_autolabel_existing_pdf_fields_payload
+code: |
+  if action_argument('docx_labels') is not None:
+    autolabel_docx_labels = action_argument('docx_labels') or []
+  else:
+    autolabel_fields_old = action_argument('fields_old') or []
+    autolabel_fields_suggested = action_argument('fields_suggested') or []
+    if len(autolabel_fields_suggested) != len(autolabel_fields_old):
+      autolabel_fields_suggested = list(autolabel_fields_old)
+  interview.autolabel_payload_loaded = True
+  background_response()
+---
+event: autolabel_existing_pdf_fields_error
+code: |
+  if autolabel_target_document_type == "pdf":
+    autolabel_fields_old = list(autolabel_detected_field_names)
+    autolabel_fields_suggested = list(autolabel_detected_field_names)
+  elif autolabel_target_document_type == "docx":
+    autolabel_docx_labels = []
+  interview.autolabel_payload_loaded = True
+  background_response()
+---
+event: waiting_screen_autolabel_existing_pdf_fields
+question: |
+  Preparing suggested field labels
+subquestion: |
+  Please wait while Weaver generates field label suggestions in the background.
+
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Working in the background...
+    </div>
+  </div>
+reload: 5
+---
+event: autolabel_existing_pdf_fields_failed
+question: |
+  Auto-labeling did not finish
+subquestion: |
+  Weaver could not finish generating suggestions, so your current field names
+  will be used as defaults.
+continue button field: autolabel_existing_pdf_fields_failed
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type == "docx":
+    if not defined('autolabel_docx_labels'):
+      autolabel_docx_labels = []
+    if not defined('autolabel_docx_label_overrides'):
+      autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+    for idx, item in enumerate(autolabel_docx_labels):
+      key = str(idx)
+      if key not in autolabel_docx_label_overrides:
+        autolabel_docx_label_overrides[key] = item[2]
+---
+id: review and edit suggested DOCX labels
+continue button field: review_autolabel_docx_label_changes
+question: |
+  Review suggested DOCX labels
+subquestion: |
+  Update any suggested run labels below before applying them to your DOCX.
+right: |
+  #### Preview of current DOCX
+
+  <iframe src="${ pdf_concatenate(interview.uploaded_templates[autolabel_target_document_index]).url_for() }" height="400"></iframe>
+
+  _note_: this preview updates after you apply changes.
+fields:
+  - code: |
+      [
+        {
+          f"Paragraph {item[0]}, run {item[1]}": f"autolabel_docx_label_overrides['{idx}']",
+          "default": item[2],
+          "label above field": True,
+          "required": False,
+        }
+        for idx, item in enumerate(autolabel_docx_labels)
+      ]
+---
+event: autolabel_docx_no_suggestions_found
+question: |
+  Weaver could not auto-label this DOCX
+subquestion: |
+  Weaver could not generate suggested labels for this DOCX right now.
+
+  You can continue building your interview, but no DOCX label changes were applied.
+continue button field: autolabel_docx_no_suggestions_found
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if len(autolabel_docx_labels):
+    review_autolabel_docx_label_changes
+    from docassemble.ALDashboard.docx_wrangling import update_docx
+    updated_runs = []
+    for idx, item in enumerate(autolabel_docx_labels):
+      key = str(idx)
+      updated_runs.append(
+        (
+          int(item[0]),
+          int(item[1]),
+          str(autolabel_docx_label_overrides[key]) if key in autolabel_docx_label_overrides else str(item[2]),
+          int(item[3]),
+        )
+      )
+    updated_docx = update_docx(
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      updated_runs,
+    )
+    updated_docx.save(interview.uploaded_templates[autolabel_target_document_index].path())
+    # Avoid persisting python-docx objects in session state.
+    del updated_docx
+    del update_docx
+    interview.uploaded_templates[autolabel_target_document_index].commit()
+    interview._auto_load_fields()
+    for field in interview.all_fields:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+    # Field reload invalidates any previously drafted question->field links.
+    # Reset drafted screens so stale references do not survive to review/output.
+    if hasattr(interview, "questions"):
+      interview.questions.clear()
+      interview.questions.gathered = False
+      interview.questions.there_are_any = False
+      interview.questions.there_is_another = False
+  else:
+    autolabel_docx_no_suggestions_found
+  apply_autolabel_docx_label_changes = True
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type == "pdf":
+    if not defined('autolabel_fields_old'):
+      autolabel_fields_old = []
+    if not defined('autolabel_fields_suggested'):
+      autolabel_fields_suggested = []
+    if not defined('autolabel_field_name_overrides'):
+      autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+    for idx, old_name in enumerate(autolabel_fields_old):
+      key = str(idx)
+      if key not in autolabel_field_name_overrides:
+        if idx < len(autolabel_fields_suggested):
+          autolabel_field_name_overrides[key] = autolabel_fields_suggested[idx]
+        else:
+          autolabel_field_name_overrides[key] = old_name
+---
+id: review and edit suggested field labels
+continue button field: review_autolabel_field_name_changes
+question: |
+  Review suggested field labels
+subquestion: |
+  Update any suggested field names below before applying them to your PDF.
+right: |
+  #### Preview of field labels
+
+  <iframe src="${ autolabel_preview_pdf.url_for() }" height="400"></iframe>
+
+  _note_: this preview refreshes after each submit.
+fields:
+  - code: |
+      [
+        {
+          old_name: f"autolabel_field_name_overrides['{idx}']",
+          "label above field": True,
+          "required": False,
+        }
+        for idx, old_name in enumerate(autolabel_fields_old)
+      ]
+---
+need:
+  - review_autolabel_field_name_changes
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type != "pdf":
+    apply_autolabel_field_name_changes = True
+  else:
+    autolabel_mapping = {}
+    for idx, old_name in enumerate(autolabel_fields_old):
+      key = str(idx)
+      new_name = autolabel_field_name_overrides[key] if key in autolabel_field_name_overrides else old_name
+      if not new_name:
+        new_name = old_name
+      autolabel_mapping[old_name] = new_name
+
+    formfyxer.rename_pdf_fields(
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      autolabel_mapping,
+    )
+    interview.uploaded_templates[autolabel_target_document_index].commit()
+    interview._auto_load_fields()
+    for field in interview.all_fields:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+    # Field reload invalidates any previously drafted question->field links.
+    # Reset drafted screens so stale references do not survive to review/output.
+    if hasattr(interview, "questions"):
+      interview.questions.clear()
+      interview.questions.gathered = False
+      interview.questions.there_are_any = False
+      interview.questions.there_is_another = False
+    apply_autolabel_field_name_changes = True
+---
+attachment:
+  variable name: autolabel_preview_pdf
+  editable: False
+  pdf template file:
+    code: |
+      interview.uploaded_templates[autolabel_target_document_index]
+  code: |
+    reflect_fields(
+      interview.uploaded_templates[autolabel_target_document_index].get_pdf_fields(),
+      {
+        old_name: (
+          autolabel_field_name_overrides[str(idx)]
+          if str(idx) in autolabel_field_name_overrides
+          else old_name
+        )
+        for idx, old_name in enumerate(autolabel_fields_old)
+      },
+    )
 ---
 code: |
   # HACK temporary LIT Con 2023
@@ -1156,6 +1537,9 @@ code: |
 
   interview.all_fields.clear()
   interview.all_fields.add_fields_from_file(interview.uploaded_templates)
+  for field in interview.all_fields:
+    if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+      field.final_display_var = field.variable
   interview.all_fields.gathered = True
   initial_get_fields = True
 ---
@@ -1192,6 +1576,15 @@ code: |
   # We keep adding questions until ALL of the fields have been
   # assigned.
   interview.questions.there_is_another = interview.has_unassigned_fields()
+---
+only sets:
+  - normalize_question_field_list
+code: |
+  for question in interview.questions:
+    for field in question.field_list:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+  normalize_question_field_list = True
 ---
 id: create a draft of screen i
 question: |
@@ -1239,6 +1632,9 @@ fields:
 validation code: |
   if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
+  for field in interview.questions[i].field_list:
+    if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+      field.final_display_var = field.variable
 ---
 id: download your interview
 comment: | 
@@ -1848,12 +2244,28 @@ code: |
 event: waiting_screen
 question: |
   Please wait while the package is installed
-reload: True    
+subquestion: |
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Installing package in the background...
+    </div>
+  </div>
+reload: 5
 ---  
 event: waiting_screen_uninstall
 question: |
   Package is being uninstalled, please wait here
-reload: True
+subquestion: |
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Uninstalling package in the background...
+    </div>
+  </div>
+reload: 5
 #----------------------------------------------------
 # Code blocks for Drag-and-drop table
 #----------------------------------------------------
@@ -2101,7 +2513,15 @@ question: |
   Drafting your interview with AI assistance
 subquestion: |
   Please wait while we generate a draft. This can take up to a minute.
-reload: True
+
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Drafting in the background...
+    </div>
+  </div>
+reload: 5
 ---
 only sets:
   - process_llm_stepwise_prefill
