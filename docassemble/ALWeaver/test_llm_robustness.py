@@ -92,7 +92,9 @@ class TestLLMRobustness(unittest.TestCase):
         old_screen.field_list.gathered = True
         interview.questions.gathered = True
 
-        interview._llm_context_text = MethodType(lambda self, **kwargs: "context", interview)
+        interview._llm_context_text = MethodType(
+            lambda self, **kwargs: "context", interview
+        )
         interview._llm_default_model = MethodType(lambda self: "gpt-5-mini", interview)
 
         with patch.object(ig, "_load_llms_module", return_value=_FakeLlms()):
@@ -104,7 +106,11 @@ class TestLLMRobustness(unittest.TestCase):
 
     def test_extract_help_page_text_skips_non_html_content_type(self):
         fake_response = _FakeResponse(b"%PDF-1.7 fake", "application/pdf")
-        with patch.object(ig.socket, "getaddrinfo", return_value=[(None, None, None, None, ("93.184.216.34", 0))]):
+        with patch.object(
+            ig.socket,
+            "getaddrinfo",
+            return_value=[(None, None, None, None, ("93.184.216.34", 0))],
+        ):
             with patch.object(ig, "urlopen", return_value=fake_response):
                 text = ig._extract_help_page_text("https://example.com/help.pdf")
         self.assertEqual(text, "")

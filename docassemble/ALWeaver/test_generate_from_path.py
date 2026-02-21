@@ -7,7 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from .interview_generator import generate_interview_from_path, _ensure_unique_question_ids
+from .interview_generator import (
+    generate_interview_from_path,
+    _ensure_unique_question_ids,
+)
 
 
 class TestGenerateInterviewFromPath(unittest.TestCase):
@@ -121,7 +124,7 @@ question: |
                 yaml_text,
                 r"(?m)^  landing_page_url:\s*>-\s*$\n\s+https?://",
             )
-            self.assertRegex(yaml_text, r'(?m)^sections:\n(?:\s+- .+\n)+')
+            self.assertRegex(yaml_text, r"(?m)^sections:\n(?:\s+- .+\n)+")
             self.assertRegex(yaml_text, r'(?m)^  nav\.set_section\("[-a-z_]+"\)$')
             self._run_dayamlchecker(result.yaml_path)
 

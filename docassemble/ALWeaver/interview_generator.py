@@ -1876,7 +1876,7 @@ class DAInterview(DAObject):
             self._set_template_from_url(url)
         elif input_file:
             self._set_template_from_file(input_file)
-        
+
         # Title extraction - very fast, safe to do on main thread
         self.title = self._set_title(url=url, input_file=input_file)
         if title:
@@ -2042,10 +2042,9 @@ class DAInterview(DAObject):
                 template_fingerprints.append((path, mtime_ns, size))
 
         cache_key = tuple(template_fingerprints)
-        if (
-            getattr(self, "_llm_template_context_cache_key", None) == cache_key
-            and hasattr(self, "_llm_template_context_cache")
-        ):
+        if getattr(
+            self, "_llm_template_context_cache_key", None
+        ) == cache_key and hasattr(self, "_llm_template_context_cache"):
             return str(getattr(self, "_llm_template_context_cache", "") or "")
 
         chunks: List[str] = []
@@ -2067,14 +2066,20 @@ class DAInterview(DAObject):
         self._llm_template_context_cache = combined
         return combined
 
-    def _llm_context_text(self, max_chars: int = 18000, skip_reference_site: bool = True) -> str:
+    def _llm_context_text(
+        self, max_chars: int = 18000, skip_reference_site: bool = True
+    ) -> str:
         chunks: List[str] = []
         template_text = self._cached_template_context_text()
         if template_text:
             chunks.append(template_text)
         if hasattr(self, "help_source_text") and self.help_source_text:
             chunks.append(str(self.help_source_text))
-        if not skip_reference_site and hasattr(self, "help_page_url") and self.help_page_url:
+        if (
+            not skip_reference_site
+            and hasattr(self, "help_page_url")
+            and self.help_page_url
+        ):
             if not hasattr(self, "help_page_text"):
                 self.help_page_text = _extract_help_page_text(str(self.help_page_url))
             if self.help_page_text:
@@ -2089,7 +2094,11 @@ class DAInterview(DAObject):
 
     def _prefetch_reference_site(self) -> None:
         """Fetch and cache the help page content. This should be called in background tasks."""
-        if hasattr(self, "help_page_url") and self.help_page_url and not hasattr(self, "help_page_text"):
+        if (
+            hasattr(self, "help_page_url")
+            and self.help_page_url
+            and not hasattr(self, "help_page_text")
+        ):
             self.help_page_text = _extract_help_page_text(str(self.help_page_url))
 
     def llm_prefill_metadata(self, apply: bool = True) -> bool:
@@ -4176,8 +4185,10 @@ def _resolve_template_path(template_ref: str) -> str:
     """
     if os.path.isabs(template_ref) and os.path.exists(template_ref):
         return template_ref
-    
-    template_name = template_ref.split(":", 1)[1] if ":" in template_ref else template_ref
+
+    template_name = (
+        template_ref.split(":", 1)[1] if ":" in template_ref else template_ref
+    )
     file_path = None
     try:
         if ":" in template_ref:
@@ -4194,7 +4205,9 @@ def _resolve_template_path(template_ref: str) -> str:
     if file_path and os.path.exists(file_path):
         return file_path
 
-    local_path = os.path.join(os.path.dirname(__file__), "data", "templates", template_name)
+    local_path = os.path.join(
+        os.path.dirname(__file__), "data", "templates", template_name
+    )
     if os.path.exists(local_path):
         return local_path
     raise FileNotFoundError(f"Could not resolve template path for: {template_ref}")
@@ -4420,7 +4433,9 @@ def _merge_field_definitions_into_screens(
 
 def _metadata_defaults_for_lint(interview: DAInterview) -> Dict[str, str]:
     state_value = str(getattr(interview, "state", "") or "").strip().upper()
-    country_value = str(getattr(interview, "default_country_code", "US") or "US").strip().upper()
+    country_value = (
+        str(getattr(interview, "default_country_code", "US") or "US").strip().upper()
+    )
     jurisdiction_value = str(getattr(interview, "jurisdiction", "") or "").strip()
     if not jurisdiction_value:
         if country_value == "US" and state_value:
@@ -4430,7 +4445,9 @@ def _metadata_defaults_for_lint(interview: DAInterview) -> Dict[str, str]:
         else:
             jurisdiction_value = "NAM-US"
 
-    landing_page_url_value = str(getattr(interview, "landing_page_url", "") or "").strip()
+    landing_page_url_value = str(
+        getattr(interview, "landing_page_url", "") or ""
+    ).strip()
     if not landing_page_url_value:
         original_form_url = str(getattr(interview, "original_form", "") or "").strip()
         if original_form_url.startswith(("http://", "https://")):
@@ -4559,7 +4576,9 @@ def _llm_refine_section_catalog(
             if section_id in seen_ids:
                 continue
             seen_ids.add(section_id)
-            label = str(item.get("label", "") or "").strip() or _section_label(section_id)
+            label = str(item.get("label", "") or "").strip() or _section_label(
+                section_id
+            )
             cleaned.append({"id": section_id, "label": label})
         if 3 <= len(cleaned) <= 8:
             return cleaned
@@ -4569,7 +4588,9 @@ def _llm_refine_section_catalog(
 
 
 def _llm_refine_section_ids(
-    screen_summaries: Sequence[str], section_ids: Sequence[str], deterministic: Sequence[str]
+    screen_summaries: Sequence[str],
+    section_ids: Sequence[str],
+    deterministic: Sequence[str],
 ) -> Optional[List[str]]:
     llms = _load_llms_module()
     if not llms or not screen_summaries:
@@ -4616,13 +4637,16 @@ def _navigation_sections_and_assignments(
     screens: Sequence[Union["DAQuestion", "DAField"]],
     trigger_lines: Sequence[str],
 ) -> Tuple[List[Dict[str, str]], List[str]]:
-    if hasattr(interview, "enable_navigation") and getattr(
-        interview, "enable_navigation"
-    ) is False:
+    if (
+        hasattr(interview, "enable_navigation")
+        and getattr(interview, "enable_navigation") is False
+    ):
         return [], ["" for _ in screens]
 
     deterministic_ids = [
-        _deterministic_section_id_for_screen(screen, trigger_lines[idx] if idx < len(trigger_lines) else "")
+        _deterministic_section_id_for_screen(
+            screen, trigger_lines[idx] if idx < len(trigger_lines) else ""
+        )
         for idx, screen in enumerate(screens)
     ]
     deterministic_ids = [item if item else "case_details" for item in deterministic_ids]
@@ -4655,7 +4679,9 @@ def _navigation_sections_and_assignments(
     if not allowed_ids:
         allowed_ids = ["case_details"]
         section_catalog = [{"id": "case_details", "label": "Case Details"}]
-    fallback_section_id = "case_details" if "case_details" in allowed_ids else allowed_ids[0]
+    fallback_section_id = (
+        "case_details" if "case_details" in allowed_ids else allowed_ids[0]
+    )
     seeded_ids = [
         section_id if section_id in allowed_ids else fallback_section_id
         for section_id in deterministic_ids
@@ -4693,7 +4719,11 @@ def _navigation_sections_and_assignments(
         if rank < highest_rank:
             # Prevent jumping backwards to earlier sections.
             kept = next(
-                (sid for sid, sid_rank in canonical_order.items() if sid_rank == highest_rank),
+                (
+                    sid
+                    for sid, sid_rank in canonical_order.items()
+                    if sid_rank == highest_rank
+                ),
                 section_id,
             )
             monotonic.append(kept)
@@ -4743,7 +4773,11 @@ def _ensure_question_block_ids(yaml_text: str) -> str:
             # Insert before the first top-level key when possible.
             first_key = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_ ]*:\s*", doc_text)
             if first_key:
-                doc_text = doc_text[: first_key.start()] + id_line + doc_text[first_key.start() :]
+                doc_text = (
+                    doc_text[: first_key.start()]
+                    + id_line
+                    + doc_text[first_key.start() :]
+                )
             else:
                 doc_text = id_line + doc_text
         updated_docs.append(doc_text)
@@ -4808,7 +4842,9 @@ def _ensure_required_metadata_values(yaml_text: str, interview: DAInterview) -> 
             count=1,
         )
     elif re.search(r"(?m)^\s{2}jurisdiction:\s*", block_text) is None:
-        block_text += f'\n  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"'
+        block_text += (
+            f'\n  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"'
+        )
 
     # Ensure a non-empty landing_page_url scalar.
     landing_scalar_missing = re.search(
@@ -4822,9 +4858,7 @@ def _ensure_required_metadata_values(yaml_text: str, interview: DAInterview) -> 
             count=1,
         )
     elif re.search(r"(?m)^\s{2}landing_page_url:\s*", block_text) is None:
-        block_text += (
-            f'\n  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"'
-        )
+        block_text += f'\n  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"'
 
     # Ensure LIST_topics exists and has at least one value.
     list_topics_inline_empty = re.search(
