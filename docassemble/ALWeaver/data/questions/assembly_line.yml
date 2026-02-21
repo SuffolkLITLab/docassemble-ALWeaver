@@ -2538,6 +2538,7 @@ only sets:
   - process_llm_stepwise_prefill
 code: |
   if not has_safe_pdf_in_url and hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+    interview._prefetch_reference_site()
     interview.llm_prefill_metadata(apply=False)
     interview.llm_predict_state(apply=False)
     interview.llm_refine_field_labels()

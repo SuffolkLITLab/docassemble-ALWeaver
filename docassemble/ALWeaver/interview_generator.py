@@ -1879,7 +1879,7 @@ class DAInterview(DAObject):
             or "gpt-4o-mini"
         )
 
-    def _llm_context_text(self, max_chars: int = 18000) -> str:
+    def _llm_context_text(self, max_chars: int = 18000, skip_reference_site: bool = True) -> str:
         chunks: List[str] = []
         if hasattr(self, "uploaded_templates"):
             for template in self.uploaded_templates:
@@ -1896,15 +1896,23 @@ class DAInterview(DAObject):
                     chunks.append(extracted)
         if hasattr(self, "help_source_text") and self.help_source_text:
             chunks.append(str(self.help_source_text))
-        if hasattr(self, "help_page_url") and self.help_page_url:
+        if not skip_reference_site and hasattr(self, "help_page_url") and self.help_page_url:
             if not hasattr(self, "help_page_text"):
                 self.help_page_text = _extract_help_page_text(str(self.help_page_url))
             if self.help_page_text:
                 chunks.append(str(self.help_page_text))
+        elif hasattr(self, "help_page_text") and self.help_page_text:
+            # Use cached help_page_text if available
+            chunks.append(str(self.help_page_text))
         full_text = "\n\n".join(chunks).strip()
         if len(full_text) > max_chars:
             return full_text[:max_chars]
         return full_text
+
+    def _prefetch_reference_site(self) -> None:
+        """Fetch and cache the help page content. This should be called in background tasks."""
+        if hasattr(self, "help_page_url") and self.help_page_url and not hasattr(self, "help_page_text"):
+            self.help_page_text = _extract_help_page_text(str(self.help_page_url))
 
     def llm_prefill_metadata(self, apply: bool = True) -> bool:
         llms = _load_llms_module()
@@ -2438,6 +2446,8 @@ Rules:
 
     def llm_generate_draft_payload(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {}
+        # Fetch reference site content upfront in background task
+        self._prefetch_reference_site()
         self.llm_prefill_metadata(apply=False)
         self.llm_predict_state(apply=False)
         for key in [
@@ -3976,12 +3986,14 @@ def _resolve_template_path(template_ref: str) -> str:
     if ":" in template_ref:
         # Format: package_name:template_name
         package_name, template_name = template_ref.split(":", 1)
+        file_path, _ = path_and_mimetype(
+            f"{package_name}:data/templates/{template_name}"
+        )
     else:
         template_name = template_ref
-    
-    file_path, _ = path_and_mimetype(
-        f"data/templates/{template_name}"
-    )
+        file_path, _ = path_and_mimetype(
+            f"data/templates/{template_name}"
+        )
     return file_path
 
 
