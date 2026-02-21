@@ -2445,10 +2445,16 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
-    if not hasattr(interview, "lucky_base_initialized"):
-      interview.auto_assign_attributes()
-      interview.lucky_base_initialized = True
     if hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+      # Fast sync: extract title, heuristics, and load fields (no API calls).
+      # Slow work (LLM drafting + screen grouping) runs in the background.
+      if not hasattr(interview, "lucky_base_initialized"):
+        interview.auto_assign_attributes_fast()
+        interview.lucky_base_initialized = True
+      # Start background LLM task if not already started
+      if not hasattr(interview, "lucky_lm_drafting_task_started"):
+        lucky_lm_drafting_task = background_action('lucky_lm_drafting_event')
+        interview.lucky_lm_drafting_task_started = True
       if lucky_lm_drafting_task.ready():
         if lucky_lm_drafting_task.failed():
           log("Lucky-mode background LLM drafting task failed", "error")
@@ -2457,7 +2463,14 @@ code: |
           interview.lucky_lm_drafting_payload_applied = True
       else:
         waiting_screen_lucky_drafting
-    interview_label_draft = varname(interview.title).lower()
+    else:
+      # Non-LLM lucky mode: do full initialization synchronously
+      if not hasattr(interview, "lucky_base_initialized"):
+        interview.auto_assign_attributes()
+        interview.lucky_base_initialized = True
+  
+  # Set interview label from title
+  interview_label_draft = varname(interview.title).lower()
 
   # Check for an empty file
   if not len(interview.all_fields):
@@ -2500,12 +2513,10 @@ code: |
 
   process_im_feeling_lucky = True
 ---
-code: |
-  lucky_lm_drafting_task = background_action('lucky_lm_drafting_event')
----
 event: lucky_lm_drafting_event
 code: |
   background_error_action('lucky_lm_drafting_error')
+  # Only LLM work runs in the background; fields are already loaded on the main thread
   payload = interview.llm_generate_draft_payload()
   background_response_action('save_lucky_lm_drafting_payload', payload=payload)
 ---

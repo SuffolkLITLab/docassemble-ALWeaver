@@ -1765,7 +1765,7 @@ class DAInterview(DAObject):
                 ]
             )
 
-    def auto_assign_attributes(
+    def _initialize_basic_attributes(
         self,
         url: Optional[str] = None,
         input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
@@ -1773,24 +1773,10 @@ class DAInterview(DAObject):
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
         default_country_code: str = "US",
-        interview_logic: Optional[List[Union[Dict, str]]] = None,
-        screens: Optional[List[Screen]] = None,
     ):
         """
-        Automatically assign interview attributes based on the template
-        assigned to the interview object.
-        To assist with "I'm feeling lucky" button.
-
-        Args:
-            url (Optional[str]): URL to a template file
-            input_file (Optional[Union[DAFileList, DAFile, DAStaticFile]]): A file
-                object
-            title (Optional[str]): Title of the interview
-            jurisdiction (Optional[str]): Jurisdiction of the interview
-            categories (Optional[str]): Categories of the interview
-            default_country_code (str): Default country code for the interview. Defaults to "US".
-            interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
-            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
+        Set basic, fast attributes. Use this on the main thread before deferring
+        heavy field processing to the background.
         """
         try:
             if user_logged_in():
@@ -1803,8 +1789,9 @@ class DAInterview(DAObject):
             self._set_template_from_url(url)
         elif input_file:
             self._set_template_from_file(input_file)
+        
+        # Title extraction - very fast, safe to do on main thread
         self.title = self._set_title(url=url, input_file=input_file)
-
         if title:
             self.title = title
         self.short_title = self.title
@@ -1814,6 +1801,7 @@ class DAInterview(DAObject):
             varname(self.short_filename_with_spaces)
         )
 
+        # Heuristics-based attributes - all fast, no file access
         if jurisdiction:
             try:
                 if jurisdiction.upper() in {
@@ -1857,9 +1845,22 @@ class DAInterview(DAObject):
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
+
+    def _load_and_label_fields(self) -> None:
+        """Fast field extraction and labeling. Safe to run on the main thread."""
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
+
+    def _process_fields_and_group(
+        self,
+        interview_logic: Optional[List[Union[Dict, str]]] = None,
+        screens: Optional[List[Screen]] = None,
+    ):
+        """
+        Full field processing including slow grouping step.
+        """
+        self._load_and_label_fields()
         if interview_logic:
             self.interview_logic = interview_logic
         if screens:
@@ -1871,6 +1872,64 @@ class DAInterview(DAObject):
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()
+
+    def auto_assign_attributes(
+        self,
+        url: Optional[str] = None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        title: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        categories: Optional[str] = None,
+        default_country_code: str = "US",
+        interview_logic: Optional[List[Union[Dict, str]]] = None,
+        screens: Optional[List[Screen]] = None,
+    ):
+        """
+        Automatically assign interview attributes based on the template
+        assigned to the interview object.
+        To assist with "I'm feeling lucky" button.
+
+        Args:
+            url (Optional[str]): URL to a template file
+            input_file (Optional[Union[DAFileList, DAFile, DAStaticFile]]): A file
+                object
+            title (Optional[str]): Title of the interview
+            jurisdiction (Optional[str]): Jurisdiction of the interview
+            categories (Optional[str]): Categories of the interview
+            default_country_code (str): Default country code for the interview. Defaults to "US".
+            interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
+            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
+        """
+        self._initialize_basic_attributes(
+            url=url,
+            input_file=input_file,
+            title=title,
+            jurisdiction=jurisdiction,
+            categories=categories,
+            default_country_code=default_country_code,
+        )
+        self._process_fields_and_group(interview_logic=interview_logic, screens=screens)
+
+    def auto_assign_attributes_fast(
+        self,
+        url: Optional[str] = None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        title: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        categories: Optional[str] = None,
+        default_country_code: str = "US",
+    ):
+        """Like auto_assign_attributes but skips the slow formfyxer.cluster_screens()
+        call. Use when LLM-based grouping will be done in a background task instead."""
+        self._initialize_basic_attributes(
+            url=url,
+            input_file=input_file,
+            title=title,
+            jurisdiction=jurisdiction,
+            categories=categories,
+            default_country_code=default_country_code,
+        )
+        self._load_and_label_fields()
 
     def _llm_default_model(self) -> str:
         return (
