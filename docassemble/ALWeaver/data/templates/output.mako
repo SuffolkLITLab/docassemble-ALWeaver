@@ -176,6 +176,9 @@ objects:
 % endif
 ---
 sections:
+  % for nav_section in navigation_sections:
+  - ${ nav_section["id"] }: ${ nav_section["label"] }
+  % endfor
   - review_${ interview.interview_label }: Review your answers
 ---
 #################### Interview order #####################
@@ -189,7 +192,6 @@ code: |
   allowed_courts = ${ repr(sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else []))) }
   % endif
   % endif
-  nav.set_section("review_${ interview.interview_label }")
   % if interview.typical_role == 'unknown':
   # Below sets the user_role and user_ask_role by asking a question.
   # You can set user_ask_role directly instead to either 'plaintiff' or 'defendant'
@@ -198,8 +200,8 @@ code: |
   user_role = "${ interview.typical_role }"
   user_ask_role = "${ interview.typical_role }"
   % endif
-  % for field in interview.questions.interview_order_list(interview.all_fields, screen_reordered):
-  ${ field }
+  % for line in interview_order_lines:
+  ${ line }
   % endfor
   % if not generate_download_screen:
   saved_report_data

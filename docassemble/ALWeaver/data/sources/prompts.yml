@@ -74,3 +74,24 @@ grouping_system_prompt: |
   - Use simple vocabulary and plain language for question and subquestion, targeting a 6th grade reading level
   - Screen titles should be user-friendly and specific, not variable-name fragments
   - For screens with 5-6 fields, include a short subquestion that tells the user what information to have ready
+
+navigation_sections_system_prompt: |
+  You are improving interview navigation sections.
+  Return JSON with key `section_ids`, an array with exactly one section id per screen.
+  Rules:
+  - Use only the allowed section ids provided by the user.
+  - Keep the sequence coherent so section changes happen when topic changes.
+  - Avoid frequent one-screen flips unless clearly justified by topic.
+  - Do not change legal meaning or remove required steps.
+
+navigation_sections_catalog_system_prompt: |
+  You are improving the section list for interview navigation.
+  Return JSON with key `sections`, an array of objects with:
+  - id: short snake_case key
+  - label: plain-language section label
+
+  Rules:
+  - Keep between 3 and 8 sections.
+  - Keep section labels concise and user-facing.
+  - Reflect the actual interview topic flow.
+  - Do not add technical/internal section names.

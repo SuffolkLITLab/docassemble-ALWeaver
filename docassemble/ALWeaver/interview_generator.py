@@ -1472,7 +1472,7 @@ class DAQuestionList(DAList):
         self,
         all_fields: DAFieldList,
         screens: Optional[List[Union["DAQuestion", "DAField"]]] = None,
-        sections: Optional[List] = None,
+        sections: Optional[List[str]] = None,
         set_progress=True,
     ) -> List[str]:
         """
@@ -1500,7 +1500,13 @@ class DAQuestionList(DAList):
         progress = 0
 
         saved_answer_name_flag = False
+        current_section: Optional[str] = None
         for index, question in enumerate(screens):
+            if sections and index < len(sections):
+                section_id = str(sections[index] or "").strip()
+                if section_id and section_id != current_section:
+                    logic_list.append(f'nav.set_section("{section_id}")')
+                    current_section = section_id
             if set_progress and index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
@@ -1544,7 +1550,17 @@ class DAQuestionList(DAList):
                         logic_list.append("set_parts(subtitle=str(users))")
                         saved_answer_name_flag = True
 
-        return list(more_itertools.unique_everseen(logic_list))
+        unique_lines: List[str] = []
+        seen_non_nav: Set[str] = set()
+        for line in logic_list:
+            if line.startswith('nav.set_section("'):
+                unique_lines.append(line)
+                continue
+            if line in seen_non_nav:
+                continue
+            seen_non_nav.add(line)
+            unique_lines.append(line)
+        return unique_lines
 
 
 class DADataType(Enum):
@@ -4317,6 +4333,266 @@ def _metadata_defaults_for_lint(interview: DAInterview) -> Dict[str, str]:
     }
 
 
+def _screen_heading(screen: Union["DAQuestion", "DAField"]) -> str:
+    if isinstance(screen, DAQuestion):
+        return str(getattr(screen, "question_text", "") or "").strip()
+    try:
+        return str(screen.variable)
+    except Exception:
+        return ""
+
+
+def _deterministic_section_id_for_screen(
+    screen: Union["DAQuestion", "DAField"], trigger: str
+) -> str:
+    heading = _screen_heading(screen).lower()
+    trigger_l = (trigger or "").lower()
+    text = f"{heading} {trigger_l}".strip()
+    if "signature" in text or trigger_l.endswith(".signature") or "sign" in heading:
+        return "sign_and_submit"
+    if "serve" in text or "service" in text or "notice" in text:
+        return "service_and_notice"
+    if (
+        "plaintiff" in text
+        or "defendant" in text
+        or "attorney" in text
+        or "party" in text
+        or "users.gather()" in trigger_l
+    ):
+        return "people"
+    if "name" in text or "address" in text or "phone" in text or "email" in text:
+        return "about_you"
+    return "case_details"
+
+
+def _section_label(section_id: str) -> str:
+    labels = {
+        "about_you": "About You",
+        "people": "People",
+        "case_details": "Case Details",
+        "service_and_notice": "Service and Notice",
+        "sign_and_submit": "Sign and Submit",
+    }
+    return labels.get(section_id, fix_id(section_id).title())
+
+
+def _normalize_section_id(value: str, fallback: str = "section") -> str:
+    normalized = varname(str(value or "")).lower().strip("_")
+    return normalized or fallback
+
+
+def _sections_from_frontend(interview: DAInterview) -> List[Dict[str, str]]:
+    if not bool(getattr(interview, "enable_navigation", False)):
+        return []
+    raw_sections = getattr(interview, "sections", None)
+    if not raw_sections:
+        return []
+    output: List[Dict[str, str]] = []
+    seen_ids: Set[str] = set()
+    for idx, item in enumerate(raw_sections):
+        key = str(getattr(item, "key", "") or "").strip()
+        label = str(getattr(item, "value", "") or "").strip()
+        if not key and isinstance(item, dict):
+            key = str(item.get("key", "")).strip()
+            label = str(item.get("value", "")).strip()
+        section_id = _normalize_section_id(key, fallback=f"section_{idx + 1}")
+        section_label = label or _section_label(section_id)
+        if section_id in seen_ids:
+            continue
+        seen_ids.add(section_id)
+        output.append({"id": section_id, "label": section_label})
+    return output
+
+
+def _llm_refine_section_catalog(
+    screen_summaries: Sequence[str], base_sections: Sequence[Dict[str, str]]
+) -> Optional[List[Dict[str, str]]]:
+    llms = _load_llms_module()
+    if not llms or not screen_summaries or not base_sections:
+        return None
+    prompt = _prompt_str(
+        "navigation_sections_catalog_system_prompt",
+        (
+            "Improve the section list used for interview navigation. "
+            "Return JSON with key `sections`: array of objects with `id` and `label`. "
+            "Keep 3 to 8 sections, use concise plain-language labels, and keep legal flow order."
+        ),
+    )
+    user_message = (
+        "Current sections:\n"
+        + json.dumps(list(base_sections), ensure_ascii=True)
+        + "\n\nScreens:\n"
+        + "\n".join(screen_summaries)
+    )
+    try:
+        rewritten = llms.chat_completion(
+            system_message=prompt,
+            user_message=user_message,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if not isinstance(rewritten, dict):
+            return None
+        candidate = rewritten.get("sections")
+        if not isinstance(candidate, list):
+            return None
+        cleaned: List[Dict[str, str]] = []
+        seen_ids: Set[str] = set()
+        for idx, item in enumerate(candidate):
+            if not isinstance(item, dict):
+                continue
+            section_id = _normalize_section_id(
+                str(item.get("id", "") or ""), fallback=f"section_{idx + 1}"
+            )
+            if section_id in seen_ids:
+                continue
+            seen_ids.add(section_id)
+            label = str(item.get("label", "") or "").strip() or _section_label(section_id)
+            cleaned.append({"id": section_id, "label": label})
+        if 3 <= len(cleaned) <= 8:
+            return cleaned
+        return None
+    except Exception:
+        return None
+
+
+def _llm_refine_section_ids(
+    screen_summaries: Sequence[str], section_ids: Sequence[str], deterministic: Sequence[str]
+) -> Optional[List[str]]:
+    llms = _load_llms_module()
+    if not llms or not screen_summaries:
+        return None
+    allowed = sorted(set(section_ids))
+    prompt = _prompt_str(
+        "navigation_sections_system_prompt",
+        (
+            "Assign each screen to one section id to improve navigation. "
+            "Return JSON with key `section_ids` as an array of ids with exactly one id per screen. "
+            "Use only allowed ids and keep legal flow logical."
+        ),
+    )
+    user_message = (
+        "Allowed section ids:\n- "
+        + "\n- ".join(allowed)
+        + "\n\nScreens with deterministic section:\n"
+        + "\n".join(screen_summaries)
+        + "\n\nCurrent deterministic section_ids:\n"
+        + json.dumps(list(deterministic))
+    )
+    try:
+        rewritten = llms.chat_completion(
+            system_message=prompt,
+            user_message=user_message,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if not isinstance(rewritten, dict):
+            return None
+        candidate = rewritten.get("section_ids")
+        if not isinstance(candidate, list) or len(candidate) != len(deterministic):
+            return None
+        cleaned = [str(item) for item in candidate]
+        if any(item not in allowed for item in cleaned):
+            return None
+        return cleaned
+    except Exception:
+        return None
+
+
+def _navigation_sections_and_assignments(
+    interview: DAInterview,
+    screens: Sequence[Union["DAQuestion", "DAField"]],
+    trigger_lines: Sequence[str],
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    if hasattr(interview, "enable_navigation") and getattr(
+        interview, "enable_navigation"
+    ) is False:
+        return [], ["" for _ in screens]
+
+    deterministic_ids = [
+        _deterministic_section_id_for_screen(screen, trigger_lines[idx] if idx < len(trigger_lines) else "")
+        for idx, screen in enumerate(screens)
+    ]
+    deterministic_ids = [item if item else "case_details" for item in deterministic_ids]
+
+    summaries = [
+        f"{idx}. title={_screen_heading(screen)!r}; trigger={trigger_lines[idx] if idx < len(trigger_lines) else ''!r}; section={deterministic_ids[idx]}"
+        for idx, screen in enumerate(screens)
+    ]
+
+    frontend_sections = _sections_from_frontend(interview)
+    if frontend_sections:
+        section_catalog = frontend_sections
+    else:
+        ordered_base_ids: List[str] = []
+        for section_id in deterministic_ids:
+            if section_id not in ordered_base_ids:
+                ordered_base_ids.append(section_id)
+        section_catalog = [
+            {"id": section_id, "label": _section_label(section_id)}
+            for section_id in ordered_base_ids
+        ]
+
+    llm_enabled = bool(getattr(interview, "use_llm_assist", False))
+    if llm_enabled:
+        refined_catalog = _llm_refine_section_catalog(summaries, section_catalog)
+        if refined_catalog:
+            section_catalog = refined_catalog
+
+    allowed_ids = [section["id"] for section in section_catalog]
+    if not allowed_ids:
+        allowed_ids = ["case_details"]
+        section_catalog = [{"id": "case_details", "label": "Case Details"}]
+    fallback_section_id = "case_details" if "case_details" in allowed_ids else allowed_ids[0]
+    seeded_ids = [
+        section_id if section_id in allowed_ids else fallback_section_id
+        for section_id in deterministic_ids
+    ]
+    llm_ids: Optional[List[str]] = None
+    if llm_enabled:
+        llm_ids = _llm_refine_section_ids(
+            screen_summaries=summaries,
+            section_ids=allowed_ids,
+            deterministic=seeded_ids,
+        )
+    assigned = llm_ids or seeded_ids
+
+    # Collapse rapid jitter to avoid noisy section changes.
+    smoothed: List[str] = []
+    for idx, section_id in enumerate(assigned):
+        if idx > 0 and idx < len(assigned) - 1:
+            if assigned[idx - 1] == assigned[idx + 1] != section_id:
+                smoothed.append(assigned[idx - 1])
+                continue
+        smoothed.append(section_id)
+
+    # Keep section flow forward-moving for cleaner navigation.
+    canonical_order = {
+        "about_you": 0,
+        "people": 1,
+        "case_details": 2,
+        "service_and_notice": 3,
+        "sign_and_submit": 4,
+    }
+    monotonic: List[str] = []
+    highest_rank = -1
+    for section_id in smoothed:
+        rank = canonical_order.get(section_id, highest_rank if highest_rank >= 0 else 0)
+        if rank < highest_rank:
+            # Prevent jumping backwards to earlier sections.
+            kept = next(
+                (sid for sid, sid_rank in canonical_order.items() if sid_rank == highest_rank),
+                section_id,
+            )
+            monotonic.append(kept)
+        else:
+            monotonic.append(section_id)
+            highest_rank = rank
+
+    sections = list(section_catalog)
+    return sections, monotonic
+
+
 def _ensure_question_block_ids(yaml_text: str) -> str:
     """Add deterministic ids to question blocks that are missing an id."""
     docs = re.split(r"(?m)^---\s*$", yaml_text)
@@ -4630,11 +4906,46 @@ def _render_interview_yaml(
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
 
+    screen_triggers: List[str] = []
+    for screen in screen_reordered:
+        if (
+            isinstance(screen, DAQuestion)
+            and screen.type == "question"
+            and (
+                screen.needs_continue_button_field
+                or (hasattr(screen, "field_list") and screen.field_list)
+            )
+        ):
+            if screen.needs_continue_button_field:
+                screen_triggers.append(varname(screen.question_text))
+            else:
+                screen_triggers.append(
+                    screen.field_list[0].trigger_gather(
+                        custom_plurals=interview.all_fields.custom_people_plurals.values()
+                    )
+                )
+        else:
+            screen_triggers.append(
+                screen.trigger_gather(
+                    custom_plurals=interview.all_fields.custom_people_plurals.values()
+                )
+            )
+    navigation_sections, section_assignments = _navigation_sections_and_assignments(
+        interview, screen_reordered, screen_triggers
+    )
+    interview_order_lines = interview.questions.interview_order_list(
+        interview.all_fields,
+        screen_reordered,
+        sections=section_assignments,
+    )
+
     context = {
         "interview": interview,
         "objects": objects or [],
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
+        "navigation_sections": navigation_sections,
+        "interview_order_lines": interview_order_lines,
         "package_version_number": __version__,
         "action_button_html": action_button_html,
         "currency": currency,

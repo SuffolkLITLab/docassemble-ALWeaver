@@ -130,6 +130,7 @@ code: |
   nav.set_section("nav_questions")
   interview.questions.gather()
   normalize_question_field_list
+  interview.enable_navigation
   
   # Review field order and screen order
   #if not (has_safe_pdf_in_url and im_feeling_lucky):
@@ -1889,28 +1890,32 @@ fields:
 ########################### Code for sections ##########################
 ---
 objects:
-  - interview.sections: DAList.using(object_type=DAObject, auto_gather=False)
+  - interview.sections: DAList.using(object_type=DAObject, auto_gather=False, gathered=True)
   - default_sections: DADict
 ---
 code: |
-  interview.sections.clear()
-  for item in default_sections[interview.form_type].items():
-    new_item = interview.sections.appendObject()
-    new_item.key = item[0]
-    new_item.value = item[1]
-  interview.sections.gathered = True
+  if not len(interview.sections):
+    interview.sections.clear()
+    for entry in default_sections[interview.form_type]:
+      for key, value in entry.items():
+        new_item = interview.sections.appendObject()
+        new_item.key = key
+        new_item.value = value
+  interview_sections_defaults_loaded = True
 ---
 table: interview.sections.table
 rows: interview.sections
 columns:
   - Name: |
-      next(iter(row_item.values()))
+      row_item.value if hasattr(row_item, "value") else ""
   - Keyword: |
-      next(iter(row_item.keys()))
+      row_item.key if hasattr(row_item, "key") else ""
 ---
 id: add sections
 question: |
   Left navigation
+need:
+  - interview_sections_defaults_loaded
 subquestion: |
   Left navigation is optional, although it can help orient
   users even in shorter interviews.
@@ -2510,6 +2515,9 @@ code: |
   ) = review_fields_after_labeling = validate_field_names = preview_next_steps = preview_final_next_steps = True
   interview.include_next_steps = True
   interview.customize_next_steps = True  # Populate next steps with LLM drafts, but don't show preview screens
+  interview.enable_navigation = True
+  interview.has_other_categories = False
+  interview_sections_defaults_loaded = True
 
   process_im_feeling_lucky = True
 ---

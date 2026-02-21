@@ -121,7 +121,46 @@ question: |
                 yaml_text,
                 r"(?m)^  landing_page_url:\s*>-\s*$\n\s+https?://",
             )
+            self.assertRegex(yaml_text, r'(?m)^sections:\n(?:\s+- .+\n)+')
+            self.assertRegex(yaml_text, r'(?m)^  nav\.set_section\("[-a-z_]+"\)$')
             self._run_dayamlchecker(result.yaml_path)
+
+    def test_custom_frontend_sections_respected(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(docx_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={
+                    "enable_navigation": True,
+                    "sections": [
+                        {"key": "intro", "value": "Start Here"},
+                        {"key": "details", "value": "Your Details"},
+                        {"key": "finish", "value": "Finish Up"},
+                    ],
+                },
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn("  - intro: Start Here", yaml_text)
+            self.assertIn("  - details: Your Details", yaml_text)
+            self.assertIn("  - finish: Finish Up", yaml_text)
+
+    def test_navigation_can_be_disabled(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(docx_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={
+                    "enable_navigation": False,
+                },
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertNotIn('nav.set_section("', yaml_text)
 
 
 if __name__ == "__main__":

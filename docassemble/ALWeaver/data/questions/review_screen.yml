@@ -337,6 +337,17 @@ review:
       ${ interview.jurisdiction_choices.true_values() }
 
       ${ interview.org_choices.true_values() }
+  - Edit: interview.enable_navigation
+    button: |
+      **Left navigation in generated interview**
+
+      Enabled: ${ word(yesno(interview.enable_navigation)) }
+
+      % if interview.enable_navigation and len(interview.sections):
+      % for section in interview.sections:
+      * `${ section.key }`: ${ section.value }
+      % endfor
+      % endif
   - Edit: interview.output_mako_choice
     button: |
       **Use this template to create the Docassemble interview (YAML)**
