@@ -2507,9 +2507,9 @@ code: |
       show_screen_order
   ) = (
       review_fields_to_add_template
-  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = True
+  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = preview_final_next_steps = True
   interview.include_next_steps = True
-  interview.customize_next_steps = hasattr(interview, "use_llm_assist") and interview.use_llm_assist
+  interview.customize_next_steps = True  # Populate next steps with LLM drafts, but don't show preview screens
 
   process_im_feeling_lucky = True
 ---
