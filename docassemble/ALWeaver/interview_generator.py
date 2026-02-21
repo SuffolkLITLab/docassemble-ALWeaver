@@ -7,6 +7,7 @@ from docassemble.base.util import (
     bold,
     comma_list,
     comma_and_list,
+    current_context,
     DADict,
     DAEmpty,
     DAFile,
@@ -17,6 +18,7 @@ from docassemble.base.util import (
     DAStaticFile,
     get_config,
     log,
+    path_and_mimetype,
     pdf_concatenate,
     space_to_underscore,
     user_info,
@@ -2944,11 +2946,11 @@ Rules:
                 next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
             )
             new_screen.subquestion_text = ""
-            new_screen.field_list = [
-                field
-                for field in self.all_fields
-                if field.variable in field_grouping[group]
-            ]
+            new_screen.field_list.clear()
+            for field in self.all_fields:
+                if field.variable in field_grouping[group]:
+                    new_screen.field_list.append(field)
+            new_screen.field_list.gathered = True
             if not new_screen.field_list:
                 new_screen.needs_continue_button_field = True
         self.questions.gathered = True
@@ -3964,16 +3966,23 @@ def _make_static_file_from_path(path: str) -> DAStaticFile:
 
 
 def _resolve_template_path(template_ref: str) -> str:
+    """
+    Resolve the path to a template file using docassemble's path_and_mimetype.
+    This works correctly in both Playground and installed package contexts.
+    """
     if os.path.isabs(template_ref) and os.path.exists(template_ref):
         return template_ref
+    
     if ":" in template_ref:
+        # Format: package_name:template_name
         package_name, template_name = template_ref.split(":", 1)
-        module = importlib.import_module(package_name)
-        package_file = module.__file__
-        if package_file:
-            package_dir = os.path.dirname(package_file)
-            return os.path.join(package_dir, "data", "templates", template_name)
-    return os.path.join(os.path.dirname(__file__), "data", "templates", template_ref)
+    else:
+        template_name = template_ref
+    
+    file_path, _ = path_and_mimetype(
+        f"data/templates/{template_name}"
+    )
+    return file_path
 
 
 def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
@@ -4201,7 +4210,10 @@ def _render_interview_yaml(
     objects: Optional[List[Any]] = None,
     screen_reordered: Optional[List[Any]] = None,
 ) -> str:
-    from . import __version__
+    try:
+        from . import __version__
+    except ImportError:
+        __version__ = "0.0.0"
     from .custom_values import get_yml_deps_from_choices
     from docassemble.base.util import (
         action_button_html,

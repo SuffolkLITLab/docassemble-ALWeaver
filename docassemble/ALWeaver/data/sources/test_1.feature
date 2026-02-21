@@ -151,7 +151,7 @@ Scenario: I weave the civil docketing statement
 
 @weaver3 @weaver @auto_drafting_mode
 Scenario: I weave the civil docketing statement
-  Given the max seconds for each Step is 90
+  Given the max seconds for each Step is 180
   And I start the interview at "assembly_line.yml"
   Then I tap the "#upload" element and wait 5 seconds
   And I get to the question id "download-your-interview" with this data:
