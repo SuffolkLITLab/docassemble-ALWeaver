@@ -489,7 +489,8 @@ code: |
         fields_suggested = [str(item) for item in stats.get("fields")]
       if len(fields_suggested) != len(fields_old):
         fields_suggested = list(fields_old)
-    except:
+    except Exception as exc:
+      log(f"Auto-label PDF background task failed: {exc!r}", "error")
       fields_suggested = list(fields_old)
     finally:
       if output_pdf_path and os.path.exists(output_pdf_path):
@@ -512,7 +513,8 @@ code: |
         [int(item[0]), int(item[1]), str(item[2]), int(item[3])]
         for item in guessed_labels
       ]
-    except:
+    except Exception as exc:
+      log(f"Auto-label DOCX background task failed: {exc!r}", "error")
       docx_labels = []
     background_response_action(
       'save_autolabel_existing_pdf_fields_payload',

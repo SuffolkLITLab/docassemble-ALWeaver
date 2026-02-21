@@ -50,7 +50,6 @@ from typing import (
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
-import ast
 import datetime
 import docassemble.base.functions
 import docassemble.base.parse
@@ -66,10 +65,11 @@ import re
 import tempfile
 import uuid
 import zipfile
+import ipaddress
+import socket
 from dataclasses import dataclass
 import pycountry
 import yaml
-from bs4 import BeautifulSoup
 from urllib.request import Request, urlopen
 
 mako.runtime.UNDEFINED = DAEmpty()
@@ -320,17 +320,78 @@ def _prompt_dict(key: str, default: Dict[str, str]) -> Dict[str, str]:
 def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
     if not url or not is_url(url):
         return ""
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    host = parsed.hostname
+    if not host:
+        return ""
+
+    def _is_private_or_local(hostname: str) -> bool:
+        try:
+            ip_obj = ipaddress.ip_address(hostname)
+            return (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            )
+        except ValueError:
+            pass
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except Exception:
+            return True
+        for info in infos:
+            address = info[4][0]
+            try:
+                ip_obj = ipaddress.ip_address(address)
+            except ValueError:
+                return True
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                return True
+        return False
+
+    if _is_private_or_local(host):
+        log(f"Blocked unsafe help_page_url host={host!r}")
+        return ""
+
     try:
         req = Request(
             url,
             headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
         )
         with urlopen(req, timeout=10) as response:
-            html_text = response.read().decode("utf-8", errors="replace")
+            content_type = str(response.headers.get("Content-Type", "") or "").lower()
+            if content_type and (
+                "text/html" not in content_type
+                and "application/xhtml+xml" not in content_type
+            ):
+                log(
+                    f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
+                )
+                return ""
+            max_bytes = 2_000_000
+            raw = response.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                raw = raw[:max_bytes]
+            html_text = raw.decode("utf-8", errors="replace")
     except Exception as exc:
         log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
         return ""
     try:
+        from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(html_text, "html.parser")
         for tag in soup(
             ["script", "style", "noscript", "svg", "canvas", "nav", "footer"]
@@ -340,6 +401,9 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
         cleaned = re.sub(r"\n{3,}", "\n\n", text)
         cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
         return cleaned[:max_chars]
+    except ImportError:
+        log("Unable to parse help page HTML: beautifulsoup4 is not installed")
+        return ""
     except Exception as exc:
         log(f"Unable to parse help page HTML for {url!r}: {exc!r}")
         return ""
@@ -1961,21 +2025,53 @@ class DAInterview(DAObject):
             or "gpt-4o-mini"
         )
 
-    def _llm_context_text(self, max_chars: int = 18000, skip_reference_site: bool = True) -> str:
+    def _cached_template_context_text(self) -> str:
+        template_fingerprints: List[Tuple[str, Optional[int], Optional[int]]] = []
+        if hasattr(self, "uploaded_templates"):
+            for template in self.uploaded_templates:
+                path = ""
+                mtime_ns: Optional[int] = None
+                size: Optional[int] = None
+                try:
+                    path = str(template.path())
+                    stat_result = os.stat(path)
+                    mtime_ns = stat_result.st_mtime_ns
+                    size = stat_result.st_size
+                except Exception:
+                    pass
+                template_fingerprints.append((path, mtime_ns, size))
+
+        cache_key = tuple(template_fingerprints)
+        if (
+            getattr(self, "_llm_template_context_cache_key", None) == cache_key
+            and hasattr(self, "_llm_template_context_cache")
+        ):
+            return str(getattr(self, "_llm_template_context_cache", "") or "")
+
         chunks: List[str] = []
         if hasattr(self, "uploaded_templates"):
             for template in self.uploaded_templates:
+                extracted = ""
                 try:
                     if template.filename.lower().endswith(".pdf"):
                         extracted = extract_text(template.path())
                     elif template.filename.lower().endswith(".docx"):
                         extracted = docx2python(template.path()).text
-                    else:
-                        extracted = ""
                 except Exception:
                     extracted = ""
                 if extracted:
                     chunks.append(extracted)
+
+        combined = "\n\n".join(chunks).strip()
+        self._llm_template_context_cache_key = cache_key
+        self._llm_template_context_cache = combined
+        return combined
+
+    def _llm_context_text(self, max_chars: int = 18000, skip_reference_site: bool = True) -> str:
+        chunks: List[str] = []
+        template_text = self._cached_template_context_text()
+        if template_text:
+            chunks.append(template_text)
         if hasattr(self, "help_source_text") and self.help_source_text:
             chunks.append(str(self.help_source_text))
         if not skip_reference_site and hasattr(self, "help_page_url") and self.help_page_url:
@@ -2498,6 +2594,14 @@ Rules:
                 return [] if not apply else False
             if not apply:
                 return screen_list
+            if hasattr(self, "questions"):
+                try:
+                    self.questions.clear()
+                except Exception:
+                    self.initializeAttribute("questions", DAQuestionList)
+            else:
+                self.initializeAttribute("questions", DAQuestionList)
+            self.questions.gathered = False
             self.create_questions_from_screen_list(screen_list)
             return True
         except Exception as exc:
@@ -2624,6 +2728,14 @@ Rules:
 
         screen_list = payload.get("screen_list")
         if isinstance(screen_list, list) and screen_list:
+            if hasattr(self, "questions"):
+                try:
+                    self.questions.clear()
+                except Exception:
+                    self.initializeAttribute("questions", DAQuestionList)
+            else:
+                self.initializeAttribute("questions", DAQuestionList)
+            self.questions.gathered = False
             self.create_questions_from_screen_list(cast(List[Screen], screen_list))
 
     def _set_title(self, url=None, input_file=None):
