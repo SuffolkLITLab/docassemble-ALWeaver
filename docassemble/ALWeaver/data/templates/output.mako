@@ -70,11 +70,11 @@ ${ indent(interview.getting_started, by=4) }
 % if showifdef("interview.when_you_are_finished"):
 ${ indent(interview.when_you_are_finished, by=4) }
 % endif
-  efiling_enabled: ${ "true" if showifdef("interview.efiling_enabled", False) else "false" }
-  integrated_efiling: ${ "true" if showifdef("interview.integrated_efiling", False) else "false" }
-  integrated_email_filing: ${ "true" if showifdef("interview.integrated_email_filing", False) else "false" }
-  requires_notarization: ${ "true" if showifdef("interview.requires_notarization", False) else "false" }
-  unlisted: ${ "true" if showifdef("interview.unlisted", False) else "false" }
+  efiling_enabled: ${ "True" if showifdef("interview.efiling_enabled", False) else "False" }
+  integrated_efiling: ${ "True" if showifdef("interview.integrated_efiling", False) else "False" }
+  integrated_email_filing: ${ "True" if showifdef("interview.integrated_email_filing", False) else "False" }
+  requires_notarization: ${ "True" if showifdef("interview.requires_notarization", False) else "False" }
+  unlisted: ${ "True" if showifdef("interview.unlisted", False) else "False" }
   % if showifdef("interview.footer"):
   footer: >-
 ${ indent(interview.footer, by=4) }
