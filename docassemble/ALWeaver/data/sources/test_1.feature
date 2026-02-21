@@ -106,6 +106,7 @@ Scenario: I weave the civil docketing statement
     | interview.questions[1].question_text | Screen 2 (informational) title |
     | interview.questions[1].subquestion_text | Screen 2 informational only |
     | review_fields_after_labeling | True |
+    | interview.enable_navigation | True |
     | show_screen_order | True |
     | review_weaver | True |
     | weaver_intro | True |

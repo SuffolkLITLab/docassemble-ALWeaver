@@ -88,3 +88,7 @@ ignore_missing_imports=true
 [[tool.mypy.overrides]]
 module = "docassemble.ALDashboard.interview_linter"
 ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "docassemble.ALWeaver.interview_generator"
+disable_error_code=["import-untyped"]
