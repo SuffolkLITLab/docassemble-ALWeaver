@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from .interview_generator import (
     generate_interview_from_path,
@@ -14,6 +15,34 @@ from .interview_generator import (
 
 
 class TestGenerateInterviewFromPath(unittest.TestCase):
+    @staticmethod
+    def _offline_cluster_screens(fields, tools_token=None):
+        """Deterministic fallback grouping for test runs without OpenAI credentials."""
+        del tools_token
+        unique_fields = list(dict.fromkeys(fields or []))
+        if not unique_fields:
+            return {}
+        grouped = {}
+        chunk_size = 4
+        for index in range(0, len(unique_fields), chunk_size):
+            grouped[f"Screen {index // chunk_size + 1}"] = unique_fields[
+                index : index + chunk_size
+            ]
+        return grouped
+
+    def setUp(self):
+        self._cluster_patch = None
+        if not os.environ.get("OPENAI_API_KEY"):
+            self._cluster_patch = patch(
+                "docassemble.ALWeaver.interview_generator.formfyxer.cluster_screens",
+                side_effect=self._offline_cluster_screens,
+            )
+            self._cluster_patch.start()
+
+    def tearDown(self):
+        if self._cluster_patch is not None:
+            self._cluster_patch.stop()
+
     def _run_dayamlchecker(self, yaml_path: str) -> None:
         if importlib.util.find_spec("dayamlchecker") is None:
             self.fail("dayamlchecker is not installed")
