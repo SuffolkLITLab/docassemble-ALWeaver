@@ -1,0 +1,97 @@
+form_type_choices:
+  starts_case: Starts a new court case
+  existing_case: Filed in or responding to an existing court case
+  appeal: Part of an appeal of a court case
+  letter: Letter/correspondence
+  other_form: Administrative or non-court form
+  other: Other or unknown
+
+role_choices:
+  plaintiff: Most likely user is the plaintiff/petitioner, starting the case/request, e.g. writing a letter or filing a petition
+  defendant: Most likely user is the defendant/respondent, responding to a case/request, e.g. writing an answer to a complaint
+  unknown: Cannot confidently determine role from available text
+
+metadata_system_prompt: |
+  Return a JSON object with keys:
+  - title (descriptive form title, <= 100 chars)
+  - intro_prompt (short action phrase, <= 60 chars)
+  - description (3-5 plain-language sentences)
+  - can_I_use_this_form (2-4 lines, plain language)
+  - getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+  - when_you_are_finished (2-5 plain-language lines about what to do after finishing)
+  - landing_page_url (https URL for the form's public landing page; if unknown, use a best available public URL from the source text or https://courtformsonline.org/)
+  - next_steps_document_title (single word like motion/petition/letter/form)
+  - next_steps_document_concept (single word like request/motion/petition/application/appeal)
+  - next_steps_help_organization (optional organization name)
+  - next_steps_help_url (optional https URL; may match help/landing page)
+  - next_steps_what_happens_next (2-5 lines; align with when_you_are_finished)
+  - next_steps_what_can_decision_maker_do (2-5 lines)
+  - next_steps_what_happens_if_i_win (2-5 lines)
+
+  Use this title: {{TITLE}}
+  Predicted form_type: {{FORM_TYPE}}
+  Predicted role: {{ROLE}}
+  Prefer evidence from uploaded form text over help-page text when they conflict.
+  Keep next_steps_what_happens_next consistent with when_you_are_finished.
+  Prefer respectful, plain language. Avoid phrases like "you need to" and "fix mistakes."
+
+label_datatype_refinement_system_prompt: |
+  Rewrite each field label and suggest datatype.
+  Rules:
+  - keep legal meaning from context
+  - max 45 characters
+  - sentence fragment, not a sentence
+  - no variable names or underscores
+  - keep each key exactly the same
+  - simple vocabulary and plain language, targeting a 6th grade reading level
+
+  Return JSON object with shape:
+  {
+    "field_variable": {
+      "label": "Improved label",
+      "datatype": "text",
+      "choices": ["optional list of choices for dropdowns, radios, checkboxes" and other multiple choice options]
+    }
+  }
+
+  Allowed datatypes:
+  text, area, yesno, noyes, yesnoradio, noyesradio, integer, number, currency,
+  date, email, multiple choice dropdown, multiple choice combobox,
+  multiple choice radio, multiple choice checkboxes, multiselect
+
+grouping_system_prompt: |
+  Group fields into interview screens.
+  Return JSON object with this key:
+  - screens: list of objects, each with:
+    - question (short screen title)
+    - subquestion (optional short helper text)
+    - fields (list of field variable names)
+
+  Rules:
+  - Use each field at most once
+  - Prefer 2-6 fields per screen; never exceed 6 unless impossible
+  - Keep related fields together
+  - Use simple vocabulary and plain language for question and subquestion, targeting a 6th grade reading level
+  - Screen titles should be user-friendly and specific, not variable-name fragments
+  - For screens with 5-6 fields, include a short subquestion that tells the user what information to have ready
+
+navigation_sections_system_prompt: |
+  You are improving interview navigation sections.
+  Return JSON with key `section_ids`, an array with exactly one section id per screen.
+  Rules:
+  - Use only the allowed section ids provided by the user.
+  - Keep the sequence coherent so section changes happen when topic changes.
+  - Avoid frequent one-screen flips unless clearly justified by topic.
+  - Do not change legal meaning or remove required steps.
+
+navigation_sections_catalog_system_prompt: |
+  You are improving the section list for interview navigation.
+  Return JSON with key `sections`, an array of objects with:
+  - id: short snake_case key
+  - label: plain-language section label
+
+  Rules:
+  - Keep between 3 and 8 sections.
+  - Keep section labels concise and user-facing.
+  - Reflect the actual interview topic flow.
+  - Do not add technical/internal section names.

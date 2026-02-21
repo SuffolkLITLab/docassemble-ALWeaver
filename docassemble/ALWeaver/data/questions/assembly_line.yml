@@ -57,6 +57,14 @@ code: |
       if interview.has_all_unlabeled_pdfs():
         if yes_recognize_form_fields: # ask to add fields
           process_field_recognition
+      if has_detected_fields_for_autolabel:
+        offer_auto_label_existing_fields
+        if offer_auto_label_existing_fields:
+          autolabel_existing_pdf_fields_task_done
+          if autolabel_target_document_type == "pdf":
+            apply_autolabel_field_name_changes
+          elif autolabel_target_document_type == "docx":
+            apply_autolabel_docx_label_changes
       if im_feeling_lucky:
         nav.set_sections([
           {"nav_generate_interview": "Generate your interview"},
@@ -89,6 +97,9 @@ code: |
  
   if have_template_to_load:  
     interview.all_fields.gathered
+    normalize_all_fields_final_display_var
+    if not im_feeling_lucky and interview.use_llm_assist:
+      process_llm_stepwise_prefill
   # Display Weaver question screens
   nav.set_section("nav_metadata")
   interview.jurisdiction_choices
@@ -107,7 +118,7 @@ code: |
     preview_next_steps
     if interview.include_next_steps and interview.customize_next_steps:
       preview_final_next_steps
-  if have_template_to_load:
+  if have_template_to_load and defined('interview.uploaded_templates'):
     nav.set_section("nav_describe_people")
     ask_people_quantity_question
     if len(interview.all_fields.custom()):
@@ -118,6 +129,8 @@ code: |
   review_fields_after_labeling
   nav.set_section("nav_questions")
   interview.questions.gather()
+  normalize_question_field_list
+  interview.enable_navigation
   
   # Review field order and screen order
   #if not (has_safe_pdf_in_url and im_feeling_lucky):
@@ -191,6 +204,8 @@ objects:
   - attachments: DAList.using(object_type=DAObject, auto_gather=False)
   - people_quantities: DADict.using(auto_gather=False, gathered=True)
   - next_steps_documents: DADict.using(object_type=DADict)
+  - autolabel_field_name_overrides: DADict.using(auto_gather=False, gathered=True)
+  - autolabel_docx_label_overrides: DADict.using(auto_gather=False, gathered=True)
   - LIST_csv: DAStaticFile.using(filename="data/sources/list-taxonomy.csv")
 ---
 images:
@@ -314,6 +329,29 @@ fields:
     datatype: files
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  - Web page with related resources (optional): interview.help_page_url
+    help: |
+      Include a link to a resource that explains the topic of this form. For example,
+      a page on a legal-aid or official court site. By default this will be shown to
+      the end user on the "about" page and in the next steps instructions.
+    required: False
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/eviction")
+  - Name of web page with more information: interview.help_page_title
+    help: |
+      For example, "MassLegalHelp page about evictions"
+    required: False
+    js show if: |
+      val("interview.help_page_url").length > 0
+    maxlength: 40
+  - Upload a PDF or DOCX with additional help information (optional): interview.help_source_document
+    help: |
+      Optionally upload a plain-language reference or instructions document.
+      Weaver will extract text from this file for future AI-assisted drafting.
+    required: False
+    datatype: file
+    accept: |
+      "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 validation code: |
   # HACK Litcon 2023: remove these confusing checkboxes for now
   yes_normalize_fields = False
@@ -328,6 +366,20 @@ validation code: |
         pdf_concatenate(document)
       except:
         validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
+  interview.help_source_text = ""
+  if hasattr(interview, "help_source_document") and interview.help_source_document:
+    interview.help_source_text = get_help_document_text(interview.help_source_document)
+    if not interview.help_source_text.strip():
+      validation_error("Unable to extract text from the uploaded help document. Please upload a valid PDF or DOCX file.", field="interview.help_source_document")
+  interview.autolabel_payload_loaded = False
+  if not defined('autolabel_field_name_overrides'):
+    autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+  else:
+    autolabel_field_name_overrides.clear()
+  if not defined('autolabel_docx_label_overrides'):
+    autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+  else:
+    autolabel_docx_label_overrides.clear()
 ---
 id: add fields?
 question: |
@@ -337,6 +389,369 @@ subquestion: |
 fields:
   - Auto identify fields: yes_recognize_form_fields
     datatype: yesnoradio
+---
+only sets:
+  - has_detected_fields_for_autolabel
+  - autolabel_target_document_type
+  - autolabel_target_document_index
+  - autolabel_detected_field_names
+code: |
+  autolabel_target_document_type = ""
+  autolabel_target_document_index = -1
+  autolabel_detected_field_names = []
+  has_detected_fields_for_autolabel = False
+  if have_template_to_load and defined('interview.uploaded_templates'):
+    for idx, document in enumerate(interview.uploaded_templates):
+      if document.mimetype == "application/pdf":
+        detected_fields = document.get_pdf_fields()
+        if len(detected_fields) > 0:
+          autolabel_target_document_type = "pdf"
+          autolabel_target_document_index = idx
+          autolabel_detected_field_names = [item[0] for item in detected_fields]
+          has_detected_fields_for_autolabel = True
+          break
+      elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        detected_fields = get_fields(document)
+        autolabel_target_document_type = "docx"
+        autolabel_target_document_index = idx
+        autolabel_detected_field_names = [str(item) for item in detected_fields]
+        has_detected_fields_for_autolabel = True
+        break
+---
+id: offer auto labeling for detected fields
+question: |
+  Auto-label your detected field names?
+subquestion: |
+  % if autolabel_target_document_type == "pdf":
+  We detected ${ len(autolabel_detected_field_names) } fillable field(s) in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  % else:
+  % if len(autolabel_detected_field_names):
+  We detected ${ len(autolabel_detected_field_names) } Jinja field(s) in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  % else:
+  We did not detect existing Jinja labels in
+  `${ interview.uploaded_templates[autolabel_target_document_index].filename }`.
+  Weaver can scan the document text and suggest labels for likely placeholders.
+  % endif
+  % endif
+
+  Weaver can suggest standardized field labels in the background using
+  ALDashboard's labeling tools. You will review and edit every suggestion
+  before applying it.
+fields:
+  - Auto-label field names in the background?: offer_auto_label_existing_fields
+    datatype: yesnoradio
+---
+code: |
+  autolabel_existing_fields_task = background_action('autolabel_existing_fields_event')
+---
+only sets:
+  - autolabel_existing_pdf_fields_task_done
+code: |
+  if autolabel_existing_fields_task.ready():
+    if autolabel_existing_fields_task.failed():
+      autolabel_existing_pdf_fields_failed
+      if autolabel_target_document_type == "pdf":
+        autolabel_fields_old = autolabel_detected_field_names
+        autolabel_fields_suggested = autolabel_detected_field_names
+      elif autolabel_target_document_type == "docx":
+        autolabel_docx_labels = []
+      interview.autolabel_payload_loaded = True
+    elif not getattr(interview, "autolabel_payload_loaded", False):
+      waiting_screen_autolabel_existing_pdf_fields
+    autolabel_existing_pdf_fields_task_done = True
+  else:
+    waiting_screen_autolabel_existing_pdf_fields
+---
+event: autolabel_existing_fields_event
+code: |
+  import tempfile
+  import os
+  background_error_action('autolabel_existing_pdf_fields_error')
+  if autolabel_target_document_type == "pdf":
+    fields_old = [item[0] for item in interview.uploaded_templates[autolabel_target_document_index].get_pdf_fields()]
+    fields_suggested = list(fields_old)
+    output_pdf_path = None
+    try:
+      from docassemble.ALDashboard.pdf_field_labeler import relabel_existing_pdf_fields
+      with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_out:
+        output_pdf_path = tmp_out.name
+      stats = relabel_existing_pdf_fields(
+        input_pdf_path=interview.uploaded_templates[autolabel_target_document_index].path(),
+        output_pdf_path=output_pdf_path,
+        relabel_with_ai=True,
+        jur=str(get_config("assembly line", {}).get("pdf relabel jurisdiction", "MA")),
+        tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"),
+        openai_api=get_config("open ai", {}).get("key"),
+      )
+      if isinstance(stats, dict) and isinstance(stats.get("fields"), list):
+        fields_suggested = [str(item) for item in stats.get("fields")]
+      if len(fields_suggested) != len(fields_old):
+        fields_suggested = list(fields_old)
+    except Exception as exc:
+      log(f"Auto-label PDF background task failed: {exc!r}", "error")
+      fields_suggested = list(fields_old)
+    finally:
+      if output_pdf_path and os.path.exists(output_pdf_path):
+        os.remove(output_pdf_path)
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      fields_old=fields_old,
+      fields_suggested=fields_suggested,
+    )
+  elif autolabel_target_document_type == "docx":
+    docx_labels = []
+    try:
+      from docassemble.ALDashboard.docx_wrangling import get_labeled_docx_runs
+      guessed_labels = get_labeled_docx_runs(
+        interview.uploaded_templates[autolabel_target_document_index].path(),
+        openai_api=get_config("open ai", {}).get("key"),
+        model="gpt-5-nano",
+      )
+      docx_labels = [
+        [int(item[0]), int(item[1]), str(item[2]), int(item[3])]
+        for item in guessed_labels
+      ]
+    except Exception as exc:
+      log(f"Auto-label DOCX background task failed: {exc!r}", "error")
+      docx_labels = []
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      docx_labels=docx_labels,
+    )
+  else:
+    background_response_action(
+      'save_autolabel_existing_pdf_fields_payload',
+      fields_old=[],
+      fields_suggested=[],
+    )
+---
+event: save_autolabel_existing_pdf_fields_payload
+code: |
+  if action_argument('docx_labels') is not None:
+    autolabel_docx_labels = action_argument('docx_labels') or []
+  else:
+    autolabel_fields_old = action_argument('fields_old') or []
+    autolabel_fields_suggested = action_argument('fields_suggested') or []
+    if len(autolabel_fields_suggested) != len(autolabel_fields_old):
+      autolabel_fields_suggested = list(autolabel_fields_old)
+  interview.autolabel_payload_loaded = True
+  background_response()
+---
+event: autolabel_existing_pdf_fields_error
+code: |
+  if autolabel_target_document_type == "pdf":
+    autolabel_fields_old = list(autolabel_detected_field_names)
+    autolabel_fields_suggested = list(autolabel_detected_field_names)
+  elif autolabel_target_document_type == "docx":
+    autolabel_docx_labels = []
+  interview.autolabel_payload_loaded = True
+  background_response()
+---
+event: waiting_screen_autolabel_existing_pdf_fields
+question: |
+  Preparing suggested field labels
+subquestion: |
+  Please wait while Weaver generates field label suggestions in the background.
+
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Working in the background...
+    </div>
+  </div>
+reload: 5
+---
+event: autolabel_existing_pdf_fields_failed
+question: |
+  Auto-labeling did not finish
+subquestion: |
+  Weaver could not finish generating suggestions, so your current field names
+  will be used as defaults.
+continue button field: autolabel_existing_pdf_fields_failed
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type == "docx":
+    if not defined('autolabel_docx_labels'):
+      autolabel_docx_labels = []
+    if not defined('autolabel_docx_label_overrides'):
+      autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+    for idx, item in enumerate(autolabel_docx_labels):
+      key = str(idx)
+      if key not in autolabel_docx_label_overrides:
+        autolabel_docx_label_overrides[key] = item[2]
+---
+id: review and edit suggested DOCX labels
+continue button field: review_autolabel_docx_label_changes
+question: |
+  Review suggested DOCX labels
+subquestion: |
+  Update any suggested run labels below before applying them to your DOCX.
+right: |
+  #### Preview of current DOCX
+
+  <iframe src="${ pdf_concatenate(interview.uploaded_templates[autolabel_target_document_index]).url_for() }" height="400"></iframe>
+
+  _note_: this preview updates after you apply changes.
+fields:
+  - code: |
+      [
+        {
+          f"Paragraph {item[0]}, run {item[1]}": f"autolabel_docx_label_overrides['{idx}']",
+          "default": item[2],
+          "label above field": True,
+          "required": False,
+        }
+        for idx, item in enumerate(autolabel_docx_labels)
+      ]
+---
+event: autolabel_docx_no_suggestions_found
+question: |
+  Weaver could not auto-label this DOCX
+subquestion: |
+  Weaver could not generate suggested labels for this DOCX right now.
+
+  You can continue building your interview, but no DOCX label changes were applied.
+continue button field: autolabel_docx_no_suggestions_found
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if len(autolabel_docx_labels):
+    review_autolabel_docx_label_changes
+    from docassemble.ALDashboard.docx_wrangling import update_docx
+    updated_runs = []
+    for idx, item in enumerate(autolabel_docx_labels):
+      key = str(idx)
+      updated_runs.append(
+        (
+          int(item[0]),
+          int(item[1]),
+          str(autolabel_docx_label_overrides[key]) if key in autolabel_docx_label_overrides else str(item[2]),
+          int(item[3]),
+        )
+      )
+    updated_docx = update_docx(
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      updated_runs,
+    )
+    updated_docx.save(interview.uploaded_templates[autolabel_target_document_index].path())
+    # Avoid persisting python-docx objects in session state.
+    del updated_docx
+    del update_docx
+    interview.uploaded_templates[autolabel_target_document_index].commit()
+    interview._auto_load_fields()
+    for field in interview.all_fields:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+    # Field reload invalidates any previously drafted question->field links.
+    # Reset drafted screens so stale references do not survive to review/output.
+    if hasattr(interview, "questions"):
+      interview.questions.clear()
+      interview.questions.gathered = False
+      interview.questions.there_are_any = False
+      interview.questions.there_is_another = False
+  else:
+    autolabel_docx_no_suggestions_found
+  apply_autolabel_docx_label_changes = True
+---
+need:
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type == "pdf":
+    if not defined('autolabel_fields_old'):
+      autolabel_fields_old = []
+    if not defined('autolabel_fields_suggested'):
+      autolabel_fields_suggested = []
+    if not defined('autolabel_field_name_overrides'):
+      autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+    for idx, old_name in enumerate(autolabel_fields_old):
+      key = str(idx)
+      if key not in autolabel_field_name_overrides:
+        if idx < len(autolabel_fields_suggested):
+          autolabel_field_name_overrides[key] = autolabel_fields_suggested[idx]
+        else:
+          autolabel_field_name_overrides[key] = old_name
+---
+id: review and edit suggested field labels
+continue button field: review_autolabel_field_name_changes
+question: |
+  Review suggested field labels
+subquestion: |
+  Update any suggested field names below before applying them to your PDF.
+right: |
+  #### Preview of field labels
+
+  <iframe src="${ autolabel_preview_pdf.url_for() }" height="400"></iframe>
+
+  _note_: this preview refreshes after each submit.
+fields:
+  - code: |
+      [
+        {
+          old_name: f"autolabel_field_name_overrides['{idx}']",
+          "label above field": True,
+          "required": False,
+        }
+        for idx, old_name in enumerate(autolabel_fields_old)
+      ]
+---
+need:
+  - review_autolabel_field_name_changes
+  - autolabel_target_document_type
+code: |
+  if autolabel_target_document_type != "pdf":
+    apply_autolabel_field_name_changes = True
+  else:
+    autolabel_mapping = {}
+    for idx, old_name in enumerate(autolabel_fields_old):
+      key = str(idx)
+      new_name = autolabel_field_name_overrides[key] if key in autolabel_field_name_overrides else old_name
+      if not new_name:
+        new_name = old_name
+      autolabel_mapping[old_name] = new_name
+
+    formfyxer.rename_pdf_fields(
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      interview.uploaded_templates[autolabel_target_document_index].path(),
+      autolabel_mapping,
+    )
+    interview.uploaded_templates[autolabel_target_document_index].commit()
+    interview._auto_load_fields()
+    for field in interview.all_fields:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+    # Field reload invalidates any previously drafted question->field links.
+    # Reset drafted screens so stale references do not survive to review/output.
+    if hasattr(interview, "questions"):
+      interview.questions.clear()
+      interview.questions.gathered = False
+      interview.questions.there_are_any = False
+      interview.questions.there_is_another = False
+    apply_autolabel_field_name_changes = True
+---
+attachment:
+  variable name: autolabel_preview_pdf
+  editable: False
+  pdf template file:
+    code: |
+      interview.uploaded_templates[autolabel_target_document_index]
+  code: |
+    reflect_fields(
+      interview.uploaded_templates[autolabel_target_document_index].get_pdf_fields(),
+      {
+        old_name: (
+          autolabel_field_name_overrides[str(idx)]
+          if str(idx) in autolabel_field_name_overrides
+          else old_name
+        )
+        for idx, old_name in enumerate(autolabel_fields_old)
+      },
+    )
 ---
 code: |
   # HACK temporary LIT Con 2023
@@ -373,20 +788,6 @@ fields:
   - Date original form was last published (optional): interview.original_form_published_on
     datatype: date
     required: False
-  - Web page with related resources (optional): interview.help_page_url
-    help: |
-      Include a link to a resource that explains the topic of this form. For example,
-      a page on a legal-aid or official court site. By default this will be shown to
-      the end user on the "about" page and in the next steps instructions.
-    required: False
-    validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/eviction")
-  - Name of web page with more information: interview.help_page_title
-    help: |
-      For example, "MassLegalHelp page about evictions"
-    js show if: |
-      val("interview.help_page_url").length > 0
-    maxlength: 40
   - Topics (optional): interview.categories
     datatype: multiselect
     required: False
@@ -409,12 +810,14 @@ fields:
     rows: 2
   - Is the form court-related?: interview.court_related
     datatype: yesnoradio
+    default: ${ interview.llm_draft_court_related if hasattr(interview, "llm_draft_court_related") else True }
     help: |
       Answer yes if the form lists the name of a court, even if it is not
       filed in a court. We will ask you
       questions that help you list the correct set of courts as options.
   - Kind of form: interview.form_type
     datatype: radio
+    default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "starts_case" }
     choices:
       - Starts a new court case: starts_case
       - Filed in or responding to an existing court case: existing_case
@@ -424,6 +827,7 @@ fields:
     show if: interview.court_related
   - Kind of form: interview.form_type
     datatype: radio
+    default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "other_form" }
     choices:
       - Administrative form or other form that is not filed in a court: other_form
       - Letter: letter
@@ -490,14 +894,14 @@ fields:
   - Default country: interview.default_country_code
     code: |
       countries_list()
-    default: ${ interview.default_country_code }
+    default: ${ interview.llm_draft_default_country_code if hasattr(interview, "llm_draft_default_country_code") else interview.default_country_code }
   - Default ${ safe_subdivision_type(interview.default_country_code) if safe_subdivision_type(interview.default_country_code) else 'State/Province'}: interview.state
     code: |
         states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
-    default: ${ "MA" if interview.default_country_code == 'US' else '' }
+    default: ${ interview.llm_draft_state if hasattr(interview, "llm_draft_state") else ("MA" if interview.default_country_code == 'US' else '') }
     required: False
   - Jurisdiction: interview.jurisdiction
-    default: NAM-US-US+MA
+    default: ${ interview.llm_draft_jurisdiction if hasattr(interview, "llm_draft_jurisdiction") else "NAM-US-US+MA" }
     help: |
       Use the [LMSS](https://www.sali.org/) standard for jurisdiction codes. For example, "NAM-US-US+MA" for Massachusetts.
   - note: |
@@ -568,7 +972,7 @@ fields:
     default: ${ interview_intro_prompt_default }
 ---
 code: |
-  interview_intro_prompt_default = interview._guess_intro_prompt(interview.short_filename_with_spaces)
+  interview_intro_prompt_default = interview.llm_draft_intro_prompt if hasattr(interview, "llm_draft_intro_prompt") else interview._guess_intro_prompt(interview.short_filename_with_spaces)
 ---
 id: form-specific intro page
 question: |
@@ -580,14 +984,14 @@ subquestion: |
   You can change these later in the Playground.
 fields:
   - Title in navigation bar: interview.title
-    default: ${ interview.short_filename_with_spaces }    
+    default: ${ interview.llm_draft_title if hasattr(interview, "llm_draft_title") else interview.short_filename_with_spaces }
   - note: |
       **Your title is a little long.** Write an alternate version that
       will be used on mobile screens.
     js show if: |
       val("interview.title").length > 25
   - Title for mobile devices: interview.short_title
-    default: ${ interview.short_filename_with_spaces[:25] }
+    default: ${ (interview.llm_draft_title if hasattr(interview, "llm_draft_title") else interview.short_filename_with_spaces)[:25] }
     maxlength: 25
     js show if: |
       val("interview.title").length > 25
@@ -612,7 +1016,7 @@ fields:
     required: False
   - Description of the form for metadata: interview.description
     default: |
-      This interview helps someone in ${ state_name(interview.state, country_code=interview.default_country_code) } ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
+      ${ interview.llm_draft_description if hasattr(interview, "llm_draft_description") else "This interview helps someone in " + state_name(interview.state, country_code=interview.default_country_code) + " " + interview.intro_prompt[0:1].lower() + interview.intro_prompt[1:] + "." }
     datatype: area
     rows: 2
     help: |
@@ -622,7 +1026,7 @@ fields:
     datatype: area
     rows: 2
     default: |
-      If you are a _____________, you can use this interview to ____________.
+      ${ interview.llm_draft_can_i_use_this_form if hasattr(interview, "llm_draft_can_i_use_this_form") else "If you are a _____________, you can use this interview to ____________." }
     help: |
       It's important to explain to the user when they can and cannot use
       your form. Write any conditions, such as age, status of their case, etc.
@@ -630,6 +1034,9 @@ fields:
       What does your user need to know before they start this interview?
     field: interview.getting_started
     default: |
+      % if hasattr(interview, "llm_draft_getting_started"):
+      ${ interview.llm_draft_getting_started }
+      % else:
       This interview will help you ${ interview.intro_prompt[0:1].lower() }${ interview.intro_prompt[1:] }.
 
       Before you get started, please gather:
@@ -641,7 +1048,8 @@ fields:
       When you are finished, you will need to:
 
       1. 
-      1.       
+      1.
+      % endif
     datatype: area
     rows: 14
     help: |
@@ -650,6 +1058,58 @@ fields:
       prevents frustration later in your interview, especially for longer
       forms. You can use Markdown lists (1. ) and bullets (*) at the beginning
       of a line to add formatting.
+  - What should your user know when they are finished?: interview.when_you_are_finished
+    datatype: area
+    rows: 5
+    required: False
+    default: |
+      ${ interview.llm_draft_when_you_are_finished if hasattr(interview, "llm_draft_when_you_are_finished") else "" }
+    help: |
+      This text is used for metadata and can guide what users do after they complete the interview.
+  - Public landing page URL (optional): interview.landing_page_url
+    required: False
+    default: |
+      ${ interview.llm_draft_landing_page_url if hasattr(interview, "llm_draft_landing_page_url") else "" }
+    validate: |
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://example.org/forms/my-form")
+    help: |
+      A public page about this form/interview. If known, this can help downstream publishing and indexing.
+  - Supports integrated e-filing right now?: interview.integrated_efiling
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Supports integrated email filing right now?: interview.integrated_email_filing
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - E-filing enabled for this form?: interview.efiling_enabled
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Requires notarization?: interview.requires_notarization
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata. Leave unchecked if unknown; you can update this later.
+  - Keep this interview unlisted?: interview.unlisted
+    datatype: yesno
+    default: False
+    required: False
+    help: |
+      Optional metadata for publishing; you can update this later.
+  - Footer text (optional): interview.footer
+    datatype: area
+    required: False
+    rows: 2
+    help: |
+      Optional metadata footer text shown in some publishing contexts.
   - To complete this form, most people take about: interview.estimated_completion_minutes
     grid: 2
     datatype: integer
@@ -720,6 +1180,7 @@ fields:
       - form
       - document
     required: False
+    default: ${ interview.llm_draft_next_steps_document_title if hasattr(interview, "llm_draft_next_steps_document_title") else "" }
     show if:
       variable: interview.customize_next_steps
       is: True
@@ -732,6 +1193,7 @@ fields:
       - application
       - appeal
     required: False
+    default: ${ interview.llm_draft_next_steps_document_concept if hasattr(interview, "llm_draft_next_steps_document_concept") else "" }
     show if:
       variable: interview.customize_next_steps
       is: True
@@ -740,10 +1202,11 @@ fields:
   - Name of organization who can provide more help: interview.next_steps_help_organization
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_help_organization if hasattr(interview, "llm_draft_next_steps_help_organization") else "" }
     help: |
       For example, a legal aid program
   - Website with more information about this topic: interview.next_steps_help_url
-    default: ${ interview.help_page_url }
+    default: ${ interview.llm_draft_next_steps_help_url if hasattr(interview, "llm_draft_next_steps_help_url") else interview.help_page_url }
     show if: interview.customize_next_steps
     required: False
     validate: |
@@ -761,14 +1224,17 @@ fields:
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_happens_next if hasattr(interview, "llm_draft_next_steps_what_happens_next") else (interview.llm_draft_when_you_are_finished if hasattr(interview, "llm_draft_when_you_are_finished") else "") }
   - What can the decision maker do?: interview.custom_next_steps_instructions["what_can_decision_maker_do"]
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_can_decision_maker_do if hasattr(interview, "llm_draft_next_steps_what_can_decision_maker_do") else "" }
   - What happens if my request is granted?: interview.custom_next_steps_instructions["what_happens_if_i_win"]
     datatype: area
     show if: interview.customize_next_steps
     required: False
+    default: ${ interview.llm_draft_next_steps_what_happens_if_i_win if hasattr(interview, "llm_draft_next_steps_what_happens_if_i_win") else "" }
 continue button field: preview_next_steps  
 ---
 continue button field: preview_final_next_steps
@@ -872,6 +1338,7 @@ fields:
   #    will help you save time writing your interview.
   - What role will the person using this interview have?: interview.typical_role
     input type: radio
+    default: ${ interview.llm_draft_typical_role if hasattr(interview, "llm_draft_typical_role") else ("plaintiff" if interview.form_type == "starts_case" else "unknown") }
     choices:
       - label: |
           % if interview.court_related:
@@ -988,7 +1455,8 @@ fields:
 validation code: |
   for field in interview.all_fields.custom():
     if field.field_type == "code":
-        expression = f"{field.final_display_var} = {field.code}"
+        lhs = field.final_display_var if hasattr(field, "final_display_var") else (field.variable if hasattr(field, "variable") else "x")
+        expression = f"{lhs} = {field.code}"
         if not is_valid_python(expression):
             validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
 css: |
@@ -1074,6 +1542,9 @@ code: |
 
   interview.all_fields.clear()
   interview.all_fields.add_fields_from_file(interview.uploaded_templates)
+  for field in interview.all_fields:
+    if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+      field.final_display_var = field.variable
   interview.all_fields.gathered = True
   initial_get_fields = True
 ---
@@ -1111,6 +1582,24 @@ code: |
   # assigned.
   interview.questions.there_is_another = interview.has_unassigned_fields()
 ---
+only sets:
+  - normalize_question_field_list
+code: |
+  for question in interview.questions:
+    # Ensure list-collect bookkeeping exists before question screen rendering.
+    # This prevents name lookup errors like
+    # "interview.questions[i].field_list.gathered is not defined".
+    if not hasattr(question.field_list, "gathered"):
+      question.field_list.gathered = True
+    if not hasattr(question.field_list, "there_are_any"):
+      question.field_list.there_are_any = len(question.field_list.elements) > 0
+    if not hasattr(question.field_list, "there_is_another"):
+      question.field_list.there_is_another = False
+    for field in question.field_list:
+      if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+        field.final_display_var = field.variable
+  normalize_question_field_list = True
+---
 id: create a draft of screen i
 question: |
   % if i == 0:
@@ -1144,7 +1633,7 @@ fields:
     choices: interview.all_fields.custom()
     all of the above: True
     object labeler: |
-      lambda y: f"{ y.label } (`{ y.final_display_var }`)"
+      lambda y: f"{ y.label } (`{ getattr(y, 'final_display_var', getattr(y, 'variable', '')) }`)"
 #  - Override the default logic flow by adding a "continue button field": interview.questions[i].has_mandatory_field
 #    datatype: noyes
 #    hide if: interview.questions[i].is_informational_screen
@@ -1157,6 +1646,9 @@ fields:
 validation code: |
   if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
     validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
+  for field in interview.questions[i].field_list:
+    if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
+      field.final_display_var = field.variable
 ---
 id: download your interview
 comment: | 
@@ -1285,7 +1777,7 @@ columns:
   - Order: |
       int(interview.questions[i].field_list.index(row_item)) + 1  
   - Field name: |
-      row_item.final_display_var
+      row_item.final_display_var if hasattr(row_item, "final_display_var") else (row_item.variable if hasattr(row_item, "variable") else "x")
 ---
 code: |
   interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
@@ -1400,28 +1892,32 @@ fields:
 ########################### Code for sections ##########################
 ---
 objects:
-  - interview.sections: DAList.using(object_type=DAObject, auto_gather=False)
+  - interview.sections: DAList.using(object_type=DAObject, auto_gather=False, gathered=True)
   - default_sections: DADict
 ---
 code: |
-  interview.sections.clear()
-  for item in default_sections[interview.form_type].items():
-    new_item = interview.sections.appendObject()
-    new_item.key = item[0]
-    new_item.value = item[1]
-  interview.sections.gathered = True
+  if not len(interview.sections):
+    interview.sections.clear()
+    for entry in default_sections[interview.form_type]:
+      for key, section_label in entry.items():
+        new_item = interview.sections.appendObject()
+        new_item.key = key
+        new_item.value = section_label
+  interview_sections_defaults_loaded = True
 ---
 table: interview.sections.table
 rows: interview.sections
 columns:
   - Name: |
-      next(iter(row_item.values()))
+      row_item.value if hasattr(row_item, "value") else ""
   - Keyword: |
-      next(iter(row_item.keys()))
+      row_item.key if hasattr(row_item, "key") else ""
 ---
 id: add sections
 question: |
   Left navigation
+need:
+  - interview_sections_defaults_loaded
 subquestion: |
   Left navigation is optional, although it can help orient
   users even in shorter interviews.
@@ -1766,12 +2262,28 @@ code: |
 event: waiting_screen
 question: |
   Please wait while the package is installed
-reload: True    
+subquestion: |
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Installing package in the background...
+    </div>
+  </div>
+reload: 5
 ---  
 event: waiting_screen_uninstall
 question: |
   Package is being uninstalled, please wait here
-reload: True
+subquestion: |
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Uninstalling package in the background...
+    </div>
+  </div>
+reload: 5
 #----------------------------------------------------
 # Code blocks for Drag-and-drop table
 #----------------------------------------------------
@@ -1891,29 +2403,12 @@ fields:
     choices:
       - Build step by step: False
       - Use auto-drafting mode: True
-  - Upload JSON file with draft screen arrangement (advanced): interview.start_with_json
-    help: |
-      If you have a JSON file that has a draft of the screens and their order, you can upload
-      it now. This is intended to make it possible to draft the screens in another tool, such
-      as with the help of GPT-4. You still get the benefit of the Weaver's templates
-      and pre-built questions.
-
-      Your uploaded JSON file should be a dictionary with two keys:
-
-      1. `questions` should be a list of dictionaries, each of which represents a screen with
-         "custom" fields.
-      2. `interview order` should be a list of strings, each of which is the name of a screen. It
-         can include "built-in" screens you want to let the Weaver control, such as users.gather().
+  - Use LLM assistance for drafting?: interview.use_llm_assist
     datatype: yesno
-    show if: 
-      variable: im_feeling_lucky
-      is: True
-  - JSON file: interview.uploaded_json
-    datatype: file
-    file css class: None
-    show if: interview.start_with_json
-    accept: |
-      "application/json"
+    default: True
+    help: |
+      If selected, Weaver will draft metadata, labels, and screen groupings with LLM assistance.
+      If you choose "Build step by step," you will still review and edit each screen one at a time.
 ---
 template: explain_auto_drafting
 subject: |
@@ -1957,29 +2452,32 @@ code: |
   yes_recognize_form_fields = False
   interview_type = "regular"
   if not has_safe_pdf_in_url:
-    if hasattr(interview, "start_with_json") and interview.start_with_json:
-      #try: # Don't know yet why this always raises an exception. A name error that DA silently fixes?
-      interview.parsed_json = json.loads(interview.uploaded_json.slurp())
-      #except:
-      #  log("Unable to parse JSON file with json.loads", "error")
-      #  interview.parsed_json = None
-      if isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json and "interview order" in interview.parsed_json:
-        interview.auto_assign_attributes(
-          screens=interview.parsed_json["questions"], 
-          interview_logic = interview.parsed_json["interview order"]
-        )
-      if isinstance(interview.parsed_json, dict) and "questions" in interview.parsed_json:
-        # Let author upload just the "questions" dict without "interview order"
-        interview.auto_assign_attributes(screens=interview.parsed_json["questions"])
-      elif isinstance(interview.parsed_json, list) and next(iter(interview.parsed_json), None) and isinstance(next(iter(interview.parsed_json)), dict):
-        # Assume the author uploaded a list of screens, without interview order
-        interview.auto_assign_attributes(screens=interview.parsed_json)
+    if hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+      # Fast sync: extract title, heuristics, and load fields (no API calls).
+      # Slow work (LLM drafting + screen grouping) runs in the background.
+      if not hasattr(interview, "lucky_base_initialized"):
+        interview.auto_assign_attributes_fast()
+        interview.lucky_base_initialized = True
+      # Start background LLM task if not already started
+      if not hasattr(interview, "lucky_lm_drafting_task_started"):
+        lucky_lm_drafting_task = background_action('lucky_lm_drafting_event')
+        interview.lucky_lm_drafting_task_started = True
+      if lucky_lm_drafting_task.ready():
+        if lucky_lm_drafting_task.failed():
+          log("Lucky-mode background LLM drafting task failed", "error")
+        elif hasattr(interview, "lucky_lm_drafting_payload") and interview.lucky_lm_drafting_payload and not hasattr(interview, "lucky_lm_drafting_payload_applied"):
+          interview.apply_llm_draft_payload(interview.lucky_lm_drafting_payload)
+          interview.lucky_lm_drafting_payload_applied = True
       else:
-        log("Not using JSON file because it has an unexpected format: should be a dict with 'questions' and 'interview order' keys, or a list of question dicts", "error")
-        interview.auto_assign_attributes()
+        waiting_screen_lucky_drafting
     else:
-      interview.auto_assign_attributes()
-    interview_label_draft = varname(interview.title).lower()
+      # Non-LLM lucky mode: do full initialization synchronously
+      if not hasattr(interview, "lucky_base_initialized"):
+        interview.auto_assign_attributes()
+        interview.lucky_base_initialized = True
+  
+  # Set interview label from title
+  interview_label_draft = varname(interview.title).lower()
 
   # Check for an empty file
   if not len(interview.all_fields):
@@ -2016,12 +2514,57 @@ code: |
       show_screen_order
   ) = (
       review_fields_to_add_template
-  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = True
+  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = preview_final_next_steps = True
   interview.include_next_steps = True
-  interview.customize_next_steps = False
-  interview.help_page_url = ""
+  interview.customize_next_steps = True  # Populate next steps with LLM drafts, but don't show preview screens
+  interview.enable_navigation = True
+  interview.has_other_categories = False
+  interview_sections_defaults_loaded = True
 
   process_im_feeling_lucky = True
+---
+event: lucky_lm_drafting_event
+code: |
+  background_error_action('lucky_lm_drafting_error')
+  # Only LLM work runs in the background; fields are already loaded on the main thread
+  payload = interview.llm_generate_draft_payload()
+  background_response_action('save_lucky_lm_drafting_payload', payload=payload)
+---
+event: save_lucky_lm_drafting_payload
+code: |
+  interview.lucky_lm_drafting_payload = action_argument('payload')
+  background_response()
+---
+event: lucky_lm_drafting_error
+code: |
+  interview.lucky_lm_drafting_payload = {}
+  background_response()
+---
+event: waiting_screen_lucky_drafting
+question: |
+  Drafting your interview with AI assistance
+subquestion: |
+  Please wait while we generate a draft. This can take up to a minute.
+
+  <div class="my-3 text-center">
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="mt-2">
+      <span class="visually-hidden">Loading...</span>
+      Drafting in the background...
+    </div>
+  </div>
+reload: 5
+---
+only sets:
+  - process_llm_stepwise_prefill
+code: |
+  if not has_safe_pdf_in_url and hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+    interview._prefetch_reference_site()
+    interview.llm_prefill_metadata(apply=False)
+    interview.llm_predict_state(apply=False)
+    interview.llm_refine_field_labels()
+    interview.llm_group_fields()
+  process_llm_stepwise_prefill = True
 ---
 ##### Keep this block towards end of interview #############
 ---
@@ -2029,3 +2572,15 @@ code: |
   interview.default_country_code = 'US'
   # This is weird but needed for check-in logic that refreshes list of states
   # TODO(qs): adjust when we have a way to load in org defaults at runtime
+---
+only sets:
+  - normalize_all_fields_final_display_var
+code: |
+  for field in interview.all_fields:
+    if not hasattr(field, "final_display_var"):
+      if hasattr(field, "variable"):
+        field.final_display_var = field.variable
+      elif hasattr(field, "name"):
+        field.final_display_var = field.name
+  normalize_all_fields_final_display_var = True
+---

@@ -2,9 +2,52 @@
     Initial metadata and includes
 </%doc>
 ---
+<%
+  selected_includes = list(
+      get_yml_deps_from_choices(
+          interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
+      )
+  )
+  state_for_theme = str(showifdef("interview.state", "") or "").strip().upper()
+  massaccess_include = "docassemble.MassAccess:massaccess.yml"
+  if state_for_theme == "MA" and massaccess_include not in selected_includes:
+      selected_includes.append(massaccess_include)
+
+  categories_selected = sorted(set(interview.categories.true_values()))
+  other_categories_selected = []
+  if interview.has_other_categories and getattr(interview, "other_categories", ""):
+      other_categories_selected = [
+          category.strip()
+          for category in str(interview.other_categories).split(",")
+          if category and category.strip()
+      ]
+  topic_values = categories_selected + other_categories_selected
+  if not topic_values:
+      topic_values = ["CO-00-00-00-00"]
+
+  landing_page_url_value = str(showifdef("interview.landing_page_url", "") or "").strip()
+  if not landing_page_url_value:
+      original_form_url = str(showifdef("interview.original_form", "") or "").strip()
+      if original_form_url.startswith(("http://", "https://")):
+          landing_page_url_value = original_form_url
+      else:
+          landing_page_url_value = "https://courtformsonline.org/"
+
+  jurisdiction_value = str(showifdef("interview.jurisdiction", "") or "").strip()
+  if not jurisdiction_value:
+      state_value = str(showifdef("interview.state", "") or "").strip().upper()
+      country_value = str(showifdef("interview.default_country_code", "US") or "US").strip().upper()
+      if country_value == "US" and state_value:
+          jurisdiction_value = f"NAM-US-US+{state_value}"
+      elif country_value:
+          jurisdiction_value = f"NAM-{country_value}"
+      else:
+          jurisdiction_value = "NAM-US"
+%>
+---
 include:
   - docassemble.AssemblyLine:assembly_line.yml
-  % for include in get_yml_deps_from_choices( interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()):
+  % for include in selected_includes:
   - ${ include }
   % endfor
 ---
@@ -23,30 +66,34 @@ ${ indent(interview.can_I_use_this_form, by=4) }
 % if showifdef("interview.getting_started"):
 ${ indent(interview.getting_started, by=4) }
 % endif
+  when_you_are_finished: |
+% if showifdef("interview.when_you_are_finished"):
+${ indent(interview.when_you_are_finished, by=4) }
+% endif
+  efiling_enabled: ${ "True" if showifdef("interview.efiling_enabled", False) else "False" }
+  integrated_efiling: ${ "True" if showifdef("interview.integrated_efiling", False) else "False" }
+  integrated_email_filing: ${ "True" if showifdef("interview.integrated_email_filing", False) else "False" }
+  requires_notarization: ${ "True" if showifdef("interview.requires_notarization", False) else "False" }
+  unlisted: ${ "True" if showifdef("interview.unlisted", False) else "False" }
+  % if showifdef("interview.footer"):
+  footer: >-
+${ indent(interview.footer, by=4) }
+  % endif
+  landing_page_url: >-
+${ indent(landing_page_url_value, by=4) }
   maturity: production
   estimated_completion_minutes: ${ showifdef("interview.estimated_completion_minutes",'""')}
   estimated_completion_delta: ${ showifdef("interview.estimated_completion_delta", '""')}
-  % if interview.categories.any_true():
-  LIST_topics: 
-    % for category in sorted(set(interview.categories.true_values())):
+  LIST_topics:
+    % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
-    % if interview.has_other_categories:
-    % for category in interview.other_categories.split(','):
-    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
-    % endfor
-    % endif
   tags:
-    % for category in sorted(set(interview.categories.true_values())):
+    % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
-    % if interview.has_other_categories:
-    % for category in interview.other_categories.split(','):
-    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
-    % endfor
-    % endif
-  % else:
-  tags: []
+  % if interview.categories.any_true() or len(other_categories_selected) > 0:
+  # Keep legacy tags behavior for compatibility with downstream tools.
   % endif
   authors:
     % for author in interview.author.splitlines():
@@ -84,7 +131,7 @@ ${ indent(interview.help_page_title, by=4) }
   generated_on: "${ today().format("yyyy-MM-dd") }"
   languages:
     - en
-  jurisdiction: ${ showifdef("interview.jurisdiction", '""') }
+  jurisdiction: "${ escape_double_quoted_yaml(oneline(jurisdiction_value)) }"
   review_date: ${ today().format("yyyy-MM-dd")}
   form_titles:
     - ${ interview.title }
@@ -129,6 +176,9 @@ objects:
 % endif
 ---
 sections:
+  % for nav_section in navigation_sections:
+  - ${ nav_section["id"] }: ${ nav_section["label"] }
+  % endfor
   - review_${ interview.interview_label }: Review your answers
 ---
 #################### Interview order #####################
@@ -142,7 +192,6 @@ code: |
   allowed_courts = ${ repr(sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else []))) }
   % endif
   % endif
-  nav.set_section("review_${ interview.interview_label }")
   % if interview.typical_role == 'unknown':
   # Below sets the user_role and user_ask_role by asking a question.
   # You can set user_ask_role directly instead to either 'plaintiff' or 'defendant'
@@ -151,8 +200,8 @@ code: |
   user_role = "${ interview.typical_role }"
   user_ask_role = "${ interview.typical_role }"
   % endif
-  % for field in interview.questions.interview_order_list(interview.all_fields, screen_reordered):
-  ${ field }
+  % for line in interview_order_lines:
+  ${ line }
   % endfor
   % if not generate_download_screen:
   saved_report_data
@@ -317,6 +366,7 @@ ${ review_yaml(coll) | trim }\
 % for coll in interview.all_fields.find_parent_collections():
   % if coll.var_type == 'list':
 ---
+id: ${ fix_id("edit " + coll.var_name) }
 continue button field: ${ coll.var_name }.revisit
 question: |
   Edit ${ coll.var_name }

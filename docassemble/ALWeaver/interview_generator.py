@@ -7,6 +7,7 @@ from docassemble.base.util import (
     bold,
     comma_list,
     comma_and_list,
+    current_context,
     DADict,
     DAEmpty,
     DAFile,
@@ -17,6 +18,7 @@ from docassemble.base.util import (
     DAStaticFile,
     get_config,
     log,
+    path_and_mimetype,
     pdf_concatenate,
     space_to_underscore,
     user_info,
@@ -48,13 +50,13 @@ from typing import (
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
-import ast
 import datetime
 import docassemble.base.functions
 import docassemble.base.parse
 import docassemble.base.pdftk
 import formfyxer
 import importlib
+import json
 import mako.runtime
 import mako.template
 import more_itertools
@@ -63,13 +65,18 @@ import re
 import tempfile
 import uuid
 import zipfile
+import ipaddress
+import socket
 from dataclasses import dataclass
 import pycountry
+import yaml
+from urllib.request import Request, urlopen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
 
 TypeType = type(type(None))
+_PROMPTS_CACHE: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -107,6 +114,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_docx_variables",
     "get_fields",
+    "get_help_document_text",
     "get_question_file_variables",
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
@@ -261,6 +269,196 @@ def logic_to_code_block(items: List[Union[Dict, str]], indent_level=0) -> str:
             code_lines.append(children_code)
 
     return "\n".join(code_lines)
+
+
+def _load_llms_module():
+    """Load ALToolbox llms lazily so Weaver still works without it."""
+    try:
+        from docassemble.ALToolbox import llms
+
+        return llms
+    except Exception as exc:
+        log(f"Unable to load docassemble.ALToolbox.llms: {exc!r}")
+        return None
+
+
+def _safe_short_label(label: str, max_length: int = 45) -> str:
+    cleaned = re.sub(r"\s+", " ", str(label or "")).strip(" .:-")
+    if not cleaned:
+        return ""
+    return cleaned[:max_length].strip()
+
+
+def _load_prompts_config() -> Dict[str, Any]:
+    global _PROMPTS_CACHE
+    if _PROMPTS_CACHE is not None:
+        return _PROMPTS_CACHE
+    path = os.path.join(os.path.dirname(__file__), "data", "sources", "prompts.yml")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            loaded = yaml.safe_load(handle) or {}
+            if isinstance(loaded, dict):
+                _PROMPTS_CACHE = loaded
+            else:
+                _PROMPTS_CACHE = {}
+    except Exception as exc:
+        log(f"Unable to load Weaver prompts from {path}: {exc!r}")
+        _PROMPTS_CACHE = {}
+    return _PROMPTS_CACHE
+
+
+def _prompt_str(key: str, default: str) -> str:
+    value = _load_prompts_config().get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _prompt_dict(key: str, default: Dict[str, str]) -> Dict[str, str]:
+    value = _load_prompts_config().get(key, default)
+    return value if isinstance(value, dict) else default
+
+
+def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
+    if not url or not is_url(url):
+        return ""
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    host = parsed.hostname
+    if not host:
+        return ""
+
+    def _is_private_or_local(hostname: str) -> bool:
+        try:
+            ip_obj = ipaddress.ip_address(hostname)
+            return (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            )
+        except ValueError:
+            pass
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except Exception:
+            return True
+        for info in infos:
+            address = info[4][0]
+            try:
+                ip_obj = ipaddress.ip_address(address)
+            except ValueError:
+                return True
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                return True
+        return False
+
+    if _is_private_or_local(host):
+        log(f"Blocked unsafe help_page_url host={host!r}")
+        return ""
+
+    try:
+        req = Request(
+            url,
+            headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
+        )
+        with urlopen(req, timeout=10) as response:
+            content_type = str(response.headers.get("Content-Type", "") or "").lower()
+            if content_type and (
+                "text/html" not in content_type
+                and "application/xhtml+xml" not in content_type
+            ):
+                log(
+                    f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
+                )
+                return ""
+            max_bytes = 2_000_000
+            raw = response.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                raw = raw[:max_bytes]
+            html_text = raw.decode("utf-8", errors="replace")
+    except Exception as exc:
+        log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html_text, "html.parser")
+        for tag in soup(
+            ["script", "style", "noscript", "svg", "canvas", "nav", "footer"]
+        ):
+            tag.decompose()
+        text = soup.get_text("\n")
+        cleaned = re.sub(r"\n{3,}", "\n\n", text)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+        return cleaned[:max_chars]
+    except ImportError:
+        log("Unable to parse help page HTML: beautifulsoup4 is not installed")
+        return ""
+    except Exception as exc:
+        log(f"Unable to parse help page HTML for {url!r}: {exc!r}")
+        return ""
+
+
+def _normalize_field_type(value: str) -> Optional[str]:
+    if not value:
+        return None
+    normalized = str(value).strip().lower()
+    aliases = {
+        "radio": "multiple choice radio",
+        "checkbox": "yesno",
+        "checkboxes": "multiple choice checkboxes",
+        "dropdown": "multiple choice dropdown",
+        "combobox": "multiple choice combobox",
+        "multichoice": "multiple choice radio",
+        "multiple_choice_radio": "multiple choice radio",
+        "multiple_choice_checkboxes": "multiple choice checkboxes",
+        "multiple_choice_dropdown": "multiple choice dropdown",
+        "multiple_choice_combobox": "multiple choice combobox",
+    }
+    candidate = aliases.get(normalized, normalized)
+    allowed = {
+        option_key
+        for option in field_type_options()
+        for option_key in option.keys()
+        if option_key not in {"skip this field", "code"}
+    }
+    return candidate if candidate in allowed else None
+
+
+def _field_updates_from_llm_response(
+    response: Dict[str, Any], custom_fields: List["DAField"]
+) -> Dict[str, Dict[str, str]]:
+    updates: Dict[str, Dict[str, str]] = {}
+    by_variable = {field.variable: field for field in custom_fields}
+    for variable, llm_value in response.items():
+        if variable not in by_variable:
+            continue
+        if isinstance(llm_value, dict):
+            new_label = llm_value.get("label", "")
+            new_datatype = llm_value.get("datatype", "")
+        else:
+            new_label = llm_value
+            new_datatype = ""
+        cleaned = _safe_short_label(str(new_label), 45)
+        normalized_datatype = _normalize_field_type(str(new_datatype))
+        if not cleaned and not normalized_datatype:
+            continue
+        updates[variable] = {}
+        if cleaned:
+            updates[variable]["label"] = cleaned
+        if normalized_datatype:
+            updates[variable]["datatype"] = normalized_datatype
+    return updates
 
 
 class DAFieldGroup(Enum):
@@ -1145,7 +1343,14 @@ class DAFieldList(DAList):
         Mark people as built-ins if they match heuristics, without asking. For
         use with "I'm feeling lucky" feature.
         """
-        candidates = self.get_person_candidates()
+        # Use stricter candidates to avoid false positives like generic `_name`
+        # fields becoming list gathers (e.g., `County.gather()`).
+        candidates = self.get_person_candidates(custom_only=True)
+        candidates = {
+            candidate
+            for candidate in candidates
+            if re.match(r"^[a-z][a-z0-9_]*$", candidate)
+        }
         self.mark_people_as_builtins(candidates)
 
     def auto_label_fields(self):
@@ -1268,6 +1473,11 @@ class DAQuestion(DAObject):
     def init(self, *pargs, **kwargs):
         super().init(*pargs, **kwargs)
         self.initializeAttribute("field_list", DAFieldList)
+        # Ensure list-collect bookkeeping variables always exist, even before
+        # the question is complete or any fields are selected.
+        self.field_list.gathered = False
+        self.field_list.there_are_any = False
+        self.field_list.there_is_another = False
 
     @property
     def complete(self) -> bool:
@@ -1326,7 +1536,7 @@ class DAQuestionList(DAList):
         self,
         all_fields: DAFieldList,
         screens: Optional[List[Union["DAQuestion", "DAField"]]] = None,
-        sections: Optional[List] = None,
+        sections: Optional[List[str]] = None,
         set_progress=True,
     ) -> List[str]:
         """
@@ -1354,7 +1564,13 @@ class DAQuestionList(DAList):
         progress = 0
 
         saved_answer_name_flag = False
+        current_section: Optional[str] = None
         for index, question in enumerate(screens):
+            if sections and index < len(sections):
+                section_id = str(sections[index] or "").strip()
+                if section_id and section_id != current_section:
+                    logic_list.append(f'nav.set_section("{section_id}")')
+                    current_section = section_id
             if set_progress and index and index % screen_divisor == 0:
                 progress += increment
                 logic_list.append(f"set_progress({int(progress)})")
@@ -1398,7 +1614,17 @@ class DAQuestionList(DAList):
                         logic_list.append("set_parts(subtitle=str(users))")
                         saved_answer_name_flag = True
 
-        return list(more_itertools.unique_everseen(logic_list))
+        unique_lines: List[str] = []
+        seen_non_nav: Set[str] = set()
+        for line in logic_list:
+            if line.startswith('nav.set_section("'):
+                unique_lines.append(line)
+                continue
+            if line in seen_non_nav:
+                continue
+            seen_non_nav.add(line)
+            unique_lines.append(line)
+        return unique_lines
 
 
 class DADataType(Enum):
@@ -1626,7 +1852,7 @@ class DAInterview(DAObject):
                 ]
             )
 
-    def auto_assign_attributes(
+    def _initialize_basic_attributes(
         self,
         url: Optional[str] = None,
         input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
@@ -1634,24 +1860,10 @@ class DAInterview(DAObject):
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
         default_country_code: str = "US",
-        interview_logic: Optional[List[Union[Dict, str]]] = None,
-        screens: Optional[List[Screen]] = None,
     ):
         """
-        Automatically assign interview attributes based on the template
-        assigned to the interview object.
-        To assist with "I'm feeling lucky" button.
-
-        Args:
-            url (Optional[str]): URL to a template file
-            input_file (Optional[Union[DAFileList, DAFile, DAStaticFile]]): A file
-                object
-            title (Optional[str]): Title of the interview
-            jurisdiction (Optional[str]): Jurisdiction of the interview
-            categories (Optional[str]): Categories of the interview
-            default_country_code (str): Default country code for the interview. Defaults to "US".
-            interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
-            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
+        Set basic, fast attributes. Use this on the main thread before deferring
+        heavy field processing to the background.
         """
         try:
             if user_logged_in():
@@ -1664,8 +1876,9 @@ class DAInterview(DAObject):
             self._set_template_from_url(url)
         elif input_file:
             self._set_template_from_file(input_file)
-        self.title = self._set_title(url=url, input_file=input_file)
 
+        # Title extraction - very fast, safe to do on main thread
+        self.title = self._set_title(url=url, input_file=input_file)
         if title:
             self.title = title
         self.short_title = self.title
@@ -1675,6 +1888,7 @@ class DAInterview(DAObject):
             varname(self.short_filename_with_spaces)
         )
 
+        # Heuristics-based attributes - all fast, no file access
         if jurisdiction:
             try:
                 if jurisdiction.upper() in {
@@ -1707,12 +1921,33 @@ class DAInterview(DAObject):
         self.getting_started = "Before you get started, you need to..."
         self.intro_prompt = self._guess_intro_prompt(self.title)
         self.court_related = not (self.form_type == "letter")
+        self.landing_page_url = ""
+        self.efiling_enabled = False
+        self.integrated_efiling = False
+        self.integrated_email_filing = False
+        self.requires_notarization = False
+        self.unlisted = False
+        self.footer = ""
+        self.when_you_are_finished = ""
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
+
+    def _load_and_label_fields(self) -> None:
+        """Fast field extraction and labeling. Safe to run on the main thread."""
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
+
+    def _process_fields_and_group(
+        self,
+        interview_logic: Optional[List[Union[Dict, str]]] = None,
+        screens: Optional[List[Screen]] = None,
+    ):
+        """
+        Full field processing including slow grouping step.
+        """
+        self._load_and_label_fields()
         if interview_logic:
             self.interview_logic = interview_logic
         if screens:
@@ -1724,6 +1959,819 @@ class DAInterview(DAObject):
             self.create_questions_from_screen_list(screens)
         else:
             self.auto_group_fields()
+
+    def auto_assign_attributes(
+        self,
+        url: Optional[str] = None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        title: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        categories: Optional[str] = None,
+        default_country_code: str = "US",
+        interview_logic: Optional[List[Union[Dict, str]]] = None,
+        screens: Optional[List[Screen]] = None,
+    ):
+        """
+        Automatically assign interview attributes based on the template
+        assigned to the interview object.
+        To assist with "I'm feeling lucky" button.
+
+        Args:
+            url (Optional[str]): URL to a template file
+            input_file (Optional[Union[DAFileList, DAFile, DAStaticFile]]): A file
+                object
+            title (Optional[str]): Title of the interview
+            jurisdiction (Optional[str]): Jurisdiction of the interview
+            categories (Optional[str]): Categories of the interview
+            default_country_code (str): Default country code for the interview. Defaults to "US".
+            interview_logic (Optional[List[Union[Dict, str]]]): Interview logic, represented as a tree
+            screens (Optional[List[Dict]]): Interview screens, represented in the same structure as Docassemble's dictionary for a question block
+        """
+        self._initialize_basic_attributes(
+            url=url,
+            input_file=input_file,
+            title=title,
+            jurisdiction=jurisdiction,
+            categories=categories,
+            default_country_code=default_country_code,
+        )
+        self._process_fields_and_group(interview_logic=interview_logic, screens=screens)
+
+    def auto_assign_attributes_fast(
+        self,
+        url: Optional[str] = None,
+        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        title: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        categories: Optional[str] = None,
+        default_country_code: str = "US",
+    ):
+        """Like auto_assign_attributes but skips the slow formfyxer.cluster_screens()
+        call. Use when LLM-based grouping will be done in a background task instead."""
+        self._initialize_basic_attributes(
+            url=url,
+            input_file=input_file,
+            title=title,
+            jurisdiction=jurisdiction,
+            categories=categories,
+            default_country_code=default_country_code,
+        )
+        self._load_and_label_fields()
+
+    def _llm_default_model(self) -> str:
+        return (
+            get_config("assembly line", {}).get("weaver llm model")
+            or get_config("open ai", {}).get("model")
+            or "gpt-4o-mini"
+        )
+
+    def _cached_template_context_text(self) -> str:
+        template_fingerprints: List[Tuple[str, Optional[int], Optional[int]]] = []
+        if hasattr(self, "uploaded_templates"):
+            for template in self.uploaded_templates:
+                path = ""
+                mtime_ns: Optional[int] = None
+                size: Optional[int] = None
+                try:
+                    path = str(template.path())
+                    stat_result = os.stat(path)
+                    mtime_ns = stat_result.st_mtime_ns
+                    size = stat_result.st_size
+                except Exception:
+                    pass
+                template_fingerprints.append((path, mtime_ns, size))
+
+        cache_key = tuple(template_fingerprints)
+        if getattr(
+            self, "_llm_template_context_cache_key", None
+        ) == cache_key and hasattr(self, "_llm_template_context_cache"):
+            return str(getattr(self, "_llm_template_context_cache", "") or "")
+
+        chunks: List[str] = []
+        if hasattr(self, "uploaded_templates"):
+            for template in self.uploaded_templates:
+                extracted = ""
+                try:
+                    if template.filename.lower().endswith(".pdf"):
+                        extracted = extract_text(template.path())
+                    elif template.filename.lower().endswith(".docx"):
+                        extracted = docx2python(template.path()).text
+                except Exception as exc:
+                    log(
+                        f"Failed to extract text from {template.filename}: {exc!r}",
+                        "warning",
+                    )
+                    extracted = ""
+                if extracted:
+                    chunks.append(extracted)
+                else:
+                    if hasattr(template, "filename"):
+                        log(
+                            f"No text extracted from {template.filename} (file may be empty or unreadable)",
+                            "warning",
+                        )
+
+        combined = "\n\n".join(chunks).strip()
+        self._llm_template_context_cache_key = cache_key
+        self._llm_template_context_cache = combined
+        return combined
+
+    def _llm_context_text(
+        self, max_chars: int = 18000, skip_reference_site: bool = True
+    ) -> str:
+        chunks: List[str] = []
+        template_text = self._cached_template_context_text()
+        if template_text:
+            chunks.append(template_text)
+        if hasattr(self, "help_source_text") and self.help_source_text:
+            chunks.append(str(self.help_source_text))
+        if (
+            not skip_reference_site
+            and hasattr(self, "help_page_url")
+            and self.help_page_url
+        ):
+            if not hasattr(self, "help_page_text"):
+                self.help_page_text = _extract_help_page_text(str(self.help_page_url))
+            if self.help_page_text:
+                chunks.append(str(self.help_page_text))
+        elif hasattr(self, "help_page_text") and self.help_page_text:
+            # Use cached help_page_text if available
+            chunks.append(str(self.help_page_text))
+        full_text = "\n\n".join(chunks).strip()
+        if len(full_text) > max_chars:
+            return full_text[:max_chars]
+        return full_text
+
+    def _prefetch_reference_site(self) -> None:
+        """Fetch and cache the help page content. This should be called in background tasks."""
+        if (
+            hasattr(self, "help_page_url")
+            and self.help_page_url
+            and not hasattr(self, "help_page_text")
+        ):
+            self.help_page_text = _extract_help_page_text(str(self.help_page_url))
+
+    def llm_prefill_metadata(self, apply: bool = True) -> bool:
+        llms = _load_llms_module()
+        if not llms:
+            log("LLM prefill_metadata skipped: llms module not available", "warning")
+            return False
+        context_text = self._llm_context_text()
+        if not context_text:
+            log(
+                "LLM prefill_metadata skipped: no document context text extracted",
+                "warning",
+            )
+            return False
+
+        log(
+            f"LLM prefill_metadata starting with {len(context_text)} chars of context",
+            "info",
+        )
+
+        try:
+            form_type_choices = _prompt_dict(
+                "form_type_choices",
+                {
+                    "starts_case": "Starts a new court case",
+                    "existing_case": "Filed in or responding to an existing court case",
+                    "appeal": "Part of an appeal of a court case",
+                    "letter": "Letter/correspondence",
+                    "other_form": "Administrative or non-court form",
+                    "other": "Other or unknown",
+                },
+            )
+            role_choices = _prompt_dict(
+                "role_choices",
+                {
+                    "plaintiff": "Most likely user is starting the case/request",
+                    "defendant": "Most likely user is responding to a case/request",
+                    "unknown": "Cannot confidently determine role from available text",
+                },
+            )
+            form_type = llms.classify_text(
+                text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                choices=form_type_choices,
+                default_response=getattr(self, "form_type", "other"),
+                model=self._llm_default_model(),
+            )
+            role = llms.classify_text(
+                text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                choices=role_choices,
+                default_response=getattr(self, "typical_role", "unknown"),
+                model=self._llm_default_model(),
+            )
+
+            prompt_template = _prompt_str(
+                "metadata_system_prompt",
+                """
+Return a JSON object with keys:
+- intro_prompt (short action phrase, <= 60 chars)
+- description (1-2 plain-language sentences)
+- can_I_use_this_form (2-4 lines, plain language)
+- getting_started (markdown text with short "Before you get started" and "When you are finished" lists)
+- when_you_are_finished (2-5 plain-language lines about what to do after finishing)
+- landing_page_url (optional https URL for the form's public landing page; return empty string if unknown)
+- next_steps_document_title (single word like motion/petition/letter/form)
+- next_steps_document_concept (single word like request/motion/petition/application/appeal)
+- next_steps_help_organization (optional organization name)
+- next_steps_help_url (optional https URL; may match help/landing page)
+- next_steps_what_happens_next (2-5 lines; should align with when_you_are_finished)
+- next_steps_what_can_decision_maker_do (2-5 lines)
+- next_steps_what_happens_if_i_win (2-5 lines)
+
+Use this title: {{TITLE}}
+Predicted form_type: {{FORM_TYPE}}
+Predicted role: {{ROLE}}
+""".strip(),
+            )
+            prompt = (
+                prompt_template.replace("{{TITLE}}", str(self.title))
+                .replace("{{FORM_TYPE}}", str(form_type))
+                .replace("{{ROLE}}", str(role))
+            )
+            drafted = llms.chat_completion(
+                system_message=prompt,
+                user_message=context_text[:12000],
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if isinstance(drafted, dict):
+                drafted_title = _safe_short_label(str(drafted.get("title", "")), 100)
+                intro_prompt = _safe_short_label(
+                    str(drafted.get("intro_prompt", "")), 60
+                )
+                drafted_description = str(drafted.get("description") or "").strip()
+                drafted_can_use = str(drafted.get("can_I_use_this_form") or "").strip()
+                drafted_getting_started = str(
+                    drafted.get("getting_started") or ""
+                ).strip()
+                drafted_when_finished = str(
+                    drafted.get("when_you_are_finished") or ""
+                ).strip()
+
+                log(
+                    f"LLM metadata response received: title={bool(drafted_title)}, getting_started={bool(drafted_getting_started)}, when_finished={bool(drafted_when_finished)}",
+                    "info",
+                )
+                drafted_landing_page_url = str(
+                    drafted.get("landing_page_url") or ""
+                ).strip()
+                drafted_next_steps_document_title = str(
+                    drafted.get("next_steps_document_title") or ""
+                ).strip()
+                drafted_next_steps_document_concept = str(
+                    drafted.get("next_steps_document_concept") or ""
+                ).strip()
+                drafted_next_steps_help_organization = str(
+                    drafted.get("next_steps_help_organization") or ""
+                ).strip()
+                drafted_next_steps_help_url = str(
+                    drafted.get("next_steps_help_url") or ""
+                ).strip()
+                drafted_next_steps_what_happens_next = str(
+                    drafted.get("next_steps_what_happens_next") or ""
+                ).strip()
+                drafted_next_steps_what_can_decision_maker_do = str(
+                    drafted.get("next_steps_what_can_decision_maker_do") or ""
+                ).strip()
+                drafted_next_steps_what_happens_if_i_win = str(
+                    drafted.get("next_steps_what_happens_if_i_win") or ""
+                ).strip()
+                if drafted_landing_page_url and not is_url(drafted_landing_page_url):
+                    drafted_landing_page_url = ""
+                if drafted_next_steps_help_url and not is_url(
+                    drafted_next_steps_help_url
+                ):
+                    drafted_next_steps_help_url = ""
+
+                # Keep this aligned: next-steps "what happens next" should mirror
+                # "when you are finished" unless the model omitted one of them.
+                if drafted_when_finished and not drafted_next_steps_what_happens_next:
+                    drafted_next_steps_what_happens_next = drafted_when_finished
+                elif drafted_next_steps_what_happens_next and not drafted_when_finished:
+                    drafted_when_finished = drafted_next_steps_what_happens_next
+                elif drafted_when_finished and drafted_next_steps_what_happens_next:
+                    drafted_next_steps_what_happens_next = drafted_when_finished
+                if apply:
+                    if drafted_title:
+                        self.title = drafted_title
+                        self.short_title = drafted_title[:25]
+                        self.short_filename_with_spaces = drafted_title
+                        self.short_filename = space_to_underscore(
+                            varname(drafted_title)
+                        )
+                    if intro_prompt:
+                        self.intro_prompt = intro_prompt
+                    if drafted_description:
+                        self.description = drafted_description
+                    if drafted_can_use:
+                        self.can_I_use_this_form = drafted_can_use
+                    if drafted_getting_started:
+                        self.getting_started = drafted_getting_started
+                    if drafted_when_finished:
+                        self.when_you_are_finished = drafted_when_finished
+                    if drafted_landing_page_url:
+                        self.landing_page_url = drafted_landing_page_url
+                    if drafted_next_steps_document_title:
+                        self.next_steps_document_title = (
+                            drafted_next_steps_document_title
+                        )
+                    if drafted_next_steps_document_concept:
+                        self.next_steps_document_concept = (
+                            drafted_next_steps_document_concept
+                        )
+                    if drafted_next_steps_help_organization:
+                        self.next_steps_help_organization = (
+                            drafted_next_steps_help_organization
+                        )
+                    if drafted_next_steps_help_url:
+                        self.next_steps_help_url = drafted_next_steps_help_url
+                    if not hasattr(self, "custom_next_steps_instructions"):
+                        self.custom_next_steps_instructions = {}
+                    if drafted_next_steps_what_happens_next:
+                        self.custom_next_steps_instructions["what_happens_next"] = (
+                            drafted_next_steps_what_happens_next
+                        )
+                    if drafted_next_steps_what_can_decision_maker_do:
+                        self.custom_next_steps_instructions[
+                            "what_can_decision_maker_do"
+                        ] = drafted_next_steps_what_can_decision_maker_do
+                    if drafted_next_steps_what_happens_if_i_win:
+                        self.custom_next_steps_instructions["what_happens_if_i_win"] = (
+                            drafted_next_steps_what_happens_if_i_win
+                        )
+                else:
+                    if drafted_title:
+                        self.llm_draft_title = drafted_title
+                    if intro_prompt:
+                        self.llm_draft_intro_prompt = intro_prompt
+                    if drafted_description:
+                        self.llm_draft_description = drafted_description
+                    if drafted_can_use:
+                        self.llm_draft_can_i_use_this_form = drafted_can_use
+                    if drafted_getting_started:
+                        self.llm_draft_getting_started = drafted_getting_started
+                    if drafted_when_finished:
+                        self.llm_draft_when_you_are_finished = drafted_when_finished
+                    if drafted_landing_page_url:
+                        self.llm_draft_landing_page_url = drafted_landing_page_url
+                    if drafted_next_steps_document_title:
+                        self.llm_draft_next_steps_document_title = (
+                            drafted_next_steps_document_title
+                        )
+                    if drafted_next_steps_document_concept:
+                        self.llm_draft_next_steps_document_concept = (
+                            drafted_next_steps_document_concept
+                        )
+                    if drafted_next_steps_help_organization:
+                        self.llm_draft_next_steps_help_organization = (
+                            drafted_next_steps_help_organization
+                        )
+                    if drafted_next_steps_help_url:
+                        self.llm_draft_next_steps_help_url = drafted_next_steps_help_url
+                    if drafted_next_steps_what_happens_next:
+                        self.llm_draft_next_steps_what_happens_next = (
+                            drafted_next_steps_what_happens_next
+                        )
+                    if drafted_next_steps_what_can_decision_maker_do:
+                        self.llm_draft_next_steps_what_can_decision_maker_do = (
+                            drafted_next_steps_what_can_decision_maker_do
+                        )
+                    if drafted_next_steps_what_happens_if_i_win:
+                        self.llm_draft_next_steps_what_happens_if_i_win = (
+                            drafted_next_steps_what_happens_if_i_win
+                        )
+
+            if form_type in {
+                "starts_case",
+                "existing_case",
+                "appeal",
+                "letter",
+                "other_form",
+                "other",
+            }:
+                if apply:
+                    self.form_type = form_type
+                    self.court_related = self.form_type in {
+                        "starts_case",
+                        "existing_case",
+                        "appeal",
+                    }
+                else:
+                    self.llm_draft_form_type = form_type
+                    self.llm_draft_court_related = form_type in {
+                        "starts_case",
+                        "existing_case",
+                        "appeal",
+                    }
+            if role in {"plaintiff", "defendant", "unknown"}:
+                if apply:
+                    self.typical_role = role
+                else:
+                    self.llm_draft_typical_role = role
+            log("LLM metadata prefill completed successfully", "info")
+            return True
+        except Exception as exc:
+            log(f"LLM metadata prefill failed: {exc!r}")
+            return False
+
+    def llm_predict_state(self, apply: bool = True) -> bool:
+        llms = _load_llms_module()
+        if not llms:
+            return False
+        context_text = self._llm_context_text(max_chars=8000)
+        if not context_text:
+            return False
+
+        try:
+            us_subdivisions = pycountry.subdivisions.get(country_code="US") or []
+            choices = {
+                subdivision.code.split("-")[1]: subdivision.name
+                for subdivision in us_subdivisions
+                if subdivision.code.startswith("US-")
+            }
+            if not choices:
+                return False
+            predicted_state = llms.classify_text(
+                text=f"Title: {self.title}\nJurisdiction: {getattr(self, 'jurisdiction', '')}\n\n{context_text}",
+                choices=choices,
+                default_response=(getattr(self, "state", "") or "MA"),
+                model=self._llm_default_model(),
+            )
+            predicted_state = str(predicted_state or "").strip().upper()
+            if predicted_state not in choices:
+                return False
+            if apply:
+                self.default_country_code = "US"
+                self.state = predicted_state
+                self.jurisdiction = "NAM-US-US+" + predicted_state
+            else:
+                self.llm_draft_default_country_code = "US"
+                self.llm_draft_state = predicted_state
+                self.llm_draft_jurisdiction = "NAM-US-US+" + predicted_state
+            return True
+        except Exception as exc:
+            log(f"LLM state prediction failed: {exc!r}")
+            return False
+
+    def llm_refine_field_labels(
+        self, apply: bool = True
+    ) -> Union[int, Dict[str, Dict[str, str]]]:
+        llms = _load_llms_module()
+        if not llms:
+            return 0
+
+        custom_fields = [
+            field
+            for field in self.all_fields.custom()
+            if not (
+                hasattr(field, "field_type")
+                and field.field_type in ["code", "skip this field"]
+            )
+        ]
+        if not custom_fields:
+            return 0
+
+        context_text = self._llm_context_text(max_chars=12000)
+        if not context_text:
+            return 0
+
+        try:
+            field_payload = {
+                field.variable: {
+                    "current_label": (
+                        field.label
+                        if hasattr(field, "label")
+                        else field.variable_name_guess
+                    ),
+                    "datatype": getattr(
+                        field, "field_type", getattr(field, "field_type_guess", "text")
+                    ),
+                }
+                for field in custom_fields
+            }
+            prompt = _prompt_str(
+                "label_datatype_refinement_system_prompt",
+                """
+Rewrite each field label and suggest datatype.
+Rules:
+- keep legal meaning from context
+- max 45 characters
+- sentence fragment, not a sentence
+- no variable names or underscores
+- keep each key exactly the same
+Return JSON object with shape:
+{
+  "field_variable": {
+    "label": "Improved label",
+    "datatype": "text"
+  }
+}
+""".strip(),
+            )
+            response = llms.chat_completion(
+                system_message=prompt,
+                user_message="Context:\n"
+                + context_text
+                + "\n\nFields:\n"
+                + json.dumps(field_payload),
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if not isinstance(response, dict):
+                return {} if not apply else 0
+
+            updates = _field_updates_from_llm_response(response, custom_fields)
+            if not apply:
+                return updates
+
+            self.apply_llm_field_updates(updates)
+            return len(updates)
+        except Exception as exc:
+            log(f"LLM field-label refinement failed: {exc!r}")
+            return {} if not apply else 0
+
+    def llm_group_fields(self, apply: bool = True) -> Union[bool, List[Screen]]:
+        llms = _load_llms_module()
+        if not llms:
+            return False
+
+        custom_fields = [
+            field
+            for field in self.all_fields.custom()
+            if not (
+                hasattr(field, "field_type")
+                and field.field_type in ["code", "skip this field"]
+            )
+        ]
+        if not custom_fields:
+            return False
+
+        try:
+            context_text = self._llm_context_text(max_chars=10000)
+            field_rows = [
+                {
+                    "field": field.variable,
+                    "label": (
+                        field.label
+                        if hasattr(field, "label")
+                        else field.variable_name_guess
+                    ),
+                }
+                for field in custom_fields
+            ]
+            prompt = _prompt_str(
+                "grouping_system_prompt",
+                """
+Group fields into interview screens.
+Return JSON object with this key:
+- screens: list of objects, each with:
+  - question (short screen title)
+  - subquestion (optional short helper text)
+  - fields (list of field variable names)
+
+Rules:
+- Use each field at most once
+- Prefer 2-8 fields per screen
+- Keep related fields together
+""".strip(),
+            )
+            response = llms.chat_completion(
+                system_message=prompt,
+                user_message="Context:\n"
+                + context_text
+                + "\n\nFields:\n"
+                + json.dumps(field_rows),
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+            if not isinstance(response, dict) or not isinstance(
+                response.get("screens"), list
+            ):
+                return [] if not apply else False
+
+            by_variable = {field.variable: field for field in custom_fields}
+            used: Set[str] = set()
+            screen_list: List[Screen] = []
+            for raw_screen in response.get("screens", []):
+                if not isinstance(raw_screen, dict):
+                    continue
+                fields = raw_screen.get("fields")
+                if not isinstance(fields, list):
+                    continue
+                field_defs: List[FieldDefinition] = []
+                for variable in fields:
+                    if (
+                        not isinstance(variable, str)
+                        or variable not in by_variable
+                        or variable in used
+                    ):
+                        continue
+                    used.add(variable)
+                    field_obj = by_variable[variable]
+                    field_defs.append(
+                        {
+                            "field": variable,
+                            "label": (
+                                field_obj.label
+                                if hasattr(field_obj, "label")
+                                else field_obj.variable_name_guess
+                            ),
+                            "datatype": getattr(
+                                field_obj,
+                                "field_type",
+                                getattr(field_obj, "field_type_guess", "text"),
+                            ),
+                        }
+                    )
+                if field_defs:
+                    screen_list.append(
+                        {
+                            "question": str(
+                                raw_screen.get("question") or "More information"
+                            ),
+                            "subquestion": str(raw_screen.get("subquestion") or ""),
+                            "fields": field_defs,
+                        }
+                    )
+
+            for field in custom_fields:
+                if field.variable in used:
+                    continue
+                screen_list.append(
+                    {
+                        "question": (
+                            field.label
+                            if hasattr(field, "label")
+                            else field.variable_name_guess
+                        ),
+                        "subquestion": "",
+                        "fields": [
+                            {
+                                "field": field.variable,
+                                "label": (
+                                    field.label
+                                    if hasattr(field, "label")
+                                    else field.variable_name_guess
+                                ),
+                                "datatype": getattr(
+                                    field,
+                                    "field_type",
+                                    getattr(field, "field_type_guess", "text"),
+                                ),
+                            }
+                        ],
+                    }
+                )
+
+            if not screen_list:
+                return [] if not apply else False
+            if not apply:
+                return screen_list
+            if hasattr(self, "questions"):
+                try:
+                    self.questions.clear()
+                except Exception:
+                    self.initializeAttribute("questions", DAQuestionList)
+            else:
+                self.initializeAttribute("questions", DAQuestionList)
+            self.questions.gathered = False
+            self.create_questions_from_screen_list(screen_list)
+            return True
+        except Exception as exc:
+            log(f"LLM screen grouping failed: {exc!r}")
+            return [] if not apply else False
+
+    def apply_llm_field_updates(
+        self, field_updates: Mapping[str, Mapping[str, str]]
+    ) -> int:
+        if not field_updates:
+            return 0
+        by_variable = {field.variable: field for field in self.all_fields.custom()}
+        updated = 0
+        for variable, update in field_updates.items():
+            if variable not in by_variable:
+                continue
+            field_obj = by_variable[variable]
+            label = _safe_short_label(str(update.get("label", "")), 45)
+            datatype = _normalize_field_type(str(update.get("datatype", "")))
+            if label:
+                field_obj.label = label
+                field_obj.has_label = True
+            if datatype:
+                field_obj.field_type = datatype
+            if label or datatype:
+                updated += 1
+        return updated
+
+    def llm_generate_draft_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        # Fetch reference site content upfront in background task
+        self._prefetch_reference_site()
+        self.llm_prefill_metadata(apply=False)
+        self.llm_predict_state(apply=False)
+        for key in [
+            "llm_draft_title",
+            "llm_draft_intro_prompt",
+            "llm_draft_description",
+            "llm_draft_can_i_use_this_form",
+            "llm_draft_getting_started",
+            "llm_draft_when_you_are_finished",
+            "llm_draft_landing_page_url",
+            "llm_draft_next_steps_document_title",
+            "llm_draft_next_steps_document_concept",
+            "llm_draft_next_steps_help_organization",
+            "llm_draft_next_steps_help_url",
+            "llm_draft_next_steps_what_happens_next",
+            "llm_draft_next_steps_what_can_decision_maker_do",
+            "llm_draft_next_steps_what_happens_if_i_win",
+            "llm_draft_form_type",
+            "llm_draft_court_related",
+            "llm_draft_typical_role",
+            "llm_draft_default_country_code",
+            "llm_draft_state",
+            "llm_draft_jurisdiction",
+        ]:
+            if hasattr(self, key):
+                payload[key] = getattr(self, key)
+
+        payload["field_updates"] = self.llm_refine_field_labels(apply=False)
+        payload["screen_list"] = self.llm_group_fields(apply=False)
+        return payload
+
+    def apply_llm_draft_payload(self, payload: Mapping[str, Any]) -> None:
+        if not payload:
+            return
+        for key in [
+            "llm_draft_title",
+            "llm_draft_intro_prompt",
+            "llm_draft_description",
+            "llm_draft_can_i_use_this_form",
+            "llm_draft_getting_started",
+            "llm_draft_when_you_are_finished",
+            "llm_draft_landing_page_url",
+            "llm_draft_next_steps_document_title",
+            "llm_draft_next_steps_document_concept",
+            "llm_draft_next_steps_help_organization",
+            "llm_draft_next_steps_help_url",
+            "llm_draft_next_steps_what_happens_next",
+            "llm_draft_next_steps_what_can_decision_maker_do",
+            "llm_draft_next_steps_what_happens_if_i_win",
+            "llm_draft_form_type",
+            "llm_draft_court_related",
+            "llm_draft_typical_role",
+            "llm_draft_default_country_code",
+            "llm_draft_state",
+            "llm_draft_jurisdiction",
+        ]:
+            if key in payload:
+                setattr(self, key, payload[key])
+
+        # Apply drafted next-steps values to live fields so lucky mode can use them
+        # even when skipping the step-by-step customization screen.
+        if hasattr(self, "llm_draft_next_steps_document_title"):
+            self.next_steps_document_title = self.llm_draft_next_steps_document_title
+        if hasattr(self, "llm_draft_next_steps_document_concept"):
+            self.next_steps_document_concept = (
+                self.llm_draft_next_steps_document_concept
+            )
+        if hasattr(self, "llm_draft_next_steps_help_organization"):
+            self.next_steps_help_organization = (
+                self.llm_draft_next_steps_help_organization
+            )
+        if hasattr(self, "llm_draft_next_steps_help_url"):
+            self.next_steps_help_url = self.llm_draft_next_steps_help_url
+        if not hasattr(self, "custom_next_steps_instructions"):
+            self.custom_next_steps_instructions = {}
+        if hasattr(self, "llm_draft_next_steps_what_happens_next"):
+            self.custom_next_steps_instructions["what_happens_next"] = (
+                self.llm_draft_next_steps_what_happens_next
+            )
+        if hasattr(self, "llm_draft_next_steps_what_can_decision_maker_do"):
+            self.custom_next_steps_instructions["what_can_decision_maker_do"] = (
+                self.llm_draft_next_steps_what_can_decision_maker_do
+            )
+        if hasattr(self, "llm_draft_next_steps_what_happens_if_i_win"):
+            self.custom_next_steps_instructions["what_happens_if_i_win"] = (
+                self.llm_draft_next_steps_what_happens_if_i_win
+            )
+
+        field_updates = payload.get("field_updates")
+        if isinstance(field_updates, Mapping):
+            self.apply_llm_field_updates(field_updates)
+
+        screen_list = payload.get("screen_list")
+        if isinstance(screen_list, list) and screen_list:
+            if hasattr(self, "questions"):
+                try:
+                    self.questions.clear()
+                except Exception:
+                    self.initializeAttribute("questions", DAQuestionList)
+            else:
+                self.initializeAttribute("questions", DAQuestionList)
+            self.questions.gathered = False
+            self.create_questions_from_screen_list(cast(List[Screen], screen_list))
 
     def _set_title(self, url=None, input_file=None):
         if url:
@@ -2075,6 +3123,11 @@ class DAInterview(DAObject):
                     first_item = next(iter(field.items()))
                     new_field.variable = first_item[1]
                     new_field.label = first_item[0]
+                # Keep screen-list-created fields consistent with DAField objects
+                # produced by template scanning and manual field editing.
+                new_field.has_label = True
+                new_field.final_display_var = new_field.variable
+                new_field.source_document_type = "docx"
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
                 # TODO: consider refactoring this
                 if field_type:
@@ -2132,11 +3185,11 @@ class DAInterview(DAObject):
                 next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
             )
             new_screen.subquestion_text = ""
-            new_screen.field_list = [
-                field
-                for field in self.all_fields
-                if field.variable in field_grouping[group]
-            ]
+            new_screen.field_list.clear()
+            for field in self.all_fields:
+                if field.variable in field_grouping[group]:
+                    new_screen.field_list.append(field)
+            new_screen.field_list.gathered = True
             if not new_screen.field_list:
                 new_screen.needs_continue_button_field = True
         self.questions.gathered = True
@@ -2725,6 +3778,27 @@ def get_docx_validation_errors(document: DAFile) -> Optional[ValidationError]:
     return None
 
 
+def get_help_document_text(document: DAFile) -> str:
+    """
+    Extract readable text from an uploaded PDF or DOCX help document.
+    Returns an empty string when text cannot be extracted.
+    """
+    if not document or not hasattr(document, "path"):
+        return ""
+
+    filename = str(getattr(document, "filename", "") or "").lower()
+    try:
+        if filename.endswith(".pdf"):
+            return extract_text(document.path()) or ""
+        if filename.endswith(".docx"):
+            return docx2python(document.path()).text or ""
+    except (PDFSyntaxError, PSEOF, BadZipFile, KeyError, ValueError):
+        return ""
+    except Exception:
+        return ""
+    return ""
+
+
 def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     """
     If any fields have invalid variable names, get a list of those reasons.
@@ -3131,16 +4205,38 @@ def _make_static_file_from_path(path: str) -> DAStaticFile:
 
 
 def _resolve_template_path(template_ref: str) -> str:
+    """
+    Resolve the path to a template file using docassemble's path_and_mimetype.
+    This works correctly in both Playground and installed package contexts.
+    """
     if os.path.isabs(template_ref) and os.path.exists(template_ref):
         return template_ref
-    if ":" in template_ref:
-        package_name, template_name = template_ref.split(":", 1)
-        module = importlib.import_module(package_name)
-        package_file = module.__file__
-        if package_file:
-            package_dir = os.path.dirname(package_file)
-            return os.path.join(package_dir, "data", "templates", template_name)
-    return os.path.join(os.path.dirname(__file__), "data", "templates", template_ref)
+
+    template_name = (
+        template_ref.split(":", 1)[1] if ":" in template_ref else template_ref
+    )
+    file_path = None
+    try:
+        if ":" in template_ref:
+            # Format: package_name:template_name
+            package_name, template_name = template_ref.split(":", 1)
+            file_path, _ = path_and_mimetype(
+                f"{package_name}:data/templates/{template_name}"
+            )
+        else:
+            file_path, _ = path_and_mimetype(f"data/templates/{template_name}")
+    except Exception:
+        file_path = None
+
+    if file_path and os.path.exists(file_path):
+        return file_path
+
+    local_path = os.path.join(
+        os.path.dirname(__file__), "data", "templates", template_name
+    )
+    if os.path.exists(local_path):
+        return local_path
+    raise FileNotFoundError(f"Could not resolve template path for: {template_ref}")
 
 
 def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
@@ -3361,6 +4457,582 @@ def _merge_field_definitions_into_screens(
     return merged_screens
 
 
+def _metadata_defaults_for_lint(interview: DAInterview) -> Dict[str, str]:
+    state_value = str(getattr(interview, "state", "") or "").strip().upper()
+    country_value = (
+        str(getattr(interview, "default_country_code", "US") or "US").strip().upper()
+    )
+    jurisdiction_value = str(getattr(interview, "jurisdiction", "") or "").strip()
+    if not jurisdiction_value:
+        if country_value == "US" and state_value:
+            jurisdiction_value = f"NAM-US-US+{state_value}"
+        elif country_value:
+            jurisdiction_value = f"NAM-{country_value}"
+        else:
+            jurisdiction_value = "NAM-US"
+
+    landing_page_url_value = str(
+        getattr(interview, "landing_page_url", "") or ""
+    ).strip()
+    if not landing_page_url_value:
+        original_form_url = str(getattr(interview, "original_form", "") or "").strip()
+        if original_form_url.startswith(("http://", "https://")):
+            landing_page_url_value = original_form_url
+        else:
+            landing_page_url_value = "https://courtformsonline.org/"
+
+    return {
+        "jurisdiction": jurisdiction_value,
+        "landing_page_url": landing_page_url_value,
+        "default_topic": "CO-00-00-00-00",
+    }
+
+
+def _screen_heading(screen: Union["DAQuestion", "DAField"]) -> str:
+    if isinstance(screen, DAQuestion):
+        return str(getattr(screen, "question_text", "") or "").strip()
+    try:
+        return str(screen.variable)
+    except Exception:
+        return ""
+
+
+def _deterministic_section_id_for_screen(
+    screen: Union["DAQuestion", "DAField"], trigger: str
+) -> str:
+    heading = _screen_heading(screen).lower()
+    trigger_l = (trigger or "").lower()
+    text = f"{heading} {trigger_l}".strip()
+    if "signature" in text or trigger_l.endswith(".signature") or "sign" in heading:
+        return "sign_and_submit"
+    if "serve" in text or "service" in text or "notice" in text:
+        return "service_and_notice"
+    if (
+        "plaintiff" in text
+        or "defendant" in text
+        or "attorney" in text
+        or "party" in text
+        or "users.gather()" in trigger_l
+    ):
+        return "people"
+    if "name" in text or "address" in text or "phone" in text or "email" in text:
+        return "about_you"
+    return "case_details"
+
+
+def _section_label(section_id: str) -> str:
+    labels = {
+        "about_you": "About You",
+        "people": "People",
+        "case_details": "Case Details",
+        "service_and_notice": "Service and Notice",
+        "sign_and_submit": "Sign and Submit",
+    }
+    return labels.get(section_id, fix_id(section_id).title())
+
+
+def _normalize_section_id(value: str, fallback: str = "section") -> str:
+    normalized = varname(str(value or "")).lower().strip("_")
+    return normalized or fallback
+
+
+def _sections_from_frontend(interview: DAInterview) -> List[Dict[str, str]]:
+    if not bool(getattr(interview, "enable_navigation", False)):
+        return []
+    raw_sections = getattr(interview, "sections", None)
+    if not raw_sections:
+        return []
+    output: List[Dict[str, str]] = []
+    seen_ids: Set[str] = set()
+    for idx, item in enumerate(raw_sections):
+        key = str(getattr(item, "key", "") or "").strip()
+        label = str(getattr(item, "value", "") or "").strip()
+        if not key and isinstance(item, dict):
+            key = str(item.get("key", "")).strip()
+            label = str(item.get("value", "")).strip()
+        section_id = _normalize_section_id(key, fallback=f"section_{idx + 1}")
+        section_label = label or _section_label(section_id)
+        if section_id in seen_ids:
+            continue
+        seen_ids.add(section_id)
+        output.append({"id": section_id, "label": section_label})
+    return output
+
+
+def _llm_refine_section_catalog(
+    screen_summaries: Sequence[str], base_sections: Sequence[Dict[str, str]]
+) -> Optional[List[Dict[str, str]]]:
+    llms = _load_llms_module()
+    if not llms or not screen_summaries or not base_sections:
+        return None
+    prompt = _prompt_str(
+        "navigation_sections_catalog_system_prompt",
+        (
+            "Improve the section list used for interview navigation. "
+            "Return JSON with key `sections`: array of objects with `id` and `label`. "
+            "Keep 3 to 8 sections, use concise plain-language labels, and keep legal flow order."
+        ),
+    )
+    user_message = (
+        "Current sections:\n"
+        + json.dumps(list(base_sections), ensure_ascii=True)
+        + "\n\nScreens:\n"
+        + "\n".join(screen_summaries)
+    )
+    try:
+        rewritten = llms.chat_completion(
+            system_message=prompt,
+            user_message=user_message,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if not isinstance(rewritten, dict):
+            return None
+        candidate = rewritten.get("sections")
+        if not isinstance(candidate, list):
+            return None
+        cleaned: List[Dict[str, str]] = []
+        seen_ids: Set[str] = set()
+        for idx, item in enumerate(candidate):
+            if not isinstance(item, dict):
+                continue
+            section_id = _normalize_section_id(
+                str(item.get("id", "") or ""), fallback=f"section_{idx + 1}"
+            )
+            if section_id in seen_ids:
+                continue
+            seen_ids.add(section_id)
+            label = str(item.get("label", "") or "").strip() or _section_label(
+                section_id
+            )
+            cleaned.append({"id": section_id, "label": label})
+        if 3 <= len(cleaned) <= 8:
+            return cleaned
+        return None
+    except Exception:
+        return None
+
+
+def _llm_refine_section_ids(
+    screen_summaries: Sequence[str],
+    section_ids: Sequence[str],
+    deterministic: Sequence[str],
+) -> Optional[List[str]]:
+    llms = _load_llms_module()
+    if not llms or not screen_summaries:
+        return None
+    allowed = sorted(set(section_ids))
+    prompt = _prompt_str(
+        "navigation_sections_system_prompt",
+        (
+            "Assign each screen to one section id to improve navigation. "
+            "Return JSON with key `section_ids` as an array of ids with exactly one id per screen. "
+            "Use only allowed ids and keep legal flow logical."
+        ),
+    )
+    user_message = (
+        "Allowed section ids:\n- "
+        + "\n- ".join(allowed)
+        + "\n\nScreens with deterministic section:\n"
+        + "\n".join(screen_summaries)
+        + "\n\nCurrent deterministic section_ids:\n"
+        + json.dumps(list(deterministic))
+    )
+    try:
+        rewritten = llms.chat_completion(
+            system_message=prompt,
+            user_message=user_message,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if not isinstance(rewritten, dict):
+            return None
+        candidate = rewritten.get("section_ids")
+        if not isinstance(candidate, list) or len(candidate) != len(deterministic):
+            return None
+        cleaned = [str(item) for item in candidate]
+        if any(item not in allowed for item in cleaned):
+            return None
+        return cleaned
+    except Exception:
+        return None
+
+
+def _navigation_sections_and_assignments(
+    interview: DAInterview,
+    screens: Sequence[Union["DAQuestion", "DAField"]],
+    trigger_lines: Sequence[str],
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    if (
+        hasattr(interview, "enable_navigation")
+        and getattr(interview, "enable_navigation") is False
+    ):
+        return [], ["" for _ in screens]
+
+    deterministic_ids = [
+        _deterministic_section_id_for_screen(
+            screen, trigger_lines[idx] if idx < len(trigger_lines) else ""
+        )
+        for idx, screen in enumerate(screens)
+    ]
+    deterministic_ids = [item if item else "case_details" for item in deterministic_ids]
+
+    summaries = [
+        f"{idx}. title={_screen_heading(screen)!r}; trigger={trigger_lines[idx] if idx < len(trigger_lines) else ''!r}; section={deterministic_ids[idx]}"
+        for idx, screen in enumerate(screens)
+    ]
+
+    frontend_sections = _sections_from_frontend(interview)
+    if frontend_sections:
+        section_catalog = frontend_sections
+    else:
+        ordered_base_ids: List[str] = []
+        for section_id in deterministic_ids:
+            if section_id not in ordered_base_ids:
+                ordered_base_ids.append(section_id)
+        section_catalog = [
+            {"id": section_id, "label": _section_label(section_id)}
+            for section_id in ordered_base_ids
+        ]
+
+    llm_enabled = bool(getattr(interview, "use_llm_assist", False))
+    if llm_enabled:
+        refined_catalog = _llm_refine_section_catalog(summaries, section_catalog)
+        if refined_catalog:
+            section_catalog = refined_catalog
+
+    allowed_ids = [section["id"] for section in section_catalog]
+    if not allowed_ids:
+        allowed_ids = ["case_details"]
+        section_catalog = [{"id": "case_details", "label": "Case Details"}]
+    fallback_section_id = (
+        "case_details" if "case_details" in allowed_ids else allowed_ids[0]
+    )
+    seeded_ids = [
+        section_id if section_id in allowed_ids else fallback_section_id
+        for section_id in deterministic_ids
+    ]
+    llm_ids: Optional[List[str]] = None
+    if llm_enabled:
+        llm_ids = _llm_refine_section_ids(
+            screen_summaries=summaries,
+            section_ids=allowed_ids,
+            deterministic=seeded_ids,
+        )
+    assigned = llm_ids or seeded_ids
+
+    # Collapse rapid jitter to avoid noisy section changes.
+    smoothed: List[str] = []
+    for idx, section_id in enumerate(assigned):
+        if idx > 0 and idx < len(assigned) - 1:
+            if assigned[idx - 1] == assigned[idx + 1] != section_id:
+                smoothed.append(assigned[idx - 1])
+                continue
+        smoothed.append(section_id)
+
+    # Keep section flow forward-moving for cleaner navigation.
+    canonical_order = {
+        "about_you": 0,
+        "people": 1,
+        "case_details": 2,
+        "service_and_notice": 3,
+        "sign_and_submit": 4,
+    }
+    monotonic: List[str] = []
+    highest_rank = -1
+    for section_id in smoothed:
+        rank = canonical_order.get(section_id, highest_rank if highest_rank >= 0 else 0)
+        if rank < highest_rank:
+            # Prevent jumping backwards to earlier sections.
+            kept = next(
+                (
+                    sid
+                    for sid, sid_rank in canonical_order.items()
+                    if sid_rank == highest_rank
+                ),
+                section_id,
+            )
+            monotonic.append(kept)
+        else:
+            monotonic.append(section_id)
+            highest_rank = rank
+
+    sections = list(section_catalog)
+    return sections, monotonic
+
+
+def _ensure_question_block_ids(yaml_text: str) -> str:
+    """Add deterministic ids to question blocks that are missing an id."""
+    docs = re.split(r"(?m)^---\s*$", yaml_text)
+    updated_docs: List[str] = []
+    generated_counter = 1
+
+    for raw_doc in docs:
+        doc_text = raw_doc
+        if not doc_text.strip():
+            updated_docs.append(doc_text)
+            continue
+        has_top_level_id = re.search(r"(?m)^id:\s*", doc_text) is not None
+        has_question = re.search(r"(?m)^question:\s*", doc_text) is not None
+        if not has_top_level_id and has_question:
+            title = ""
+            question_match = re.search(r"(?m)^question:\s*(.*)$", doc_text)
+            if question_match:
+                first_value = (question_match.group(1) or "").strip()
+                if first_value and not first_value.startswith(("|", ">")):
+                    title = first_value
+                else:
+                    after = doc_text[question_match.end() :]
+                    for line in after.splitlines():
+                        if not line.strip():
+                            continue
+                        if line.startswith((" ", "\t")):
+                            stripped = line.strip()
+                            if stripped and not stripped.startswith("#"):
+                                title = stripped
+                                break
+                        else:
+                            break
+            title = title or f"auto generated screen {generated_counter}"
+            generated_counter += 1
+            id_line = f"id: {fix_id(title)}\n"
+            # Insert before the first top-level key when possible.
+            first_key = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_ ]*:\s*", doc_text)
+            if first_key:
+                doc_text = (
+                    doc_text[: first_key.start()]
+                    + id_line
+                    + doc_text[first_key.start() :]
+                )
+            else:
+                doc_text = id_line + doc_text
+        updated_docs.append(doc_text)
+
+    return "---\n".join(updated_docs)
+
+
+def _ensure_unique_question_ids(yaml_text: str) -> str:
+    """Ensure top-level `id:` values are unique by appending a numeric suffix."""
+    lines = yaml_text.splitlines()
+    seen: Dict[str, int] = {}
+    in_metadata = False
+
+    for idx, line in enumerate(lines):
+        if line.strip() == "metadata:":
+            in_metadata = True
+            continue
+        if in_metadata and line.strip() == "---":
+            in_metadata = False
+            continue
+        if in_metadata:
+            continue
+        if not line.startswith("id: "):
+            continue
+        raw_id = line[4:].strip()
+        if not raw_id:
+            continue
+        count = seen.get(raw_id, 0) + 1
+        seen[raw_id] = count
+        if count > 1:
+            lines[idx] = f"id: {raw_id} {count}"
+    output = "\n".join(lines)
+    return output + ("\n" if yaml_text.endswith("\n") else "")
+
+
+def _ensure_required_metadata_values(yaml_text: str, interview: DAInterview) -> str:
+    """Ensure required metadata fields are present and non-empty for lint."""
+    defaults = _metadata_defaults_for_lint(interview)
+    lines = yaml_text.splitlines()
+    metadata_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "metadata:":
+            metadata_start = idx
+            break
+    if metadata_start is None:
+        return yaml_text
+    metadata_end = len(lines)
+    for idx in range(metadata_start + 1, len(lines)):
+        if lines[idx].strip() == "---" and not lines[idx].startswith(" "):
+            metadata_end = idx
+            break
+
+    block = lines[metadata_start:metadata_end]
+    block_text = "\n".join(block)
+
+    # Ensure a non-empty jurisdiction scalar.
+    if re.search(r"(?m)^\s{2}jurisdiction:\s*(\"\"|''|\s*)$", block_text):
+        block_text = re.sub(
+            r"(?m)^\s{2}jurisdiction:\s*(?:\"\"|''|\s*)$",
+            f'  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}jurisdiction:\s*", block_text) is None:
+        block_text += (
+            f'\n  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"'
+        )
+
+    # Ensure a non-empty landing_page_url scalar.
+    landing_scalar_missing = re.search(
+        r"(?m)^\s{2}landing_page_url:\s*(\"\"|''|\s*)$", block_text
+    )
+    if landing_scalar_missing:
+        block_text = re.sub(
+            r"(?m)^\s{2}landing_page_url:\s*(?:\"\"|''|\s*)$",
+            f'  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}landing_page_url:\s*", block_text) is None:
+        block_text += f'\n  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"'
+
+    # Ensure LIST_topics exists and has at least one value.
+    list_topics_inline_empty = re.search(
+        r"(?m)^\s{2}LIST_topics:\s*(\[\s*\]|\"\"|''|\s*)$", block_text
+    )
+    if list_topics_inline_empty:
+        block_text = re.sub(
+            r"(?m)^\s{2}LIST_topics:\s*(?:\[\s*\]|\"\"|''|\s*)$",
+            f'  LIST_topics:\n    - "{defaults["default_topic"]}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}LIST_topics:\s*$", block_text):
+        list_topics_match = re.search(
+            r"(?ms)^  LIST_topics:\s*\n((?:    .*\n?)*)", block_text
+        )
+        list_topics_body = list_topics_match.group(1) if list_topics_match else ""
+        has_list_item = re.search(r"(?m)^    -\s+\S", list_topics_body) is not None
+        if not has_list_item:
+            block_text = re.sub(
+                r"(?m)^  LIST_topics:\s*$",
+                f'  LIST_topics:\n    - "{defaults["default_topic"]}"',
+                block_text,
+                count=1,
+            )
+    elif re.search(r"(?m)^\s{2}LIST_topics:\s*", block_text) is None:
+        block_text += f'\n  LIST_topics:\n    - "{defaults["default_topic"]}"'
+
+    new_lines = lines[:metadata_start] + block_text.splitlines() + lines[metadata_end:]
+    return "\n".join(new_lines) + ("\n" if yaml_text.endswith("\n") else "")
+
+
+def _lint_with_aldashboard_interview_linter(
+    yaml_text: str,
+    include_llm: bool = False,
+) -> Optional[Dict[str, Any]]:
+    try:
+        from docassemble.ALDashboard.interview_linter import lint_interview_content
+
+        return cast(
+            Dict[str, Any],
+            lint_interview_content(yaml_text, include_llm=include_llm),
+        )
+    except Exception as exc:
+        log(f"ALDashboard interview linter unavailable for local repair: {exc!r}")
+        return None
+
+
+def _llm_rewrite_for_plain_language(text: str) -> str:
+    llms = _load_llms_module()
+    if not llms or not text.strip():
+        return text
+    if "${" in text or "<%text>" in text or "% if" in text:
+        return text
+    try:
+        rewritten = llms.chat_completion(
+            system_message=(
+                "Rewrite the text in plain, respectful language at about 6th-grade reading level. "
+                "Preserve legal meaning. Keep similar length. Return JSON with key `rewrite`."
+            ),
+            user_message=text,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if isinstance(rewritten, dict):
+            candidate = str(rewritten.get("rewrite", "") or "").strip()
+            if candidate:
+                return candidate
+    except Exception:
+        pass
+    return text
+
+
+def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
+    lint_result = _lint_with_aldashboard_interview_linter(yaml_text, include_llm=True)
+    if not lint_result:
+        return yaml_text
+    findings = lint_result.get("findings", []) or []
+    candidates: List[str] = []
+    for finding in findings:
+        if finding.get("source") != "llm":
+            continue
+        rule_id = str(finding.get("rule_id", ""))
+        if rule_id not in {"tone-and-respect", "plain-language-rewrite-opportunities"}:
+            continue
+        problematic_text = str(finding.get("problematic_text", "") or "").strip()
+        if not problematic_text or len(problematic_text) < 8:
+            continue
+        if problematic_text not in candidates:
+            candidates.append(problematic_text)
+
+    updated = yaml_text
+    rewrite_count = 0
+    for original in sorted(candidates, key=len, reverse=True):
+        if rewrite_count >= max_rewrites:
+            break
+        if original not in updated:
+            continue
+        rewritten = _llm_rewrite_for_plain_language(original)
+        if not rewritten or rewritten == original:
+            continue
+        updated = updated.replace(original, rewritten, 1)
+        rewrite_count += 1
+    return updated
+
+
+def _repair_generated_yaml_with_lint(
+    yaml_text: str, interview: DAInterview, max_passes: int = 3
+) -> str:
+    """Generate-then-repair loop using deterministic lint fixes."""
+    updated = yaml_text
+    # Always enforce ID uniqueness, even when lint is unavailable.
+    updated = _ensure_unique_question_ids(updated)
+    for _ in range(max_passes):
+        lint_result = _lint_with_aldashboard_interview_linter(updated)
+        if not lint_result:
+            break
+        findings = lint_result.get("findings", []) or []
+        red_rules = {
+            str(finding.get("rule_id"))
+            for finding in findings
+            if str(finding.get("severity")) == "red"
+        }
+        if not red_rules:
+            break
+        before = updated
+        if "missing-question-id" in red_rules:
+            updated = _ensure_question_block_ids(updated)
+        if "missing-metadata-fields" in red_rules:
+            updated = _ensure_required_metadata_values(updated, interview)
+        updated = _ensure_unique_question_ids(updated)
+        if updated == before:
+            break
+    # Optional readability/tone cleanup as a second try only when lint still fails.
+    final_lint = _lint_with_aldashboard_interview_linter(updated)
+    has_red_failures = bool(
+        final_lint
+        and any(
+            str(finding.get("severity")) == "red"
+            for finding in (final_lint.get("findings", []) or [])
+        )
+    )
+    if has_red_failures:
+        updated = _apply_plain_language_repairs(updated)
+    updated = _ensure_unique_question_ids(updated)
+    return updated
+
+
 def _render_interview_yaml(
     interview: DAInterview,
     include_download_screen: bool,
@@ -3368,7 +5040,10 @@ def _render_interview_yaml(
     objects: Optional[List[Any]] = None,
     screen_reordered: Optional[List[Any]] = None,
 ) -> str:
-    from . import __version__
+    try:
+        from . import __version__
+    except ImportError:
+        __version__ = "0.0.0"
     from .custom_values import get_yml_deps_from_choices
     from docassemble.base.util import (
         action_button_html,
@@ -3403,11 +5078,46 @@ def _render_interview_yaml(
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
 
+    screen_triggers: List[str] = []
+    for screen in screen_reordered:
+        if (
+            isinstance(screen, DAQuestion)
+            and screen.type == "question"
+            and (
+                screen.needs_continue_button_field
+                or (hasattr(screen, "field_list") and screen.field_list)
+            )
+        ):
+            if screen.needs_continue_button_field:
+                screen_triggers.append(varname(screen.question_text))
+            else:
+                screen_triggers.append(
+                    screen.field_list[0].trigger_gather(
+                        custom_plurals=interview.all_fields.custom_people_plurals.values()
+                    )
+                )
+        else:
+            screen_triggers.append(
+                screen.trigger_gather(
+                    custom_plurals=interview.all_fields.custom_people_plurals.values()
+                )
+            )
+    navigation_sections, section_assignments = _navigation_sections_and_assignments(
+        interview, screen_reordered, screen_triggers
+    )
+    interview_order_lines = interview.questions.interview_order_list(
+        interview.all_fields,
+        screen_reordered,
+        sections=section_assignments,
+    )
+
     context = {
         "interview": interview,
         "objects": objects or [],
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
+        "navigation_sections": navigation_sections,
+        "interview_order_lines": interview_order_lines,
         "package_version_number": __version__,
         "action_button_html": action_button_html,
         "currency": currency,
@@ -3428,7 +5138,8 @@ def _render_interview_yaml(
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }
-    return template.render(**context)
+    yaml_text = template.render(**context)
+    return _repair_generated_yaml_with_lint(yaml_text, interview)
 
 
 def _assign_next_steps_template(interview: DAInterview) -> None:
@@ -3609,6 +5320,22 @@ def generate_interview_from_path(
         interview.help_page_title = ""
     if not hasattr(interview, "state"):
         interview.state = ""
+    if not hasattr(interview, "landing_page_url"):
+        interview.landing_page_url = ""
+    if not hasattr(interview, "efiling_enabled"):
+        interview.efiling_enabled = False
+    if not hasattr(interview, "integrated_efiling"):
+        interview.integrated_efiling = False
+    if not hasattr(interview, "integrated_email_filing"):
+        interview.integrated_email_filing = False
+    if not hasattr(interview, "requires_notarization"):
+        interview.requires_notarization = False
+    if not hasattr(interview, "unlisted"):
+        interview.unlisted = False
+    if not hasattr(interview, "footer"):
+        interview.footer = ""
+    if not hasattr(interview, "when_you_are_finished"):
+        interview.when_you_are_finished = ""
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
     for field in interview.all_fields:

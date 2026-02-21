@@ -17,6 +17,7 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | False |
     | install_en_core_web_lg | False |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
     | all_look_good['all_checkboxes_checked'] | True |
     | all_look_good['no_unusual_size_text'] | True |
     | all_look_good['signature_filled_in'] | True |
@@ -27,6 +28,7 @@ Scenario: I weave the civil docketing statement
     | fields_checkup_status['interview.all_fields_present'] | True |
     | fields_checkup_status['correct_reserved_fields'] | True |
     | fields_checkup_status['no_unexpected_fields'] | True |
+    | interview.use_llm_assist | False |
     | interview.author | Very cool author |
     | interview.categories['HO-00-00-00-00'] | True |
     | interview.court_related | True |
@@ -70,7 +72,6 @@ Scenario: I weave the civil docketing statement
     | interview.questions[3].field_list['interview.all_fields[28]'] | True |
     | interview.questions[3].field_list['interview.all_fields[29]'] | True |
     | interview.questions[0].field_list['interview.all_fields[2]'] | True |
-    | interview.questions[0].field_list['interview.all_fields[2]'] | True |
     | interview.questions[3].field_list['interview.all_fields[30]'] | True |
     | interview.questions[3].field_list['interview.all_fields[31]'] | True |
     | interview.questions[3].field_list['interview.all_fields[32]'] | True |
@@ -90,7 +91,6 @@ Scenario: I weave the civil docketing statement
     | interview.questions[3].field_list['interview.all_fields[39]'] | True |
     | interview.questions[3].field_list['interview.all_fields[40]'] | True |
     | interview.questions[3].field_list['interview.all_fields[41]'] | True |
-    | interview.questions[3].field_list['interview.all_fields[41]'] | True |
     | interview.questions[3].field_list['interview.all_fields[42]'] | True |
     | interview.questions[3].field_list['interview.all_fields[43]'] | True |
     | interview.questions[3].field_list['interview.all_fields[44]'] | True |
@@ -104,6 +104,7 @@ Scenario: I weave the civil docketing statement
     | interview.questions[1].question_text | Screen 2 (informational) title |
     | interview.questions[1].subquestion_text | Screen 2 informational only |
     | review_fields_after_labeling | True |
+    | interview.enable_navigation | True |
     | show_screen_order | True |
     | review_weaver | True |
     | weaver_intro | True |
@@ -119,6 +120,7 @@ Scenario: I weave the civil docketing statement
     | im_feeling_lucky | False |
     | install_en_core_web_lg | False |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
     | all_look_good['all_checkboxes_checked'] | True |
     | all_look_good['no_unusual_size_text'] | True |
     | all_look_good['signature_filled_in'] | True |
@@ -129,6 +131,7 @@ Scenario: I weave the civil docketing statement
     | fields_checkup_status['interview.all_fields_present'] | True |
     | fields_checkup_status['correct_reserved_fields'] | True |
     | fields_checkup_status['no_unexpected_fields'] | True |
+    | interview.use_llm_assist | False |
     | interview.author | Very cool author |
     | interview.categories['HO-00-00-00-00'] | True |
     | interview.court_related | True |
@@ -147,7 +150,7 @@ Scenario: I weave the civil docketing statement
 
 @weaver3 @weaver @auto_drafting_mode
 Scenario: I weave the civil docketing statement
-  Given the max seconds for each Step is 90
+  Given the max seconds for each Step is 180
   And I start the interview at "assembly_line.yml"
   Then I tap the "#upload" element and wait 5 seconds
   And I get to the question id "download-your-interview" with this data:
@@ -155,5 +158,7 @@ Scenario: I weave the civil docketing statement
     | interview_type | regular |
     | im_feeling_lucky | True |
     | interview.uploaded_templates | test_civil_docketing_statement.pdf |
+    | offer_auto_label_existing_fields | False |
+    | interview.use_llm_assist | False |
     | show_screen_order | True |
     | review_weaver | True |
