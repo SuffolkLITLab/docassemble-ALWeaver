@@ -148,17 +148,29 @@ need:
   - share_session_message_template
   - tell_a_friend_message_template
 code: |
-  if how_to_share == 'email_or_sms':
+  if how_to_share == "email_or_sms":
     if phone_number_is_valid(share_interview_contact_method):
       if sharing_type == "tell_friend":
-        success = send_sms(to=share_interview_contact_method, template=tell_a_friend_message_template)
+        success = send_sms(
+          to=share_interview_contact_method,
+          template=tell_a_friend_message_template,
+        )
       else:
-        success = send_sms(to=share_interview_contact_method, template=share_session_message_template)
+        success = send_sms(
+          to=share_interview_contact_method,
+          template=share_session_message_template,
+        )
     else:
       if sharing_type == "tell_friend":
-        success = send_email(to=share_interview_contact_method, template=tell_a_friend_message_template)
+        success = send_email(
+          to=share_interview_contact_method,
+          template=tell_a_friend_message_template,
+        )
       else:
-        success = send_email(to=share_interview_contact_method, template=share_session_message_template)
+        success = send_email(
+          to=share_interview_contact_method,
+          template=share_session_message_template,
+        )
   did_share_form = True
 ---
 ##########
@@ -195,13 +207,13 @@ content: |
   ${ interview_url(i=user_info().filename, style="short", new_session=1) }
 ---
 code: |  
-  github_user = "suffolklitlab"   
-  github_url = "https://github.com/" + github_user + "/" + github_repo_name 
+  github_user = "suffolklitlab"
+  github_url = "https://github.com/" + github_user + "/" + github_repo_name
 ---
 code: |
   res = github_modified_date(github_user, github_repo_name)
   if res:
-    package_updated_on = res.format('yyyy-MM-dd')
+    package_updated_on = res.format("yyyy-MM-dd")
   else:
     package_updated_on = None
 ---
@@ -212,4 +224,4 @@ code: |
   try:
     weaver_version = "ALWeaver-" + str(docassemble.ALWeaver.__version__)
   except:
-    weaver_version = "" 
+    weaver_version = ""

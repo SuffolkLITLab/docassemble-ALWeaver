@@ -111,7 +111,6 @@ attachment:
       interview.uploaded_templates[i]
   code: |
     reflect_fields(interview.uploaded_templates[i].get_pdf_fields(), placeholder_signature)
-
 ---
 template: template_preview
 subject: |
@@ -195,20 +194,40 @@ buttons:
 code: |
   for document in interview.uploaded_templates:
     if document.filename.endswith("pdf"):
-      formfyxer.parse_form(document.path(), title=os.path.basename(document.path()), jur="MA", normalize=1,rewrite=1, tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"))
+      formfyxer.parse_form(
+        document.path(),
+        title=os.path.basename(document.path()),
+        jur="MA",
+        normalize=1,
+        rewrite=1,
+        tools_token=get_config("assembly line", {}).get(
+          "tools.suffolklitlab.org api key"
+        ),
+      )
       document.commit()
   process_field_normalization = True
 ---
 code: |
-  temp_new_pdf = DAFile("temp_new_pdf", filename=os.path.basename(interview.uploaded_templates[0].path()))
+  temp_new_pdf = DAFile(
+    "temp_new_pdf", filename=os.path.basename(interview.uploaded_templates[0].path())
+  )
   for document in interview.uploaded_templates:
     if document.filename.endswith("pdf"):
       temp_new_pdf.initialize()
       formfyxer.auto_add_fields(document.path(), temp_new_pdf.path())
-  
+
       # also normalize field names after newly recognizing them
-      formfyxer.parse_form(temp_new_pdf.path(), title=document.filename, jur="MA", normalize=1, rewrite=1, tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"))
-  
+      formfyxer.parse_form(
+        temp_new_pdf.path(),
+        title=document.filename,
+        jur="MA",
+        normalize=1,
+        rewrite=1,
+        tools_token=get_config("assembly line", {}).get(
+          "tools.suffolklitlab.org api key"
+        ),
+      )
+
       temp_new_pdf.commit()
       document.copy_into(temp_new_pdf)
   process_field_recognition = True
@@ -224,7 +243,7 @@ code: |
   interview.all_fields.gathered
   people_list = interview.all_fields.get_person_candidates(custom_only=True)
   possible_custom = [
-    field.variable 
+    field.variable
     for field in interview.all_fields
     if is_reserved_label(field.variable, reserved_prefixes=people_list)
   ]
@@ -270,7 +289,7 @@ buttons:
   - Restart: restart
   - I know what I'm doing, ignore these fields and continue:
       code: |
-        non_descriptive_field_name = 'ignore'
+        non_descriptive_field_name = "ignore"
 ---
 event: parsing_exception
 question: ${ parsing_ex.main_issue }
@@ -287,15 +306,18 @@ buttons:
 code: |
   warnings_temp = set()
   for field in interview.all_fields:
-    if ' ' in field.variable:
-      warnings_temp.add('space')
+    if " " in field.variable:
+      warnings_temp.add("space")
     if hasattr(field, "field_type_not_handled") and field.field_type_not_handled:
-      warnings_temp.add('not handled')
+      warnings_temp.add("not handled")
   warnings = warnings_temp
   del warnings_temp
 ---
 code: |
-  no_recognized_pdf_fields = not (any(field for field in interview.all_fields if is_reserved_label(field.variable)) or len(possible_custom) > 0)
+  no_recognized_pdf_fields = not (
+    any(field for field in interview.all_fields if is_reserved_label(field.variable))
+    or len(possible_custom) > 0
+  )
 ---
 id: confirm-pdf-fields
 question: |
@@ -374,31 +396,32 @@ fields:
         key: signature_filled_in
     none of the above: False
 validation code: |
-  all_present_msg = ''
-  all_expected_msg = '' 
-  correct_reserved_msg = ''
-  if not fields_checkup_status['interview.all_fields_present']:    
-    all_present_msg = "<ul><li>You didn't confirm 'All my fields are listed in the table above'. Double check your PDF to make sure you <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">created the field correctly</a> for details!</li></ul>"    
-  if not fields_checkup_status['no_unexpected_fields']:
+  all_present_msg = ""
+  all_expected_msg = ""
+  correct_reserved_msg = ""
+  if not fields_checkup_status["interview.all_fields_present"]:
+    all_present_msg = "<ul><li>You didn't confirm 'All my fields are listed in the table above'. Double check your PDF to make sure you <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">created the field correctly</a> for details!</li></ul>"
+  if not fields_checkup_status["no_unexpected_fields"]:
     all_expected_msg = "<ul><li>You didn't confirm 'There are no unexpected fields in the table'. You should <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">remove fields</a> that you won't be asking for or showing in the form.</li></ul>"
-  if not fields_checkup_status['correct_reserved_fields']:
+  if not fields_checkup_status["correct_reserved_fields"]:
     correct_reserved_msg = "<ul><li>You didn't confirm 'All the reserved fields are bolded as I expected'. Make sure your <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables\">labels</a> are spelled correctly.</li></ul>"
   pdf_preview_msg = all_present_msg + all_expected_msg + correct_reserved_msg
   if len(pdf_preview_msg) > 0:
-    validation_error(pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']")
-  checkboxes_msg = ''
-  text_mst = ''
-  signature_msg = ''
-  if not all_look_good['all_checkboxes_checked']:
+    validation_error(
+      pdf_preview_msg, field="fields_checkup_status['correct_reserved_fields']"
+    )
+  checkboxes_msg = ""
+  text_mst = ""
+  signature_msg = ""
+  if not all_look_good["all_checkboxes_checked"]:
     checkboxes_msg = "<ul><li>You didn't confirm 'All the checkboxes are checked'. Check the field's 'export' value. It should be set to 'Yes'.</li></ul>"
-  if not all_look_good['no_unusual_size_text']:
+  if not all_look_good["no_unusual_size_text"]:
     text_mst = "<ul><li>You didn't confirm 'No unusually sized text'. Check the font sizes of those fields, and if the field is set to allow multiple lines.</li></ul>"
-  if not all_look_good['signature_filled_in']:
-    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature interview.all_fields.</li></ul>"  
+  if not all_look_good["signature_filled_in"]:
+    signature_msg = "<ul><li>You didn't confirm 'All signature fields are filled in with the signature image.' Ensure that these are <a href=\"https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#add-labels-and-fields\">properly set</a> to be signature interview.all_fields.</li></ul>"
   msg = checkboxes_msg + text_mst + signature_msg
   if len(msg) > 0:
-    validation_error(msg, field="all_look_good['all_checkboxes_checked']")   
-
+    validation_error(msg, field="all_look_good['all_checkboxes_checked']")
 #continue button field: field_list_display
 help:
   label: Debug Info
@@ -427,7 +450,15 @@ question: |
   Rename fields
 fields: 
   - code: |
-      [{item[0]: f"rename_fields['{item[0]}']", "default" : item[0], "label above field": True, "required": False} for item in interview.uploaded_templates[0].get_pdf_fields()]
+      [
+        {
+          item[0]: f"rename_fields['{item[0]}']",
+          "default": item[0],
+          "label above field": True,
+          "required": False,
+        }
+        for item in interview.uploaded_templates[0].get_pdf_fields()
+      ]
 right: |
   #### Preview of PDF label placement
   
@@ -438,8 +469,12 @@ right: |
 continue button field: display_rename_field_choices
 ---
 code: |
-  formfyxer.rename_pdf_fields(interview.uploaded_templates[0].path(), interview.uploaded_templates[0].path(), rename_fields)
-  
+  formfyxer.rename_pdf_fields(
+    interview.uploaded_templates[0].path(),
+    interview.uploaded_templates[0].path(),
+    rename_fields,
+  )
+
   renamed_fields = True
 ---
 attachment:
@@ -454,11 +489,14 @@ attachment:
 ###################### DOCX validation stuff #############################
 ---
 code: |
-  verify_docx_fields 
+  verify_docx_fields
   validate_docx = True
 ---
 code: |
-  no_recognized_docx_fields = not (any(field for field in validation_fields if field.reserved) or len(validation_people_list))
+  no_recognized_docx_fields = not (
+    any(field for field in validation_fields if field.reserved)
+    or len(validation_people_list)
+  )
 ---
 id: Did you intend to use Mako syntax
 question: |
@@ -671,8 +709,12 @@ code: |
 
   for field in validation_fields:
     if field.source_document_type == "docx":
-      field.reserved = is_reserved_docx_label(field.variable) or field.variable in people_list or matching_reserved_names({field.variable})
+      field.reserved = (
+        is_reserved_docx_label(field.variable)
+        or field.variable in people_list
+        or matching_reserved_names({field.variable})
+      )
     elif field.source_document_type == "pdf":
       field.reserved = is_reserved_label(field.variable)
-    
+
   validation_fields.mark_people_as_builtins(people_list)

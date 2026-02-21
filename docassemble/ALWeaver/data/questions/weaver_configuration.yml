@@ -25,4 +25,4 @@ subquestion: |
 ---
 event: delete_configuration
 code: |
-  weaverdata.delete("published_configuration_capabilities")  
+  weaverdata.delete("published_configuration_capabilities")

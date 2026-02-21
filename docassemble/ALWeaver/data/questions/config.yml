@@ -18,7 +18,7 @@ id: interview order
 mandatory: True
 code: |
   load_values
-  intro    
+  intro
 ---
 objects:
   - weaverdata: DAStore.using(base="docassemble.ALWeaver")
@@ -27,11 +27,13 @@ objects:
   - jurisdiction_choices: SettingsList.using(object_type=DAObject, there_are_any=True, complete_attribute="description", store=weaverdata)
 ---
 code: |
-  published_configuration_capabilities = weaverdata.get("published_configuration_capabilities") or {}
-  
+  published_configuration_capabilities = (
+    weaverdata.get("published_configuration_capabilities") or {}
+  )
+
   if weaverdata.get("jurisdiction_choices"):
     jurisdiction_choices = weaverdata.get("jurisdiction_choices")
-      
+
   load_values = True
 ---
 imports:
