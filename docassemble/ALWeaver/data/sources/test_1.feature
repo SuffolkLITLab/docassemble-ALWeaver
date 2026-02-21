@@ -72,7 +72,6 @@ Scenario: I weave the civil docketing statement
     | interview.questions[3].field_list['interview.all_fields[28]'] | True |
     | interview.questions[3].field_list['interview.all_fields[29]'] | True |
     | interview.questions[0].field_list['interview.all_fields[2]'] | True |
-    | interview.questions[0].field_list['interview.all_fields[2]'] | True |
     | interview.questions[3].field_list['interview.all_fields[30]'] | True |
     | interview.questions[3].field_list['interview.all_fields[31]'] | True |
     | interview.questions[3].field_list['interview.all_fields[32]'] | True |
@@ -91,7 +90,6 @@ Scenario: I weave the civil docketing statement
     | interview.questions[3].field_list['interview.all_fields[38]'] | True |
     | interview.questions[3].field_list['interview.all_fields[39]'] | True |
     | interview.questions[3].field_list['interview.all_fields[40]'] | True |
-    | interview.questions[3].field_list['interview.all_fields[41]'] | True |
     | interview.questions[3].field_list['interview.all_fields[41]'] | True |
     | interview.questions[3].field_list['interview.all_fields[42]'] | True |
     | interview.questions[3].field_list['interview.all_fields[43]'] | True |

@@ -2056,10 +2056,20 @@ class DAInterview(DAObject):
                         extracted = extract_text(template.path())
                     elif template.filename.lower().endswith(".docx"):
                         extracted = docx2python(template.path()).text
-                except Exception:
+                except Exception as exc:
+                    log(
+                        f"Failed to extract text from {template.filename}: {exc!r}",
+                        "warning",
+                    )
                     extracted = ""
                 if extracted:
                     chunks.append(extracted)
+                else:
+                    if hasattr(template, "filename"):
+                        log(
+                            f"No text extracted from {template.filename} (file may be empty or unreadable)",
+                            "warning",
+                        )
 
         combined = "\n\n".join(chunks).strip()
         self._llm_template_context_cache_key = cache_key
@@ -2104,10 +2114,20 @@ class DAInterview(DAObject):
     def llm_prefill_metadata(self, apply: bool = True) -> bool:
         llms = _load_llms_module()
         if not llms:
+            log("LLM prefill_metadata skipped: llms module not available", "warning")
             return False
         context_text = self._llm_context_text()
         if not context_text:
+            log(
+                "LLM prefill_metadata skipped: no document context text extracted",
+                "warning",
+            )
             return False
+
+        log(
+            f"LLM prefill_metadata starting with {len(context_text)} chars of context",
+            "info",
+        )
 
         try:
             form_type_choices = _prompt_dict(
@@ -2189,6 +2209,11 @@ Predicted role: {{ROLE}}
                 drafted_when_finished = str(
                     drafted.get("when_you_are_finished") or ""
                 ).strip()
+
+                log(
+                    f"LLM metadata response received: title={bool(drafted_title)}, getting_started={bool(drafted_getting_started)}, when_finished={bool(drafted_when_finished)}",
+                    "info",
+                )
                 drafted_landing_page_url = str(
                     drafted.get("landing_page_url") or ""
                 ).strip()
@@ -2345,6 +2370,7 @@ Predicted role: {{ROLE}}
                     self.typical_role = role
                 else:
                     self.llm_draft_typical_role = role
+            log("LLM metadata prefill completed successfully", "info")
             return True
         except Exception as exc:
             log(f"LLM metadata prefill failed: {exc!r}")

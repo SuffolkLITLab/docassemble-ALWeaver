@@ -1899,10 +1899,10 @@ code: |
   if not len(interview.sections):
     interview.sections.clear()
     for entry in default_sections[interview.form_type]:
-      for key, value in entry.items():
+      for key, section_label in entry.items():
         new_item = interview.sections.appendObject()
         new_item.key = key
-        new_item.value = value
+        new_item.value = section_label
   interview_sections_defaults_loaded = True
 ---
 table: interview.sections.table
