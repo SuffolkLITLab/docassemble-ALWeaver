@@ -2,9 +2,52 @@
     Initial metadata and includes
 </%doc>
 ---
+<%
+  selected_includes = list(
+      get_yml_deps_from_choices(
+          interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
+      )
+  )
+  state_for_theme = str(showifdef("interview.state", "") or "").strip().upper()
+  massaccess_include = "docassemble.MassAccess:massaccess.yml"
+  if state_for_theme == "MA" and massaccess_include not in selected_includes:
+      selected_includes.append(massaccess_include)
+
+  categories_selected = sorted(set(interview.categories.true_values()))
+  other_categories_selected = []
+  if interview.has_other_categories and getattr(interview, "other_categories", ""):
+      other_categories_selected = [
+          category.strip()
+          for category in str(interview.other_categories).split(",")
+          if category and category.strip()
+      ]
+  topic_values = categories_selected + other_categories_selected
+  if not topic_values:
+      topic_values = ["CO-00-00-00-00"]
+
+  landing_page_url_value = str(showifdef("interview.landing_page_url", "") or "").strip()
+  if not landing_page_url_value:
+      original_form_url = str(showifdef("interview.original_form", "") or "").strip()
+      if original_form_url.startswith(("http://", "https://")):
+          landing_page_url_value = original_form_url
+      else:
+          landing_page_url_value = "https://courtformsonline.org/"
+
+  jurisdiction_value = str(showifdef("interview.jurisdiction", "") or "").strip()
+  if not jurisdiction_value:
+      state_value = str(showifdef("interview.state", "") or "").strip().upper()
+      country_value = str(showifdef("interview.default_country_code", "US") or "US").strip().upper()
+      if country_value == "US" and state_value:
+          jurisdiction_value = f"NAM-US-US+{state_value}"
+      elif country_value:
+          jurisdiction_value = f"NAM-{country_value}"
+      else:
+          jurisdiction_value = "NAM-US"
+%>
+---
 include:
   - docassemble.AssemblyLine:assembly_line.yml
-  % for include in get_yml_deps_from_choices( interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()):
+  % for include in selected_includes:
   - ${ include }
   % endfor
 ---
@@ -36,34 +79,21 @@ ${ indent(interview.when_you_are_finished, by=4) }
   footer: >-
 ${ indent(interview.footer, by=4) }
   % endif
-  % if showifdef("interview.landing_page_url"):
   landing_page_url: >-
-${ indent(interview.landing_page_url, by=4) }
-  % endif
+${ indent(landing_page_url_value, by=4) }
   maturity: production
   estimated_completion_minutes: ${ showifdef("interview.estimated_completion_minutes",'""')}
   estimated_completion_delta: ${ showifdef("interview.estimated_completion_delta", '""')}
-  % if interview.categories.any_true():
-  LIST_topics: 
-    % for category in sorted(set(interview.categories.true_values())):
+  LIST_topics:
+    % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
-    % if interview.has_other_categories:
-    % for category in interview.other_categories.split(','):
-    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
-    % endfor
-    % endif
   tags:
-    % for category in sorted(set(interview.categories.true_values())):
+    % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
-    % if interview.has_other_categories:
-    % for category in interview.other_categories.split(','):
-    - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
-    % endfor
-    % endif
-  % else:
-  tags: []
+  % if interview.categories.any_true() or len(other_categories_selected) > 0:
+  # Keep legacy tags behavior for compatibility with downstream tools.
   % endif
   authors:
     % for author in interview.author.splitlines():
@@ -101,7 +131,7 @@ ${ indent(interview.help_page_title, by=4) }
   generated_on: "${ today().format("yyyy-MM-dd") }"
   languages:
     - en
-  jurisdiction: ${ showifdef("interview.jurisdiction", '""') }
+  jurisdiction: "${ escape_double_quoted_yaml(oneline(jurisdiction_value)) }"
   review_date: ${ today().format("yyyy-MM-dd")}
   form_titles:
     - ${ interview.title }
@@ -334,6 +364,7 @@ ${ review_yaml(coll) | trim }\
 % for coll in interview.all_fields.find_parent_collections():
   % if coll.var_type == 'list':
 ---
+id: ${ fix_id("edit " + coll.var_name) }
 continue button field: ${ coll.var_name }.revisit
 question: |
   Edit ${ coll.var_name }

@@ -1279,7 +1279,14 @@ class DAFieldList(DAList):
         Mark people as built-ins if they match heuristics, without asking. For
         use with "I'm feeling lucky" feature.
         """
-        candidates = self.get_person_candidates()
+        # Use stricter candidates to avoid false positives like generic `_name`
+        # fields becoming list gathers (e.g., `County.gather()`).
+        candidates = self.get_person_candidates(custom_only=True)
+        candidates = {
+            candidate
+            for candidate in candidates
+            if re.match(r"^[a-z][a-z0-9_]*$", candidate)
+        }
         self.mark_people_as_builtins(candidates)
 
     def auto_label_fields(self):
@@ -4042,18 +4049,27 @@ def _resolve_template_path(template_ref: str) -> str:
     if os.path.isabs(template_ref) and os.path.exists(template_ref):
         return template_ref
     
-    if ":" in template_ref:
-        # Format: package_name:template_name
-        package_name, template_name = template_ref.split(":", 1)
-        file_path, _ = path_and_mimetype(
-            f"{package_name}:data/templates/{template_name}"
-        )
-    else:
-        template_name = template_ref
-        file_path, _ = path_and_mimetype(
-            f"data/templates/{template_name}"
-        )
-    return file_path
+    template_name = template_ref.split(":", 1)[1] if ":" in template_ref else template_ref
+    file_path = None
+    try:
+        if ":" in template_ref:
+            # Format: package_name:template_name
+            package_name, template_name = template_ref.split(":", 1)
+            file_path, _ = path_and_mimetype(
+                f"{package_name}:data/templates/{template_name}"
+            )
+        else:
+            file_path, _ = path_and_mimetype(f"data/templates/{template_name}")
+    except Exception:
+        file_path = None
+
+    if file_path and os.path.exists(file_path):
+        return file_path
+
+    local_path = os.path.join(os.path.dirname(__file__), "data", "templates", template_name)
+    if os.path.exists(local_path):
+        return local_path
+    raise FileNotFoundError(f"Could not resolve template path for: {template_ref}")
 
 
 def _field_type_from_definition(field_def: FieldDefinition) -> Optional[str]:
@@ -4274,6 +4290,301 @@ def _merge_field_definitions_into_screens(
     return merged_screens
 
 
+def _metadata_defaults_for_lint(interview: DAInterview) -> Dict[str, str]:
+    state_value = str(getattr(interview, "state", "") or "").strip().upper()
+    country_value = str(getattr(interview, "default_country_code", "US") or "US").strip().upper()
+    jurisdiction_value = str(getattr(interview, "jurisdiction", "") or "").strip()
+    if not jurisdiction_value:
+        if country_value == "US" and state_value:
+            jurisdiction_value = f"NAM-US-US+{state_value}"
+        elif country_value:
+            jurisdiction_value = f"NAM-{country_value}"
+        else:
+            jurisdiction_value = "NAM-US"
+
+    landing_page_url_value = str(getattr(interview, "landing_page_url", "") or "").strip()
+    if not landing_page_url_value:
+        original_form_url = str(getattr(interview, "original_form", "") or "").strip()
+        if original_form_url.startswith(("http://", "https://")):
+            landing_page_url_value = original_form_url
+        else:
+            landing_page_url_value = "https://courtformsonline.org/"
+
+    return {
+        "jurisdiction": jurisdiction_value,
+        "landing_page_url": landing_page_url_value,
+        "default_topic": "CO-00-00-00-00",
+    }
+
+
+def _ensure_question_block_ids(yaml_text: str) -> str:
+    """Add deterministic ids to question blocks that are missing an id."""
+    docs = re.split(r"(?m)^---\s*$", yaml_text)
+    updated_docs: List[str] = []
+    generated_counter = 1
+
+    for raw_doc in docs:
+        doc_text = raw_doc
+        if not doc_text.strip():
+            updated_docs.append(doc_text)
+            continue
+        has_top_level_id = re.search(r"(?m)^id:\s*", doc_text) is not None
+        has_question = re.search(r"(?m)^question:\s*", doc_text) is not None
+        if not has_top_level_id and has_question:
+            title = ""
+            question_match = re.search(r"(?m)^question:\s*(.*)$", doc_text)
+            if question_match:
+                first_value = (question_match.group(1) or "").strip()
+                if first_value and not first_value.startswith(("|", ">")):
+                    title = first_value
+                else:
+                    after = doc_text[question_match.end() :]
+                    for line in after.splitlines():
+                        if not line.strip():
+                            continue
+                        if line.startswith((" ", "\t")):
+                            stripped = line.strip()
+                            if stripped and not stripped.startswith("#"):
+                                title = stripped
+                                break
+                        else:
+                            break
+            title = title or f"auto generated screen {generated_counter}"
+            generated_counter += 1
+            id_line = f"id: {fix_id(title)}\n"
+            # Insert before the first top-level key when possible.
+            first_key = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_ ]*:\s*", doc_text)
+            if first_key:
+                doc_text = doc_text[: first_key.start()] + id_line + doc_text[first_key.start() :]
+            else:
+                doc_text = id_line + doc_text
+        updated_docs.append(doc_text)
+
+    return "---\n".join(updated_docs)
+
+
+def _ensure_unique_question_ids(yaml_text: str) -> str:
+    """Ensure top-level `id:` values are unique by appending a numeric suffix."""
+    lines = yaml_text.splitlines()
+    seen: Dict[str, int] = {}
+    in_metadata = False
+
+    for idx, line in enumerate(lines):
+        if line.strip() == "metadata:":
+            in_metadata = True
+            continue
+        if in_metadata and line.strip() == "---":
+            in_metadata = False
+            continue
+        if in_metadata:
+            continue
+        if not line.startswith("id: "):
+            continue
+        raw_id = line[4:].strip()
+        if not raw_id:
+            continue
+        count = seen.get(raw_id, 0) + 1
+        seen[raw_id] = count
+        if count > 1:
+            lines[idx] = f"id: {raw_id} {count}"
+    output = "\n".join(lines)
+    return output + ("\n" if yaml_text.endswith("\n") else "")
+
+
+def _ensure_required_metadata_values(yaml_text: str, interview: DAInterview) -> str:
+    """Ensure required metadata fields are present and non-empty for lint."""
+    defaults = _metadata_defaults_for_lint(interview)
+    lines = yaml_text.splitlines()
+    metadata_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "metadata:":
+            metadata_start = idx
+            break
+    if metadata_start is None:
+        return yaml_text
+    metadata_end = len(lines)
+    for idx in range(metadata_start + 1, len(lines)):
+        if lines[idx].strip() == "---" and not lines[idx].startswith(" "):
+            metadata_end = idx
+            break
+
+    block = lines[metadata_start:metadata_end]
+    block_text = "\n".join(block)
+
+    # Ensure a non-empty jurisdiction scalar.
+    if re.search(r"(?m)^\s{2}jurisdiction:\s*(\"\"|''|\s*)$", block_text):
+        block_text = re.sub(
+            r"(?m)^\s{2}jurisdiction:\s*(?:\"\"|''|\s*)$",
+            f'  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}jurisdiction:\s*", block_text) is None:
+        block_text += f'\n  jurisdiction: "{escape_double_quoted_yaml(defaults["jurisdiction"])}"'
+
+    # Ensure a non-empty landing_page_url scalar.
+    landing_scalar_missing = re.search(
+        r"(?m)^\s{2}landing_page_url:\s*(\"\"|''|\s*)$", block_text
+    )
+    if landing_scalar_missing:
+        block_text = re.sub(
+            r"(?m)^\s{2}landing_page_url:\s*(?:\"\"|''|\s*)$",
+            f'  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}landing_page_url:\s*", block_text) is None:
+        block_text += (
+            f'\n  landing_page_url: "{escape_double_quoted_yaml(defaults["landing_page_url"])}"'
+        )
+
+    # Ensure LIST_topics exists and has at least one value.
+    list_topics_inline_empty = re.search(
+        r"(?m)^\s{2}LIST_topics:\s*(\[\s*\]|\"\"|''|\s*)$", block_text
+    )
+    if list_topics_inline_empty:
+        block_text = re.sub(
+            r"(?m)^\s{2}LIST_topics:\s*(?:\[\s*\]|\"\"|''|\s*)$",
+            f'  LIST_topics:\n    - "{defaults["default_topic"]}"',
+            block_text,
+            count=1,
+        )
+    elif re.search(r"(?m)^\s{2}LIST_topics:\s*$", block_text):
+        list_topics_match = re.search(
+            r"(?ms)^  LIST_topics:\s*\n((?:    .*\n?)*)", block_text
+        )
+        list_topics_body = list_topics_match.group(1) if list_topics_match else ""
+        has_list_item = re.search(r"(?m)^    -\s+\S", list_topics_body) is not None
+        if not has_list_item:
+            block_text = re.sub(
+                r"(?m)^  LIST_topics:\s*$",
+                f'  LIST_topics:\n    - "{defaults["default_topic"]}"',
+                block_text,
+                count=1,
+            )
+    elif re.search(r"(?m)^\s{2}LIST_topics:\s*", block_text) is None:
+        block_text += f'\n  LIST_topics:\n    - "{defaults["default_topic"]}"'
+
+    new_lines = lines[:metadata_start] + block_text.splitlines() + lines[metadata_end:]
+    return "\n".join(new_lines) + ("\n" if yaml_text.endswith("\n") else "")
+
+
+def _lint_with_aldashboard_interview_linter(
+    yaml_text: str,
+    include_llm: bool = False,
+) -> Optional[Dict[str, Any]]:
+    try:
+        from docassemble.ALDashboard.interview_linter import lint_interview_content
+
+        return cast(
+            Dict[str, Any],
+            lint_interview_content(yaml_text, include_llm=include_llm),
+        )
+    except Exception as exc:
+        log(f"ALDashboard interview linter unavailable for local repair: {exc!r}")
+        return None
+
+
+def _llm_rewrite_for_plain_language(text: str) -> str:
+    llms = _load_llms_module()
+    if not llms or not text.strip():
+        return text
+    if "${" in text or "<%text>" in text or "% if" in text:
+        return text
+    try:
+        rewritten = llms.chat_completion(
+            system_message=(
+                "Rewrite the text in plain, respectful language at about 6th-grade reading level. "
+                "Preserve legal meaning. Keep similar length. Return JSON with key `rewrite`."
+            ),
+            user_message=text,
+            json_mode=True,
+            model="gpt-5-mini",
+        )
+        if isinstance(rewritten, dict):
+            candidate = str(rewritten.get("rewrite", "") or "").strip()
+            if candidate:
+                return candidate
+    except Exception:
+        pass
+    return text
+
+
+def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
+    lint_result = _lint_with_aldashboard_interview_linter(yaml_text, include_llm=True)
+    if not lint_result:
+        return yaml_text
+    findings = lint_result.get("findings", []) or []
+    candidates: List[str] = []
+    for finding in findings:
+        if finding.get("source") != "llm":
+            continue
+        rule_id = str(finding.get("rule_id", ""))
+        if rule_id not in {"tone-and-respect", "plain-language-rewrite-opportunities"}:
+            continue
+        problematic_text = str(finding.get("problematic_text", "") or "").strip()
+        if not problematic_text or len(problematic_text) < 8:
+            continue
+        if problematic_text not in candidates:
+            candidates.append(problematic_text)
+
+    updated = yaml_text
+    rewrite_count = 0
+    for original in sorted(candidates, key=len, reverse=True):
+        if rewrite_count >= max_rewrites:
+            break
+        if original not in updated:
+            continue
+        rewritten = _llm_rewrite_for_plain_language(original)
+        if not rewritten or rewritten == original:
+            continue
+        updated = updated.replace(original, rewritten, 1)
+        rewrite_count += 1
+    return updated
+
+
+def _repair_generated_yaml_with_lint(
+    yaml_text: str, interview: DAInterview, max_passes: int = 3
+) -> str:
+    """Generate-then-repair loop using deterministic lint fixes."""
+    updated = yaml_text
+    # Always enforce ID uniqueness, even when lint is unavailable.
+    updated = _ensure_unique_question_ids(updated)
+    for _ in range(max_passes):
+        lint_result = _lint_with_aldashboard_interview_linter(updated)
+        if not lint_result:
+            break
+        findings = lint_result.get("findings", []) or []
+        red_rules = {
+            str(finding.get("rule_id"))
+            for finding in findings
+            if str(finding.get("severity")) == "red"
+        }
+        if not red_rules:
+            break
+        before = updated
+        if "missing-question-id" in red_rules:
+            updated = _ensure_question_block_ids(updated)
+        if "missing-metadata-fields" in red_rules:
+            updated = _ensure_required_metadata_values(updated, interview)
+        updated = _ensure_unique_question_ids(updated)
+        if updated == before:
+            break
+    # Optional readability/tone cleanup as a second try only when lint still fails.
+    final_lint = _lint_with_aldashboard_interview_linter(updated)
+    has_red_failures = bool(
+        final_lint
+        and any(
+            str(finding.get("severity")) == "red"
+            for finding in (final_lint.get("findings", []) or [])
+        )
+    )
+    if has_red_failures:
+        updated = _apply_plain_language_repairs(updated)
+    updated = _ensure_unique_question_ids(updated)
+    return updated
+
+
 def _render_interview_yaml(
     interview: DAInterview,
     include_download_screen: bool,
@@ -4344,7 +4655,8 @@ def _render_interview_yaml(
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }
-    return template.render(**context)
+    yaml_text = template.render(**context)
+    return _repair_generated_yaml_with_lint(yaml_text, interview)
 
 
 def _assign_next_steps_template(interview: DAInterview) -> None:

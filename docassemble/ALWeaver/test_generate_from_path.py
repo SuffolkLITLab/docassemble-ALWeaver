@@ -1,12 +1,13 @@
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from .interview_generator import generate_interview_from_path
+from .interview_generator import generate_interview_from_path, _ensure_unique_question_ids
 
 
 class TestGenerateInterviewFromPath(unittest.TestCase):
@@ -56,6 +57,25 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
 
+    def test_ensure_unique_question_ids(self):
+        sample = """---
+id: Duplicate title
+question: |
+  First
+---
+id: Duplicate title
+question: |
+  Second
+---
+id: Duplicate title
+question: |
+  Third
+"""
+        fixed = _ensure_unique_question_ids(sample)
+        self.assertIn("id: Duplicate title\n", fixed)
+        self.assertIn("id: Duplicate title 2\n", fixed)
+        self.assertIn("id: Duplicate title 3\n", fixed)
+
     def test_generate_from_docx(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -64,6 +84,10 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
                 output_dir=tmpdir,
                 create_package_zip=False,
                 include_next_steps=False,
+                interview_overrides={
+                    "state": "MA",
+                    "jurisdiction": "NAM-US-US+MA",
+                },
                 field_definitions=[
                     {
                         "field": "custom_text",
@@ -85,6 +109,18 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             # Ensure it shows up in the interview order so the generated interview
             # actually collects it.
             self.assertIn("users[1].email", yaml_text)
+            # Deterministic generation guards.
+            self.assertIn("id: edit users", yaml_text)
+            self.assertIn("docassemble.MassAccess:massaccess.yml", yaml_text)
+            self.assertRegex(
+                yaml_text,
+                r"(?m)^  LIST_topics:\s*$\n\s+-\s+\".+\"",
+            )
+            self.assertRegex(yaml_text, r"(?m)^  jurisdiction:\s+\".+\"$")
+            self.assertRegex(
+                yaml_text,
+                r"(?m)^  landing_page_url:\s*>-\s*$\n\s+https?://",
+            )
             self._run_dayamlchecker(result.yaml_path)
 
 
