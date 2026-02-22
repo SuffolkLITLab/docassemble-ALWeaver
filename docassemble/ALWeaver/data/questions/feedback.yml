@@ -42,23 +42,23 @@ image sets:
 mandatory: True
 code: |
   intro
-  if reason == 'bug':
+  if reason == "bug":
     bug_details
     issue_template = bug_report
-  elif reason == 'confusing':
+  elif reason == "confusing":
     confusing_details
     issue_template = confusing_report
-  elif reason == 'else':
+  elif reason == "else":
     other_feedback
     issue_template = other_feedback_report
-  elif reason == 'help':
+  elif reason == "help":
     gentle_exit
   else:
-    value(reason)  
+    value(reason)
     issue_template = generic_report[reason]
   send_to_github
   prevent_going_back()
-  store_variables_snapshot(persistent=True) # this is mostly just for backup reasons
+  store_variables_snapshot(persistent=True)  # this is mostly just for backup reasons
   end_results
 ---
 code: github_user = url_args.get('github_user', default_github_user_or_organization)
@@ -72,10 +72,10 @@ code: question_id = url_args.get('question_id')
 code: package_version = url_args.get('package_version')
 ---
 code: |
-  if not task_performed('sent to github', persistent=True):
+  if not task_performed("sent to github", persistent=True):
     if github_user in allowed_github_users:
       issue_url = make_github_issue(github_user, github_repo, template=issue_template)
-    mark_task_as_performed('sent to github', persistent=True)
+    mark_task_as_performed("sent to github", persistent=True)
   send_to_github = True
 ---
 if: |
@@ -162,11 +162,11 @@ fields:
     code: maturity_levels
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')  
+        get_config("debug")
   - label: |
       **Tell us the steps that you followed before you noticed the problem.** [BR]
       For example: 1. I opened the interview. 2. On the first page, I put in just my first name. 3. On the second page, I put in my phone number. 4. I pressed a button to go to the next page.
@@ -213,16 +213,16 @@ fields:
     field: page_title
     show if:
       code: |
-        not question_id    
+        not question_id
   - When should this fix be implemented?: maturity_level
     code: maturity_levels
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')          
+        get_config("debug")
   - label: |
       **What was confusing or missing information? **
     field: confusing_details
@@ -255,7 +255,7 @@ fields:
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')        
+        get_config("debug")
   - Other (please specify): user_type
     show if:
       variable: user_type
@@ -276,16 +276,16 @@ fields:
     field: page_title
     show if:
       code: |
-        not question_id    
+        not question_id
   - When should this fix be implemented?: maturity_level
     code: maturity_levels
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')          
+        get_config("debug")
   - label: |
       **What language fix is needed? **
     field: language
@@ -308,16 +308,16 @@ fields:
     field: page_title
     show if:
       code: |
-        not question_id    
+        not question_id
   - When should this fix be implemented?: maturity_level
     code: maturity_levels
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - label: |
       **What logic fix is needed? **
     field: logic
@@ -338,11 +338,11 @@ fields:
     code: maturity_levels
     show if:
       code: |
-        get_config('debug')
+        get_config("debug")
   - Who are you? Just tell us your name or github username, not email. This will be public.: user_contact_info
     show if:
       code: |
-        get_config('debug')          
+        get_config("debug")
   - label: |
       **What enhancement do you propose? **
     field: enhancement
