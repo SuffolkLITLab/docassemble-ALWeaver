@@ -175,6 +175,7 @@ modules:
   - .custom_values
   - .draggable_table
   - .interview_generator
+  - .playground_publish
   - .validate_template_files
   - .list_taxonomy
   - collections
@@ -1650,6 +1651,9 @@ validation code: |
     if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
       field.final_display_var = field.variable
 ---
+code: |
+  can_publish_to_playground = bool(user_has_privilege(['admin', 'developer']))
+---
 id: download your interview
 comment: | 
 event: show_interview
@@ -1657,8 +1661,18 @@ question: |
   Congratulations, you have completed your draft interview!
 subquestion: |
   <div class="panel_sky" markdown="1">
-  #### &#11093; Download the generated interview package
-  **If you just started a new interview project**, you need to download the generated interview as a Docassemble package:
+  #### &#11093; Continue in the Playground
+
+  % if can_publish_to_playground:
+  Create a new Playground project with your generated interview files and run it:
+  
+  ${ action_button_html(url_action('create_playground_project'), color='primary', label='Create Playground project and run') }
+  % else:
+  You need to be logged in with the `developer` or `admin` role to create a Playground project directly from this screen.
+  % endif
+  
+  ###### Download fallback
+  You can still download the generated interview as a Docassemble package:
   
   ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
   
@@ -1680,6 +1694,59 @@ subquestion: |
   ${ action_button_html(temp_interview.url_for(attachment=True), color='info', label='Download your yaml file') }
 
   </div>
+---
+event: create_playground_project
+code: |
+  playground_publish_success = False
+  playground_publish_error = ""
+  playground_project_name = ""
+  playground_interview_source = ""
+  playground_project_url = ""
+
+  if not can_publish_to_playground:
+    playground_publish_error = "You need to be logged in with the developer or admin role to create a Playground project."
+  else:
+    template_files_to_copy = []
+    if defined("interview.uploaded_templates"):
+      template_files_to_copy.extend(list(interview.uploaded_templates))
+    if generate_download_screen and interview.include_next_steps and hasattr(interview, "instructions"):
+      template_files_to_copy.insert(0, interview.instructions)
+
+    try:
+      playground_publish_result = publish_weaver_artifacts_to_playground(
+        user_id=user_info().id,
+        base_project_name=interview.package_title,
+        yaml_file=temp_interview,
+        template_files=template_files_to_copy,
+      )
+      playground_project_name = playground_publish_result["project_name"]
+      playground_interview_source = playground_publish_result["interview_source"]
+      playground_project_url = "/playground?project=" + playground_project_name
+      playground_publish_success = True
+    except Exception as err:
+      log("ALWeaver Playground publish failed: " + str(err))
+      playground_publish_error = "We couldn't create the Playground project automatically. You can still download the package from the previous screen."
+
+  force_ask("playground_project_created")
+---
+id: playground project created
+event: playground_project_created
+question: |
+  Playground project result
+subquestion: |
+  % if playground_publish_success:
+  Created project: **${ playground_project_name }**
+  
+  ${ action_button_html(playground_project_url, label="Open project in Playground", color="info", new_window=True ) }
+  
+  ${ action_button_html(interview_url(reset=1, i=playground_interview_source), label="Run interview", color="primary", new_window=True ) }
+  
+  Use the Playground project selector to open `${ playground_project_name }` and edit the generated files.
+  % else:
+  ${ playground_publish_error }
+  % endif
+
+  ${ action_button_html(url_action("show_interview"), label="Back to download options", color="secondary") }
 ---
 template: yaml_source
 subject: |
@@ -2059,6 +2126,9 @@ need:
   - generate_download_screen
 # Prepare content for the Weaver's download screen.
 code: |
+  if generate_download_screen and interview.include_next_steps and not hasattr(interview, "instructions"):
+    interview.instructions = next_steps_documents[interview.form_type]['attachment']["final"].docx
+
   interview.dependencies = get_pypi_deps_from_choices(
             interview.jurisdiction_choices.true_values() +
             interview.org_choices.true_values()

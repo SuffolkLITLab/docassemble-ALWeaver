@@ -5233,6 +5233,11 @@ def generate_interview_artifacts(
         }
         include_next_steps = getattr(interview, "include_next_steps", True)
         if include_download_screen:
+            # In some interview runtimes, `interview.instructions` may not be
+            # materialized yet when packaging starts. Ensure a default template
+            # is available so next-steps is not silently omitted.
+            if include_next_steps and not hasattr(interview, "instructions"):
+                _assign_next_steps_template(interview)
             if include_next_steps and hasattr(interview, "instructions"):
                 folders_and_files["templates"] = [interview.instructions] + list(
                     interview.uploaded_templates
