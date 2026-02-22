@@ -55,7 +55,7 @@ code: |
       interview.uploaded_templates
       set_name_of_current_session_from_filename
       if interview.has_all_unlabeled_pdfs():
-        if yes_recognize_form_fields: # ask to add fields
+        if yes_recognize_form_fields:  # ask to add fields
           process_field_recognition
       if has_detected_fields_for_autolabel:
         offer_auto_label_existing_fields
@@ -66,11 +66,12 @@ code: |
           elif autolabel_target_document_type == "docx":
             apply_autolabel_docx_label_changes
       if im_feeling_lucky:
-        nav.set_sections([
-          {"nav_generate_interview": "Generate your interview"},
-          {"nav_review": "Review your answers"},
-          {"nav_package": "Download your Docassemble package"}
-        ]
+        nav.set_sections(
+          [
+            {"nav_generate_interview": "Generate your interview"},
+            {"nav_review": "Review your answers"},
+            {"nav_package": "Download your Docassemble package"},
+          ]
         )
         nav.set_section("nav_generate_interview")
         process_im_feeling_lucky
@@ -94,8 +95,8 @@ code: |
         elif interview.get_file_types() == "mixed":
           initial_get_fields
           validate_mixed_documents
- 
-  if have_template_to_load:  
+
+  if have_template_to_load:
     interview.all_fields.gathered
     normalize_all_fields_final_display_var
     if not im_feeling_lucky and interview.use_llm_assist:
@@ -108,45 +109,45 @@ code: |
   interview.title
   set_name_of_current_session
   if generate_download_screen:
-    interview.intro_prompt #branding screen
-    interview.title #intro screen
+    interview.intro_prompt  # branding screen
+    interview.title  # intro screen
     nav.set_section("nav_describe_people")
-    interview.typical_role #people related questions
+    interview.typical_role  # people related questions
     process_people_variables
     ask_people_quantity_question
     nav.set_section("nav_next_steps")
     preview_next_steps
     if interview.include_next_steps and interview.customize_next_steps:
       preview_final_next_steps
-  if have_template_to_load and defined('interview.uploaded_templates'):
+  if have_template_to_load and defined("interview.uploaded_templates"):
     nav.set_section("nav_describe_people")
     ask_people_quantity_question
     if len(interview.all_fields.custom()):
       nav.set_section("nav_fields")
       choose_field_types
-  if not generate_download_screen:    
-    no_template_default_values  
+  if not generate_download_screen:
+    no_template_default_values
   review_fields_after_labeling
   nav.set_section("nav_questions")
   interview.questions.gather()
   normalize_question_field_list
   interview.enable_navigation
-  
+
   # Review field order and screen order
-  #if not (has_safe_pdf_in_url and im_feeling_lucky):
+  # if not (has_safe_pdf_in_url and im_feeling_lucky):
   #  show_field_order
   #  show_screen_order
   #  screen_tbl_done
 
   nav.set_section("nav_review")
   review_weaver
-  
+
   # Assemble output package
-  wrote_interview    
+  wrote_interview
 
   # Display output download screen
   nav.set_section("nav_package")
-  show_interview  
+  show_interview
 ---
 code: |
   rename_current_session(interview.uploaded_templates[0].filename)
@@ -154,7 +155,7 @@ code: |
 ---
 code: |
   rename_current_session(interview.title)
-  set_name_of_current_session = True  
+  set_name_of_current_session = True
 ---
 features:
   question help button: True
@@ -185,7 +186,7 @@ modules:
 ---
 mandatory: True
 code: |
-  menu_items = [ action_menu_item('Configure Weaver', 'configure_weaver') ]
+  menu_items = [action_menu_item("Configure Weaver", "configure_weaver")]
 ---
 objects:
   - install_step1_status: DAEmpty # This and below are to avoid playground error highlighting
@@ -361,24 +362,36 @@ validation code: |
       try:
         document.fix_up()
       except:
-        validation_error("Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.", field="interview.uploaded_templates")
+        validation_error(
+          "Your file may be corrupt. Please try <a href='https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/pdfs#corrupted-or-locked-pdfs'>repairing</a> it.",
+          field="interview.uploaded_templates",
+        )
     else:
       try:
         pdf_concatenate(document)
       except:
-        validation_error("Unable to convert DOCX file to PDF. It may be an invalid file.")
+        validation_error(
+          "Unable to convert DOCX file to PDF. It may be an invalid file."
+        )
   interview.help_source_text = ""
   if hasattr(interview, "help_source_document") and interview.help_source_document:
     interview.help_source_text = get_help_document_text(interview.help_source_document)
     if not interview.help_source_text.strip():
-      validation_error("Unable to extract text from the uploaded help document. Please upload a valid PDF or DOCX file.", field="interview.help_source_document")
+      validation_error(
+        "Unable to extract text from the uploaded help document. Please upload a valid PDF or DOCX file.",
+        field="interview.help_source_document",
+      )
   interview.autolabel_payload_loaded = False
-  if not defined('autolabel_field_name_overrides'):
-    autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+  if not defined("autolabel_field_name_overrides"):
+    autolabel_field_name_overrides = DADict(
+      "autolabel_field_name_overrides", auto_gather=False, gathered=True
+    )
   else:
     autolabel_field_name_overrides.clear()
-  if not defined('autolabel_docx_label_overrides'):
-    autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+  if not defined("autolabel_docx_label_overrides"):
+    autolabel_docx_label_overrides = DADict(
+      "autolabel_docx_label_overrides", auto_gather=False, gathered=True
+    )
   else:
     autolabel_docx_label_overrides.clear()
 ---
@@ -401,7 +414,7 @@ code: |
   autolabel_target_document_index = -1
   autolabel_detected_field_names = []
   has_detected_fields_for_autolabel = False
-  if have_template_to_load and defined('interview.uploaded_templates'):
+  if have_template_to_load and defined("interview.uploaded_templates"):
     for idx, document in enumerate(interview.uploaded_templates):
       if document.mimetype == "application/pdf":
         detected_fields = document.get_pdf_fields()
@@ -411,7 +424,10 @@ code: |
           autolabel_detected_field_names = [item[0] for item in detected_fields]
           has_detected_fields_for_autolabel = True
           break
-      elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      elif (
+        document.mimetype
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ):
         detected_fields = get_fields(document)
         autolabel_target_document_type = "docx"
         autolabel_target_document_index = idx
@@ -445,7 +461,7 @@ fields:
     datatype: yesnoradio
 ---
 code: |
-  autolabel_existing_fields_task = background_action('autolabel_existing_fields_event')
+  autolabel_existing_fields_task = background_action("autolabel_existing_fields_event")
 ---
 only sets:
   - autolabel_existing_pdf_fields_task_done
@@ -469,21 +485,36 @@ event: autolabel_existing_fields_event
 code: |
   import tempfile
   import os
-  background_error_action('autolabel_existing_pdf_fields_error')
+
+  background_error_action("autolabel_existing_pdf_fields_error")
   if autolabel_target_document_type == "pdf":
-    fields_old = [item[0] for item in interview.uploaded_templates[autolabel_target_document_index].get_pdf_fields()]
+    fields_old = [
+      item[0]
+      for item in interview.uploaded_templates[
+        autolabel_target_document_index
+      ].get_pdf_fields()
+    ]
     fields_suggested = list(fields_old)
     output_pdf_path = None
     try:
-      from docassemble.ALDashboard.pdf_field_labeler import relabel_existing_pdf_fields
+      from docassemble.ALDashboard.pdf_field_labeler import (
+        relabel_existing_pdf_fields,
+      )
+
       with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_out:
         output_pdf_path = tmp_out.name
       stats = relabel_existing_pdf_fields(
-        input_pdf_path=interview.uploaded_templates[autolabel_target_document_index].path(),
+        input_pdf_path=interview.uploaded_templates[
+          autolabel_target_document_index
+        ].path(),
         output_pdf_path=output_pdf_path,
         relabel_with_ai=True,
-        jur=str(get_config("assembly line", {}).get("pdf relabel jurisdiction", "MA")),
-        tools_token=get_config("assembly line", {}).get("tools.suffolklitlab.org api key"),
+        jur=str(
+          get_config("assembly line", {}).get("pdf relabel jurisdiction", "MA")
+        ),
+        tools_token=get_config("assembly line", {}).get(
+          "tools.suffolklitlab.org api key"
+        ),
         openai_api=get_config("open ai", {}).get("key"),
       )
       if isinstance(stats, dict) and isinstance(stats.get("fields"), list):
@@ -497,7 +528,7 @@ code: |
       if output_pdf_path and os.path.exists(output_pdf_path):
         os.remove(output_pdf_path)
     background_response_action(
-      'save_autolabel_existing_pdf_fields_payload',
+      "save_autolabel_existing_pdf_fields_payload",
       fields_old=fields_old,
       fields_suggested=fields_suggested,
     )
@@ -505,6 +536,7 @@ code: |
     docx_labels = []
     try:
       from docassemble.ALDashboard.docx_wrangling import get_labeled_docx_runs
+
       guessed_labels = get_labeled_docx_runs(
         interview.uploaded_templates[autolabel_target_document_index].path(),
         openai_api=get_config("open ai", {}).get("key"),
@@ -518,23 +550,23 @@ code: |
       log(f"Auto-label DOCX background task failed: {exc!r}", "error")
       docx_labels = []
     background_response_action(
-      'save_autolabel_existing_pdf_fields_payload',
+      "save_autolabel_existing_pdf_fields_payload",
       docx_labels=docx_labels,
     )
   else:
     background_response_action(
-      'save_autolabel_existing_pdf_fields_payload',
+      "save_autolabel_existing_pdf_fields_payload",
       fields_old=[],
       fields_suggested=[],
     )
 ---
 event: save_autolabel_existing_pdf_fields_payload
 code: |
-  if action_argument('docx_labels') is not None:
-    autolabel_docx_labels = action_argument('docx_labels') or []
+  if action_argument("docx_labels") is not None:
+    autolabel_docx_labels = action_argument("docx_labels") or []
   else:
-    autolabel_fields_old = action_argument('fields_old') or []
-    autolabel_fields_suggested = action_argument('fields_suggested') or []
+    autolabel_fields_old = action_argument("fields_old") or []
+    autolabel_fields_suggested = action_argument("fields_suggested") or []
     if len(autolabel_fields_suggested) != len(autolabel_fields_old):
       autolabel_fields_suggested = list(autolabel_fields_old)
   interview.autolabel_payload_loaded = True
@@ -577,10 +609,12 @@ need:
   - autolabel_target_document_type
 code: |
   if autolabel_target_document_type == "docx":
-    if not defined('autolabel_docx_labels'):
+    if not defined("autolabel_docx_labels"):
       autolabel_docx_labels = []
-    if not defined('autolabel_docx_label_overrides'):
-      autolabel_docx_label_overrides = DADict("autolabel_docx_label_overrides", auto_gather=False, gathered=True)
+    if not defined("autolabel_docx_label_overrides"):
+      autolabel_docx_label_overrides = DADict(
+        "autolabel_docx_label_overrides", auto_gather=False, gathered=True
+      )
     for idx, item in enumerate(autolabel_docx_labels):
       key = str(idx)
       if key not in autolabel_docx_label_overrides:
@@ -625,6 +659,7 @@ code: |
   if len(autolabel_docx_labels):
     review_autolabel_docx_label_changes
     from docassemble.ALDashboard.docx_wrangling import update_docx
+
     updated_runs = []
     for idx, item in enumerate(autolabel_docx_labels):
       key = str(idx)
@@ -632,7 +667,11 @@ code: |
         (
           int(item[0]),
           int(item[1]),
-          str(autolabel_docx_label_overrides[key]) if key in autolabel_docx_label_overrides else str(item[2]),
+          (
+            str(autolabel_docx_label_overrides[key])
+            if key in autolabel_docx_label_overrides
+            else str(item[2])
+          ),
           int(item[3]),
         )
       )
@@ -640,7 +679,9 @@ code: |
       interview.uploaded_templates[autolabel_target_document_index].path(),
       updated_runs,
     )
-    updated_docx.save(interview.uploaded_templates[autolabel_target_document_index].path())
+    updated_docx.save(
+      interview.uploaded_templates[autolabel_target_document_index].path()
+    )
     # Avoid persisting python-docx objects in session state.
     del updated_docx
     del update_docx
@@ -664,12 +705,14 @@ need:
   - autolabel_target_document_type
 code: |
   if autolabel_target_document_type == "pdf":
-    if not defined('autolabel_fields_old'):
+    if not defined("autolabel_fields_old"):
       autolabel_fields_old = []
-    if not defined('autolabel_fields_suggested'):
+    if not defined("autolabel_fields_suggested"):
       autolabel_fields_suggested = []
-    if not defined('autolabel_field_name_overrides'):
-      autolabel_field_name_overrides = DADict("autolabel_field_name_overrides", auto_gather=False, gathered=True)
+    if not defined("autolabel_field_name_overrides"):
+      autolabel_field_name_overrides = DADict(
+        "autolabel_field_name_overrides", auto_gather=False, gathered=True
+      )
     for idx, old_name in enumerate(autolabel_fields_old):
       key = str(idx)
       if key not in autolabel_field_name_overrides:
@@ -711,7 +754,11 @@ code: |
     autolabel_mapping = {}
     for idx, old_name in enumerate(autolabel_fields_old):
       key = str(idx)
-      new_name = autolabel_field_name_overrides[key] if key in autolabel_field_name_overrides else old_name
+      new_name = (
+        autolabel_field_name_overrides[key]
+        if key in autolabel_field_name_overrides
+        else old_name
+      )
       if not new_name:
         new_name = old_name
       autolabel_mapping[old_name] = new_name
@@ -767,13 +814,19 @@ code: |
   # Note: we just use the first document to create the placeholder name even if multiple forms are uploaded.
   # That's fine as it is a placeholder
   if have_template_to_load:
-    if interview.uploaded_templates[0].filename.endswith('pdf'):
-      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".pdf")]))
+    if interview.uploaded_templates[0].filename.endswith("pdf"):
+      interview.short_filename = space_to_underscore(
+        varname(interview.uploaded_templates[0].filename.lower()[: -len(".pdf")])
+      )
     else:
-      interview.short_filename = space_to_underscore(varname(interview.uploaded_templates[0].filename.lower()[:-len(".docx")]))
+      interview.short_filename = space_to_underscore(
+        varname(interview.uploaded_templates[0].filename.lower()[: -len(".docx")])
+      )
   else:
-    interview.short_filename = ''
-  interview.short_filename_with_spaces = interview.short_filename.replace('_',' ').capitalize()
+    interview.short_filename = ""
+  interview.short_filename_with_spaces = interview.short_filename.replace(
+    "_", " "
+  ).capitalize()
 ---
 id: information about court-related info
 question: |
@@ -802,7 +855,11 @@ fields:
       it is published.
     default:
       code: |
-        interview._guess_categories(interview.short_filename_with_spaces) if have_template_to_load else []
+        (
+          interview._guess_categories(interview.short_filename_with_spaces)
+          if have_template_to_load
+          else []
+        )
   - Add other topics: interview.has_other_categories
     datatype: yesno
   - Other topics ([LIST code, like HE-00-00-00-00](https://taxonomy.legal) preferred, separate with commas): interview.other_categories
@@ -844,7 +901,7 @@ fields:
     none of the above: False
     required: False
     code: |
-      sorted(get_court_choices()) + ['Other']
+      sorted(get_court_choices()) + ["Other"]
     show if: interview.court_related
   - Other (separate with a comma): interview.allowed_courts_text
     input type: area
@@ -863,10 +920,14 @@ script: |
 ---
 event: update_state_list
 code: |
-  if action_argument('interview.default_country_code') and action_argument('interview.default_country_code') != interview.default_country_code:          
-    interview.default_country_code = action_argument('interview.default_country_code')
-    background_response('refresh')
-  background_response()    
+  if (
+    action_argument("interview.default_country_code")
+    and action_argument("interview.default_country_code")
+    != interview.default_country_code
+  ):
+    interview.default_country_code = action_argument("interview.default_country_code")
+    background_response("refresh")
+  background_response()
 ---
 id: dependency question
 question: |
@@ -898,7 +959,11 @@ fields:
     default: ${ interview.llm_draft_default_country_code if hasattr(interview, "llm_draft_default_country_code") else interview.default_country_code }
   - Default ${ safe_subdivision_type(interview.default_country_code) if safe_subdivision_type(interview.default_country_code) else 'State/Province'}: interview.state
     code: |
-        states_list(country_code=interview.default_country_code) if pycountry.subdivisions.get(country_code=interview.default_country_code) else ()
+        (
+          states_list(country_code=interview.default_country_code)
+          if pycountry.subdivisions.get(country_code=interview.default_country_code)
+          else ()
+        )
     default: ${ interview.llm_draft_state if hasattr(interview, "llm_draft_state") else ("MA" if interview.default_country_code == 'US' else '') }
     required: False
   - Jurisdiction: interview.jurisdiction
@@ -912,14 +977,14 @@ fields:
     datatype: checkboxes
     required: False
     code: |
-      get_possible_deps_as_choices('jurisdiction')
+      get_possible_deps_as_choices("jurisdiction")
     default:
       - docassemble.ALAnyState:any_state.yml
   - Branding package: interview.org_choices
     datatype: checkboxes
     required: False
     code: |
-      get_possible_deps_as_choices('organization')
+      get_possible_deps_as_choices("organization")
   - note: |
       ---
   - Interview YAML template: interview.output_mako_choice
@@ -954,8 +1019,8 @@ help:
     manually in the Playground until then.
 ---
 code: |    
-  if not interview.court_related:   
-    interview.allowed_courts = DAEmpty()             
+  if not interview.court_related:
+    interview.allowed_courts = DAEmpty()
 ---
 id: action-oriented splash title
 question: |
@@ -973,7 +1038,11 @@ fields:
     default: ${ interview_intro_prompt_default }
 ---
 code: |
-  interview_intro_prompt_default = interview.llm_draft_intro_prompt if hasattr(interview, "llm_draft_intro_prompt") else interview._guess_intro_prompt(interview.short_filename_with_spaces)
+  interview_intro_prompt_default = (
+    interview.llm_draft_intro_prompt
+    if hasattr(interview, "llm_draft_intro_prompt")
+    else interview._guess_intro_prompt(interview.short_filename_with_spaces)
+  )
 ---
 id: form-specific intro page
 question: |
@@ -1382,7 +1451,10 @@ help: |
   expert. This can always be fixed later.
 ---
 code: |
-  if interview.form_type == "starts_case" and len(interview.all_fields.get_person_candidates(custom_only=True)) < 1:
+  if (
+    interview.form_type == "starts_case"
+    and len(interview.all_fields.get_person_candidates(custom_only=True)) < 1
+  ):
     people_variables = DADict(auto_gather=False, gathered=True)
 ---
 if: interview.form_type == "starts_case"
@@ -1393,13 +1465,22 @@ code: |
   # Build the dynamic question code to ask about people quantities
   temp_people_quantity_question = []
   for person in person_candidates:
-    temp_people_quantity_question.append({"How many **" + person + "** can appear on this form?": "people_quantities['" + person + "']",
-      "datatype": "radio",
-      "choices": [{'Exactly 1': 'one'},{'At least one':'more'}]
-      })
+    temp_people_quantity_question.append(
+      {
+        "How many **"
+        + person
+        + "** can appear on this form?": "people_quantities['"
+        + person
+        + "']",
+        "datatype": "radio",
+        "choices": [{"Exactly 1": "one"}, {"At least one": "more"}],
+      }
+    )
     # Users can't have 0 elements, but other parties should have the option to be empty
-    if person != 'users':
-      temp_people_quantity_question[-1]['choices'].append({'Any number, including 0': 'any'})
+    if person != "users":
+      temp_people_quantity_question[-1]["choices"].append(
+        {"Any number, including 0": "any"}
+      )
   people_quantity_question = temp_people_quantity_question
   del temp_people_quantity_question
 ---
@@ -1456,10 +1537,17 @@ fields:
 validation code: |
   for field in interview.all_fields.custom():
     if field.field_type == "code":
-        lhs = field.final_display_var if hasattr(field, "final_display_var") else (field.variable if hasattr(field, "variable") else "x")
-        expression = f"{lhs} = {field.code}"
-        if not is_valid_python(expression):
-            validation_error(f"`{expression}` is not a valid Python expression.", field=field.attr_name("code"))
+      lhs = (
+        field.final_display_var
+        if hasattr(field, "final_display_var")
+        else (field.variable if hasattr(field, "variable") else "x")
+      )
+      expression = f"{lhs} = {field.code}"
+      if not is_valid_python(expression):
+        validation_error(
+          f"`{expression}` is not a valid Python expression.",
+          field=field.attr_name("code"),
+        )
 css: |
   <style>
   .da-field-container-note {
@@ -1511,17 +1599,20 @@ code: |
         log(errors[1])
         if errors[0] == "parsing_exception":
           parsing_ex = errors[1]
-          force_ask('parsing_exception')
+          force_ask("parsing_exception")
         elif errors[0] == "invalid_pdf":
-          force_ask('exit_invalid_pdf')
+          force_ask("exit_invalid_pdf")
         elif errors[0] == "pseof":
-          force_ask('exit_PSEOF_error')
+          force_ask("exit_PSEOF_error")
         elif errors[0] == "concatenation_error":
           force_ask("exit_invalid_pdf")
-    elif document.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    elif (
+      document.mimetype
+      == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ):
       errors = get_docx_validation_errors(document)
       if errors:
-        force_ask('exit_invalid_docx')
+        force_ask("exit_invalid_docx")
       # Check for syntax that indicates a user error
       jinja_errors = get_jinja_errors(document)
       if jinja_errors:
@@ -1529,7 +1620,9 @@ code: |
       mako_matches = get_mako_matches(document)
       if mako_matches:
         mako_syntax_in_docx
-      keywords_in_docx = matching_reserved_names(get_fields(document), keywords_and_builtins_only=True)
+      keywords_in_docx = matching_reserved_names(
+        get_fields(document), keywords_and_builtins_only=True
+      )
       if keywords_in_docx:
         exit_keywords_in_docx
       reserved_names_in_docx = matching_reserved_names(get_fields(document))
@@ -1554,20 +1647,22 @@ code: |
 ---
 code: |
   if not len(interview.all_fields) > 0:
-    force_ask('empty_pdf')
-  
+    force_ask("empty_pdf")
+
   bad_fields = get_variable_name_warnings(interview.all_fields)
   if len(bad_fields) > 0:
-    if non_descriptive_field_name == 'ignore':
-        interview.all_fields.remove_incorrect_names()
+    if non_descriptive_field_name == "ignore":
+      interview.all_fields.remove_incorrect_names()
     else:
-        del non_descriptive_field_name
-        non_descriptive_field_name
+      del non_descriptive_field_name
+      non_descriptive_field_name
   validate_field_names = True
 ---
 code: |
-  if have_template_to_load: 
-    built_in_people_vars_used = interview.all_fields.get_person_candidates(custom_only=False) - interview.all_fields.get_person_candidates(custom_only=True)
+  if have_template_to_load:
+    built_in_people_vars_used = interview.all_fields.get_person_candidates(
+      custom_only=False
+    ) - interview.all_fields.get_person_candidates(custom_only=True)
   else:
     built_in_people_vars_used = []
 ---
@@ -1645,14 +1740,19 @@ fields:
 #      if you want to add show/hide logic on this screen
 #      which could otherwise break the interview flow.
 validation code: |
-  if not interview.questions[i].is_informational_screen and len(interview.questions[i].field_list.elements) == 0:
-    validation_error("You need to either make this a purely informational screen or select at least one field to appear on this page.")
+  if (
+    not interview.questions[i].is_informational_screen
+    and len(interview.questions[i].field_list.elements) == 0
+  ):
+    validation_error(
+      "You need to either make this a purely informational screen or select at least one field to appear on this page."
+    )
   for field in interview.questions[i].field_list:
     if not hasattr(field, "final_display_var") and hasattr(field, "variable"):
       field.final_display_var = field.variable
 ---
 code: |
-  can_publish_to_playground = bool(user_has_privilege(['admin', 'developer']))
+  can_publish_to_playground = bool(user_has_privilege(["admin", "developer"]))
 ---
 id: download your interview
 comment: | 
@@ -1709,7 +1809,11 @@ code: |
     template_files_to_copy = []
     if defined("interview.uploaded_templates"):
       template_files_to_copy.extend(list(interview.uploaded_templates))
-    if generate_download_screen and interview.include_next_steps and hasattr(interview, "instructions"):
+    if (
+      generate_download_screen
+      and interview.include_next_steps
+      and hasattr(interview, "instructions")
+    ):
       template_files_to_copy.insert(0, interview.instructions)
 
     try:
@@ -1757,7 +1861,7 @@ content: |
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
-  interview.questions[i].type = 'question'
+  interview.questions[i].type = "question"
 ---
 code: |
   # This was handled differently in the original wizard Jonathan made. Backfilling this attribute
@@ -1767,31 +1871,37 @@ code: |
   # Used for adding a new field
   interview.all_fields[i].field_type_guess = interview.all_fields[i].field_type
   interview.all_fields[i].raw_field_names = [interview.all_fields[i].variable]
-  interview.all_fields[i].source_document_type = "docx" # don't process the variable name
+  interview.all_fields[i].source_document_type = "docx"  # don't process the variable name
 ---
 code: |
-  person_candidates_temp = set(people_variables.true_values()).union(set(built_in_people_vars_used))
+  person_candidates_temp = set(people_variables.true_values()).union(
+    set(built_in_people_vars_used)
+  )
   # We need to do special processing of the list of people used to build
   # the objects block in the generated interview.
   # users should always appear
   # defendants / plaintiffs / petitioners / respondents should never appear
   # They get defined as an alias to users or other_parties
   # other_parties should appear if we have both defendants and plaintiffs
-  person_candidates_temp.add('users')
-  has_other_party = 'other_parties' in person_candidates_temp
+  person_candidates_temp.add("users")
+  has_other_party = "other_parties" in person_candidates_temp
   added_other_party = False
-  if ('defendants' in person_candidates_temp and 'plaintiffs' in person_candidates_temp) or ('respondents' in person_candidates_temp and 'petitioners' in person_candidates_temp):
-    person_candidates_temp.add('other_parties')
+  if (
+    "defendants" in person_candidates_temp and "plaintiffs" in person_candidates_temp
+  ) or (
+    "respondents" in person_candidates_temp and "petitioners" in person_candidates_temp
+  ):
+    person_candidates_temp.add("other_parties")
     if not has_other_party:
       added_other_party = True
-  
-  person_candidates_temp.discard('petitioners')
-  person_candidates_temp.discard('respondents')
-  person_candidates_temp.discard('plaintiffs')
-  person_candidates_temp.discard('defendants')
-  
+
+  person_candidates_temp.discard("petitioners")
+  person_candidates_temp.discard("respondents")
+  person_candidates_temp.discard("plaintiffs")
+  person_candidates_temp.discard("defendants")
+
   person_candidates = person_candidates_temp
-  del person_candidates_temp   
+  del person_candidates_temp
 ---
 need:
   - built_in_people_vars_used
@@ -1809,21 +1919,21 @@ code: |
     new_object.type = "ALPeopleList"
     new_object.params = {}
     if person in people_quantities:
-      if people_quantities[person] == 'one':
+      if people_quantities[person] == "one":
         new_object.params = {
-          "ask_number": True, 
+          "ask_number": True,
           "target_number": 1,
-          }
-      elif people_quantities[person] == 'more':
+        }
+      elif people_quantities[person] == "more":
         new_object.params = {
           "there_are_any": True,
-          }            
-  objects.gathered=True
+        }
+  objects.gathered = True
 ---
 ############ Stuff for reviewing interview #####################################
 ---
 code: |
-  # This will add the questions and built-in fields to the screen_order 
+  # This will add the questions and built-in fields to the screen_order
   # list. This will allow the developer to reorder questions without needing
   # to restart the interview
   screen_order = interview.draft_screen_order()
@@ -1847,7 +1957,9 @@ columns:
       row_item.final_display_var if hasattr(row_item, "final_display_var") else (row_item.variable if hasattr(row_item, "variable") else "x")
 ---
 code: |
-  interview.questions[i].field_list.there_are_any = interview.questions[i].field_list.number() > 0
+  interview.questions[i].field_list.there_are_any = (
+    interview.questions[i].field_list.number() > 0
+  )
 ---
 code: |
   # not quite sure why we need this--problem w/ how docassemble handles
@@ -1881,7 +1993,7 @@ fields:
   - Variable name: interview.all_fields[i].variable
     show if:
       code: |
-        not hasattr(interview.all_fields[i], 'label')
+        not hasattr(interview.all_fields[i], "label")
     validate: |
       lambda y: y.isidentifier() or validation_error("Use a valid Python variable name, without spaces and starting with a letter.")
     label above field: True
@@ -1926,12 +2038,17 @@ fields:
       Descriptive label: value
 validation code: |
   for field in interview.all_fields:
-    if not hasattr(field, 'final_display_var'):
+    if not hasattr(field, "final_display_var"):
       field.final_display_var = field.variable
   if interview.all_fields[i].field_type == "code":
-      expression = f"{interview.all_fields[i].final_display_var} = {interview.all_fields[i].code}"
-      if not is_valid_python(expression):
-          validation_error(f"`{expression}` is not a valid Python expression.", field=interview.all_fields[i])
+    expression = (
+      f"{interview.all_fields[i].final_display_var} = {interview.all_fields[i].code}"
+    )
+    if not is_valid_python(expression):
+      validation_error(
+        f"`{expression}` is not a valid Python expression.",
+        field=interview.all_fields[i],
+      )
 continue button label: Save
 back button label: Cancel
 ---
@@ -2083,12 +2200,16 @@ fields:
 ##################################### Controlling generated interview contents ################
 ---
 code: |
-  # This interview.interview_label field is used throughout the 
+  # This interview.interview_label field is used throughout the
   # generated interview to let us store interview-specific
   # metadata
   # We removed random ID, so make sure the file names are unique
   # varname will strip leading numbers--but they may be valid at the end of the label
-  interview.interview_label = (varname(interview_label_draft) if varname(interview_label_draft) else varname('ending_variable_' + interview_label_draft)).lower()
+  interview.interview_label = (
+    varname(interview_label_draft)
+    if varname(interview_label_draft)
+    else varname("ending_variable_" + interview_label_draft)
+  ).lower()
 ---
 template: start_your_project
 subject: |
@@ -2111,7 +2232,9 @@ content: |
      own!
 ---
 code: |
-  sanitized_filename = f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
+  sanitized_filename = (
+    f"{interview.interview_label}.{interview.uploaded_templates[0].extension}"
+  )
 ---
 code: |
   # Unfortunately, there's no good "new" name for the file
@@ -2126,12 +2249,17 @@ need:
   - generate_download_screen
 # Prepare content for the Weaver's download screen.
 code: |
-  if generate_download_screen and interview.include_next_steps and not hasattr(interview, "instructions"):
-    interview.instructions = next_steps_documents[interview.form_type]['attachment']["final"].docx
+  if (
+    generate_download_screen
+    and interview.include_next_steps
+    and not hasattr(interview, "instructions")
+  ):
+    interview.instructions = next_steps_documents[interview.form_type]["attachment"][
+      "final"
+    ].docx
 
   interview.dependencies = get_pypi_deps_from_choices(
-            interview.jurisdiction_choices.true_values() +
-            interview.org_choices.true_values()
+    interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
   )
 
   generation_result = generate_interview_artifacts(
@@ -2149,22 +2277,22 @@ code: |
 comment: |
   All of the below code is split into separate code blocks so it doesn't generate all docs when we only need 1
 code: |
-  next_steps_documents['starts_case']['attachment'] = next_steps_starts_case
+  next_steps_documents["starts_case"]["attachment"] = next_steps_starts_case
 ---
 code: |
-  next_steps_documents['existing_case']['attachment'] = next_steps_existing_case
+  next_steps_documents["existing_case"]["attachment"] = next_steps_existing_case
 ---
 code: |
-  next_steps_documents['appeal']['attachment'] = next_steps_appeal
+  next_steps_documents["appeal"]["attachment"] = next_steps_appeal
 ---
 code: |
-  next_steps_documents['letter']['attachment'] = next_steps_letter
+  next_steps_documents["letter"]["attachment"] = next_steps_letter
 ---
 code: |
-  next_steps_documents['other_form']['attachment'] = next_steps_other_form
+  next_steps_documents["other_form"]["attachment"] = next_steps_other_form
 ---
 code: |
-  next_steps_documents['other']['attachment'] = next_steps_other
+  next_steps_documents["other"]["attachment"] = next_steps_other
 ---
 objects:
   - next_steps_starts_case: DADict
@@ -2211,14 +2339,18 @@ attachments:
     skip undefined: True
 ---
 code: |
-  interview.instructions = next_steps_documents[interview.form_type]['attachment']["final"].docx
+  interview.instructions = next_steps_documents[interview.form_type]["attachment"][
+    "final"
+  ].docx
 ---
 #######################################
 # Code to support github feedback form
 ---
 code: |
   try:
-    package_version_number = str(importlib.import_module(user_info().package).__version__)
+    package_version_number = str(
+      importlib.import_module(user_info().package).__version__
+    )
   except:
     package_version_number = "playground"
 ---
@@ -2228,8 +2360,8 @@ code: |
   # forks this for their own jurisdiction
   package_name = str(user_info().package)
   if package_name and not "playground" in package_name:
-    github_repo_name = package_name.replace('.','-')
-  else:    
+    github_repo_name = package_name.replace(".", "-")
+  else:
     github_repo_name = "docassemble-ALWeaver"
 ---
 code: |
@@ -2237,7 +2369,7 @@ code: |
     run_package
   else:
     waiting_screen
-  run_package    
+  run_package
   button_install_package = True
 ---
 code: |
@@ -2245,8 +2377,8 @@ code: |
     show_interview
   else:
     waiting_screen_uninstall
-  show_interview    
-  button_uninstall_package = True  
+  show_interview
+  button_uninstall_package = True
 ---
 id: run package
 event: run_package
@@ -2275,58 +2407,56 @@ subquestion: |
 check in: set_final_package_install_status
 ---
 code: |
-  install_packages_api_key = get_config('install packages api key')
+  install_packages_api_key = get_config("install packages api key")
 ---
 code: |
-  install_package_task = background_action('install_package_event')
+  install_package_task = background_action("install_package_event")
 ---
 code: |
-  uninstall_package_task = background_action('uninstall_package_event')
+  uninstall_package_task = background_action("uninstall_package_event")
 ---
 event: uninstall_package_event
 code: |
-  data = {"key": install_packages_api_key,
-          "package": "docassemble." + interview.package_title
-          }
+  data = {
+    "key": install_packages_api_key,
+    "package": "docassemble." + interview.package_title,
+  }
   status = installer.delete("package", data=data)
-  background_response()            
+  background_response()
 ---
 event: install_package_event
 code: |
-  data = {"key": install_packages_api_key
-          }
-  files = {'zip': interview_package_download }
-  status = installer.post("package",data=data, files=files, task='install package')  
+  data = {"key": install_packages_api_key}
+  files = {"zip": interview_package_download}
+  status = installer.post("package", data=data, files=files, task="install package")
   # clear the interview cache
-  installer.post("clear_cache", data = {"key": install_packages_api_key } )
-  background_response_action('save_status_to_answers', status=status)
+  installer.post("clear_cache", data={"key": install_packages_api_key})
+  background_response_action("save_status_to_answers", status=status)
 ---
 event: save_status_to_answers
 code: |
   # Save the background install status to the foreground
-  install_step1_status = action_argument('status')
+  install_step1_status = action_argument("status")
   background_response()
 ---
 event: set_final_package_install_status
 code: |
-  data = {"key": install_packages_api_key,
-          "task_id": install_step1_status.get("task_id")
-          }
-  task_status = installer.get('package_update_status', data=data)
+  data = {"key": install_packages_api_key, "task_id": install_step1_status.get("task_id")}
+  task_status = installer.get("package_update_status", data=data)
   if task_status:
-    task_complete = task_status.get('status') == 'completed'
-    task_succeeded = task_status.get('ok') == True
+    task_complete = task_status.get("status") == "completed"
+    task_succeeded = task_status.get("ok") == True
     log(str(task_status))
   if task_status and task_complete:
     if task_complete:
-      log('Installation finished. Success: ' + str(task_status.get('ok')))
-      background_response('refresh')
+      log("Installation finished. Success: " + str(task_status.get("ok")))
+      background_response("refresh")
   background_response_action()
 ---
 event: save_final_status_to_answers
 code: |
   # Save the background install status to the foreground
-  install_final_status = action_argument('status')
+  install_final_status = action_argument("status")
   background_response()
 ---  
 event: waiting_screen
@@ -2362,63 +2492,78 @@ comment: |
   This block is called when the "screen table" is initially loaded.
 code: |
   # Initialize the hidden field. It'll be updated in js
-  scr_order_list = '' # Will be updated in js
-  scr_table_data = '' # Will be updated in the next code block
-  
+  scr_order_list = ""  # Will be updated in js
+  scr_table_data = ""  # Will be updated in the next code block
+
   # Make the screen table draggable
   html_scr_table = make_it_draggable(screen_order.table)
-  original_scr_order = html_scr_table[0] #list
-  draggable_scr_table = html_scr_table[1] #soup table    
+  original_scr_order = html_scr_table[0]  # list
+  draggable_scr_table = html_scr_table[1]  # soup table
 ---
 comment: |
   This block is called after the "screen table" is reordered by the user.  
 code: |   
-  if len(scr_order_list) > 0:        
+  if len(scr_order_list) > 0:
     # Update existing scr table order var - will affect output interview layout
-    screen_reordered = update_table_order_var(original_scr_order, scr_order_list, screen_order)   
-    
+    screen_reordered = update_table_order_var(
+      original_scr_order, scr_order_list, screen_order
+    )
+
     # Save new table data to the hidden field for JS to access
     scr_table_data = make_json(scr_order_list, draggable_scr_table)
-  else:      
-    screen_reordered = screen_order    
-      
-  screen_tbl_done = True   
+  else:
+    screen_reordered = screen_order
+
+  screen_tbl_done = True
 ---
 comment: |
   This block is called when the "field table" is initially loaded.
 code: |
-  # Initialize the hidden fields. 
-  interview.questions[i].fld_order_list = '' # Will be updated in js
-  interview.questions[i].table_data = ''     # Will be updated in the next code block
-  
-  # Make the field table draggable  
-  interview.questions[i].html_fld_table = make_it_draggable(interview.questions[i].edit_table) 
-  interview.questions[i].original_fld_order = interview.questions[i].html_fld_table[0] #list
-  interview.questions[i].draggable_fld_table = interview.questions[i].html_fld_table[1] #soup table
+  # Initialize the hidden fields.
+  interview.questions[i].fld_order_list = ""  # Will be updated in js
+  interview.questions[i].table_data = ""  # Will be updated in the next code block
+
+  # Make the field table draggable
+  interview.questions[i].html_fld_table = make_it_draggable(
+    interview.questions[i].edit_table
+  )
+  interview.questions[i].original_fld_order = interview.questions[i].html_fld_table[
+    0
+  ]  # list
+  interview.questions[i].draggable_fld_table = interview.questions[i].html_fld_table[
+    1
+  ]  # soup table
 ---
 comment: |
   This block is called after the "field table" is reordered by the user.
 code: |     
-  if len(interview.questions[i].fld_order_list) > 0:    
+  if len(interview.questions[i].fld_order_list) > 0:
     # Update existing fld table order var - will affect output interview layout
-    interview.questions[i].field_list = update_table_order_var(interview.questions[i].original_fld_order, interview.questions[i].fld_order_list, interview.questions[i].field_list)
-    
-    # Save new table data to the hidden field for JS to access    
-    interview.questions[i].table_data = make_json(interview.questions[i].fld_order_list, interview.questions[i].draggable_fld_table)    
-    
-  interview.questions[i].field_tbl_done = True  
+    interview.questions[i].field_list = update_table_order_var(
+      interview.questions[i].original_fld_order,
+      interview.questions[i].fld_order_list,
+      interview.questions[i].field_list,
+    )
+
+    # Save new table data to the hidden field for JS to access
+    interview.questions[i].table_data = make_json(
+      interview.questions[i].fld_order_list,
+      interview.questions[i].draggable_fld_table,
+    )
+
+  interview.questions[i].field_tbl_done = True
 ---
 # Loop thru all the field tables and display them on the screen
 code: |  
-  for index in range(0, len(interview.questions)):      
-    interview.questions[index].edit_question     
-    interview.questions[index].field_tbl_done 
+  for index in range(0, len(interview.questions)):
+    interview.questions[index].edit_question
+    interview.questions[index].field_tbl_done
   show_field_order = True
 ---
 event: let_skip
 code: |
   show_field_order = True
-  force_ask('show_screen_order')
+  force_ask("show_screen_order")
 #----------------------------------------------------
 # Code blocks for survey type interviews  
 #----------------------------------------------------
@@ -2428,24 +2573,24 @@ only sets: no_template_default_values
 code: |
   if not have_template_to_load:
     interview.all_fields.gathered = True
-  interview.original_form = 'NA'
-  interview.typical_role = 'anonymous'
+  interview.original_form = "NA"
+  interview.typical_role = "anonymous"
   interview_label_draft = interview.short_title.lower()
-  
+
   no_template_default_values = True
 ---
 code: |
-  if 'without_template' in interview_type:
+  if "without_template" in interview_type:
     have_template_to_load = False
   else:
     have_template_to_load = True
-    
-  if 'survey' in interview_type:
+
+  if "survey" in interview_type:
     generate_download_screen = False
   else:
     generate_download_screen = True
-    
-  set_interview_type_vars = 'Done'
+
+  set_interview_type_vars = "Done"
 ---
 ################ I'm feeling lucky feature ###################
 ---
@@ -2498,18 +2643,21 @@ content: |
   mode is not as flexible yet as building screen by screen.
 ---
 code: |
-  has_safe_pdf_in_url = url_args.get('form_to_use') and url_args.get('form_to_use').startswith('https://courtformsonline.org')
+  has_safe_pdf_in_url = url_args.get("form_to_use") and url_args.get(
+    "form_to_use"
+  ).startswith("https://courtformsonline.org")
 ---
 only sets: process_url_args
 code: |
   # sample URL: https://apps-dev.suffolklitlab.org/interview?i=docassemble.playground10WeaverBugs%3Aassembly_line.yml&reset=1&cache=0&new_session=1&form_to_use=https://courtformsonline.org/forms/d2eea048cc217c0120450f746fc867d1d6ef42130c85fcd26966a352.pdf&title=Demand+for+Possession%2C+Termination+of+Tenancy+Due+to+Unlawful+Drug+Activity+on+Premises%2C+Landlord-Tenant+%28two-page+form%29&jur=MI&nsmi=[%27HO-06-00-00-00%27,%20%27HO-00-00-00-00%27]
   # Let someone bootstrap an interview from the form explorer
-  interview.original_form = url_args.get('form_to_use')
+  interview.original_form = url_args.get("form_to_use")
   if has_safe_pdf_in_url:
-    interview.auto_assign_attributes(url_args.get('form_to_use'),
-                                     title=url_args.get('title'),
-                                     categories=url_args.get('nsmi'),
-                                     jurisdiction=url_args.get('jur'),
+    interview.auto_assign_attributes(
+      url_args.get("form_to_use"),
+      title=url_args.get("title"),
+      categories=url_args.get("nsmi"),
+      jurisdiction=url_args.get("jur"),
     )
     interview_label_draft = interview.short_filename.lower()
     url_args.clear()
@@ -2530,12 +2678,16 @@ code: |
         interview.lucky_base_initialized = True
       # Start background LLM task if not already started
       if not hasattr(interview, "lucky_lm_drafting_task_started"):
-        lucky_lm_drafting_task = background_action('lucky_lm_drafting_event')
+        lucky_lm_drafting_task = background_action("lucky_lm_drafting_event")
         interview.lucky_lm_drafting_task_started = True
       if lucky_lm_drafting_task.ready():
         if lucky_lm_drafting_task.failed():
           log("Lucky-mode background LLM drafting task failed", "error")
-        elif hasattr(interview, "lucky_lm_drafting_payload") and interview.lucky_lm_drafting_payload and not hasattr(interview, "lucky_lm_drafting_payload_applied"):
+        elif (
+          hasattr(interview, "lucky_lm_drafting_payload")
+          and interview.lucky_lm_drafting_payload
+          and not hasattr(interview, "lucky_lm_drafting_payload_applied")
+        ):
           interview.apply_llm_draft_payload(interview.lucky_lm_drafting_payload)
           interview.lucky_lm_drafting_payload_applied = True
       else:
@@ -2545,13 +2697,13 @@ code: |
       if not hasattr(interview, "lucky_base_initialized"):
         interview.auto_assign_attributes()
         interview.lucky_base_initialized = True
-  
+
   # Set interview label from title
   interview_label_draft = varname(interview.title).lower()
 
   # Check for an empty file
   if not len(interview.all_fields):
-    force_ask('empty_pdf')
+    force_ask("empty_pdf")
 
   # TODO: refactor this at some point, this is a shim to create objects block but we
   # shouldn't need it forever.
@@ -2563,30 +2715,30 @@ code: |
   process_people_variables = True
   interview.categories = DADict("interview.categories", auto_gather=False, gathered=True)
   interview.allowed_courts = DADict(
-    "interview.allowed_courts", 
-    auto_gather=False, 
+    "interview.allowed_courts",
+    auto_gather=False,
     gathered=True,
-    elements = {"Other": False}
+    elements={"Other": False},
   )
   interview.state = ""
   for field in interview.all_fields:
-      if field.field_type == "multiple choice radio":
-          field.choices = "\n".join(
-              [
-                  f"{opt.capitalize().replace('_', ' ')}: {opt}"
-                  for opt in field.choice_options
-              ]
-          )
+    if field.field_type == "multiple choice radio":
+      field.choices = "\n".join(
+        [
+          f"{opt.capitalize().replace('_', ' ')}: {opt}"
+          for opt in field.choice_options
+        ]
+      )
   # Skip some screens we don't need
-  ask_people_quantity_question = (
-      choose_field_types
-  ) = (
-      show_screen_order
-  ) = (
-      review_fields_to_add_template
-  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = preview_final_next_steps = True
+  ask_people_quantity_question = choose_field_types = show_screen_order = (
+    review_fields_to_add_template
+  ) = review_fields_after_labeling = validate_field_names = preview_next_steps = (
+    preview_final_next_steps
+  ) = True
   interview.include_next_steps = True
-  interview.customize_next_steps = True  # Populate next steps with LLM drafts, but don't show preview screens
+  interview.customize_next_steps = (
+    True  # Populate next steps with LLM drafts, but don't show preview screens
+  )
   interview.enable_navigation = True
   interview.has_other_categories = False
   interview_sections_defaults_loaded = True
@@ -2595,14 +2747,14 @@ code: |
 ---
 event: lucky_lm_drafting_event
 code: |
-  background_error_action('lucky_lm_drafting_error')
+  background_error_action("lucky_lm_drafting_error")
   # Only LLM work runs in the background; fields are already loaded on the main thread
   payload = interview.llm_generate_draft_payload()
-  background_response_action('save_lucky_lm_drafting_payload', payload=payload)
+  background_response_action("save_lucky_lm_drafting_payload", payload=payload)
 ---
 event: save_lucky_lm_drafting_payload
 code: |
-  interview.lucky_lm_drafting_payload = action_argument('payload')
+  interview.lucky_lm_drafting_payload = action_argument("payload")
   background_response()
 ---
 event: lucky_lm_drafting_error
@@ -2628,7 +2780,11 @@ reload: 5
 only sets:
   - process_llm_stepwise_prefill
 code: |
-  if not has_safe_pdf_in_url and hasattr(interview, "use_llm_assist") and interview.use_llm_assist:
+  if (
+    not has_safe_pdf_in_url
+    and hasattr(interview, "use_llm_assist")
+    and interview.use_llm_assist
+  ):
     interview._prefetch_reference_site()
     interview.llm_prefill_metadata(apply=False)
     interview.llm_predict_state(apply=False)
@@ -2639,7 +2795,7 @@ code: |
 ##### Keep this block towards end of interview #############
 ---
 code: |
-  interview.default_country_code = 'US'
+  interview.default_country_code = "US"
   # This is weird but needed for check-in logic that refreshes list of states
   # TODO(qs): adjust when we have a way to load in org defaults at runtime
 ---

@@ -12,13 +12,17 @@ from .playground_publish import (
 class test_playground_publish(unittest.TestCase):
     def test_normalize_project_name(self):
         self.assertEqual(normalize_project_name("My New Project"), "MyNewProject")
-        self.assertEqual(normalize_project_name("123 starts with digits"), "P123startswithdigits")
+        self.assertEqual(
+            normalize_project_name("123 starts with digits"), "P123startswithdigits"
+        )
         self.assertEqual(normalize_project_name("default"), "defaultProject")
         self.assertEqual(normalize_project_name("!!!"), "ALWeaverProject")
 
     def test_next_available_project_name_when_unused(self):
         self.assertEqual(
-            next_available_project_name("HousingCase", ["OtherProject", "HousingCase2"]),
+            next_available_project_name(
+                "HousingCase", ["OtherProject", "HousingCase2"]
+            ),
             "HousingCase",
         )
 
@@ -30,7 +34,9 @@ class test_playground_publish(unittest.TestCase):
             "HousingCase3",
         )
         self.assertEqual(
-            next_available_project_name("HousingCase9", ["HousingCase9", "HousingCase10"]),
+            next_available_project_name(
+                "HousingCase9", ["HousingCase9", "HousingCase10"]
+            ),
             "HousingCase11",
         )
 
