@@ -1787,6 +1787,9 @@ subquestion: |
   ###### Review code on the screen
   ${ collapse_template(yaml_source) } 
 
+  ###### View and download individual generated files
+  ${ collapse_template(generated_artifacts_downloads) }
+
   ###### Download the YAML file only
   If you already uploaded a previous version of the package to the Playground, 
   you can get just the updated YAML file here.
@@ -1806,15 +1809,7 @@ code: |
   if not can_publish_to_playground:
     playground_publish_error = "You need to be logged in with the developer or admin role to create a Playground project."
   else:
-    template_files_to_copy = []
-    if defined("interview.uploaded_templates"):
-      template_files_to_copy.extend(list(interview.uploaded_templates))
-    if (
-      generate_download_screen
-      and interview.include_next_steps
-      and hasattr(interview, "instructions")
-    ):
-      template_files_to_copy.insert(0, interview.instructions)
+    template_files_to_copy = list(generated_template_files_for_artifacts)
 
     try:
       playground_publish_result = publish_weaver_artifacts_to_playground(
@@ -1857,6 +1852,23 @@ subject: |
   Preview interview YAML
 content: |
   ${ indent_by(generation_result.yaml_text, 4) }
+
+---
+template: generated_artifacts_downloads
+subject: |
+  Generated files
+content: |
+  ### Question file
+  * `${ temp_interview.filename }` [:download:](${ temp_interview.url_for(attachment=True) })
+
+  % if generated_template_files_for_artifacts:
+  ### Template files
+  % for file in generated_template_files_for_artifacts:
+  * `${ file.filename }` [:download:](${ file.url_for(attachment=True) })
+  % endfor
+  % else:
+  No template files were generated for this configuration.
+  % endif
 
 ---
 code: |
@@ -2257,6 +2269,15 @@ code: |
     interview.instructions = next_steps_documents[interview.form_type]["attachment"][
       "final"
     ].docx
+
+  generated_template_files_for_artifacts = []
+  if generate_download_screen:
+    if interview.include_next_steps and hasattr(interview, "instructions"):
+      generated_template_files_for_artifacts = [interview.instructions] + list(
+        interview.uploaded_templates
+      )
+    else:
+      generated_template_files_for_artifacts = list(interview.uploaded_templates)
 
   interview.dependencies = get_pypi_deps_from_choices(
     interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
