@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from .interview_generator import (
     generate_interview_from_path,
+    _ensure_question_block_ids,
     _ensure_unique_question_ids,
 )
 
@@ -107,6 +108,20 @@ question: |
         self.assertIn("id: Duplicate title\n", fixed)
         self.assertIn("id: Duplicate title 2\n", fixed)
         self.assertIn("id: Duplicate title 3\n", fixed)
+
+    def test_ensure_question_block_ids_for_missing_or_empty_ids(self):
+        sample = """---
+id:
+question: |
+  First prompt
+---
+question: |
+  Second prompt
+"""
+        fixed = _ensure_question_block_ids(sample)
+        ids = re.findall(r"(?m)^id:\s*(.+)$", fixed)
+        self.assertEqual(len(ids), 2)
+        self.assertTrue(all(item.strip() for item in ids))
 
     def test_generate_from_docx(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"

@@ -4772,7 +4772,12 @@ def _ensure_question_block_ids(yaml_text: str) -> str:
         if not doc_text.strip():
             updated_docs.append(doc_text)
             continue
-        has_top_level_id = re.search(r"(?m)^id:\s*", doc_text) is not None
+        id_match = re.search(r"(?m)^id:[ \t]*(.*)$", doc_text)
+        has_top_level_id = False
+        raw_id = ""
+        if id_match is not None:
+            raw_id = (id_match.group(1) or "").strip()
+            has_top_level_id = raw_id not in {"", '""', "''"}
         has_question = re.search(r"(?m)^question:\s*", doc_text) is not None
         if not has_top_level_id and has_question:
             title = ""
@@ -4795,17 +4800,26 @@ def _ensure_question_block_ids(yaml_text: str) -> str:
                             break
             title = title or f"auto generated screen {generated_counter}"
             generated_counter += 1
-            id_line = f"id: {fix_id(title)}\n"
-            # Insert before the first top-level key when possible.
-            first_key = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_ ]*:\s*", doc_text)
-            if first_key:
+            id_value = fix_id(title)
+            if id_match is not None and raw_id in {"", '""', "''"}:
+                # Replace an invalid empty id line instead of prepending a duplicate id.
                 doc_text = (
-                    doc_text[: first_key.start()]
-                    + id_line
-                    + doc_text[first_key.start() :]
+                    doc_text[: id_match.start()]
+                    + f"id: {id_value}"
+                    + doc_text[id_match.end() :]
                 )
             else:
-                doc_text = id_line + doc_text
+                id_line = f"id: {id_value}\n"
+                # Insert before the first top-level key when possible.
+                first_key = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_ ]*:\s*", doc_text)
+                if first_key:
+                    doc_text = (
+                        doc_text[: first_key.start()]
+                        + id_line
+                        + doc_text[first_key.start() :]
+                    )
+                else:
+                    doc_text = id_line + doc_text
         updated_docs.append(doc_text)
 
     return "---\n".join(updated_docs)
