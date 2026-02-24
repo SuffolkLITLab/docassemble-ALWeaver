@@ -2710,6 +2710,21 @@ code: |
           and not hasattr(interview, "lucky_lm_drafting_payload_applied")
         ):
           interview.apply_llm_draft_payload(interview.lucky_lm_drafting_payload)
+          if isinstance(interview.lucky_lm_drafting_payload, dict):
+            draft_diagnostics = interview.lucky_lm_drafting_payload.get("llm_diagnostics")
+            if isinstance(draft_diagnostics, dict):
+              log(
+                "Lucky-mode LLM diagnostics: " + repr(draft_diagnostics)
+              )
+              if (
+                "field_updates_count" in draft_diagnostics
+                and draft_diagnostics.get("field_updates_count", 0) == 0
+              ):
+                log(
+                  "Lucky-mode LLM returned no field label updates. diagnostics="
+                  + repr(draft_diagnostics),
+                  "warning",
+                )
           interview.lucky_lm_drafting_payload_applied = True
       else:
         waiting_screen_lucky_drafting
@@ -2771,15 +2786,62 @@ code: |
   background_error_action("lucky_lm_drafting_error")
   # Only LLM work runs in the background; fields are already loaded on the main thread
   payload = interview.llm_generate_draft_payload()
+  if isinstance(payload, dict):
+    log("lucky_lm_drafting_event payload keys: " + repr(sorted(payload.keys())))
+    if isinstance(payload.get("field_updates"), dict):
+      log(
+        "lucky_lm_drafting_event field_updates_count="
+        + str(len(payload.get("field_updates", {})))
+      )
+    if isinstance(payload.get("screen_list"), list):
+      log(
+        "lucky_lm_drafting_event screen_list_count="
+        + str(len(payload.get("screen_list", [])))
+      )
+    if isinstance(payload.get("llm_diagnostics"), dict):
+      log(
+        "lucky_lm_drafting_event llm_diagnostics="
+        + repr(payload.get("llm_diagnostics"))
+      )
+  else:
+    log(
+      "lucky_lm_drafting_event payload type was not dict: "
+      + str(type(payload).__name__),
+      "warning",
+    )
   background_response_action("save_lucky_lm_drafting_payload", payload=payload)
 ---
 event: save_lucky_lm_drafting_payload
 code: |
-  interview.lucky_lm_drafting_payload = action_argument("payload")
+  payload_arg = action_argument("payload")
+  if isinstance(payload_arg, dict):
+    log("save_lucky_lm_drafting_payload payload keys: " + repr(sorted(payload_arg.keys())))
+    if isinstance(payload_arg.get("field_updates"), dict):
+      log(
+        "save_lucky_lm_drafting_payload field_updates_count="
+        + str(len(payload_arg.get("field_updates", {})))
+      )
+    if isinstance(payload_arg.get("llm_diagnostics"), dict):
+      log(
+        "save_lucky_lm_drafting_payload llm_diagnostics="
+        + repr(payload_arg.get("llm_diagnostics"))
+      )
+  else:
+    log(
+      "save_lucky_lm_drafting_payload payload type was not dict: "
+      + str(type(payload_arg).__name__),
+      "warning",
+    )
+  interview.lucky_lm_drafting_payload = payload_arg
   background_response()
 ---
 event: lucky_lm_drafting_error
 code: |
+  err = action_argument("error")
+  if err:
+    log("lucky_lm_drafting_error error=" + repr(err), "error")
+  else:
+    log("lucky_lm_drafting_error fired with no error argument", "error")
   interview.lucky_lm_drafting_payload = {}
   background_response()
 ---
