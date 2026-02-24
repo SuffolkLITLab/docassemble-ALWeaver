@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from . import interview_generator as interview_generator_module
 from .interview_generator import (
     _LocalDAFileAdapter,
     generate_interview_from_path,
@@ -36,8 +37,9 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
     def setUp(self):
         self._cluster_patch = None
         if not os.environ.get("OPENAI_API_KEY"):
-            self._cluster_patch = patch(
-                "docassemble.ALWeaver.interview_generator.formfyxer.cluster_screens",
+            self._cluster_patch = patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
                 side_effect=self._offline_cluster_screens,
             )
             self._cluster_patch.start()
@@ -179,10 +181,16 @@ question: |
                 names = package_zip.namelist()
 
             self.assertTrue(
-                any(name.endswith("/data/questions/test_docx_no_pdf_field_names.yml") for name in names)
+                any(
+                    name.endswith("/data/questions/test_docx_no_pdf_field_names.yml")
+                    for name in names
+                )
             )
             self.assertTrue(
-                any(name.endswith("/data/templates/test_docx_no_pdf_field_names.docx") for name in names)
+                any(
+                    name.endswith("/data/templates/test_docx_no_pdf_field_names.docx")
+                    for name in names
+                )
             )
             self.assertTrue(
                 any(
@@ -215,16 +223,19 @@ question: |
                 interview_obj.instructions = "generated-next-steps"
 
             with (
-                patch(
-                    "docassemble.ALWeaver.interview_generator._render_interview_yaml",
+                patch.object(
+                    interview_generator_module,
+                    "_render_interview_yaml",
                     return_value="metadata:\n  title: test\n",
                 ),
-                patch(
-                    "docassemble.ALWeaver.interview_generator._assign_next_steps_template",
+                patch.object(
+                    interview_generator_module,
+                    "_assign_next_steps_template",
                     side_effect=_fake_assign,
                 ) as assign_patch,
-                patch(
-                    "docassemble.ALWeaver.interview_generator.create_package_zip",
+                patch.object(
+                    interview_generator_module,
+                    "create_package_zip",
                     return_value=package_output,
                 ) as package_patch,
             ):
