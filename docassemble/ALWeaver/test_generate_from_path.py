@@ -5,11 +5,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from . import interview_generator as interview_generator_module
 from .interview_generator import (
+    _LocalDAFileAdapter,
     generate_interview_from_path,
+    generate_interview_artifacts,
     _ensure_unique_question_ids,
 )
 
@@ -33,8 +37,9 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
     def setUp(self):
         self._cluster_patch = None
         if not os.environ.get("OPENAI_API_KEY"):
-            self._cluster_patch = patch(
-                "docassemble.ALWeaver.interview_generator.formfyxer.cluster_screens",
+            self._cluster_patch = patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
                 side_effect=self._offline_cluster_screens,
             )
             self._cluster_patch.start()
@@ -156,6 +161,99 @@ question: |
             self.assertRegex(yaml_text, r"(?m)^sections:\n(?:\s+- .+\n)+")
             self.assertRegex(yaml_text, r'(?m)^  nav\.set_section\("[-a-z_]+"\)$')
             self._run_dayamlchecker(result.yaml_path)
+
+    def test_deterministic_package_contains_expected_files_including_next_steps(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(docx_path),
+                output_dir=tmpdir,
+                create_package_zip=True,
+                include_next_steps=True,
+                interview_overrides={
+                    "state": "MA",
+                    "jurisdiction": "NAM-US-US+MA",
+                },
+            )
+            self.assertTrue(result.package_zip_path)
+            self.assertTrue(os.path.exists(result.package_zip_path))
+            with zipfile.ZipFile(result.package_zip_path) as package_zip:
+                names = package_zip.namelist()
+
+            self.assertTrue(
+                any(
+                    name.endswith("/data/questions/test_docx_no_pdf_field_names.yml")
+                    for name in names
+                )
+            )
+            self.assertTrue(
+                any(
+                    name.endswith("/data/templates/test_docx_no_pdf_field_names.docx")
+                    for name in names
+                )
+            )
+            self.assertTrue(
+                any(
+                    name.endswith(
+                        "/data/templates/test_docx_no_pdf_field_names_next_steps.docx"
+                    )
+                    for name in names
+                )
+            )
+
+    def test_generate_interview_artifacts_assigns_next_steps_when_missing(self):
+        class MinimalInterview:
+            def __init__(self):
+                self.interview_label = "my_interview"
+                self.package_title = "MyInterview"
+                self.include_next_steps = True
+                self.uploaded_templates = ["uploaded-template"]
+                self.author = ""
+
+            def package_info(self):
+                return {}
+
+        interview = MinimalInterview()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yaml_output = _LocalDAFileAdapter(os.path.join(tmpdir, "my_interview.yml"))
+            package_output = _LocalDAFileAdapter(os.path.join(tmpdir, "package.zip"))
+
+            def _fake_assign(interview_obj):
+                interview_obj.instructions = "generated-next-steps"
+
+            with (
+                patch.object(
+                    interview_generator_module,
+                    "_render_interview_yaml",
+                    return_value="metadata:\n  title: test\n",
+                ),
+                patch.object(
+                    interview_generator_module,
+                    "_assign_next_steps_template",
+                    side_effect=_fake_assign,
+                ) as assign_patch,
+                patch.object(
+                    interview_generator_module,
+                    "create_package_zip",
+                    return_value=package_output,
+                ) as package_patch,
+            ):
+                generate_interview_artifacts(
+                    interview=interview,
+                    include_download_screen=True,
+                    create_package_archive=True,
+                    yaml_output_file=yaml_output,
+                    package_output_file=package_output,
+                )
+
+            assign_patch.assert_called_once_with(interview)
+            package_patch.assert_called_once()
+            folders_and_files = package_patch.call_args.args[3]
+            self.assertEqual(
+                folders_and_files["templates"],
+                ["generated-next-steps", "uploaded-template"],
+            )
 
     def test_custom_frontend_sections_respected(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
