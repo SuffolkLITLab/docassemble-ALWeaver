@@ -36,6 +36,11 @@ class _FakeLlms:
         }
 
 
+class _FakeFailingLlms:
+    def chat_completion(self, **kwargs):
+        raise RuntimeError("synthetic llm failure")
+
+
 class TestLLMRobustness(unittest.TestCase):
     def setUp(self):
         docassemble.base.functions.this_thread.current_question = type("", (), {})()
@@ -104,6 +109,32 @@ class TestLLMRobustness(unittest.TestCase):
         self.assertEqual(len(interview.questions), 1)
         self.assertEqual(interview.questions[0].question_text, "LLM Screen")
 
+    def test_apply_llm_draft_payload_refreshes_stale_screen_field_labels(self):
+        interview = self._build_interview_with_custom_field()
+        payload = {
+            "field_updates": {
+                "custom_one": {"label": "Improved label", "datatype": "text"}
+            },
+            "screen_list": [
+                {
+                    "question": "Screen",
+                    "subquestion": "",
+                    "fields": [
+                        {
+                            "field": "custom_one",
+                            "label": "Stale label",
+                            "datatype": "text",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        interview.apply_llm_draft_payload(payload)
+
+        self.assertEqual(len(interview.questions), 1)
+        self.assertEqual(interview.questions[0].field_list[0].label, "Improved label")
+
     def test_extract_help_page_text_skips_non_html_content_type(self):
         fake_response = _FakeResponse(b"%PDF-1.7 fake", "application/pdf")
         with patch.object(
@@ -114,6 +145,26 @@ class TestLLMRobustness(unittest.TestCase):
             with patch.object(ig, "urlopen", return_value=fake_response):
                 text = ig._extract_help_page_text("https://example.com/help.pdf")
         self.assertEqual(text, "")
+
+    def test_llm_generate_draft_payload_keeps_empty_results_on_failures(self):
+        interview = self._build_interview_with_custom_field()
+        interview._llm_context_text = MethodType(
+            lambda self, **kwargs: "context", interview
+        )
+        interview._llm_default_model = MethodType(lambda self: "gpt-5-mini", interview)
+
+        with (
+            patch.object(ig, "_load_llms_module", return_value=_FakeFailingLlms()),
+            patch.object(ig.DAInterview, "llm_prefill_metadata", return_value=False),
+            patch.object(ig.DAInterview, "llm_predict_state", return_value=False),
+            patch.object(ig.DAInterview, "_prefetch_reference_site", return_value=None),
+        ):
+            payload = interview.llm_generate_draft_payload()
+
+        self.assertIsInstance(payload.get("field_updates"), dict)
+        self.assertEqual(len(payload.get("field_updates", {})), 0)
+        self.assertIsInstance(payload.get("screen_list"), list)
+        self.assertEqual(len(payload.get("screen_list", [])), 0)
 
 
 if __name__ == "__main__":
