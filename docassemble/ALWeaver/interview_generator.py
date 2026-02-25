@@ -2790,7 +2790,9 @@ Rules:
                                 else None
                             )
                             if isinstance(update, Mapping):
-                                label = _safe_short_label(str(update.get("label", "")), 45)
+                                label = _safe_short_label(
+                                    str(update.get("label", "")), 45
+                                )
                                 datatype = _normalize_field_type(
                                     str(update.get("datatype", ""))
                                 )
@@ -2798,7 +2800,9 @@ Rules:
                                     rewritten_field["label"] = label
                                 if datatype:
                                     rewritten_field["datatype"] = datatype
-                            refreshed_fields.append(cast(FieldDefinition, rewritten_field))
+                            refreshed_fields.append(
+                                cast(FieldDefinition, rewritten_field)
+                            )
                         rewritten_screen["fields"] = refreshed_fields
                     refreshed_screens.append(cast(Screen, rewritten_screen))
                 screen_list = refreshed_screens
@@ -5263,6 +5267,10 @@ def generate_interview_artifacts(
 
     package_file = None
     if create_package_archive:
+        include_next_steps = getattr(interview, "include_next_steps", True)
+        if include_next_steps and not hasattr(interview, "instructions"):
+            _assign_next_steps_template(interview)
+
         folders_and_files = {
             "questions": [yaml_file],
             "modules": [],
@@ -5270,7 +5278,6 @@ def generate_interview_artifacts(
             "sources": [],
             "templates": [],
         }
-        include_next_steps = getattr(interview, "include_next_steps", True)
         if include_download_screen:
             if include_next_steps and hasattr(interview, "instructions"):
                 folders_and_files["templates"] = [interview.instructions] + list(
