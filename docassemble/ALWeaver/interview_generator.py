@@ -371,7 +371,8 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
             url,
             headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
         )
-        with urlopen(req, timeout=10) as response:
+        # url checked for SSRF above, so marking as audited for bandit
+        with urlopen(req, timeout=10) as response:  # nosec B310
             content_type = str(response.headers.get("Content-Type", "") or "").lower()
             if content_type and (
                 "text/html" not in content_type
@@ -5109,7 +5110,10 @@ def _render_interview_yaml(
         output_mako_text = mako_handle.read()
 
     template_text = output_defs_text + "\n" + output_mako_text
-    template = mako.template.Template(template_text, input_encoding="utf-8")
+    # This mako template is making a docassemble YAML, so it's not directly at risk of XSS injection.
+    template = mako.template.Template(
+        template_text, input_encoding="utf-8"
+    )  # nosec B702
 
     if screen_reordered is None:
         # The interview order block needs both the authored question screens and any
