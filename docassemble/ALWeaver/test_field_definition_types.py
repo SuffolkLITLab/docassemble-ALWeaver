@@ -69,12 +69,8 @@ class test_field_definition_types(unittest.TestCase):
             _get_continue_button_field({"continue button field": "  next_step  "}),
             "next_step",
         )
-        self.assertIsNone(
-            _get_continue_button_field({"continue_button_field": "   "})
-        )
-        self.assertIsNone(
-            _get_continue_button_field({"continue button field": "\n\t"})
-        )
+        self.assertIsNone(_get_continue_button_field({"continue_button_field": "   "}))
+        self.assertIsNone(_get_continue_button_field({"continue button field": "\n\t"}))
 
     def test_create_questions_from_screen_list_accepts_snake_case_continue(self):
         interview = DAInterview()

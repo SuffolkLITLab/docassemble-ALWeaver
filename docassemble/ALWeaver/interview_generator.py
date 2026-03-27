@@ -683,9 +683,13 @@ class DAField(DAObject):
         else:
             field_title = self.final_display_var
 
-        field_questions.append({"note": f"""
+        field_questions.append(
+            {
+                "note": f"""
                                 <h2 class="h5 prompt-heading">{self.final_display_var}</h2>
-                                """})
+                                """
+            }
+        )
         field_questions.append(
             {
                 "label": f"Prompt",
@@ -3220,9 +3224,7 @@ Rules:
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
         for group in field_grouping:
-            group_fields = [
-                name for name in (field_grouping[group] or []) if name
-            ]
+            group_fields = [name for name in (field_grouping[group] or []) if name]
             if not group_fields:
                 continue
             new_screen = self.questions.appendObject()
@@ -4463,7 +4465,9 @@ def _as_field_definition(value: Mapping[str, Any]) -> Field:
 
 
 def _get_continue_button_field(screen: Screen) -> Optional[str]:
-    raw = screen.get("continue_button_field") or screen.get("continue button field") or ""
+    raw = (
+        screen.get("continue_button_field") or screen.get("continue button field") or ""
+    )
     return raw.strip() or None
 
 
