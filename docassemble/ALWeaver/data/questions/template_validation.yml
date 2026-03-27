@@ -561,7 +561,7 @@ subquestion: |
   It will get the value or use the meaning that it normally has in Docassemble.
 
   Check out [the labeling
-  documentation](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/framework/reserved_keywords)
+  documentation](https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/reserved_keywords)
   to learn more.
 
   These are the variables that have a special meaning:
