@@ -36,6 +36,9 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
+  if not get_config("enable weaver for unauthenticated users", False):
+    if not (user_logged_in() and user_has_privilege(["developer", "admin"])):
+      not_authorized
   multi_user = True
   nav.hide()
   process_url_args
@@ -148,6 +151,12 @@ code: |
   # Display output download screen
   nav.set_section("nav_package")
   show_interview
+---
+event: not_authorized
+question: |
+  You must be logged in as a developer to access the Weaver.
+subquestion: |
+  Contact an administrator for help or log in with an account that has developer access.
 ---
 code: |
   rename_current_session(interview.uploaded_templates[0].filename)
