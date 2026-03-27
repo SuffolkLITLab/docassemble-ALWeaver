@@ -3140,10 +3140,20 @@ Rules:
         """
         self.questions.auto_gather = False
         for screen in screen_list:
-            if not screen.get("question"):
+            question_text = str(screen.get("question", "") or "")
+            subquestion_text = str(screen.get("subquestion", "") or "")
+            continue_button_field = _get_continue_button_field(screen)
+            has_any_fields = bool(screen.get("fields"))
+            if (
+                not question_text.strip()
+                and not subquestion_text.strip()
+                and not has_any_fields
+                and not continue_button_field
+            ):
+                continue
+            if not question_text.strip():
                 continue
             new_screen = self.questions.appendObject()
-            continue_button_field = _get_continue_button_field(screen)
             if continue_button_field:
                 new_screen.continue_button_field = continue_button_field
                 new_screen.is_informational = True
@@ -3152,8 +3162,8 @@ Rules:
                 new_screen.is_informational = False
                 new_screen.needs_continue_button_field = False
             new_screen.type = "question"
-            new_screen.question_text = screen.get("question", "")
-            new_screen.subquestion_text = screen.get("subquestion", "")
+            new_screen.question_text = question_text
+            new_screen.subquestion_text = subquestion_text
             for field in screen.get("fields", []) or []:
                 field_type = _field_type_from_definition(field)
                 if field_type in ["skip this field", "code"]:
@@ -3220,18 +3230,23 @@ Rules:
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
         for group in field_grouping:
+            group_fields = [
+                str(name).strip()
+                for name in (field_grouping.get(group) or [])
+                if isinstance(name, str) and str(name).strip()
+            ]
+            if not group_fields:
+                continue
             new_screen = self.questions.appendObject()
             new_screen.is_informational_screen = False
             new_screen.has_mandatory_field = True
             new_screen.type = "question"
             new_screen.needs_continue_button_field = False
-            new_screen.question_text = (
-                next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
-            )
+            new_screen.question_text = group_fields[0].capitalize().replace("_", " ")
             new_screen.subquestion_text = ""
             new_screen.field_list.clear()
             for field in self.all_fields:
-                if field.variable in field_grouping[group]:
+                if field.variable in group_fields:
                     new_screen.field_list.append(field)
             new_screen.field_list.gathered = True
             if not new_screen.field_list:
@@ -4460,7 +4475,38 @@ def _as_field_definition(value: Mapping[str, Any]) -> Field:
 
 
 def _get_continue_button_field(screen: Screen) -> Optional[str]:
-    return screen.get("continue_button_field") or screen.get("continue button field")
+    for key in ("continue_button_field", "continue button field"):
+        raw_value = screen.get(key)
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip()
+            if normalized:
+                return normalized
+    return None
+
+
+def _is_renderable_question_screen(screen: Any) -> bool:
+    """Return True if a DAQuestion has enough content to safely emit YAML."""
+    if not isinstance(screen, DAQuestion):
+        return True
+    if getattr(screen, "type", None) != "question":
+        return True
+
+    question_text = str(getattr(screen, "question_text", "") or "").strip()
+    if not question_text:
+        return False
+
+    field_list = getattr(screen, "field_list", None)
+    has_fields = bool(field_list and len(field_list) > 0)
+    if has_fields:
+        return True
+
+    if bool(getattr(screen, "needs_continue_button_field", False)):
+        # If needed, we can always fall back to varname(question_text) when an explicit
+        # continue button variable is absent.
+        return True
+
+    subquestion_text = str(getattr(screen, "subquestion_text", "") or "").strip()
+    return bool(subquestion_text)
 
 
 def _merge_field_definitions_into_screens(
@@ -5124,6 +5170,14 @@ def _render_interview_yaml(
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
+    screen_reordered = [
+        screen for screen in screen_reordered if _is_renderable_question_screen(screen)
+    ]
+    render_questions = [
+        question
+        for question in interview.questions
+        if _is_renderable_question_screen(question)
+    ]
 
     screen_triggers: List[str] = []
     for screen in screen_reordered:
@@ -5160,6 +5214,7 @@ def _render_interview_yaml(
 
     context = {
         "interview": interview,
+        "render_questions": render_questions,
         "objects": objects or [],
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
