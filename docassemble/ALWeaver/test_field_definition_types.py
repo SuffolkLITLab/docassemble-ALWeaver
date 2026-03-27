@@ -9,7 +9,6 @@ from .interview_generator import (
     DAInterview,
     _field_type_from_definition,
     _get_continue_button_field,
-    _is_renderable_question_screen,
     _merge_field_definitions_into_screens,
     get_question_file_variables,
 )
@@ -125,25 +124,6 @@ class test_field_definition_types(unittest.TestCase):
 
         self.assertEqual(len(interview.questions), 1)
         self.assertEqual(interview.questions[0].question_text, "Petitioner name")
-
-    def test_renderable_question_screen_requires_question_text(self):
-        interview = DAInterview()
-        interview.create_questions_from_screen_list(
-            [
-                {
-                    "question": "Good screen",
-                    "fields": [{"field": "person_name", "label": "Name"}],
-                }
-            ]
-        )
-        self.assertTrue(_is_renderable_question_screen(interview.questions[0]))
-        blank = interview.questions.appendObject()
-        blank.type = "question"
-        blank.question_text = "   "
-        blank.subquestion_text = ""
-        blank.needs_continue_button_field = True
-        blank.field_list.gathered = True
-        self.assertFalse(_is_renderable_question_screen(blank))
 
 
 if __name__ == "__main__":

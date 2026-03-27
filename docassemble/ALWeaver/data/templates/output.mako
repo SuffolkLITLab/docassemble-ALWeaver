@@ -264,7 +264,7 @@ ${ indent(interview.can_I_use_this_form, by=2)}
 <%doc>
     Main question loop
 </%doc>\
-% for question in render_questions:
+% for question in interview.questions:
 ---
 id: ${ fix_id(question.question_text) }
 question: |
@@ -280,9 +280,8 @@ ${ field_entry_yaml(field) }\
   % endfor
 % endif
 % if question.needs_continue_button_field:
-  <% continue_button_field = str(getattr(question, "continue_button_field", "") or "").strip() %>
-  % if continue_button_field:
-continue button field: ${ continue_button_field }
+  % if hasattr(question, "continue_button_field"):
+continue button field: ${ question.continue_button_field }
   % else:
 continue button field: ${ varname(question.question_text) }
   % endif
