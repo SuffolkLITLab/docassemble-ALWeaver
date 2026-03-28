@@ -21,6 +21,7 @@ __all__ = [
     "parse_order_code",
     "serialize_order_steps",
     "generate_draft_order",
+    "canonicalize_block_yaml",
     "update_block_in_yaml",
     "playground_read_yaml",
     "playground_write_yaml",
@@ -47,6 +48,113 @@ _METADATA_KEYS = {"metadata"}
 _INCLUDE_KEYS = {"include", "includes"}
 _DEFAULT_SCREEN_KEYS = {"default screen parts"}
 
+_BLOCK_KEY_ORDER = [
+    "metadata",
+    "modules",
+    "features",
+    "include",
+    "includes",
+    "default screen parts",
+    "event",
+    "id",
+    "generic object",
+    "mandatory",
+    "if",
+    "question",
+    "subquestion",
+    "under",
+    "buttons",
+    "fields",
+    "attachment",
+    "attachments",
+    "continue button field",
+    "continue button label",
+    "sets",
+    "only sets",
+    "need",
+    "objects",
+    "code",
+]
+
+_LITERAL_TEXT_KEYS = {
+    "question",
+    "subquestion",
+    "under",
+    "continue button label",
+}
+
+
+class _CanonicalDumper(yaml.SafeDumper):
+    pass
+
+
+def _represent_canonical_str(dumper: yaml.SafeDumper, data: str):
+    normalized = data.rstrip("\n")
+    if "\n" in normalized:
+        return dumper.represent_scalar(
+            "tag:yaml.org,2002:str", normalized, style="|"
+        )
+    return dumper.represent_scalar("tag:yaml.org,2002:str", normalized)
+
+
+_CanonicalDumper.add_representer(str, _represent_canonical_str)
+
+
+def _ordered_block_dict(block: Dict[str, Any]) -> Dict[str, Any]:
+    ordered: Dict[str, Any] = {}
+    for key in _BLOCK_KEY_ORDER:
+        if key in block:
+            ordered[key] = _canonicalize_value(block[key], key=key)
+    for key, value in block.items():
+        if key not in ordered:
+            ordered[key] = _canonicalize_value(value, key=key)
+    return ordered
+
+
+def _normalize_literal_text(value: str) -> str:
+    if "\n" not in value and "\\n" not in value and '\\"' not in value:
+        return value
+    normalized = value.replace("\\r\\n", "\n").replace("\\n", "\n")
+    normalized = normalized.replace('\\"', '"')
+    return normalized
+
+
+def _canonicalize_value(value: Any, key: Optional[str] = None) -> Any:
+    if isinstance(value, dict):
+        return {
+            inner_key: _canonicalize_value(inner, key=inner_key)
+            for inner_key, inner in value.items()
+        }
+    if isinstance(value, list):
+        return [_canonicalize_value(item) for item in value]
+    if isinstance(value, str):
+        if key in _LITERAL_TEXT_KEYS:
+            value = _normalize_literal_text(value)
+        return value.rstrip("\n") if "\n" in value else value
+    return value
+
+
+def canonical_block_yaml(block: Dict[str, Any]) -> str:
+    ordered_block = _ordered_block_dict(block)
+    return yaml.dump(
+        ordered_block,
+        Dumper=_CanonicalDumper,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=1000,
+    ).rstrip()
+
+
+def canonicalize_block_yaml(block_yaml: str) -> str:
+    try:
+        parsed = yaml.safe_load(block_yaml)
+    except yaml.YAMLError:
+        return block_yaml.strip()
+    if not isinstance(parsed, dict):
+        return block_yaml.strip()
+    return canonical_block_yaml(parsed)
+
 
 def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
     """Derive a stable id for a parsed block.
@@ -57,7 +165,7 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
     explicit_id = block.get("id")
     if explicit_id:
         return str(explicit_id)
-    raw = yaml.dump(block, default_flow_style=False, allow_unicode=True)
+    raw = canonical_block_yaml(block)
     digest = hashlib.sha1(raw.encode()).hexdigest()[:8]  # noqa: S324 — not security
     return f"block-{index}-{digest}"
 
@@ -173,7 +281,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
         block_type = _detect_block_type(doc)
         block_id = _stable_block_id(i, doc)
-        block_yaml = yaml.dump(doc, default_flow_style=False, allow_unicode=True).rstrip()
+        block_yaml = canonical_block_yaml(doc)
 
         entry: Dict[str, Any] = {
             "id": block_id,
@@ -234,8 +342,9 @@ def update_block_in_yaml(
     blocks = model["blocks"]
     updated: List[str] = []
     found = False
+    normalized_new_block_yaml = canonicalize_block_yaml(new_block_yaml)
     for block in blocks:
-        block_text = new_block_yaml.rstrip() if block["id"] == block_id else block["yaml"]
+        block_text = normalized_new_block_yaml if block["id"] == block_id else block["yaml"]
         
         if block["id"] == block_id:
             found = True

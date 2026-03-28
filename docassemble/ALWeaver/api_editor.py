@@ -39,6 +39,7 @@ from docassemble.webapp.server import jsonify_with_status
 
 from .api_utils import generate_interview_from_bytes, validate_upload_metadata
 from .editor_utils import (
+    canonicalize_block_yaml,
     generate_draft_order,
     parse_interview_yaml,
     parse_order_code,
@@ -478,7 +479,7 @@ def editor_api_insert_block() -> Response:
         model = parse_interview_yaml(current_content)
         blocks = model["blocks"]
 
-        block_text = block_yaml.strip()
+        block_text = canonicalize_block_yaml(block_yaml)
         existing_parts = [
             b["yaml"].strip()
             for b in blocks
@@ -607,7 +608,7 @@ def editor_api_save_order() -> Response:
             raise ValueError("steps must be a list of order step objects")
 
         code_body = serialize_order_steps(steps)
-        order_yaml = f"mandatory: true\ncode: |\n{code_body}"
+        order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{code_body}"
 
         # Load the current file, find the order block, and replace it
         current_content = playground_read_yaml(uid, project, filename)
@@ -843,7 +844,8 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "metadata:\n"
             f"  title: {project_name}\n"
             "---\n"
-            "mandatory: true\n"
+            "id: intro_screen\n"
+            "mandatory: True\n"
             "question: Welcome\n"
             "subquestion: |\n"
             "  This interview was created with the Docassemble editor.\n"

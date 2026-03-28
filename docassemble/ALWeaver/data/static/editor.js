@@ -138,6 +138,8 @@
       return (
         'id: question_' + stamp + '\n' +
         'question: New question\n' +
+        'subquestion: |\n' +
+        '  \n' +
         'fields:\n' +
         '  - New field: new_field_' + stamp + '\n'
       );
