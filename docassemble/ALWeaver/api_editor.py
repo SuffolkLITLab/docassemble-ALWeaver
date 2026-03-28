@@ -9,6 +9,7 @@ Provides:
     GET  /al/editor/api/file     — read & parse a YAML file
     POST /al/editor/api/file     — save full YAML back to a file
     POST /al/editor/api/block    — update a single block in-place
+    POST /al/editor/api/insert-block — insert a new block at a target position
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
@@ -442,6 +443,102 @@ def editor_api_save_block() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: save block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/insert-block", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_insert_block() -> Response:
+    """Insert a new block into a YAML file after the given block id.
+
+    If ``insert_after_id`` is empty, the block is inserted at the top.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        insert_after_id = str(post_data.get("insert_after_id", "")).strip() or None
+        block_yaml = post_data.get("block_yaml")
+        if not isinstance(block_yaml, str) or not block_yaml.strip():
+            raise ValueError("block_yaml must be a non-empty YAML string")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(current_content)
+        blocks = model["blocks"]
+
+        block_text = block_yaml.strip()
+        existing_parts = [
+            b["yaml"].strip()
+            for b in blocks
+            if b.get("yaml", "").strip() and b.get("yaml", "").strip() != "{}"
+        ]
+
+        if not insert_after_id:
+            insert_at = 0
+        else:
+            insert_at = None
+            for idx, block in enumerate(blocks):
+                if block.get("id") == insert_after_id:
+                    insert_at = idx + 1
+                    break
+            if insert_at is None:
+                raise ValueError(f"Block with id {insert_after_id!r} not found")
+
+        existing_parts.insert(insert_at, block_text)
+        updated_content = "\n---\n".join(existing_parts) + "\n"
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        updated_model = parse_interview_yaml(updated_content)
+        inserted_block_id = None
+        id_match = re.search(
+            r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text
+        )
+        if id_match:
+            inserted_block_id = id_match.group(1).strip()
+        elif 0 <= insert_at < len(updated_model["blocks"]):
+            inserted_block_id = updated_model["blocks"][insert_at].get("id")
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "project": project,
+                "filename": filename,
+                "blocks": updated_model["blocks"],
+                "metadata_blocks": updated_model["metadata_blocks"],
+                "include_blocks": updated_model["include_blocks"],
+                "default_screen_parts_blocks": updated_model[
+                    "default_screen_parts_blocks"
+                ],
+                "order_blocks": updated_model["order_blocks"],
+                "raw_yaml": updated_content,
+                "inserted_block_id": inserted_block_id,
+            },
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: insert block error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

@@ -78,28 +78,28 @@ html, body {
 
 .editor-top-tabs {
   display: flex;
-  gap: 2px;
+  gap: 6px;
   margin-left: 12px;
 }
 
 .editor-top-tab {
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
   border-radius: 6px;
-  padding: 6px 14px;
   font-size: 13px;
   font-weight: 500;
-  cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
 }
 
-.editor-top-tab:hover { background: rgba(255, 255, 255, 0.25); color: #fff; }
 .editor-top-tab.active {
-  background: rgba(255, 255, 255, 0.4);
-  color: #fff;
+  background: #fff;
+  color: #212529;
   font-weight: 600;
+}
+
+.editor-top-tabs .editor-top-tab.btn-outline-light:hover,
+.editor-top-tabs .editor-top-tab.btn-outline-light:focus-visible {
+  color: #212529;
+  background-color: #f8f9fa;
+  border-color: #f8f9fa;
 }
 
 .editor-top-actions {
@@ -208,23 +208,15 @@ html, body {
 .editor-outline-insert {
   display: flex;
   justify-content: center;
-  padding: 0;
+  padding: 2px 0;
 }
 
 .editor-outline-insert-btn {
-  border: none;
-  background: transparent;
-  color: #b0bac8;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 1px 6px;
-  border-radius: 4px;
-  transition: color 0.12s, background 0.12s;
-}
-
-.editor-outline-insert-btn:hover {
-  color: var(--editor-primary);
-  background: var(--editor-primary-bg);
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 0;
 }
 
 .editor-outline-item {
@@ -329,6 +321,11 @@ html, body {
   border-radius: var(--editor-radius);
   box-shadow: var(--editor-card-shadow);
   overflow: hidden;
+}
+
+.editor-question-main-card {
+  border-left: 4px solid var(--editor-primary);
+  background: linear-gradient(90deg, #f5f9ff 0%, #ffffff 12%);
 }
 
 .editor-card + .editor-card { margin-top: 10px; }

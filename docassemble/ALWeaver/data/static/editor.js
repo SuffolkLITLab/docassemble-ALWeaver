@@ -38,6 +38,7 @@
     searchQuery: '',
     filterQuestionsOnly: true,
     dirty: false,
+    insertAfterBlockId: null,
   };
 
   // -------------------------------------------------------------------------
@@ -45,15 +46,16 @@
   // -------------------------------------------------------------------------
   var _monacoReady = false;
   var _monacoEditors = {};
+  var _textareaEditors = {};
 
   function initMonaco(callback) {
     if (_monacoReady) { callback(); return; }
     if (typeof require === 'undefined' || !require.config) {
-      // Monaco loader not available — fall back to textareas
+      // Monaco loader is not available in this deployment.
       callback();
       return;
     }
-    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs' } });
+    require.config({ paths: { vs: '/static/app/monaco-editor/min/vs' } });
     require(['vs/editor/editor.main'], function () {
       _monacoReady = true;
       callback();
@@ -67,13 +69,25 @@
         delete _monacoEditors[key];
       }
     });
+    Object.keys(_textareaEditors).forEach(function (key) {
+      delete _textareaEditors[key];
+    });
   }
 
   function createMonacoEditor(containerId, value, language, opts) {
-    if (!_monacoReady) return null;
     var container = document.getElementById(containerId);
     if (!container) return null;
     opts = opts || {};
+    if (!_monacoReady || typeof monaco === 'undefined') {
+      container.innerHTML = '';
+      var textarea = document.createElement('textarea');
+      textarea.className = 'editor-yaml-textarea';
+      textarea.value = value || '';
+      if (opts.onChange) textarea.addEventListener('input', opts.onChange);
+      container.appendChild(textarea);
+      _textareaEditors[containerId] = textarea;
+      return textarea;
+    }
     var editor = monaco.editor.create(container, {
       value: value || '',
       language: language || 'yaml',
@@ -100,7 +114,78 @@
 
   function getMonacoValue(containerId) {
     var ed = _monacoEditors[containerId];
-    return ed ? ed.getValue() : '';
+    if (ed) return ed.getValue();
+    var ta = _textareaEditors[containerId];
+    return ta ? ta.value : '';
+  }
+
+  function getOrCreateBootstrapModal(elementId) {
+    var modalEl = document.getElementById(elementId);
+    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return null;
+    return bootstrap.Modal.getOrCreateInstance(modalEl);
+  }
+
+  function closeBootstrapModal(elementId) {
+    var modalEl = document.getElementById(elementId);
+    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+    var instance = bootstrap.Modal.getInstance(modalEl);
+    if (instance) instance.hide();
+  }
+
+  function makeNewBlockYaml(kind) {
+    var stamp = Date.now();
+    if (kind === 'question') {
+      return (
+        'id: question_' + stamp + '\n' +
+        'question: New question\n' +
+        'fields:\n' +
+        '  - New field: new_field_' + stamp + '\n'
+      );
+    }
+    if (kind === 'code') {
+      return (
+        'id: code_' + stamp + '\n' +
+        'code: |\n' +
+        '  # Write Python here\n' +
+        '  pass\n'
+      );
+    }
+    if (kind === 'objects') {
+      return (
+        'id: objects_' + stamp + '\n' +
+        'objects:\n' +
+        '  - user: Individual\n'
+      );
+    }
+    return (
+      'id: block_' + stamp + '\n' +
+      'comment: New block\n'
+    );
+  }
+
+  function refreshFromFileResponse(data) {
+    state.blocks = data.blocks || [];
+    state.metadataIndices = data.metadata_blocks || [];
+    state.includeIndices = data.include_blocks || [];
+    state.defaultSpIndices = data.default_screen_parts_blocks || [];
+    state.orderIndices = data.order_blocks || [];
+    state.rawYaml = data.raw_yaml || state.rawYaml;
+    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId || (state.blocks[0] ? state.blocks[0].id : null);
+    state.canvasMode = 'question';
+    state.questionEditMode = 'preview';
+    state.advancedOpen = false;
+    state.dirty = false;
+    renderOutline();
+    renderCanvas();
+  }
+
+  function setActiveTopTab(targetTab) {
+    $$('.editor-top-tab').forEach(function (tab) {
+      var isActive = tab === targetTab;
+      tab.classList.toggle('active', isActive);
+      tab.classList.toggle('btn-light', isActive);
+      tab.classList.toggle('btn-outline-light', !isActive);
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -173,31 +258,72 @@
     return str;
   }
 
+  function appendYamlValue(yaml, key, value) {
+    if (value === undefined || value === null) return yaml;
+    var text = String(value).trim();
+    if (!text) return yaml;
+    return yaml + key + ': ' + escapeYamlStr(text) + '\n';
+  }
+
+  function appendYamlListValue(yaml, key, value) {
+    if (value === undefined || value === null) return yaml;
+    var text = String(value).trim();
+    if (!text) return yaml;
+    var parts = text.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length <= 1) {
+      return appendYamlValue(yaml, key, text);
+    }
+    yaml += key + ':\n';
+    parts.forEach(function (item) {
+      yaml += '  - ' + escapeYamlStr(item) + '\n';
+    });
+    return yaml;
+  }
+
   function serializeQuestionToYaml() {
     var yaml = '';
 
     var idInput = document.getElementById('adv-id');
-    if (idInput && idInput.value) yaml += 'id: ' + escapeYamlStr(idInput.value) + '\n';
+    if (idInput && idInput.value) yaml = appendYamlValue(yaml, 'id', idInput.value);
 
-    var qTitle = document.getElementById('q-title');
-    if (qTitle && qTitle.value) yaml += 'question: ' + escapeYamlStr(qTitle.value) + '\n';
-
-    var qSub = document.getElementById('q-subquestion');
-    if (qSub && qSub.value) yaml += 'subquestion: ' + escapeYamlStr(qSub.value) + '\n';
-
-    var contField = document.getElementById('q-continue-field');
-    if (contField && contField.value) yaml += 'continue button field: ' + escapeYamlStr(contField.value) + '\n';
-
+    // Special modifiers immediately after id.
     var condToggle = document.getElementById('adv-enable-if');
     var condInput = document.getElementById('adv-if');
     if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
-      yaml += 'if: ' + escapeYamlStr(condInput.value.trim()) + '\n';
+      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
     }
 
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
     if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
       yaml += 'mandatory: True\n';
     }
+
+    var setsInput = document.getElementById('adv-sets');
+    if (setsInput && setsInput.value.trim()) {
+      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
+      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
+    }
+
+    var needInput = document.getElementById('adv-need');
+    if (needInput && needInput.value.trim()) {
+      yaml = appendYamlListValue(yaml, 'need', needInput.value);
+    }
+
+    var eventInput = document.getElementById('adv-event');
+    if (eventInput && eventInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'event', eventInput.value);
+    }
+
+    var genericObjectInput = document.getElementById('adv-generic-object');
+    if (genericObjectInput && genericObjectInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
+    }
+
+    var qTitle = document.getElementById('q-title');
+    if (qTitle && qTitle.value) yaml = appendYamlValue(yaml, 'question', qTitle.value);
+
+    var qSub = document.getElementById('q-subquestion');
+    if (qSub && qSub.value) yaml = appendYamlValue(yaml, 'subquestion', qSub.value);
 
     var rows = document.querySelectorAll('.editor-field-row');
     if (rows.length > 0) {
@@ -224,6 +350,17 @@
         }
       }
     }
+
+    // Continue button keys are kept near the end in common docassemble style.
+    var contField = document.getElementById('adv-continue-field');
+    if (contField && contField.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
+    }
+    var contLabel = document.getElementById('adv-continue-label');
+    if (contLabel && contLabel.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
+    }
+
     return yaml;
   }
 
@@ -252,10 +389,16 @@
       else delete blk.data.subquestion;
     }
 
-    var contField = document.getElementById('q-continue-field');
+    var contField = document.getElementById('adv-continue-field');
     if (contField) {
       if (contField.value) blk.data['continue button field'] = contField.value;
       else delete blk.data['continue button field'];
+    }
+
+    var contLabel = document.getElementById('adv-continue-label');
+    if (contLabel) {
+      if (contLabel.value) blk.data['continue button label'] = contLabel.value;
+      else delete blk.data['continue button label'];
     }
 
     var condToggle = document.getElementById('adv-enable-if');
@@ -275,6 +418,41 @@
     if (mandatoryBtn) {
       if (mandatoryBtn.getAttribute('data-enabled') === 'true') blk.data.mandatory = true;
       else delete blk.data.mandatory;
+    }
+
+    var setsInput = document.getElementById('adv-sets');
+    if (setsInput) {
+      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
+      var setsValue = setsInput.value.trim();
+      delete blk.data.sets;
+      delete blk.data['only sets'];
+      if (setsValue) {
+        var setParts = setsValue.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+        blk.data[setsKey] = setParts.length > 1 ? setParts : setParts[0] || setsValue;
+      }
+    }
+
+    var needInput = document.getElementById('adv-need');
+    if (needInput) {
+      var needValue = needInput.value.trim();
+      if (needValue) {
+        var needParts = needValue.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+        blk.data.need = needParts.length > 1 ? needParts : needParts[0] || needValue;
+      } else {
+        delete blk.data.need;
+      }
+    }
+
+    var eventInput = document.getElementById('adv-event');
+    if (eventInput) {
+      if (eventInput.value.trim()) blk.data.event = eventInput.value.trim();
+      else delete blk.data.event;
+    }
+
+    var genericObjectInput = document.getElementById('adv-generic-object');
+    if (genericObjectInput) {
+      if (genericObjectInput.value.trim()) blk.data['generic object'] = genericObjectInput.value.trim();
+      else delete blk.data['generic object'];
     }
   }
 
@@ -425,8 +603,8 @@
   function renderOutline() {
     var blocks = filteredBlocks();
     var html = '';
-    html += '<div class="editor-outline-insert"><button class="editor-outline-insert-btn" data-insert-pos="start">+</button></div>';
-    blocks.forEach(function (block, i) {
+    html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn btn btn-outline-secondary btn-sm" data-insert-after-id=""><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="visually-hidden">Insert block at top</span></button></div>';
+    blocks.forEach(function (block) {
       var active = state.selectedBlockId === block.id;
       var tl = typeLabel(block.type);
       var tc = typeClass(block.type);
@@ -440,7 +618,7 @@
       html += '</div>';
       html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
       html += '</div></div>';
-      html += '<div class="editor-outline-insert"><button class="editor-outline-insert-btn" data-insert-pos="after-' + i + '">+</button></div>';
+      html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn btn btn-outline-secondary btn-sm" data-insert-after-id="' + esc(block.id) + '"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="visually-hidden">Insert block after ' + esc(block.title) + '</span></button></div>';
     });
     outlineList.innerHTML = html;
   }
@@ -503,7 +681,7 @@
 
     // Header bar
     html += '<div class="editor-center-bar">';
-    html += '<div class="editor-tiny">Question editor</div>';
+    html += '<div></div>';
     html += '<div class="d-flex gap-2">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Visual editor') + '</button>';
     html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
@@ -512,10 +690,9 @@
     html += '<div class="editor-shell">';
 
     if (isPreview) {
-      html += '<div class="editor-card"><div class="editor-card-body editor-card-body-compact">';
-      html += '<div class="editor-section-legend">Question</div>';
+      html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
       html += '<div class="editor-form-group">';
-      html += '<label class="editor-tiny" for="q-title">Question title</label>';
+      html += '<label class="editor-tiny" for="q-title">Question</label>';
       html += '<input class="form-control editor-form-control" id="q-title" value="' + esc(data.question || '') + '">';
       html += '</div>';
       if (data.subquestion !== undefined) {
@@ -524,16 +701,10 @@
         html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="4">' + esc(String(data.subquestion || '')) + '</textarea>';
         html += '</div>';
       }
-      if (data['continue button field']) {
-        html += '<div class="editor-form-group">';
-        html += '<label class="editor-tiny" for="q-continue-field">Continue button field</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="q-continue-field" value="' + esc(data['continue button field']) + '">';
-        html += '</div>';
-      }
       html += '</div></div>';
 
       if (fields.length > 0) {
-        html += '<div class="editor-card"><div class="editor-card-body editor-card-body-compact">';
+        html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
         html += '<div class="editor-section-legend">Fields</div>';
         html += '<div class="editor-field-grid-header">';
         html += '<div>Label</div><div>Type</div><div>Variable</div><div></div>';
@@ -570,7 +741,7 @@
           });
           html += '</select>';
           html += '<input class="form-control editor-form-control font-monospace" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
-          html += '<div class="editor-field-actions"><button class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fas fa-trash-alt" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button></div>';
+          html += '<div class="editor-field-actions"><button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button></div>';
           html += '</div>';
           if (hasChoices || choices) {
             html += '<div class="editor-field-choices-row" data-field-idx="' + fi + '">';
@@ -582,7 +753,7 @@
         html += '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button></div>';
         html += '</div></div>';
       } else {
-        html += '<div class="editor-card"><div class="editor-card-body editor-card-body-compact">';
+        html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
         html += '<div class="editor-section-legend">Fields</div>';
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
         html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button>';
@@ -709,7 +880,7 @@
           html += '<div class="editor-obj-row" data-obj-idx="' + oi + '">';
           html += '<input class="editor-obj-input" data-obj-prop="name" value="' + esc(name) + '" placeholder="variable_name">';
           html += '<input class="editor-obj-input" data-obj-prop="class" value="' + esc(cls) + '" placeholder="ClassName.using(...)">';
-          html += '<div><button class="btn btn-sm btn-outline-danger" data-remove-obj="' + oi + '">&times;</button></div>';
+          html += '<div><button type="button" class="btn btn-sm btn-outline-danger" data-remove-obj="' + oi + '" title="Remove object"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
           html += '</div>';
         });
       } else {
@@ -801,33 +972,28 @@
       html += '<div class="editor-form-group editor-form-group-compact"><label class="editor-tiny" for="adv-mandatory-toggle">Mandatory</label>';
       html += '<button type="button" class="btn btn-sm ' + (mandatoryEnabled ? 'btn-primary' : 'btn-outline-secondary') + '" id="adv-mandatory-toggle" data-enabled="' + (mandatoryEnabled ? 'true' : 'false') + '">' + (mandatoryEnabled ? 'On' : 'Off') + '</button></div>';
 
-      // sets / only sets
-      if (data.sets || data['only sets']) {
-        var setsVal = data.sets || data['only sets'] || '';
-        if (Array.isArray(setsVal)) setsVal = setsVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' + (data['only sets'] ? 'Only sets' : 'Sets') + '</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-sets" value="' + esc(String(setsVal)) + '"></div>';
-      }
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-field">Continue button field</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
 
-      // need
-      if (data.need) {
-        var needVal = data.need;
-        if (Array.isArray(needVal)) needVal = needVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' + esc(String(needVal)) + '"></div>';
-      }
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-label">Continue button label</label>';
+      html += '<input class="form-control editor-form-control" id="adv-continue-label" value="' + esc(String(data['continue button label'] || '')) + '"></div>';
 
-      // event
-      if (data.event) {
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' + esc(String(data.event)) + '"></div>';
-      }
+      // Additional keys
+      var setsVal = data.sets || data['only sets'] || '';
+      if (Array.isArray(setsVal)) setsVal = setsVal.join(', ');
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' + (data['only sets'] ? 'Only sets' : 'Sets') + '</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-sets" data-sets-key="' + (data['only sets'] ? 'only sets' : 'sets') + '" value="' + esc(String(setsVal)) + '"></div>';
 
-      // generic object
-      if (data['generic object']) {
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' + esc(String(data['generic object'])) + '"></div>';
-      }
+      var needVal = data.need || '';
+      if (Array.isArray(needVal)) needVal = needVal.join(', ');
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' + esc(String(needVal)) + '"></div>';
+
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '"></div>';
+
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' + esc(String(data['generic object'] || '')) + '"></div>';
 
       html += '</div>';
     }
@@ -899,10 +1065,10 @@
     html += '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
     html += '<span>Steps</span>';
     html += '<div class="editor-order-actions">';
-    html += '<button class="btn btn-sm btn-outline-primary" data-add-step="screen">+ Screen</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" data-add-step="gather">+ Gather</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" data-add-step="section">+ Section</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" data-add-step="progress">+ Progress</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-step="screen"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Screen</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="gather"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Gather</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="section"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Section</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="progress"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Progress</button>';
     html += '</div></div>';
 
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
@@ -927,8 +1093,8 @@
       }
       html += '</div>';
       html += '<div class="d-flex gap-1">';
-      html += '<button class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="edit" data-step-idx="' + i + '" title="Edit">&#9998;</button>';
-      html += '<button class="btn btn-sm btn-outline-danger py-0 px-1" data-step-action="remove" data-step-idx="' + i + '" title="Remove">&times;</button>';
+      html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="edit" data-step-idx="' + i + '" title="Edit"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span class="visually-hidden">Edit step</span></button>';
+      html += '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-step-action="remove" data-step-idx="' + i + '" title="Remove"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove step</span></button>';
       html += '</div>';
       html += '</div></div>';
     });
@@ -1092,22 +1258,30 @@
   // -------------------------------------------------------------------------
   document.addEventListener('click', function (e) {
     var target = e.target;
+    var topTab = target.closest('.editor-top-tab');
+    var jumpItem = target.closest('.editor-jump-item');
+    var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
+    var insertChoiceBtn = target.closest('[data-insert]');
+    var stepActionBtn = target.closest('[data-step-action]');
+    var addStepBtn = target.closest('[data-add-step]');
+    var removeFieldBtn = target.closest('[data-remove-field]');
+    var removeObjBtn = target.closest('[data-remove-obj]');
+    var removeUploadBtn = target.closest('[data-remove-upload]');
 
     // View tabs
-    if (target.matches('.editor-top-tab')) {
-      state.currentView = target.getAttribute('data-view');
-      $$('.editor-top-tab').forEach(function (t) { t.classList.remove('active'); });
-      target.classList.add('active');
+    if (topTab) {
+      state.currentView = topTab.getAttribute('data-view');
+      setActiveTopTab(topTab);
       if (state.currentView === 'interview') state.canvasMode = 'question';
       renderCanvas();
       return;
     }
 
     // Jump targets
-    if (target.matches('.editor-jump-item')) {
-      var jump = target.getAttribute('data-jump');
+    if (jumpItem) {
+      var jump = jumpItem.getAttribute('data-jump');
       $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
-      target.classList.add('active');
+      jumpItem.classList.add('active');
       state.jumpTarget = jump;
       if (jump === 'order') {
         state.canvasMode = 'order-builder';
@@ -1118,6 +1292,8 @@
         state.canvasMode = 'question';
       }
       state.currentView = 'interview';
+      var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab) setActiveTopTab(interviewTab);
       renderCanvas();
       return;
     }
@@ -1135,15 +1311,57 @@
     }
 
     // Outline insert
-    if (target.matches('.editor-outline-insert-btn')) {
-      bootstrap.Modal.getOrCreateInstance(document.getElementById('insert-modal')).show();
+    if (outlineInsertBtn) {
+      state.insertAfterBlockId = outlineInsertBtn.getAttribute('data-insert-after-id') || null;
+      var insertModal = getOrCreateBootstrapModal('insert-modal');
+      if (insertModal) insertModal.show();
+      return;
+    }
+
+    // Insert block modal actions
+    if (insertChoiceBtn) {
+      if (!state.filename) return;
+      var kind = insertChoiceBtn.getAttribute('data-insert');
+      var newYaml = makeNewBlockYaml(kind);
+      apiPost('/api/insert-block', {
+        project: state.project,
+        filename: state.filename,
+        insert_after_id: state.insertAfterBlockId,
+        block_yaml: newYaml,
+      }).then(function (res) {
+        if (res.success && res.data) {
+          closeBootstrapModal('insert-modal');
+          refreshFromFileResponse(res.data);
+        }
+      });
       return;
     }
 
     // Top action buttons
-    if (target.id === 'btn-new-project') { state.canvasMode = 'new-project'; state.currentView = 'interview'; renderCanvas(); return; }
-    if (target.id === 'btn-full-yaml') { state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml'; state.currentView = 'interview'; renderCanvas(); return; }
-    if (target.id === 'btn-order-builder') { state.canvasMode = 'order-builder'; state.currentView = 'interview'; renderCanvas(); return; }
+    if (target.id === 'btn-new-project') {
+      state.canvasMode = 'new-project';
+      state.currentView = 'interview';
+      var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab1) setActiveTopTab(interviewTab1);
+      renderCanvas();
+      return;
+    }
+    if (target.id === 'btn-full-yaml') {
+      state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
+      state.currentView = 'interview';
+      var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab2) setActiveTopTab(interviewTab2);
+      renderCanvas();
+      return;
+    }
+    if (target.id === 'btn-order-builder') {
+      state.canvasMode = 'order-builder';
+      state.currentView = 'interview';
+      var interviewTab3 = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab3) setActiveTopTab(interviewTab3);
+      renderCanvas();
+      return;
+    }
     if (target.id === 'btn-preview-interview') {
       if (!state.filename) return;
       apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
@@ -1229,9 +1447,9 @@
     }
 
     // Step actions
-    if (target.matches('[data-step-action]')) {
-      var action = target.getAttribute('data-step-action');
-      var idx = parseInt(target.getAttribute('data-step-idx'), 10);
+    if (stepActionBtn) {
+      var action = stepActionBtn.getAttribute('data-step-action');
+      var idx = parseInt(stepActionBtn.getAttribute('data-step-idx'), 10);
       if (action === 'up' && idx > 0) { var t1 = state.orderSteps[idx]; state.orderSteps[idx] = state.orderSteps[idx - 1]; state.orderSteps[idx - 1] = t1; renderCanvas(); }
       else if (action === 'down' && idx < state.orderSteps.length - 1) { var t2 = state.orderSteps[idx]; state.orderSteps[idx] = state.orderSteps[idx + 1]; state.orderSteps[idx + 1] = t2; renderCanvas(); }
       else if (action === 'remove') { state.orderSteps.splice(idx, 1); renderCanvas(); }
@@ -1241,8 +1459,8 @@
     }
 
     // Add step
-    if (target.matches('[data-add-step]')) {
-      var kind = target.getAttribute('data-add-step');
+    if (addStepBtn) {
+      var kind = addStepBtn.getAttribute('data-add-step');
       var newStep = { id: 'step-new-' + Date.now(), kind: kind, label: kind, summary: 'New ' + kind + ' step' };
       if (kind === 'screen' || kind === 'gather') newStep.invoke = '';
       else if (kind === 'section') newStep.value = 'New section';
@@ -1266,8 +1484,8 @@
     }
 
     // Remove field
-    if (target.matches('[data-remove-field]')) {
-      var fi = parseInt(target.getAttribute('data-remove-field'), 10);
+    if (removeFieldBtn) {
+      var fi = parseInt(removeFieldBtn.getAttribute('data-remove-field'), 10);
       var blk2 = getSelectedBlock();
       if (blk2 && blk2.data && blk2.data.fields) {
         syncFieldsToData(blk2);
@@ -1291,8 +1509,8 @@
     }
 
     // Remove object
-    if (target.matches('[data-remove-obj]')) {
-      var oi = parseInt(target.getAttribute('data-remove-obj'), 10);
+    if (removeObjBtn) {
+      var oi = parseInt(removeObjBtn.getAttribute('data-remove-obj'), 10);
       var blk4 = getSelectedBlock();
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
@@ -1306,8 +1524,8 @@
     if (target.id === 'cancel-new-project') { state.canvasMode = 'question'; _uploadedFiles = []; renderCanvas(); return; }
 
     // Remove upload chip
-    if (target.matches('[data-remove-upload]') || target.closest('[data-remove-upload]')) {
-      var removeBtn = target.matches('[data-remove-upload]') ? target : target.closest('[data-remove-upload]');
+    if (removeUploadBtn) {
+      var removeBtn = removeUploadBtn;
       var removeIdx = parseInt(removeBtn.getAttribute('data-remove-upload'), 10);
       _uploadedFiles.splice(removeIdx, 1);
       _renderFileList();
@@ -1363,7 +1581,9 @@
     var target = e.target;
     if (target.matches('[data-field-prop]') || target.matches('.editor-field-choices') ||
         target.matches('.editor-obj-input') || target.id === 'q-title' || target.id === 'q-subquestion' ||
-        target.id === 'q-continue-field' || target.id === 'adv-id' || target.id === 'adv-if') {
+        target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
+        target.id === 'adv-continue-label' || target.id === 'adv-sets' || target.id === 'adv-need' ||
+        target.id === 'adv-event' || target.id === 'adv-generic-object') {
       state.dirty = true;
       var saveBtn = document.getElementById('save-block-btn');
       if (saveBtn) saveBtn.disabled = false;
@@ -1413,7 +1633,8 @@
       }
     }
     document.getElementById('order-preview-body').innerHTML = body;
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('order-preview-modal')).show();
+    var previewModal = getOrCreateBootstrapModal('order-preview-modal');
+    if (previewModal) previewModal.show();
   }
 
   var _editStepIndex = -1;
@@ -1439,7 +1660,8 @@
       body += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-edit-code" rows="4">' + esc(step.code || '') + '</textarea></div>';
     }
     document.getElementById('order-edit-body').innerHTML = body;
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('order-edit-modal')).show();
+    var editModal = getOrCreateBootstrapModal('order-edit-modal');
+    if (editModal) editModal.show();
   }
 
   document.getElementById('order-edit-save').addEventListener('click', function () {
@@ -1451,7 +1673,7 @@
     if (invokeEl) { step.invoke = invokeEl.value; step.summary = 'Ask ' + invokeEl.value; }
     if (valueEl) { step.value = valueEl.value; if (step.kind === 'section') step.summary = 'Section: ' + valueEl.value; if (step.kind === 'progress') step.summary = 'Progress: ' + valueEl.value + '%'; }
     if (codeEl) { step.code = codeEl.value; step.summary = codeEl.value.split('\n')[0].slice(0, 60); }
-    bootstrap.Modal.getInstance(document.getElementById('order-edit-modal')).hide();
+    closeBootstrapModal('order-edit-modal');
     renderCanvas();
   });
 
