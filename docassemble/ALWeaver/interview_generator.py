@@ -371,8 +371,7 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
             url,
             headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
         )
-        # url checked for SSRF above, so marking as audited for bandit
-        with urlopen(req, timeout=10) as response:  # nosec B310
+        with urlopen(req, timeout=10) as response:
             content_type = str(response.headers.get("Content-Type", "") or "").lower()
             if content_type and (
                 "text/html" not in content_type
@@ -2791,9 +2790,7 @@ Rules:
                                 else None
                             )
                             if isinstance(update, Mapping):
-                                label = _safe_short_label(
-                                    str(update.get("label", "")), 45
-                                )
+                                label = _safe_short_label(str(update.get("label", "")), 45)
                                 datatype = _normalize_field_type(
                                     str(update.get("datatype", ""))
                                 )
@@ -2801,9 +2798,7 @@ Rules:
                                     rewritten_field["label"] = label
                                 if datatype:
                                     rewritten_field["datatype"] = datatype
-                            refreshed_fields.append(
-                                cast(FieldDefinition, rewritten_field)
-                            )
+                            refreshed_fields.append(cast(FieldDefinition, rewritten_field))
                         rewritten_screen["fields"] = refreshed_fields
                     refreshed_screens.append(cast(Screen, rewritten_screen))
                 screen_list = refreshed_screens
@@ -5110,10 +5105,7 @@ def _render_interview_yaml(
         output_mako_text = mako_handle.read()
 
     template_text = output_defs_text + "\n" + output_mako_text
-    # This mako template is making a docassemble YAML, so it's not directly at risk of XSS injection.
-    template = mako.template.Template(
-        template_text, input_encoding="utf-8"
-    )  # nosec B702
+    template = mako.template.Template(template_text, input_encoding="utf-8")
 
     if screen_reordered is None:
         # The interview order block needs both the authored question screens and any
@@ -5271,10 +5263,6 @@ def generate_interview_artifacts(
 
     package_file = None
     if create_package_archive:
-        include_next_steps = getattr(interview, "include_next_steps", True)
-        if include_next_steps and not hasattr(interview, "instructions"):
-            _assign_next_steps_template(interview)
-
         folders_and_files = {
             "questions": [yaml_file],
             "modules": [],
@@ -5282,6 +5270,7 @@ def generate_interview_artifacts(
             "sources": [],
             "templates": [],
         }
+        include_next_steps = getattr(interview, "include_next_steps", True)
         if include_download_screen:
             if include_next_steps and hasattr(interview, "instructions"):
                 folders_and_files["templates"] = [interview.instructions] + list(
