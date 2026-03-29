@@ -395,11 +395,12 @@
     return yaml;
   }
 
-  function serializeQuestionToYaml() {
+  function serializeQuestionToYaml(block) {
     var yaml = '';
 
     var idInput = document.getElementById('adv-id');
-    if (idInput && idInput.value) yaml = appendYamlValue(yaml, 'id', idInput.value);
+    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'question_block');
+    yaml = appendYamlValue(yaml, 'id', blockId);
 
     // Special modifiers immediately after id.
     var condToggle = document.getElementById('adv-enable-if');
@@ -480,6 +481,130 @@
     var contLabel = document.getElementById('adv-continue-label');
     if (contLabel && contLabel.value.trim()) {
       yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
+    }
+
+    return yaml;
+  }
+
+  function serializeCodeToYaml(block) {
+    var yaml = '';
+    var idInput = document.getElementById('adv-id');
+    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'code_block');
+    yaml = appendYamlValue(yaml, 'id', blockId);
+
+    var condToggle = document.getElementById('adv-enable-if');
+    var condInput = document.getElementById('adv-if');
+    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
+    }
+
+    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
+    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+      yaml += 'mandatory: True\n';
+    }
+
+    var setsInput = document.getElementById('adv-sets');
+    if (setsInput && setsInput.value.trim()) {
+      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
+      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
+    }
+
+    var needInput = document.getElementById('adv-need');
+    if (needInput && needInput.value.trim()) {
+      yaml = appendYamlListValue(yaml, 'need', needInput.value);
+    }
+
+    var eventInput = document.getElementById('adv-event');
+    if (eventInput && eventInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'event', eventInput.value);
+    }
+
+    var genericObjectInput = document.getElementById('adv-generic-object');
+    if (genericObjectInput && genericObjectInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
+    }
+
+    var contField = document.getElementById('adv-continue-field');
+    if (contField && contField.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
+    }
+
+    var contLabel = document.getElementById('adv-continue-label');
+    if (contLabel && contLabel.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
+    }
+
+    var codeText = getMonacoValue('code-monaco');
+    if (!codeText && block && block.data && block.data.code) {
+      codeText = String(block.data.code);
+    }
+    yaml += 'code: |\n';
+    String(codeText || '').split('\n').forEach(function (line) {
+      yaml += '  ' + line + '\n';
+    });
+
+    return yaml;
+  }
+
+  function serializeObjectsToYaml(block) {
+    var yaml = '';
+    var idInput = document.getElementById('adv-id');
+    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'objects_block');
+    yaml = appendYamlValue(yaml, 'id', blockId);
+
+    var condToggle = document.getElementById('adv-enable-if');
+    var condInput = document.getElementById('adv-if');
+    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
+    }
+
+    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
+    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+      yaml += 'mandatory: True\n';
+    }
+
+    var setsInput = document.getElementById('adv-sets');
+    if (setsInput && setsInput.value.trim()) {
+      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
+      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
+    }
+
+    var needInput = document.getElementById('adv-need');
+    if (needInput && needInput.value.trim()) {
+      yaml = appendYamlListValue(yaml, 'need', needInput.value);
+    }
+
+    var eventInput = document.getElementById('adv-event');
+    if (eventInput && eventInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'event', eventInput.value);
+    }
+
+    var genericObjectInput = document.getElementById('adv-generic-object');
+    if (genericObjectInput && genericObjectInput.value.trim()) {
+      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
+    }
+
+    var contField = document.getElementById('adv-continue-field');
+    if (contField && contField.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
+    }
+
+    var contLabel = document.getElementById('adv-continue-label');
+    if (contLabel && contLabel.value.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
+    }
+
+    yaml += 'objects:\n';
+    var rows = document.querySelectorAll('.editor-obj-row');
+    if (rows.length > 0) {
+      rows.forEach(function (row) {
+        var nameEl = row.querySelector('[data-obj-prop="name"]');
+        var classEl = row.querySelector('[data-obj-prop="class"]');
+        var name = nameEl ? String(nameEl.value || '').trim() : '';
+        var cls = classEl ? String(classEl.value || '').trim() : '';
+        if (!name) return;
+        yaml += '  - ' + escapeYamlStr(name) + ': ' + escapeYamlStr(cls || 'DAObject') + '\n';
+      });
     }
 
     return yaml;
@@ -837,6 +962,44 @@
       if (state.blocks[i].id === state.selectedBlockId) return state.blocks[i];
     }
     return state.blocks[0] || null;
+  }
+
+  function getBlockYamlForSave(block) {
+    if (!block) return '';
+    if (state.questionEditMode === 'preview' && block.type === 'question') {
+      return serializeQuestionToYaml(block);
+    }
+    if (state.questionEditMode === 'preview' && block.type === 'code') {
+      return serializeCodeToYaml(block);
+    }
+    if (state.questionEditMode === 'preview' && block.type === 'objects') {
+      return serializeObjectsToYaml(block);
+    }
+    var yamlVal = getMonacoValue('block-yaml-monaco');
+    if (!yamlVal && block.yaml) yamlVal = block.yaml;
+    return yamlVal;
+  }
+
+  function saveCurrentBlockIfDirty() {
+    if (!state.dirty || !state.filename) return Promise.resolve(true);
+    var block = getSelectedBlock();
+    if (!block) return Promise.resolve(true);
+    var yamlVal = getBlockYamlForSave(block);
+    if (!yamlVal) return Promise.resolve(false);
+    return apiPost('/api/block', {
+      project: state.project,
+      filename: state.filename,
+      block_id: block.id,
+      block_yaml: yamlVal,
+    }).then(function (res) {
+      if (!res.success || !res.data) return false;
+      var keepBlockId = res.data.saved_block_id || block.id;
+      refreshFromFileResponse(res.data);
+      state.selectedBlockId = keepBlockId;
+      renderOutline();
+      renderCanvas();
+      return true;
+    });
   }
 
   function renderCanvas() {
@@ -1728,18 +1891,28 @@
     }
     if (target.id === 'btn-preview-interview') {
       if (!state.filename) return;
-      apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
-        .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
+      saveCurrentBlockIfDirty().then(function () {
+        apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+          .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
+      });
       return;
     }
 
     // Markdown preview toggle
     if (target.id === 'md-preview-on') {
+      var selectedForPreview = getSelectedBlock();
+      if (selectedForPreview && selectedForPreview.type === 'question' && state.questionEditMode === 'preview') {
+        syncFieldsToData(selectedForPreview);
+      }
       state.markdownPreviewMode = true;
       renderCanvas();
       return;
     }
     if (target.id === 'md-preview-off') {
+      var selectedForEdit = getSelectedBlock();
+      if (selectedForEdit && selectedForEdit.type === 'question' && state.questionEditMode === 'preview') {
+        syncFieldsToData(selectedForEdit);
+      }
       state.markdownPreviewMode = false;
       renderCanvas();
       return;
@@ -1772,16 +1945,7 @@
     if (target.id === 'save-block-btn') {
       var block = getSelectedBlock();
       if (!block) return;
-      var yamlVal = '';
-      if (state.questionEditMode === 'preview' && block.type === 'question') {
-        yamlVal = serializeQuestionToYaml();
-      } else {
-        yamlVal = getMonacoValue('block-yaml-monaco');
-        if (!yamlVal && _monacoEditors['code-monaco']) {
-          yamlVal = block.yaml;
-        }
-        if (!yamlVal) yamlVal = block.yaml;
-      }
+      var yamlVal = getBlockYamlForSave(block);
 
       apiPost('/api/block', {
         project: state.project,
@@ -1789,9 +1953,10 @@
         block_id: block.id,
         block_yaml: yamlVal,
       }).then(function (res) {
-        if (res.success) {
-          state.blocks = res.data.blocks;
-          state.dirty = false;
+        if (res.success && res.data) {
+          var keepBlockId = res.data.saved_block_id || block.id;
+          refreshFromFileResponse(res.data);
+          state.selectedBlockId = keepBlockId;
           renderOutline();
           renderCanvas();
         }

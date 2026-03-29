@@ -461,6 +461,13 @@ def editor_api_save_block() -> Response:
         playground_write_yaml(uid, project, filename, updated_content)
 
         model = parse_interview_yaml(updated_content)
+        order_steps: list = []
+        for idx in model.get("order_blocks", []):
+            block = model["blocks"][idx]
+            code = block.get("data", {}).get("code", "")
+            if code:
+                order_steps = parse_order_code(code)
+                break
         return jsonify({
             "success": True,
             "request_id": request_id,
@@ -468,6 +475,15 @@ def editor_api_save_block() -> Response:
                 "project": project,
                 "filename": filename,
                 "blocks": model["blocks"],
+                "metadata_blocks": model["metadata_blocks"],
+                "include_blocks": model["include_blocks"],
+                "default_screen_parts_blocks": model[
+                    "default_screen_parts_blocks"
+                ],
+                "order_blocks": model["order_blocks"],
+                "order_steps": order_steps,
+                "raw_yaml": updated_content,
+                "saved_block_id": block_id,
             },
         })
     except (ValueError, FileNotFoundError) as exc:
