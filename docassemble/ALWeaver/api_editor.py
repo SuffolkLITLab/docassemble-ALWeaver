@@ -27,6 +27,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
 from flask import Response, jsonify, request
@@ -80,6 +81,7 @@ def _editor_auth_check() -> bool:
 
 
 def _auth_fail(request_id: str):
+    login_url, _logout_url = _editor_auth_urls()
     return jsonify_with_status(
         {
             "success": False,
@@ -87,6 +89,9 @@ def _auth_fail(request_id: str):
             "error": {
                 "type": "auth_error",
                 "message": "Login required for the interview editor.",
+            },
+            "data": {
+                "login_url": login_url,
             },
         },
         401,
@@ -98,6 +103,27 @@ def _current_user_id() -> int:
     if uid is None:
         raise RuntimeError("No authenticated user")
     return int(uid)
+
+
+def _editor_auth_return_target() -> str:
+    """Return a safe in-app location for post-login redirects."""
+    next_arg = request.args.get("next")
+    if isinstance(next_arg, str):
+        next_target = next_arg.strip()
+        if next_target.startswith("/"):
+            return next_target
+    current = request.full_path or EDITOR_BASE_PATH
+    if current.endswith("?"):
+        current = current[:-1]
+    return current or EDITOR_BASE_PATH
+
+
+def _editor_auth_urls() -> tuple[str, str]:
+    next_target = _editor_auth_return_target()
+    return (
+        f"/user/sign-in?next={quote(next_target, safe='')}",
+        f"/user/sign-out?next={quote(next_target, safe='')}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,16 +189,28 @@ def _render_editor_page() -> str:
     html = _get_template_content("editor.html")
     if not html:
         return ""
-    bootstrap: Dict[str, Any] = {"apiBasePath": EDITOR_BASE_PATH}
+    login_url, logout_url = _editor_auth_urls()
+    bootstrap: Dict[str, Any] = {
+        "apiBasePath": EDITOR_BASE_PATH,
+        "auth": {
+            "authenticated": False,
+            "loginUrl": login_url,
+            "logoutUrl": logout_url,
+        },
+    }
     try:
         if _editor_auth_check():
             uid = _current_user_id()
             bootstrap["projects"] = playground_list_projects(uid)
             bootstrap["authenticated"] = True
+            bootstrap["auth"]["authenticated"] = True
+            bootstrap["auth"]["email"] = getattr(current_user, "email", None)
         else:
             bootstrap["authenticated"] = False
+            bootstrap["auth"]["authenticated"] = False
     except Exception:
         bootstrap["authenticated"] = False
+        bootstrap["auth"]["authenticated"] = False
     return html.replace(
         "__EDITOR_BOOTSTRAP_JSON__",
         json.dumps(bootstrap, sort_keys=True),
@@ -470,7 +508,8 @@ def editor_api_insert_block() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
-        insert_after_id = str(post_data.get("insert_after_id", "")).strip() or None
+        _insert_raw = post_data.get("insert_after_id")
+        insert_after_id = str(_insert_raw).strip() if _insert_raw else None
         block_yaml = post_data.get("block_yaml")
         if not isinstance(block_yaml, str) or not block_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")

@@ -12,13 +12,15 @@
   // -------------------------------------------------------------------------
   var BOOT = window.__EDITOR_BOOTSTRAP__ || {};
   var API = BOOT.apiBasePath || '/al/editor';
+  var authState = BOOT.auth || {};
+  var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
   var state = {
     projects: BOOT.projects || [],
-    project: (BOOT.projects && BOOT.projects[0]) || 'default',
+    project: null,
     files: [],
     filename: null,
     blocks: [],
@@ -30,16 +32,21 @@
     rawYaml: '',
     selectedBlockId: null,
     currentView: 'interview',
-    canvasMode: 'question',
+    canvasMode: 'project-selector',
     questionEditMode: 'preview',
     advancedOpen: false,
     jumpTarget: 'block',
     fullYamlTab: 'full',
     searchQuery: '',
+    projectSearchQuery: '',
     filterQuestionsOnly: true,
     dirty: false,
+    markdownPreviewMode: false,
     insertAfterBlockId: null,
   };
+
+  var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
+  var MAX_RECENT_PROJECTS = 8;
 
   // -------------------------------------------------------------------------
   // Monaco management
@@ -165,6 +172,111 @@
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Auto-resize textarea helpers
+  // -------------------------------------------------------------------------
+  function _autoResize(el) {
+    el.style.height = 'auto';
+    var minH = el._minHeight || 0;
+    el.style.height = Math.max(el.scrollHeight, minH) + 'px';
+  }
+
+  function _initAutoResize(el, minHeight) {
+    if (!el || el.tagName.toLowerCase() !== 'textarea') return;
+    el._minHeight = minHeight || 0;
+    el.style.overflow = 'hidden';
+    el.style.resize = 'none';
+    _autoResize(el);
+    el.addEventListener('input', function () { _autoResize(el); });
+  }
+
+  // -------------------------------------------------------------------------
+  // Lightweight Markdown renderer (supports Mako syntax display)
+  // -------------------------------------------------------------------------
+  function renderMarkdown(text) {
+    if (!text) return '<span class="text-muted fst-italic">(empty)</span>';
+    var lines = String(text).split('\n');
+    var html = '';
+    var inList = false;
+    var listTag = '';
+
+    function escH(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function closeList() {
+      if (inList) { html += '</' + listTag + '>'; inList = false; listTag = ''; }
+    }
+
+    function processInline(s) {
+      // Mako ${...} expressions — highlight, don't evaluate
+      s = s.replace(/\$\{([^}]*)\}/g, function (_, expr) {
+        return '<code class="md-mako-expr">${' + expr + '}</code>';
+      });
+      // Bold+italic ***t***
+      s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+      // Bold **t**
+      s = s.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
+      // Italic *t*
+      s = s.replace(/\*([\s\S]+?)\*/g, '<em>$1</em>');
+      // Inline code `t`
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Links [label](url)
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      return s;
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+
+      // Mako % control lines
+      if (/^\s*%/.test(line)) {
+        closeList();
+        html += '<div class="md-mako-line"><code>' + escH(line) + '</code></div>';
+        continue;
+      }
+
+      // ATX header
+      var hm = line.match(/^(#{1,6})\s+(.*)$/);
+      if (hm) {
+        closeList();
+        var hl = Math.min(hm[1].length + 3, 6); // h4-h6 visually
+        html += '<h' + hl + ' class="md-h">' + processInline(escH(hm[2])) + '</h' + hl + '>';
+        continue;
+      }
+
+      // Unordered list  - / * / +
+      var ulm = line.match(/^[-*+]\s+(.+)$/);
+      if (ulm) {
+        if (!inList || listTag !== 'ul') { closeList(); html += '<ul>'; inList = true; listTag = 'ul'; }
+        html += '<li>' + processInline(escH(ulm[1])) + '</li>';
+        continue;
+      }
+
+      // Ordered list
+      var olm = line.match(/^\d+\.\s+(.+)$/);
+      if (olm) {
+        if (!inList || listTag !== 'ol') { closeList(); html += '<ol>'; inList = true; listTag = 'ol'; }
+        html += '<li>' + processInline(escH(olm[1])) + '</li>';
+        continue;
+      }
+
+      // Empty line
+      if (line.trim() === '') {
+        closeList();
+        html += '<div class="md-br"></div>';
+        continue;
+      }
+
+      // Normal paragraph line
+      closeList();
+      html += '<p class="md-p">' + processInline(escH(line)) + '</p>';
+    }
+
+    closeList();
+    return html;
+  }
+
   function refreshFromFileResponse(data) {
     state.blocks = data.blocks || [];
     state.metadataIndices = data.metadata_blocks || [];
@@ -176,6 +288,7 @@
     state.canvasMode = 'question';
     state.questionEditMode = 'preview';
     state.advancedOpen = false;
+    state.markdownPreviewMode = false;
     state.dirty = false;
     renderOutline();
     renderCanvas();
@@ -337,11 +450,17 @@
         var variable = row.querySelector('[data-field-prop="variable"]').value;
         var choicesEl = document.getElementById('field-choices-' + i);
 
-        yaml += '  - ' + escapeYamlStr(label) + ':';
-        if (variable) {
-          yaml += ' ' + escapeYamlStr(variable) + '\n';
+        var isMultiLineLabel = label.indexOf('\n') !== -1;
+        if (isMultiLineLabel) {
+          yaml += '  - label: ' + escapeYamlStr(label) + '\n';
+          if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
         } else {
-          yaml += '\n';
+          yaml += '  - ' + escapeYamlStr(label) + ':';
+          if (variable) {
+            yaml += ' ' + escapeYamlStr(variable) + '\n';
+          } else {
+            yaml += '\n';
+          }
         }
         if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
         if (choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1) {
@@ -499,8 +618,73 @@
   // -------------------------------------------------------------------------
   // Project / file selectors
   // -------------------------------------------------------------------------
+  function getCookieValue(name) {
+    var prefix = name + '=';
+    var cookies = (document.cookie || '').split(';');
+    for (var i = 0; i < cookies.length; i++) {
+      var c = cookies[i].trim();
+      if (c.indexOf(prefix) === 0) {
+        return decodeURIComponent(c.slice(prefix.length));
+      }
+    }
+    return null;
+  }
+
+  function readRecentProjects() {
+    try {
+      var raw = window.localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(function (p) { return typeof p === 'string' && p.trim(); });
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function writeRecentProjects(projects) {
+    try {
+      window.localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(projects.slice(0, MAX_RECENT_PROJECTS)));
+    } catch (_err) {
+      // Ignore storage failures (private mode, quota, etc.)
+    }
+  }
+
+  function rememberRecentProject(projectName) {
+    if (!projectName) return;
+    var next = readRecentProjects().filter(function (name) { return name !== projectName; });
+    next.unshift(projectName);
+    writeRecentProjects(next);
+  }
+
+  function getRecentProjectsInWorkspace() {
+    var known = {};
+    var workspaceProjects = state.projects || [];
+    workspaceProjects.forEach(function (p) { known[p] = true; });
+
+    var candidateCookieKeys = ['playgroundproject', 'playground_project', 'current_project', 'project'];
+    var merged = [];
+    candidateCookieKeys.forEach(function (key) {
+      var value = getCookieValue(key);
+      if (value && known[value] && merged.indexOf(value) === -1) {
+        merged.push(value);
+      }
+    });
+    readRecentProjects().forEach(function (p) {
+      if (known[p] && merged.indexOf(p) === -1) merged.push(p);
+    });
+    return merged.slice(0, MAX_RECENT_PROJECTS);
+  }
+
   function populateProjects() {
     projectSelect.innerHTML = '';
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select project...';
+    placeholder.disabled = false;
+    placeholder.selected = !state.project;
+    projectSelect.appendChild(placeholder);
+
     state.projects.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p;
@@ -529,9 +713,19 @@
   }
 
   function loadFiles() {
+    if (!state.project) {
+      state.files = [];
+      state.filename = null;
+      state.blocks = [];
+      populateFiles();
+      renderOutline();
+      renderCanvas();
+      return Promise.resolve();
+    }
     return apiGet('/api/files?project=' + encodeURIComponent(state.project))
       .then(function (res) {
         if (!res.success) return;
+        rememberRecentProject(state.project);
         state.files = res.data.files || [];
         state.filename = state.files.length ? state.files[0].filename : null;
         populateFiles();
@@ -565,6 +759,15 @@
       renderOutline();
       renderCanvas();
     });
+  }
+
+  function openProject(projectName) {
+    if (!projectName) return;
+    state.project = projectName;
+    state.selectedBlockId = null;
+    state.canvasMode = 'question';
+    populateProjects();
+    return loadFiles();
   }
 
   // -------------------------------------------------------------------------
@@ -642,7 +845,9 @@
       renderSecondaryView();
       return;
     }
-    if (state.canvasMode === 'new-project') {
+    if (state.canvasMode === 'project-selector') {
+      renderProjectSelector();
+    } else if (state.canvasMode === 'new-project') {
       renderNewProject();
     } else if (state.canvasMode === 'full-yaml') {
       renderFullYaml();
@@ -657,6 +862,11 @@
   // Block canvas — type-specific renderers
   // -------------------------------------------------------------------------
   function renderBlockCanvas() {
+    if (!state.project) {
+      state.canvasMode = 'project-selector';
+      renderProjectSelector();
+      return;
+    }
     var block = getSelectedBlock();
     if (!block) {
       canvasContent.innerHTML = '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
@@ -674,87 +884,205 @@
     }
   }
 
+  function renderLoginRequired() {
+    var html = '';
+    html += '<div class="editor-login-shell">';
+    html += '<div class="editor-login-card">';
+    html += '<div class="editor-login-icon"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i></div>';
+    html += '<h2>Sign in to use the Interview Editor</h2>';
+    html += '<p>Use your docassemble account to open projects, edit YAML, and preview interviews.</p>';
+    html += '<a class="btn btn-primary btn-lg" href="' + esc(LOGIN_URL) + '">Go to docassemble sign in</a>';
+    html += '</div></div>';
+    canvasContent.innerHTML = html;
+  }
+
+  function renderProjectSelector() {
+    var query = state.projectSearchQuery.toLowerCase().trim();
+    var recent = getRecentProjectsInWorkspace();
+    var filteredProjects = state.projects.filter(function (name) {
+      if (!query) return true;
+      return name.toLowerCase().indexOf(query) !== -1;
+    });
+
+    var html = '';
+    html += '<div class="editor-project-selector-shell">';
+    html += '<div class="editor-project-selector-header">';
+    html += '<div>';
+    html += '<h2>Choose a project</h2>';
+    html += '<p>Jump back into a recent project, search all projects, or start a new one.</p>';
+    html += '</div>';
+    html += '<button type="button" class="btn btn-primary" id="open-new-project-card">Create new project</button>';
+    html += '</div>';
+    html += '<div class="editor-card"><div class="editor-card-body">';
+    html += '<label class="editor-tiny" for="project-search-input">Search projects</label>';
+    html += '<input class="form-control mt-1" id="project-search-input" placeholder="Type a project name" value="' + esc(state.projectSearchQuery) + '">';
+    html += '</div></div>';
+
+    if (recent.length > 0) {
+      html += '<div class="editor-project-section">';
+      html += '<div class="editor-project-section-title">Recent projects</div>';
+      html += '<div class="editor-project-cards">';
+      recent.forEach(function (name) {
+        html += '<button type="button" class="editor-project-card editor-project-card-recent" data-project-card="' + esc(name) + '">';
+        html += '<span class="editor-project-card-badge">Recent</span>';
+        html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
+        html += '<span class="editor-project-card-meta">Open project</span>';
+        html += '</button>';
+      });
+      html += '</div></div>';
+    }
+
+    html += '<div class="editor-project-section">';
+    html += '<div class="editor-project-section-title">All projects</div>';
+    if (filteredProjects.length === 0) {
+      html += '<div class="editor-card"><div class="editor-card-body text-muted">No projects matched your search.</div></div>';
+    } else {
+      html += '<div class="editor-project-cards">';
+      filteredProjects.forEach(function (name) {
+        html += '<button type="button" class="editor-project-card" data-project-card="' + esc(name) + '">';
+        html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
+        html += '<span class="editor-project-card-meta">Open project</span>';
+        html += '</button>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
+    canvasContent.innerHTML = html;
+  }
+
   // --- Question block: rich field editor ---
   function renderQuestionBlock(block) {
     var data = block.data || {};
     var fields = data.fields || [];
     var isPreview = state.questionEditMode === 'preview';
+    var isMdPreview = isPreview && state.markdownPreviewMode;
     var html = '';
 
     // Header bar
     html += '<div class="editor-center-bar">';
     html += '<div></div>';
-    html += '<div class="d-flex gap-2">';
+    html += '<div class="d-flex gap-2 align-items-center">';
+    if (isPreview) {
+      html += '<div class="btn-group btn-group-sm" role="group" aria-label="Edit or preview mode">';
+      html += '<button type="button" class="btn btn-sm ' + (!isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-off">Edit</button>';
+      html += '<button type="button" class="btn btn-sm ' + (isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-on"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+      html += '</div>';
+    }
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Visual editor') + '</button>';
-    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
+    if (!isMdPreview) {
+      html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
+    }
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
 
     if (isPreview) {
       html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
+
+      // Question
       html += '<div class="editor-form-group">';
       html += '<label class="editor-tiny" for="q-title">Question</label>';
-      html += '<input class="form-control editor-form-control" id="q-title" value="' + esc(data.question || '') + '">';
-      html += '</div>';
-      if (data.subquestion !== undefined) {
-        html += '<div class="editor-form-group">';
-        html += '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
-        html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="4">' + esc(String(data.subquestion || '')) + '</textarea>';
-        html += '</div>';
+      if (isMdPreview) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(data.question || '') + '</div>';
+      } else {
+        html += '<textarea class="form-control editor-form-control" id="q-title" rows="1">' + esc(data.question || '') + '</textarea>';
       }
+      html += '</div>';
+
+      // Subquestion — always shown
+      html += '<div class="editor-form-group">';
+      html += '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
+      if (isMdPreview) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subquestion || '')) + '</div>';
+      } else {
+        html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' + esc(String(data.subquestion || '')) + '</textarea>';
+      }
+      html += '</div>';
+
       html += '</div></div>';
 
       if (fields.length > 0) {
         html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
         html += '<div class="editor-section-legend">Fields</div>';
-        html += '<div class="editor-field-grid-header">';
-        html += '<div>Label</div><div>Type</div><div>Variable</div><div></div>';
-        html += '</div>';
+        if (!isMdPreview) {
+          html += '<div class="editor-field-grid-header">';
+          html += '<div>Label</div><div>Type</div><div>Variable</div><div></div>';
+          html += '</div>';
+        }
         fields.forEach(function (f, fi) {
           var label = '', varName = '', dtype = 'text', choices = '';
           if (typeof f === 'object' && f !== null) {
-            var keys = Object.keys(f);
-            if (keys.length > 0) {
-              label = keys[0];
-              var val = f[keys[0]];
-              if (typeof val === 'string') {
-                varName = val;
-              } else if (typeof val === 'object' && val !== null) {
-                varName = val.variable || val.name || keys[0];
-                dtype = val.datatype || val.input_type || 'text';
-                if (val.choices && Array.isArray(val.choices)) {
-                  choices = val.choices.map(function (c) {
-                    if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
-                    return String(c);
-                  }).join('\n');
+            // Detect label:/field: expanded style
+            if (Object.prototype.hasOwnProperty.call(f, 'label') &&
+                (Object.prototype.hasOwnProperty.call(f, 'field') ||
+                 Object.prototype.hasOwnProperty.call(f, 'datatype') ||
+                 Object.prototype.hasOwnProperty.call(f, 'choices'))) {
+              label = String(f.label || '');
+              varName = String(f.field || '');
+              dtype = f.datatype || f.input_type || 'text';
+              if (f.choices && Array.isArray(f.choices)) {
+                choices = f.choices.map(function (c) {
+                  if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
+                  return String(c);
+                }).join('\n');
+              }
+            } else {
+              // Shorthand: {"Label": "variable"} or {"Label": {datatype:...}}
+              var keys = Object.keys(f);
+              if (keys.length > 0) {
+                label = keys[0];
+                var val = f[keys[0]];
+                if (typeof val === 'string') {
+                  varName = val;
+                } else if (typeof val === 'object' && val !== null) {
+                  varName = val.variable || val.name || keys[0];
+                  dtype = val.datatype || val.input_type || 'text';
+                  if (val.choices && Array.isArray(val.choices)) {
+                    choices = val.choices.map(function (c) {
+                      if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
+                      return String(c);
+                    }).join('\n');
+                  }
                 }
               }
             }
           } else if (typeof f === 'string') {
             label = f;
           }
+
           var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
-          html += '<div class="editor-field-row" data-field-idx="' + fi + '">';
-          html += '<input class="form-control editor-form-control" data-field-prop="label" value="' + esc(label) + '" placeholder="Field label">';
-          html += '<select class="form-select editor-form-control" data-field-prop="type">';
-          FIELD_TYPES.forEach(function (t) {
-            html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
-          });
-          html += '</select>';
-          html += '<input class="form-control editor-form-control font-monospace" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
-          html += '<div class="editor-field-actions"><button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button></div>';
-          html += '</div>';
-          if (hasChoices || choices) {
-            html += '<div class="editor-field-choices-row" data-field-idx="' + fi + '">';
-            html += '<label class="editor-tiny" for="field-choices-' + fi + '">Choices (one per line)</label>';
-            html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="2">' + esc(choices) + '</textarea>';
+
+          if (isMdPreview) {
+            html += '<div class="editor-field-row-preview">';
+            html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(label) + '</div>';
+            html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(dtype) + '</div>';
+            html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
             html += '</div>';
+          } else {
+            html += '<div class="editor-field-row" data-field-idx="' + fi + '">';
+            html += '<textarea class="form-control editor-form-control" data-field-prop="label" rows="1" placeholder="Field label">' + esc(label) + '</textarea>';
+            html += '<select class="form-select editor-form-control" data-field-prop="type">';
+            FIELD_TYPES.forEach(function (t) {
+              html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
+            });
+            html += '</select>';
+            html += '<input class="form-control editor-form-control font-monospace" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
+            html += '<div class="editor-field-actions"><button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button></div>';
+            html += '</div>';
+            if (hasChoices || choices) {
+              html += '<div class="editor-field-choices-row" data-field-idx="' + fi + '">';
+              html += '<label class="editor-tiny" for="field-choices-' + fi + '">Choices (one per line)</label>';
+              html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="2">' + esc(choices) + '</textarea>';
+              html += '</div>';
+            }
           }
         });
-        html += '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button></div>';
+        if (!isMdPreview) {
+          html += '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button></div>';
+        }
         html += '</div></div>';
-      } else {
+      } else if (!isMdPreview) {
         html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
         html += '<div class="editor-section-legend">Fields</div>';
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
@@ -769,8 +1097,10 @@
         html += '</div></div>';
       }
 
-      // Advanced
-      html += renderAdvancedPanel(block);
+      // Advanced (only in edit mode)
+      if (!isMdPreview) {
+        html += renderAdvancedPanel(block);
+      }
 
     } else {
       // YAML edit mode — Monaco
@@ -787,6 +1117,15 @@
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
           onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
         });
+      });
+    } else if (!isMdPreview) {
+      // Auto-resize editable textareas
+      var qTitle = document.getElementById('q-title');
+      if (qTitle) _initAutoResize(qTitle, 36);
+      var qSub = document.getElementById('q-subquestion');
+      if (qSub) _initAutoResize(qSub, 120);
+      document.querySelectorAll('[data-field-prop="label"]').forEach(function (ta) {
+        _initAutoResize(ta, 36);
       });
     }
   }
@@ -1269,12 +1608,26 @@
     var removeFieldBtn = target.closest('[data-remove-field]');
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
+    var projectCardBtn = target.closest('[data-project-card]');
 
     // View tabs
     if (topTab) {
       state.currentView = topTab.getAttribute('data-view');
       setActiveTopTab(topTab);
-      if (state.currentView === 'interview') state.canvasMode = 'question';
+      if (state.currentView === 'interview') {
+        state.canvasMode = state.project ? 'question' : 'project-selector';
+      }
+      renderCanvas();
+      return;
+    }
+
+    // Project selector cards
+    if (projectCardBtn) {
+      openProject(projectCardBtn.getAttribute('data-project-card'));
+      return;
+    }
+    if (target.id === 'open-new-project-card') {
+      state.canvasMode = 'new-project';
       renderCanvas();
       return;
     }
@@ -1307,6 +1660,7 @@
       state.canvasMode = 'question';
       state.questionEditMode = 'preview';
       state.advancedOpen = false;
+      state.markdownPreviewMode = false;
       renderOutline();
       renderCanvas();
       return;
@@ -1314,7 +1668,7 @@
 
     // Outline insert
     if (outlineInsertBtn) {
-      state.insertAfterBlockId = outlineInsertBtn.getAttribute('data-insert-after-id') || null;
+      state.insertAfterBlockId = outlineInsertBtn.getAttribute('data-insert-after-id') || '';
       var insertModal = getOrCreateBootstrapModal('insert-modal');
       if (insertModal) insertModal.show();
       return;
@@ -1340,6 +1694,14 @@
     }
 
     // Top action buttons
+    if (target.id === 'btn-project-selector') {
+      state.canvasMode = 'project-selector';
+      state.currentView = 'interview';
+      var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab0) setActiveTopTab(interviewTab0);
+      renderCanvas();
+      return;
+    }
     if (target.id === 'btn-new-project') {
       state.canvasMode = 'new-project';
       state.currentView = 'interview';
@@ -1371,9 +1733,22 @@
       return;
     }
 
+    // Markdown preview toggle
+    if (target.id === 'md-preview-on') {
+      state.markdownPreviewMode = true;
+      renderCanvas();
+      return;
+    }
+    if (target.id === 'md-preview-off') {
+      state.markdownPreviewMode = false;
+      renderCanvas();
+      return;
+    }
+
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
       state.questionEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
+      state.markdownPreviewMode = false;
       renderCanvas();
       return;
     }
@@ -1523,7 +1898,7 @@
     }
 
     // New project
-    if (target.id === 'cancel-new-project') { state.canvasMode = 'question'; _uploadedFiles = []; renderCanvas(); return; }
+    if (target.id === 'cancel-new-project') { state.canvasMode = 'project-selector'; _uploadedFiles = []; renderCanvas(); return; }
 
     // Remove upload chip
     if (removeUploadBtn) {
@@ -1581,6 +1956,11 @@
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
+    if (target.id === 'project-search-input') {
+      state.projectSearchQuery = target.value || '';
+      if (state.canvasMode === 'project-selector') renderProjectSelector();
+      return;
+    }
     if (target.matches('[data-field-prop]') || target.matches('.editor-field-choices') ||
         target.matches('.editor-obj-input') || target.id === 'q-title' || target.id === 'q-subquestion' ||
         target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
@@ -1683,8 +2063,15 @@
   // Select change handlers
   // -------------------------------------------------------------------------
   projectSelect.addEventListener('change', function () {
-    state.project = projectSelect.value;
+    var nextProject = projectSelect.value;
+    state.project = nextProject || null;
     state.selectedBlockId = null;
+    if (!state.project) {
+      state.canvasMode = 'project-selector';
+      renderCanvas();
+      return;
+    }
+    state.canvasMode = 'question';
     loadFiles();
   });
 
@@ -1710,13 +2097,15 @@
   // Init
   // -------------------------------------------------------------------------
   function init() {
-    if (!BOOT.authenticated) {
-      canvasContent.innerHTML = '<div class="text-center py-5"><h3>Login required</h3><p class="text-muted">Please log in to docassemble to use the interview editor.</p></div>';
+    var isAuthenticated = Boolean(authState.authenticated || BOOT.authenticated);
+    if (!isAuthenticated) {
+      renderLoginRequired();
       return;
     }
     initMonaco(function () {
       populateProjects();
-      loadFiles();
+      state.canvasMode = 'project-selector';
+      renderCanvas();
     });
   }
 

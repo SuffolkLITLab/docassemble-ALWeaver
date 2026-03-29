@@ -83,6 +83,10 @@ _LITERAL_TEXT_KEYS = {
     "continue button label",
 }
 
+# Keys whose values are always serialised as block-literal (|) style, even
+# when the text is a single line.
+_FORCE_LITERAL_KEYS: set = {"question", "subquestion"}
+
 
 class _CanonicalDumper(yaml.SafeDumper):
     pass
@@ -98,6 +102,25 @@ def _represent_canonical_str(dumper: yaml.SafeDumper, data: str):
 
 
 _CanonicalDumper.add_representer(str, _represent_canonical_str)
+
+
+class _LiteralStr(str):
+    """String subtype that always serialises as a block-literal (|) scalar."""
+
+    __slots__ = ()
+
+
+def _represent_literal_str(dumper: yaml.SafeDumper, data: str):
+    # Keep trailing newline in value so YAML emits '|' (not '|-').
+    text = str(data)
+    if not text.endswith("\n"):
+        text += "\n"
+    return dumper.represent_scalar(
+        "tag:yaml.org,2002:str", text, style="|"
+    )
+
+
+_CanonicalDumper.add_representer(_LiteralStr, _represent_literal_str)
 
 
 def _ordered_block_dict(block: Dict[str, Any]) -> Dict[str, Any]:
@@ -130,6 +153,10 @@ def _canonicalize_value(value: Any, key: Optional[str] = None) -> Any:
     if isinstance(value, str):
         if key in _LITERAL_TEXT_KEYS:
             value = _normalize_literal_text(value)
+        if key in _FORCE_LITERAL_KEYS:
+            if not value.endswith("\n"):
+                value += "\n"
+            return _LiteralStr(value)
         return value.rstrip("\n") if "\n" in value else value
     return value
 
