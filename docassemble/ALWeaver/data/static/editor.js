@@ -58,6 +58,9 @@
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var MAX_RECENT_PROJECTS = 8;
   var _symbolInsertContext = null;
+  var _pendingOrderInsert = null;
+  var _lastInsertedOrderStepId = null;
+  var _lastInsertedOrderStepTimer = null;
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
 
@@ -1241,6 +1244,148 @@
     if (kind === 'condition') return { id: uniqueId, kind: kind, label: 'Condition', summary: 'condition_here', condition: 'condition_here', children: [], has_else: false, else_children: [] };
     if (kind === 'function') return { id: uniqueId, kind: kind, label: 'Function', summary: 'function_call()', invoke: 'function_call()' };
     return { id: uniqueId, kind: 'raw', label: 'Raw Python', summary: 'pass', code: 'pass' };
+  }
+
+  function _normalizeObjectClassName(classText) {
+    var raw = String(classText || '').trim();
+    if (!raw) return '';
+    return raw.split('.', 1)[0].split('(', 1)[0].trim();
+  }
+
+  function _isDaListLikeClass(className) {
+    var normalized = _normalizeObjectClassName(className);
+    if (!normalized) return false;
+    if (normalized === 'DAList' || normalized === 'ALPeopleList') return true;
+    return /^(DA|AL).+List$/.test(normalized);
+  }
+
+  function getGatherListCandidates() {
+    var out = [];
+    var seen = {};
+
+    state.blocks.forEach(function (block) {
+      if (!block || block.type !== 'objects' || !block.data || !Array.isArray(block.data.objects)) return;
+      block.data.objects.forEach(function (entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+        Object.keys(entry).forEach(function (varName) {
+          var classText = entry[varName];
+          if (!_isDaListLikeClass(classText)) return;
+          var cleanVar = String(varName || '').trim();
+          if (!cleanVar || seen[cleanVar]) return;
+          seen[cleanVar] = true;
+          out.push({
+            variable: cleanVar,
+            className: _normalizeObjectClassName(classText),
+          });
+        });
+      });
+    });
+
+    var listLikeGroupKeys = Object.keys(state.symbolCatalog.groups || {}).filter(function (key) {
+      return key.toLowerCase().indexOf('list') !== -1;
+    });
+    listLikeGroupKeys.forEach(function (key) {
+      (state.symbolCatalog.groups[key] || []).forEach(function (name) {
+        var cleanName = String(name || '').trim();
+        if (!cleanName || cleanName.indexOf('.') !== -1 || cleanName.indexOf('[') !== -1 || seen[cleanName]) return;
+        seen[cleanName] = true;
+        out.push({
+          variable: cleanName,
+          className: 'list',
+        });
+      });
+    });
+
+    return out.sort(function (a, b) { return a.variable.localeCompare(b.variable); });
+  }
+
+  function renderOrderAddBody(kind) {
+    var bodyEl = document.getElementById('order-add-body');
+    if (!bodyEl) return;
+    var saveBtn = document.getElementById('order-add-save');
+
+    var html = '';
+    if (kind === 'screen') {
+      html += '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="all" value="" placeholder="users[0].name.first"></div>';
+    } else if (kind === 'gather') {
+      var gatherChoices = getGatherListCandidates();
+      html += '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
+      if (gatherChoices.length) {
+        html += '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
+        gatherChoices.forEach(function (entry) {
+          html += '<option value="' + esc(entry.variable) + '">' + esc(entry.variable + ' (' + entry.className + ')') + '</option>';
+        });
+        html += '</select>';
+        html += '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
+      } else {
+        html += '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
+      }
+      html += '</div>';
+      if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
+    } else if (kind === 'condition') {
+      html += '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="all" value="condition_here"></div>';
+    } else if (kind === 'section') {
+      html += '<div class="mb-2"><label class="editor-tiny">Section to activate</label>';
+      html += '<input class="form-control form-control-sm mt-1" id="order-add-value" data-symbol-role="section" value="New section"></div>';
+    } else if (kind === 'progress') {
+      html += '<div class="mb-2"><label class="editor-tiny">Progress percent</label>';
+      html += '<input type="number" min="0" max="100" step="1" class="form-control form-control-sm mt-1" id="order-add-value" value="50"></div>';
+    } else if (kind === 'function') {
+      html += '<div class="mb-2"><label class="editor-tiny">Function call</label>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="all" value="function_call()"></div>';
+    } else {
+      html += '<div class="mb-2"><label class="editor-tiny">Raw Python</label>';
+      html += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-add-code" rows="4">pass</textarea></div>';
+    }
+
+    bodyEl.innerHTML = html;
+    if (kind !== 'gather' && saveBtn) saveBtn.disabled = false;
+  }
+
+  function openOrderAddModal(parentStepId, branch, insertIndex) {
+    _pendingOrderInsert = {
+      parentStepId: parentStepId || '',
+      branch: branch || 'then',
+      insertIndex: Number.isFinite(insertIndex) ? insertIndex : -1,
+    };
+    var kindSelect = document.getElementById('order-add-kind');
+    if (kindSelect) {
+      kindSelect.value = 'screen';
+      renderOrderAddBody(kindSelect.value);
+    }
+    var addModal = getOrCreateBootstrapModal('order-add-modal');
+    if (addModal) addModal.show();
+  }
+
+  function insertOrderStepAtLocation(step, parentStepId, branch, insertIndex) {
+    if (!step) return;
+    if (parentStepId) {
+      var parentRecord = findStepRecord(state.orderSteps, parentStepId, null);
+      if (parentRecord) {
+        var targetList = getOrderBranchSteps(parentRecord.step, branch);
+        if (branch === 'else') parentRecord.step.has_else = true;
+        if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > targetList.length) insertIndex = targetList.length;
+        targetList.splice(insertIndex, 0, step);
+        state.orderCollapsed[parentStepId] = false;
+      }
+    } else {
+      if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > state.orderSteps.length) insertIndex = state.orderSteps.length;
+      state.orderSteps.splice(insertIndex, 0, step);
+    }
+  }
+
+  function clearInsertedStepHighlightSoon(stepId) {
+    if (_lastInsertedOrderStepTimer) {
+      window.clearTimeout(_lastInsertedOrderStepTimer);
+      _lastInsertedOrderStepTimer = null;
+    }
+    _lastInsertedOrderStepTimer = window.setTimeout(function () {
+      var stepEl = document.querySelector('.editor-order-step[data-step-id="' + stepId + '"]');
+      if (stepEl) stepEl.classList.remove('editor-order-step-new');
+      if (_lastInsertedOrderStepId === stepId) _lastInsertedOrderStepId = null;
+    }, 950);
   }
 
   function findStepRecord(stepList, stepId, parentStep) {
@@ -2576,13 +2721,7 @@
   function renderOrderInsertRow(parentStepId, branch, index, depth) {
     var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
     html += '<div class="editor-order-insert-controls">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-step="screen" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">+ Screen</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="gather" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">G</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="condition" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">If</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="section" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">Sec</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="progress" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">%</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="function" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">f</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="raw" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">p</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add step</button>';
     html += '</div></div>';
     return html;
   }
@@ -2605,14 +2744,14 @@
     parentStepId = parentStepId || '';
     branch = branch || 'then';
     html += renderOrderInsertRow(parentStepId, branch, 0, depth);
-    stepList.forEach(function (step) {
+    stepList.forEach(function (step, index) {
       var presentation = getOrderStepPresentation(step);
       var isCollapsed = Boolean(state.orderCollapsed[step.id]);
       var hasChildren = Array.isArray(step.children) && step.children.length > 0;
       var hasElse = Boolean(step.has_else);
       var kindBadge = getOrderStepBadge(step);
       html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
-      html += '<div class="editor-order-step' + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + '" data-step-id="' + esc(step.id) + '">';
+      html += '<div class="editor-order-step' + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '">';
       html += '<div class="editor-order-step-top">';
       html += '<div class="editor-order-step-main">';
       if (depth === 0) html += '<span class="drag-handle" title="Drag to reorder">&#9776;</span>';
@@ -2689,7 +2828,7 @@
     html += '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
     html += '<span>Steps</span>';
     html += '<div class="editor-order-actions">';
-    html += '<span class="editor-order-actions-hint">Insert anywhere with the inline add rows.</span>';
+    html += '<span class="editor-order-actions-hint">Use any inline Add step row to choose type + details in one modal.</span>';
     html += '</div></div>';
 
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
@@ -2851,7 +2990,7 @@
     var typeaheadItemBtn = target.closest('[data-typeahead-name]');
     var labelQuickBtn = target.closest('[data-label-insert]');
     var stepActionBtn = target.closest('[data-step-action]');
-    var addStepBtn = target.closest('[data-add-step]');
+    var openAddStepBtn = target.closest('[data-open-add-step]');
     var orderBlockBtn = target.closest('[data-order-block-id]');
     var stepSelectInput = target.closest('[data-step-select]');
     var removeFieldBtn = target.closest('[data-remove-field]');
@@ -3237,28 +3376,12 @@
       return;
     }
 
-    // Add step
-    if (addStepBtn) {
-      var kind = addStepBtn.getAttribute('data-add-step');
-      var parentStepId = addStepBtn.getAttribute('data-parent-step-id');
-      var branch = addStepBtn.getAttribute('data-step-branch') || 'then';
-      var insertIndex = parseInt(addStepBtn.getAttribute('data-insert-index') || '-1', 10);
-      var newStep = createOrderStep(kind);
-      if (parentStepId) {
-        var parentRecord = findStepRecord(state.orderSteps, parentStepId, null);
-        if (parentRecord) {
-          var targetList = getOrderBranchSteps(parentRecord.step, branch);
-          if (branch === 'else') parentRecord.step.has_else = true;
-          if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > targetList.length) insertIndex = targetList.length;
-          targetList.splice(insertIndex, 0, newStep);
-          state.orderCollapsed[parentStepId] = false;
-        }
-      } else {
-        if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > state.orderSteps.length) insertIndex = state.orderSteps.length;
-        state.orderSteps.splice(insertIndex, 0, newStep);
-      }
-      syncActiveOrderStepMap();
-      renderCanvas();
+    // Open add-step modal
+    if (openAddStepBtn) {
+      var addParentStepId = openAddStepBtn.getAttribute('data-parent-step-id');
+      var addBranch = openAddStepBtn.getAttribute('data-step-branch') || 'then';
+      var addInsertIndex = parseInt(openAddStepBtn.getAttribute('data-insert-index') || '-1', 10);
+      openOrderAddModal(addParentStepId, addBranch, addInsertIndex);
       return;
     }
 
@@ -3509,6 +3632,68 @@
     syncActiveOrderStepMap();
     closeBootstrapModal('order-edit-modal');
     renderCanvas();
+  });
+
+  var orderAddKindSelect = document.getElementById('order-add-kind');
+  if (orderAddKindSelect) {
+    orderAddKindSelect.addEventListener('change', function () {
+      renderOrderAddBody(orderAddKindSelect.value);
+    });
+  }
+
+  document.getElementById('order-add-save').addEventListener('click', function () {
+    if (!_pendingOrderInsert) return;
+    var kindEl = document.getElementById('order-add-kind');
+    var kind = kindEl ? kindEl.value : 'screen';
+    var newStep = createOrderStep(kind);
+
+    var invokeEl = document.getElementById('order-add-invoke');
+    var gatherEl = document.getElementById('order-add-gather-list');
+    var conditionEl = document.getElementById('order-add-condition');
+    var valueEl = document.getElementById('order-add-value');
+    var codeEl = document.getElementById('order-add-code');
+
+    if (kind === 'screen' || kind === 'function') {
+      var invokeVal = invokeEl ? String(invokeEl.value || '').trim() : '';
+      if (!invokeVal) return;
+      newStep.invoke = invokeVal;
+      newStep.summary = invokeVal;
+    } else if (kind === 'gather') {
+      var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
+      if (!gatherVar) return;
+      newStep.invoke = gatherVar + '.gather()';
+      newStep.summary = 'Gather ' + gatherVar + ' list';
+    } else if (kind === 'condition') {
+      var conditionVal = conditionEl ? String(conditionEl.value || '').trim() : '';
+      if (!conditionVal) return;
+      newStep.condition = conditionVal;
+      newStep.summary = conditionVal;
+    } else if (kind === 'section') {
+      var sectionVal = valueEl ? String(valueEl.value || '').trim() : '';
+      if (!sectionVal) return;
+      newStep.value = sectionVal;
+      newStep.summary = 'Section: ' + sectionVal;
+    } else if (kind === 'progress') {
+      var progressRaw = valueEl ? String(valueEl.value || '').trim() : '';
+      var parsed = parseInt(progressRaw || '0', 10);
+      if (!Number.isFinite(parsed)) parsed = 0;
+      var bounded = Math.max(0, Math.min(100, parsed));
+      newStep.value = String(bounded);
+      newStep.summary = 'Progress: ' + bounded + '%';
+    } else {
+      var codeVal = codeEl ? String(codeEl.value || '').trim() : '';
+      if (!codeVal) return;
+      newStep.code = codeVal;
+      newStep.summary = codeVal.split('\n')[0].slice(0, 60);
+    }
+
+    insertOrderStepAtLocation(newStep, _pendingOrderInsert.parentStepId, _pendingOrderInsert.branch, _pendingOrderInsert.insertIndex);
+    _lastInsertedOrderStepId = newStep.id;
+    _pendingOrderInsert = null;
+    syncActiveOrderStepMap();
+    closeBootstrapModal('order-add-modal');
+    renderCanvas();
+    clearInsertedStepHighlightSoon(newStep.id);
   });
 
   // -------------------------------------------------------------------------
