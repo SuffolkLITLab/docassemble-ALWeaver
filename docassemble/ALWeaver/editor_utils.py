@@ -394,6 +394,7 @@ STEP_GATHER = "gather"
 STEP_SECTION = "section"
 STEP_PROGRESS = "progress"
 STEP_FUNCTION = "function"
+STEP_CONDITION = "condition"
 STEP_RAW = "raw"
 
 # Patterns for parsing order code lines
@@ -403,6 +404,7 @@ _RE_SET_PARTS = re.compile(
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
+_RE_IF = re.compile(r"if\s+(.+):$")
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
@@ -416,106 +418,174 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         function_call(...) → function step
         anything else → raw step
     """
-    steps: List[Dict[str, Any]] = []
-    step_counter = 0
+    raw_lines = code.splitlines()
 
-    for line in code.strip().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
+    def _line_indent(raw_line: str) -> int:
+        return len(raw_line) - len(raw_line.lstrip(" "))
 
-        step_counter += 1
-        step_id = f"step-{step_counter}"
+    def _next_child_indent(start_index: int, parent_indent: int) -> int:
+        for candidate in raw_lines[start_index:]:
+            stripped = candidate.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = _line_indent(candidate)
+            if indent > parent_indent:
+                return indent
+            break
+        return parent_indent + 2
 
-        m = _RE_SET_PARTS.search(line)
+    def _parse_line(stripped_line: str, step_id: str) -> Dict[str, Any]:
+        m = _RE_SET_PARTS.search(stripped_line)
         if m:
-            steps.append({
+            return {
                 "id": step_id,
                 "kind": STEP_SECTION,
                 "label": "Start section",
                 "summary": f"Set section to {m.group(1)}",
                 "value": m.group(1),
-            })
-            continue
+            }
 
-        m = _RE_SET_PROGRESS.search(line)
+        m = _RE_SET_PROGRESS.search(stripped_line)
         if m:
-            steps.append({
+            return {
                 "id": step_id,
                 "kind": STEP_PROGRESS,
                 "label": "Progress",
                 "summary": f"Set progress to {m.group(1)}%",
                 "value": m.group(1),
-            })
-            continue
+            }
 
-        m = _RE_GATHER.search(line)
+        m = _RE_GATHER.search(stripped_line)
         if m:
-            steps.append({
+            return {
                 "id": step_id,
                 "kind": STEP_GATHER,
                 "label": "List gather",
                 "summary": f"Gather {m.group(1)} list",
-                "invoke": line,
-            })
-            continue
+                "invoke": stripped_line,
+            }
 
-        # Function call (but not set_parts/set_progress which matched above)
-        if "(" in line and ")" in line:
-            steps.append({
+        if "(" in stripped_line and ")" in stripped_line:
+            return {
                 "id": step_id,
                 "kind": STEP_FUNCTION,
                 "label": "Function",
-                "summary": line,
-                "invoke": line,
-            })
-            continue
+                "summary": stripped_line,
+                "invoke": stripped_line,
+            }
 
-        # Simple variable reference → screen step
-        if re.match(r"^[A-Za-z_][\w.\[\]]*$", line):
-            steps.append({
+        if re.match(r"^[A-Za-z_][\w.\[\]]*$", stripped_line):
+            return {
                 "id": step_id,
                 "kind": STEP_SCREEN,
                 "label": "Screen",
-                "summary": f"Ask {line}",
-                "invoke": line,
-            })
-            continue
+                "summary": stripped_line,
+                "invoke": stripped_line,
+            }
 
-        # Anything else → raw
-        steps.append({
+        return {
             "id": step_id,
             "kind": STEP_RAW,
             "label": "Raw Python",
-            "summary": line[:80],
-            "code": line,
-        })
+            "summary": stripped_line[:80],
+            "code": stripped_line,
+        }
 
-    return steps
+    def _parse_block(start_index: int, base_indent: int, step_counter: int):
+        steps: List[Dict[str, Any]] = []
+        index = start_index
+
+        while index < len(raw_lines):
+            raw_line = raw_lines[index]
+            stripped_line = raw_line.strip()
+            if not stripped_line or stripped_line.startswith("#"):
+                index += 1
+                continue
+
+            indent = _line_indent(raw_line)
+            if indent < base_indent:
+                break
+
+            if indent > base_indent:
+                step_counter += 1
+                steps.append(
+                    {
+                        "id": f"step-{step_counter}",
+                        "kind": STEP_RAW,
+                        "label": "Raw Python",
+                        "summary": stripped_line[:80],
+                        "code": stripped_line,
+                    }
+                )
+                index += 1
+                continue
+
+            step_counter += 1
+            step_id = f"step-{step_counter}"
+
+            m = _RE_IF.match(stripped_line)
+            if m:
+                child_indent = _next_child_indent(index + 1, indent)
+                children, next_index, step_counter = _parse_block(
+                    index + 1, child_indent, step_counter
+                )
+                steps.append(
+                    {
+                        "id": step_id,
+                        "kind": STEP_CONDITION,
+                        "label": "Condition",
+                        "summary": m.group(1),
+                        "condition": m.group(1),
+                        "children": children,
+                    }
+                )
+                index = next_index
+                continue
+
+            steps.append(_parse_line(stripped_line, step_id))
+            index += 1
+
+        return steps, index, step_counter
+
+    parsed_steps, _next_index, _final_counter = _parse_block(0, 0, 0)
+    return parsed_steps
 
 
 def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
     """Convert structured order steps back into Python code for a mandatory
     code block."""
     lines: List[str] = []
-    for step in steps:
-        kind = step.get("kind", STEP_RAW)
-        if kind == STEP_SECTION:
-            value = step.get("value", "")
-            lines.append(f"  set_parts(subtitle='{value}')")
-        elif kind == STEP_PROGRESS:
-            value = step.get("value", "0")
-            lines.append(f"  set_progress({value})")
-        elif kind == STEP_GATHER:
-            lines.append(f"  {step.get('invoke', '')}")
-        elif kind == STEP_SCREEN:
-            lines.append(f"  {step.get('invoke', '')}")
-        elif kind == STEP_FUNCTION:
-            lines.append(f"  {step.get('invoke', '')}")
-        elif kind == STEP_RAW:
-            code = step.get("code", "")
-            for raw_line in code.splitlines():
-                lines.append(f"  {raw_line}")
+
+    def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
+        prefix = " " * indent
+        for step in step_list:
+            kind = step.get("kind", STEP_RAW)
+            if kind == STEP_SECTION:
+                value = step.get("value", "")
+                lines.append(f"{prefix}set_parts(subtitle='{value}')")
+            elif kind == STEP_PROGRESS:
+                value = step.get("value", "0")
+                lines.append(f"{prefix}set_progress({value})")
+            elif kind == STEP_GATHER:
+                lines.append(f"{prefix}{step.get('invoke', '')}")
+            elif kind == STEP_SCREEN:
+                lines.append(f"{prefix}{step.get('invoke', '')}")
+            elif kind == STEP_FUNCTION:
+                lines.append(f"{prefix}{step.get('invoke', '')}")
+            elif kind == STEP_CONDITION:
+                condition = str(step.get("condition") or step.get("summary") or "True")
+                lines.append(f"{prefix}if {condition}:")
+                children = step.get("children") or []
+                if children:
+                    _append_steps(children, indent + 2)
+                else:
+                    lines.append(f"{' ' * (indent + 2)}pass")
+            elif kind == STEP_RAW:
+                code = step.get("code", "")
+                for raw_line in str(code).splitlines() or [""]:
+                    lines.append(f"{prefix}{raw_line}")
+
+    _append_steps(steps, 2)
     return "\n".join(lines)
 
 
@@ -688,6 +758,7 @@ def playground_get_variables(
 ) -> Dict[str, Any]:
     """Extract variable names from a playground YAML file."""
     from docassemble.webapp.playground import Playground
+    from docassemble.webapp.files import SavedFile
 
     with _playground_user_context(user_id):
         pg = Playground(project=project)
@@ -708,11 +779,45 @@ def playground_get_variables(
     top_level = sorted(
         {name.split(".", 1)[0].split("[", 1)[0] for name in all_names if name}
     )
+    symbol_groups: Dict[str, List[str]] = {}
+    for key, value in variable_info.items():
+        if key == "all_names_reduced":
+            continue
+        if isinstance(value, list):
+            cleaned = sorted(
+                {
+                    str(item).strip()
+                    for item in value
+                    if isinstance(item, (str, int, float)) and str(item).strip()
+                }
+            )
+            if cleaned:
+                symbol_groups[str(key)] = cleaned
+
+    # Include image names from the project's static folder for [FILE ...] insertion.
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff"}
+    static_images: List[str] = []
+    try:
+        static_area = SavedFile(user_id, fix=False, section="playgroundstatic")
+        static_project_dir = os.path.join(static_area.directory, project)
+        if os.path.isdir(static_project_dir):
+            static_images = sorted(
+                file_name
+                for file_name in os.listdir(static_project_dir)
+                if os.path.isfile(os.path.join(static_project_dir, file_name))
+                and os.path.splitext(file_name.lower())[1] in image_exts
+            )
+    except Exception:
+        static_images = []
+    if static_images:
+        symbol_groups["static_images"] = static_images
+
     return {
         "project": project,
         "filename": filename,
         "all_names": all_names,
         "top_level_names": top_level,
+        "symbol_groups": symbol_groups,
     }
 
 

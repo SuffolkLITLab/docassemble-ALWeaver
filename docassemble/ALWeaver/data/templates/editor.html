@@ -145,8 +145,51 @@
   </div>
 </div>
 
+<!-- Symbol Insert Modal (used for Mako insertion and label context menu) -->
+<div class="modal fade" id="symbol-insert-modal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny">Insert</div>
+          <h5 class="modal-title mt-1" id="symbol-insert-title">Name or Formatting</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="editor-label-quick-actions mb-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-label-insert="bold"><i class="fa-solid fa-bold"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-label-insert="italic"><i class="fa-solid fa-italic"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-label-insert="link"><i class="fa-solid fa-link"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-label-insert="mako"><i class="fa-solid fa-code"></i> Mako</button>
+        </div>
+        <div id="symbol-insert-search-wrap">
+          <label class="editor-tiny" for="symbol-insert-search">Search available names</label>
+          <input class="form-control form-control-sm mt-1" id="symbol-insert-search" placeholder="Type to filter names">
+        </div>
+        <div class="editor-tiny mt-2" id="symbol-insert-summary"></div>
+        <div id="symbol-insert-list-wrap">
+          <div class="editor-symbol-list mt-2" id="symbol-insert-list"></div>
+        </div>
+        <div id="symbol-insert-form-wrap" class="d-none">
+          <div id="symbol-insert-form-body"></div>
+        </div>
+        <div class="editor-insert-doc-links mt-2">
+          <a href="https://docassemble.org/docs/markup.html" target="_blank" rel="noopener noreferrer">Docassemble markup docs</a>
+          <a href="https://docs.makotemplates.org/en/latest/syntax.html" target="_blank" rel="noopener noreferrer">Mako syntax docs</a>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary d-none" id="symbol-insert-apply">Insert</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/static/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/bootstrap-fileinput/js/plugins/sortable.min.js"></script>
+<script src="/static/app/monaco-editor/min/vs/loader.js"></script>
 <script>
   window.__EDITOR_BOOTSTRAP__ = __EDITOR_BOOTSTRAP_JSON__;
 </script>

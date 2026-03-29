@@ -208,15 +208,63 @@ html, body {
 .editor-outline-insert {
   display: flex;
   justify-content: center;
-  padding: 2px 0;
+  padding: 3px 0;
 }
 
 .editor-outline-insert-btn {
-  width: 24px;
-  height: 24px;
-  line-height: 1;
-  border-radius: 999px;
+  position: relative;
+  width: 100%;
+  min-height: 16px;
   padding: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--editor-muted);
+  cursor: pointer;
+}
+
+.editor-outline-insert-line {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 50%;
+  border-top: 1px dotted transparent;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.editor-outline-insert-icon {
+  position: relative;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--editor-muted);
+  transform: scale(0.88);
+  transition: transform 0.16s ease, color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.editor-outline-insert-btn:hover .editor-outline-insert-line,
+.editor-outline-insert-btn:focus-visible .editor-outline-insert-line {
+  border-top-color: rgba(13, 57, 112, 0.35);
+}
+
+.editor-outline-insert-btn:hover .editor-outline-insert-icon,
+.editor-outline-insert-btn:focus-visible .editor-outline-insert-icon {
+  transform: scale(1);
+  color: var(--editor-primary);
+  background: #f8fbff;
+  box-shadow: 0 0 0 4px rgba(13, 57, 112, 0.08);
+}
+
+.editor-outline-insert-btn:focus-visible {
+  outline: none;
 }
 
 .editor-outline-item {
@@ -477,6 +525,140 @@ html, body {
   font-size: 13px;
 }
 
+/* ===== Markdown / Mako insertion tools ===== */
+
+.editor-md-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.editor-md-toolbar .btn {
+  min-width: 30px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.editor-md-toolbar-compact {
+  margin-bottom: 4px;
+}
+
+.editor-label-quick-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.editor-symbol-list {
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.editor-symbol-item {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.editor-symbol-item:last-child {
+  border-bottom: none;
+}
+
+.editor-symbol-item:hover,
+.editor-symbol-item:focus-visible {
+  background: #f3f7fd;
+  outline: none;
+}
+
+.editor-symbol-item-name {
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--editor-fg);
+}
+
+.editor-symbol-item-group {
+  color: var(--editor-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.editor-symbol-typeahead {
+  position: absolute;
+  z-index: 2000;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.editor-symbol-typeahead-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.editor-symbol-typeahead-more {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--editor-muted);
+  background: #f8fafc;
+  border-top: 1px solid #edf2f8;
+}
+
+.editor-symbol-typeahead-item {
+  width: 100%;
+  border: none;
+  background: #fff;
+  border-bottom: 1px solid #edf2f8;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.editor-symbol-typeahead-item:last-child {
+  border-bottom: none;
+}
+
+.editor-symbol-typeahead-item:hover,
+.editor-symbol-typeahead-item:focus-visible {
+  background: #eff5fd;
+  outline: none;
+}
+
+.editor-symbol-typeahead-group {
+  color: var(--editor-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.editor-insert-doc-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.editor-insert-doc-links a {
+  color: #0b5ed7;
+  text-decoration: none;
+}
+
+.editor-insert-doc-links a:hover {
+  text-decoration: underline;
+}
+
 /* ===== Monaco editor containers ===== */
 
 .editor-monaco-container {
@@ -528,6 +710,23 @@ html, body {
   gap: 6px;
 }
 
+.editor-order-block-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.editor-inline-meta {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.editor-order-step-shell {
+  margin-left: calc(var(--order-depth, 0) * 16px);
+}
+
 .editor-order-step {
   background: #fff;
   border: 1px solid var(--editor-border);
@@ -535,11 +734,88 @@ html, body {
   padding: 6px 10px;
 }
 
+.editor-order-step-condition {
+  background: linear-gradient(90deg, #fbfcff 0%, #ffffff 28%);
+  border-color: #cfd8e6;
+}
+
 .editor-order-step-top {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: flex-start;
+}
+
+.editor-order-step-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-order-title {
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-order-detail {
+  color: var(--editor-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-order-select {
+  margin: 0;
+}
+
+.editor-order-collapse,
+.editor-order-collapse-spacer {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-order-collapse {
+  border: none;
+  background: transparent;
+  color: var(--editor-muted);
+  border-radius: 4px;
+}
+
+.editor-order-collapse:hover,
+.editor-order-collapse:focus-visible {
+  background: #eef3fa;
+  color: var(--editor-primary);
+  outline: none;
+}
+
+.editor-order-indent {
+  width: 14px;
+  align-self: stretch;
+  border-left: 1px solid #e5ebf3;
+}
+
+.editor-order-children {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.editor-order-empty {
+  margin-left: 34px;
+  padding: 8px 10px;
+  border: 1px dashed #d5dce8;
+  border-radius: 6px;
+  color: var(--editor-muted);
+  font-size: 12px;
 }
 
 .editor-order-badge {

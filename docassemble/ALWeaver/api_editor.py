@@ -27,6 +27,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from copy import deepcopy
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,7 @@ from docassemble.webapp.server import jsonify_with_status
 
 from .api_utils import generate_interview_from_bytes, validate_upload_metadata
 from .editor_utils import (
+    canonical_block_yaml,
     canonicalize_block_yaml,
     generate_draft_order,
     parse_interview_yaml,
@@ -343,14 +345,16 @@ def editor_api_get_file() -> Response:
         raw_yaml = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(raw_yaml)
 
-        # Also parse order blocks into structured steps
+        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
         order_steps: list = []
         for idx in model.get("order_blocks", []):
             block = model["blocks"][idx]
             code = block.get("data", {}).get("code", "")
             if code:
-                order_steps = parse_order_code(code)
-                break  # use first mandatory code block
+                parsed_steps = parse_order_code(code)
+                order_step_map[block["id"]] = parsed_steps
+                if not order_steps:
+                    order_steps = parsed_steps
 
         return jsonify({
             "success": True,
@@ -364,6 +368,7 @@ def editor_api_get_file() -> Response:
                 "default_screen_parts_blocks": model["default_screen_parts_blocks"],
                 "order_blocks": model["order_blocks"],
                 "order_steps": order_steps,
+                "order_step_map": order_step_map,
                 "raw_yaml": raw_yaml,
             },
         })
@@ -461,13 +466,16 @@ def editor_api_save_block() -> Response:
         playground_write_yaml(uid, project, filename, updated_content)
 
         model = parse_interview_yaml(updated_content)
+        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
         order_steps: list = []
         for idx in model.get("order_blocks", []):
             block = model["blocks"][idx]
             code = block.get("data", {}).get("code", "")
             if code:
-                order_steps = parse_order_code(code)
-                break
+                parsed_steps = parse_order_code(code)
+                order_step_map[block["id"]] = parsed_steps
+                if not order_steps:
+                    order_steps = parsed_steps
         return jsonify({
             "success": True,
             "request_id": request_id,
@@ -482,6 +490,7 @@ def editor_api_save_block() -> Response:
                 ],
                 "order_blocks": model["order_blocks"],
                 "order_steps": order_steps,
+                "order_step_map": order_step_map,
                 "raw_yaml": updated_content,
                 "saved_block_id": block_id,
             },
@@ -658,22 +667,38 @@ def editor_api_save_order() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
+        target_block_id = str(post_data.get("order_block_id") or "").strip()
         steps = post_data.get("steps")
         if not isinstance(steps, list):
             raise ValueError("steps must be a list of order step objects")
 
         code_body = serialize_order_steps(steps)
-        order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{code_body}"
 
         # Load the current file, find the order block, and replace it
         current_content = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(current_content)
 
-        if model["order_blocks"]:
-            order_block_id = model["blocks"][model["order_blocks"][0]]["id"]
-            updated = update_block_in_yaml(current_content, order_block_id, order_yaml)
+        target_block: Optional[Dict[str, Any]] = None
+        if target_block_id:
+            for block in model["blocks"]:
+                if block.get("id") == target_block_id:
+                    target_block = block
+                    break
+        elif model["order_blocks"]:
+            target_block = model["blocks"][model["order_blocks"][0]]
+
+        if target_block:
+            block_data = deepcopy(target_block.get("data") or {})
+            if not isinstance(block_data, dict):
+                block_data = {}
+            block_data["id"] = str(block_data.get("id") or target_block.get("id") or "interview_order")
+            block_data["mandatory"] = True
+            block_data["code"] = code_body
+            order_yaml = canonical_block_yaml(block_data)
+            updated = update_block_in_yaml(current_content, target_block["id"], order_yaml)
         else:
             # Append a new mandatory code block
+            order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{code_body}"
             updated = current_content.rstrip() + "\n---\n" + order_yaml + "\n"
 
         playground_write_yaml(uid, project, filename, updated)
@@ -683,6 +708,7 @@ def editor_api_save_order() -> Response:
             "data": {
                 "project": project,
                 "filename": filename,
+                "order_block_id": target_block.get("id") if target_block else "interview_order",
                 "order_yaml": order_yaml,
             },
         })
