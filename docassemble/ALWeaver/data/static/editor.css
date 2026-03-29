@@ -691,13 +691,13 @@ html, body {
 /* ===== Order builder ===== */
 
 .editor-order-shell {
-  max-width: 1080px;
+  max-width: 1160px;
   margin: 0 auto;
 }
 
 .editor-order-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -732,6 +732,7 @@ html, body {
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
   padding: 6px 10px;
+  overflow: visible;
 }
 
 .editor-order-step-condition {
@@ -743,15 +744,17 @@ html, body {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .editor-order-step-main {
-  flex: 1;
+  flex: 1 1 320px;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: nowrap;
 }
 
 .editor-order-title {
@@ -768,6 +771,14 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.editor-order-step-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 0 auto;
 }
 
 .editor-order-select {
@@ -809,6 +820,20 @@ html, body {
   margin-top: 8px;
 }
 
+.editor-order-branch {
+  display: grid;
+  gap: 4px;
+}
+
+.editor-order-branch-label {
+  margin-left: 34px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--editor-muted);
+}
+
 .editor-order-empty {
   margin-left: 34px;
   padding: 8px 10px;
@@ -819,8 +844,17 @@ html, body {
 }
 
 .editor-order-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid #cdd8ea;
+  background: #f4f7fc;
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--editor-primary);
   font-weight: 600;
 }
@@ -829,6 +863,7 @@ html, body {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .editor-order-actions .btn {
@@ -836,9 +871,28 @@ html, body {
   padding: 2px 8px;
 }
 
+.editor-order-actions-hint {
+  color: var(--editor-muted);
+  font-size: 12px;
+}
+
 .editor-order-insert {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
+  margin-left: calc(var(--order-depth, 0) * 16px + 34px);
+}
+
+.editor-order-insert-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.editor-order-insert-controls .btn {
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 7px;
 }
 
 /* ===== Full YAML ===== */

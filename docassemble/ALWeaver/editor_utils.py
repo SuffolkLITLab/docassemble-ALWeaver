@@ -405,6 +405,7 @@ _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
 _RE_IF = re.compile(r"if\s+(.+):$")
+_RE_ELSE = re.compile(r"else:$")
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
@@ -491,7 +492,12 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
             "code": stripped_line,
         }
 
-    def _parse_block(start_index: int, base_indent: int, step_counter: int):
+    def _parse_block(
+        start_index: int,
+        base_indent: int,
+        step_counter: int,
+        stop_on_else_indent: int | None = None,
+    ):
         steps: List[Dict[str, Any]] = []
         index = start_index
 
@@ -504,6 +510,13 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
 
             indent = _line_indent(raw_line)
             if indent < base_indent:
+                break
+
+            if (
+                stop_on_else_indent is not None
+                and indent == stop_on_else_indent
+                and _RE_ELSE.match(stripped_line)
+            ):
                 break
 
             if indent > base_indent:
@@ -527,8 +540,21 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
             if m:
                 child_indent = _next_child_indent(index + 1, indent)
                 children, next_index, step_counter = _parse_block(
-                    index + 1, child_indent, step_counter
+                    index + 1, child_indent, step_counter, stop_on_else_indent=indent
                 )
+                else_children: List[Dict[str, Any]] = []
+                has_else = False
+                if next_index < len(raw_lines):
+                    next_line = raw_lines[next_index]
+                    if (
+                        _line_indent(next_line) == indent
+                        and _RE_ELSE.match(next_line.strip())
+                    ):
+                        has_else = True
+                        else_child_indent = _next_child_indent(next_index + 1, indent)
+                        else_children, next_index, step_counter = _parse_block(
+                            next_index + 1, else_child_indent, step_counter
+                        )
                 steps.append(
                     {
                         "id": step_id,
@@ -537,6 +563,8 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
                         "summary": m.group(1),
                         "condition": m.group(1),
                         "children": children,
+                        "has_else": has_else,
+                        "else_children": else_children,
                     }
                 )
                 index = next_index
@@ -580,6 +608,13 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
                     _append_steps(children, indent + 2)
                 else:
                     lines.append(f"{' ' * (indent + 2)}pass")
+                if step.get("has_else"):
+                    lines.append(f"{prefix}else:")
+                    else_children = step.get("else_children") or []
+                    if else_children:
+                        _append_steps(else_children, indent + 2)
+                    else:
+                        lines.append(f"{' ' * (indent + 2)}pass")
             elif kind == STEP_RAW:
                 code = step.get("code", "")
                 for raw_line in str(code).splitlines() or [""]:
@@ -758,7 +793,6 @@ def playground_get_variables(
 ) -> Dict[str, Any]:
     """Extract variable names from a playground YAML file."""
     from docassemble.webapp.playground import Playground
-    from docassemble.webapp.files import SavedFile
 
     with _playground_user_context(user_id):
         pg = Playground(project=project)
@@ -798,6 +832,8 @@ def playground_get_variables(
     image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff"}
     static_images: List[str] = []
     try:
+        from docassemble.webapp.files import SavedFile
+
         static_area = SavedFile(user_id, fix=False, section="playgroundstatic")
         static_project_dir = os.path.join(static_area.directory, project)
         if os.path.isdir(static_project_dir):

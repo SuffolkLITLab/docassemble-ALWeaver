@@ -65,20 +65,98 @@
   // Monaco management
   // -------------------------------------------------------------------------
   var _monacoReady = false;
+  var _monacoLoading = false;
+  var _monacoFailed = false;
+  var _monacoLoaderBase = null;
   var _monacoEditors = {};
   var _textareaEditors = {};
 
+  function _loadScriptOnce(src, callback) {
+    var existing = document.querySelector('script[data-editor-loader-src="' + src + '"]');
+    if (existing) {
+      if (existing.getAttribute('data-loaded') === 'true') {
+        callback(true);
+        return;
+      }
+      existing.addEventListener('load', function () { callback(true); }, { once: true });
+      existing.addEventListener('error', function () { callback(false); }, { once: true });
+      return;
+    }
+    var script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.setAttribute('data-editor-loader-src', src);
+    script.addEventListener('load', function () {
+      script.setAttribute('data-loaded', 'true');
+      callback(true);
+    }, { once: true });
+    script.addEventListener('error', function () {
+      callback(false);
+    }, { once: true });
+    document.head.appendChild(script);
+  }
+
+  function _getMonacoLoaderCandidates() {
+    return [
+      '/static/app/monaco-editor/min/vs/loader.js',
+      '/packagestatic/docassemble.webapp/monaco-editor/min/vs/loader.js',
+      'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js'
+    ];
+  }
+
+  function _ensureMonacoLoader(callback) {
+    if (typeof require !== 'undefined' && require && require.config) {
+      callback(true);
+      return;
+    }
+    var candidates = _getMonacoLoaderCandidates().slice();
+    function tryNext() {
+      var src = candidates.shift();
+      if (!src) {
+        callback(false);
+        return;
+      }
+      _loadScriptOnce(src, function (loaded) {
+        if (loaded && typeof require !== 'undefined' && require && require.config) {
+          _monacoLoaderBase = src.replace(/\/loader\.js(?:\?.*)?$/, '');
+          callback(true);
+          return;
+        }
+        tryNext();
+      });
+    }
+    tryNext();
+  }
+
   function initMonaco(callback) {
     if (_monacoReady) { callback(); return; }
-    if (typeof require === 'undefined' || !require.config) {
-      // Monaco loader is not available in this deployment.
+    if (_monacoFailed) {
       callback();
       return;
     }
-    require.config({ paths: { vs: '/static/app/monaco-editor/min/vs' } });
-    require(['vs/editor/editor.main'], function () {
-      _monacoReady = true;
-      callback();
+    if (_monacoLoading) {
+      window.setTimeout(function () { initMonaco(callback); }, 50);
+      return;
+    }
+    _monacoLoading = true;
+    _ensureMonacoLoader(function (loaderReady) {
+      if (!loaderReady || typeof require === 'undefined' || !require.config) {
+        _monacoLoading = false;
+        _monacoFailed = true;
+        callback();
+        return;
+      }
+      var vsBase = _monacoLoaderBase || '/static/app/monaco-editor/min/vs';
+      require.config({ paths: { vs: vsBase } });
+      require(['vs/editor/editor.main'], function () {
+        _monacoLoading = false;
+        _monacoReady = true;
+        callback();
+      }, function () {
+        _monacoLoading = false;
+        _monacoFailed = true;
+        callback();
+      });
     });
   }
 
@@ -303,7 +381,10 @@
       nextOrderBlockId = getDefaultOrderBlockId();
     }
     setActiveOrderBlock(nextOrderBlockId, nextOrderBlockId ? state.orderStepMap[nextOrderBlockId] : (data.order_steps || []));
-    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId || (state.blocks[0] ? state.blocks[0].id : null);
+    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId;
+    if (!state.selectedBlockId || !getBlockById(state.selectedBlockId) || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+      state.selectedBlockId = getDefaultVisibleBlockId();
+    }
     state.canvasMode = 'question';
     state.questionEditMode = 'preview';
     state.advancedOpen = false;
@@ -561,6 +642,56 @@
     el.focus();
   }
 
+  function _getTokenCharPattern() {
+    return /[A-Za-z0-9_\.\[\]]/;
+  }
+
+  function getSymbolTokenRange(value, cursorPos) {
+    var text = String(value || '');
+    var cursor = Math.max(0, Math.min(Number(cursorPos || 0), text.length));
+    var isTokenChar = _getTokenCharPattern();
+
+    var start = cursor;
+    while (start > 0 && isTokenChar.test(text.charAt(start - 1))) start -= 1;
+    var end = cursor;
+    while (end < text.length && isTokenChar.test(text.charAt(end))) end += 1;
+
+    var token = text.slice(start, end);
+
+    // If cursor is inside ${ ... }, use the inner token region.
+    var leftBrace = text.lastIndexOf('${', cursor);
+    var rightBrace = text.indexOf('}', cursor);
+    if (leftBrace !== -1 && rightBrace !== -1 && leftBrace < cursor && rightBrace >= cursor) {
+      var innerStart = leftBrace + 2;
+      while (innerStart < rightBrace && /\s/.test(text.charAt(innerStart))) innerStart += 1;
+      var innerEnd = rightBrace;
+      while (innerEnd > innerStart && /\s/.test(text.charAt(innerEnd - 1))) innerEnd -= 1;
+      var relCursor = Math.max(innerStart, Math.min(cursor, innerEnd));
+      start = relCursor;
+      while (start > innerStart && isTokenChar.test(text.charAt(start - 1))) start -= 1;
+      end = relCursor;
+      while (end < innerEnd && isTokenChar.test(text.charAt(end))) end += 1;
+      token = text.slice(start, end);
+    }
+
+    var query = String(token || '').replace(/^\$?\{?\s*/, '').replace(/\s*\}?$/, '').trim();
+    return { start: start, end: end, query: query };
+  }
+
+  function replaceInputRange(inputEl, start, end, replacement) {
+    if (!inputEl) return;
+    var value = String(inputEl.value || '');
+    var safeStart = Math.max(0, Math.min(start, value.length));
+    var safeEnd = Math.max(safeStart, Math.min(end, value.length));
+    var next = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
+    inputEl.value = next;
+    var cursor = safeStart + String(replacement).length;
+    inputEl.selectionStart = cursor;
+    inputEl.selectionEnd = cursor;
+    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    inputEl.focus();
+  }
+
   function renderMarkdownToolbar(targetId, compact) {
     var cls = compact ? ' editor-md-toolbar-compact' : '';
     var html = '<div class="editor-md-toolbar' + cls + '" data-md-toolbar-for="' + esc(targetId) + '">';
@@ -577,6 +708,7 @@
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="target" data-target-id="' + esc(targetId) + '" title="Embed target"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="twocol" data-target-id="' + esc(targetId) + '" title="Two-column layout"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako" data-target-id="' + esc(targetId) + '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '" title="Insert variable name only"><i class="fa-solid fa-at" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '" title="Insert Mako conditional"><i class="fa-solid fa-code-branch" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '" title="Insert Mako loop"><i class="fa-solid fa-repeat" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '" title="Insert Mako Python block"><i class="fa-solid fa-terminal" aria-hidden="true"></i></button>';
@@ -854,7 +986,14 @@
     } else if (action === 'twocol') {
       openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'twocol' });
     } else if (action === 'mako') {
-      openSymbolInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'mako' });
+      var cursorPos = Number(targetEl.selectionStart || 0);
+      var text = String(targetEl.value || '');
+      var leftBrace = text.lastIndexOf('${', cursorPos);
+      var rightBrace = text.indexOf('}', cursorPos);
+      var insideMako = leftBrace !== -1 && rightBrace !== -1 && leftBrace < cursorPos && rightBrace >= cursorPos;
+      openSymbolInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: insideMako ? 'raw' : 'mako' });
+    } else if (action === 'symbol-raw') {
+      openSymbolInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'raw' });
     } else if (action === 'mako-if') {
       insertTextAtCursor(targetEl, '% if condition_here:\nText when true\n% endif');
     } else if (action === 'mako-for') {
@@ -878,6 +1017,8 @@
     var mode = ctx.insertMode || 'raw';
     if (mode === 'mako') {
       insertTextAtCursor(target, '${' + symbolName + '}');
+    } else if (mode === 'raw') {
+      insertTextAtCursor(target, symbolName);
     } else if (mode === 'label-menu') {
       insertTextAtCursor(target, '${' + symbolName + '}');
     } else {
@@ -907,7 +1048,8 @@
     if (!inputEl) return;
     var role = inputEl.getAttribute('data-symbol-role');
     if (!role) return;
-    var result = getSymbolMatchResult(inputEl.value || '', role, 16);
+    var token = getSymbolTokenRange(inputEl.value || '', inputEl.selectionStart || 0);
+    var result = getSymbolMatchResult(token.query || '', role, 16);
     var matches = result.matches;
     if (matches.length === 0) {
       hideTypeaheadMenu();
@@ -921,7 +1063,7 @@
 
     var html = '';
     matches.forEach(function (entry) {
-      html += '<button type="button" class="editor-symbol-typeahead-item" data-typeahead-name="' + esc(entry.name) + '" data-target-id="' + esc(targetId) + '">';
+      html += '<button type="button" class="editor-symbol-typeahead-item" data-typeahead-name="' + esc(entry.name) + '" data-target-id="' + esc(targetId) + '" data-typeahead-start="' + token.start + '" data-typeahead-end="' + token.end + '">';
       html += '<span>' + esc(entry.name) + '</span>';
       html += '<span class="editor-symbol-typeahead-group">' + esc(entry.group || '') + '</span>';
       html += '</button>';
@@ -1002,6 +1144,51 @@
     return String(text || '').replace(/^Ask\s+/i, '').trim();
   }
 
+  function getOrderStepBadge(step) {
+    if (!step) return '';
+    if (step.kind === 'gather') return 'g';
+    if (step.kind === 'condition') return 'if';
+    if (step.kind === 'section') return 'sec';
+    if (step.kind === 'progress') return '%';
+    if (step.kind === 'function') return 'f';
+    if (step.kind === 'raw') return 'p';
+    return '';
+  }
+
+  function getOrderStepPresentation(step) {
+    var heading = getOrderStepHeading(step);
+    var detail = getOrderStepDetail(step);
+    var tooltip = '';
+    if (step && step.kind === 'screen') {
+      var screenBlock = findBlockByInvoke(step);
+      var title = screenBlock ? cleanOrderText(screenBlock.title || '') : '';
+      var variable = cleanOrderText(step.invoke || step.summary || '');
+      if (title) {
+        heading = title;
+        detail = '';
+        tooltip = variable && variable !== title ? variable : '';
+      } else if (variable) {
+        heading = variable;
+        tooltip = title && title !== variable ? title : '';
+      }
+    }
+    return {
+      heading: heading,
+      detail: detail,
+      tooltip: tooltip
+    };
+  }
+
+  function getOrderBranchSteps(step, branch) {
+    if (!step) return [];
+    if (branch === 'else') {
+      if (!Array.isArray(step.else_children)) step.else_children = [];
+      return step.else_children;
+    }
+    if (!Array.isArray(step.children)) step.children = [];
+    return step.children;
+  }
+
   function findBlockByInvoke(step) {
     if (!step) return null;
     if (step.blockId) {
@@ -1022,7 +1209,7 @@
       return screenBlock ? screenBlock.title : cleanOrderText(step.summary || step.invoke || 'Screen');
     }
     if (step.kind === 'gather') return cleanOrderText(step.summary || step.invoke || 'Gather');
-    if (step.kind === 'condition') return 'If ' + cleanOrderText(step.condition || step.summary || 'condition');
+    if (step.kind === 'condition') return cleanOrderText(step.condition || step.summary || 'condition');
     if (step.kind === 'section') return cleanOrderText(step.summary || step.value || 'Section');
     if (step.kind === 'progress') return cleanOrderText(step.summary || (step.value ? 'Progress ' + step.value + '%' : 'Progress'));
     return cleanOrderText(step.summary || step.invoke || step.code || step.label || step.kind);
@@ -1033,7 +1220,10 @@
     if (step.kind === 'screen' || step.kind === 'gather') return '';
     if (step.kind === 'condition') {
       var childCount = Array.isArray(step.children) ? step.children.length : 0;
-      return childCount === 1 ? '1 nested step' : childCount + ' nested steps';
+      var elseCount = Array.isArray(step.else_children) ? step.else_children.length : 0;
+      var parts = [childCount + ' then'];
+      if (step.has_else) parts.push(elseCount + ' else');
+      return parts.join(' · ');
     }
     if (step.kind === 'section') return step.value || '';
     if (step.kind === 'progress') return step.value ? step.value + '%' : '';
@@ -1048,7 +1238,7 @@
     if (kind === 'gather') return { id: uniqueId, kind: kind, label: 'List gather', summary: 'Gather a list', invoke: '' };
     if (kind === 'section') return { id: uniqueId, kind: kind, label: 'Start section', summary: 'Section: New section', value: 'New section' };
     if (kind === 'progress') return { id: uniqueId, kind: kind, label: 'Progress', summary: 'Progress: 50%', value: '50' };
-    if (kind === 'condition') return { id: uniqueId, kind: kind, label: 'Condition', summary: 'condition_here', condition: 'condition_here', children: [] };
+    if (kind === 'condition') return { id: uniqueId, kind: kind, label: 'Condition', summary: 'condition_here', condition: 'condition_here', children: [], has_else: false, else_children: [] };
     if (kind === 'function') return { id: uniqueId, kind: kind, label: 'Function', summary: 'function_call()', invoke: 'function_call()' };
     return { id: uniqueId, kind: 'raw', label: 'Raw Python', summary: 'pass', code: 'pass' };
   }
@@ -1063,6 +1253,10 @@
         var nested = findStepRecord(step.children, stepId, step);
         if (nested) return nested;
       }
+      if (Array.isArray(step.else_children) && step.else_children.length) {
+        var nestedElse = findStepRecord(step.else_children, stepId, step);
+        if (nestedElse) return nestedElse;
+      }
     }
     return null;
   }
@@ -1070,7 +1264,7 @@
   function renderOrderCodePreview(stepList, indent) {
     indent = indent || 2;
     var lines = [];
-    stepList.forEach(function (step) {
+    stepList.forEach(function (step, index) {
       var prefix = new Array(indent + 1).join(' ');
       if (step.kind === 'section') lines.push(prefix + "set_parts(subtitle='" + String(step.value || '') + "')");
       else if (step.kind === 'progress') lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
@@ -1081,6 +1275,14 @@
           lines.push(renderOrderCodePreview(step.children, indent + 2));
         } else {
           lines.push(new Array(indent + 3).join(' ') + 'pass');
+        }
+        if (step.has_else) {
+          lines.push(prefix + 'else:');
+          if (Array.isArray(step.else_children) && step.else_children.length) {
+            lines.push(renderOrderCodePreview(step.else_children, indent + 2));
+          } else {
+            lines.push(new Array(indent + 3).join(' ') + 'pass');
+          }
         }
       } else {
         String(step.code || '').split('\n').forEach(function (line) {
@@ -1115,6 +1317,9 @@
       }
       for (var k = 0; k < stepList.length; k++) {
         if (Array.isArray(stepList[k].children) && stepList[k].children.length && attemptWrap(stepList[k].children)) {
+          return true;
+        }
+        if (Array.isArray(stepList[k].else_children) && stepList[k].else_children.length && attemptWrap(stepList[k].else_children)) {
           return true;
         }
       }
@@ -1647,7 +1852,7 @@
       state.orderStepMap = d.order_step_map || {};
       state.rawYaml = d.raw_yaml || '';
       state.dirty = false;
-      state.selectedBlockId = (state.blocks.length) ? state.blocks[0].id : null;
+      state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
       loadAvailableSymbols();
       renderOutline();
@@ -1678,6 +1883,21 @@
       return [b.title, b.id, b.variable || '', b.yaml, (b.tags || []).join(' '), b.type]
         .join(' ').toLowerCase().indexOf(q) !== -1;
     });
+  }
+
+  function isBlockVisibleInOutline(block) {
+    if (!block) return false;
+    var visible = filteredBlocks();
+    for (var i = 0; i < visible.length; i++) {
+      if (visible[i].id === block.id) return true;
+    }
+    return false;
+  }
+
+  function getDefaultVisibleBlockId() {
+    var visible = filteredBlocks();
+    if (visible.length > 0) return visible[0].id;
+    return state.blocks.length ? state.blocks[0].id : null;
   }
 
   function typeClass(type) {
@@ -1726,11 +1946,21 @@
   // Canvas dispatcher
   // -------------------------------------------------------------------------
   function getSelectedBlock() {
-    if (!state.selectedBlockId) return state.blocks[0] || null;
-    for (var i = 0; i < state.blocks.length; i++) {
-      if (state.blocks[i].id === state.selectedBlockId) return state.blocks[i];
+    if (!state.selectedBlockId) {
+      var defaultId = getDefaultVisibleBlockId();
+      return defaultId ? getBlockById(defaultId) : null;
     }
-    return state.blocks[0] || null;
+    for (var i = 0; i < state.blocks.length; i++) {
+      if (state.blocks[i].id === state.selectedBlockId) {
+        if (state.filterQuestionsOnly && state.blocks[i].type !== 'question') {
+          var visibleId = getDefaultVisibleBlockId();
+          return visibleId ? getBlockById(visibleId) : null;
+        }
+        return state.blocks[i];
+      }
+    }
+    var fallbackId = getDefaultVisibleBlockId();
+    return fallbackId ? getBlockById(fallbackId) : null;
   }
 
   function getBlockYamlForSave(block) {
@@ -2343,14 +2573,44 @@
   // -------------------------------------------------------------------------
   // Order builder
   // -------------------------------------------------------------------------
-  function renderOrderStepTree(stepList, depth) {
+  function renderOrderInsertRow(parentStepId, branch, index, depth) {
+    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
+    html += '<div class="editor-order-insert-controls">';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-step="screen" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">+ Screen</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="gather" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">G</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="condition" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">If</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="section" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">Sec</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="progress" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">%</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="function" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">f</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="raw" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '">p</button>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderOrderBranch(step, depth, branch, label) {
+    var branchSteps = getOrderBranchSteps(step, branch);
+    var html = '<div class="editor-order-branch">';
+    html += '<div class="editor-order-branch-label">' + esc(label) + '</div>';
+    html += renderOrderStepTree(branchSteps, depth, step.id, branch);
+    if (branchSteps.length === 0) {
+      html += '<div class="editor-order-empty">No ' + esc(label.toLowerCase()) + ' steps yet.</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderOrderStepTree(stepList, depth, parentStepId, branch) {
     var html = '';
     depth = depth || 0;
+    parentStepId = parentStepId || '';
+    branch = branch || 'then';
+    html += renderOrderInsertRow(parentStepId, branch, 0, depth);
     stepList.forEach(function (step) {
-      var detail = getOrderStepDetail(step);
+      var presentation = getOrderStepPresentation(step);
       var isCollapsed = Boolean(state.orderCollapsed[step.id]);
       var hasChildren = Array.isArray(step.children) && step.children.length > 0;
-      var kindLabel = step.label || step.kind;
+      var hasElse = Boolean(step.has_else);
+      var kindBadge = getOrderStepBadge(step);
       html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
       html += '<div class="editor-order-step' + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + '" data-step-id="' + esc(step.id) + '">';
       html += '<div class="editor-order-step-top">';
@@ -2365,17 +2625,19 @@
       } else {
         html += '<span class="editor-order-collapse-spacer" aria-hidden="true"></span>';
       }
-      if (kindLabel.toLowerCase() !== 'screen') {
-        html += '<span class="badge bg-secondary" style="font-size:10px">' + esc(kindLabel) + '</span>';
+      if (kindBadge) {
+        html += '<span class="editor-order-badge" title="' + esc(step.label || step.kind) + '">' + esc(kindBadge) + '</span>';
       }
-      html += '<span class="editor-order-title">' + esc(getOrderStepHeading(step)) + '</span>';
-      if (detail) {
-        html += '<span class="editor-order-detail">' + esc(detail) + '</span>';
+      html += '<span class="editor-order-title"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
+      if (presentation.detail) {
+        html += '<span class="editor-order-detail">' + esc(presentation.detail) + '</span>';
       }
       html += '</div>';
-      html += '<div class="d-flex gap-1">';
+      html += '<div class="editor-order-step-actions">';
       if (step.kind === 'condition') {
-        html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="add-child" data-step-id="' + esc(step.id) + '" title="Add nested step"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="visually-hidden">Add nested step</span></button>';
+        if (!hasElse) {
+          html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="add-else" data-step-id="' + esc(step.id) + '" title="Add else branch">Else</button>';
+        }
       }
       html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="edit" data-step-id="' + esc(step.id) + '" title="Edit"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span class="visually-hidden">Edit step</span></button>';
       html += '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-step-action="remove" data-step-id="' + esc(step.id) + '" title="Remove"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove step</span></button>';
@@ -2383,14 +2645,12 @@
       html += '</div>';
       if (step.kind === 'condition') {
         html += '<div class="editor-order-children' + (isCollapsed ? ' d-none' : '') + '">';
-        if (hasChildren) {
-          html += renderOrderStepTree(step.children, depth + 1);
-        } else {
-          html += '<div class="editor-order-empty">No nested steps yet.</div>';
-        }
+        html += renderOrderBranch(step, depth + 1, 'then', 'Then');
+        if (hasElse) html += renderOrderBranch(step, depth + 1, 'else', 'Else');
         html += '</div>';
       }
       html += '</div></div>';
+      html += renderOrderInsertRow(parentStepId, branch, index + 1, depth);
     });
     return html;
   }
@@ -2399,14 +2659,13 @@
     syncActiveOrderStepMap();
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     var orderTargets = getOrderTargets();
-    var generatedCode = renderOrderCodePreview(state.orderSteps, 2);
     var html = '<div class="editor-order-shell">';
     html += '<div class="editor-center-bar">';
     html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Interview Order</h2></div>';
     html += '<div class="d-flex gap-2">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="wrap-selected-order-steps">Wrap selected in if</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">View YAML</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Edit YAML</button>';
     if (activeOrderBlock) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="order-back-to-code">Back to code block</button>';
     }
@@ -2430,27 +2689,17 @@
     html += '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
     html += '<span>Steps</span>';
     html += '<div class="editor-order-actions">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-step="screen"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Screen</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="gather"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Gather</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="condition"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>If</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="section"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Section</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-step="progress"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Progress</button>';
+    html += '<span class="editor-order-actions-hint">Insert anywhere with the inline add rows.</span>';
     html += '</div></div>';
 
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
-    html += renderOrderStepTree(state.orderSteps, 0);
+    html += renderOrderStepTree(state.orderSteps, 0, '', 'then');
     if (state.orderSteps.length === 0) {
-      html += '<p class="text-muted small mb-0">No order steps. Click "Auto-generate" to create a draft.</p>';
+      html += '<p class="text-muted small mb-0">No order steps yet. Use the add row below or click "Auto-generate" to create a draft.</p>';
     }
     html += '</div></div></div>';
 
-    // Right: generated code
-    html += '<div>';
-    html += '<div class="editor-card"><div class="editor-card-header">Generated code</div><div class="editor-card-body">';
-    html += '<div class="editor-monaco-container" id="order-fallback-monaco" style="height:300px"></div>';
-    html += '</div></div>';
     html += '<div class="mt-2 d-flex justify-content-end"><button class="btn btn-primary" id="save-order-steps">Save order</button></div>';
-    html += '</div>';
 
     html += '</div></div>';
     canvasContent.innerHTML = html;
@@ -2460,6 +2709,7 @@
     if (sortableEl && typeof Sortable !== 'undefined') {
       Sortable.create(sortableEl, {
         handle: '.drag-handle',
+        draggable: '.editor-order-step-shell',
         animation: 150,
         onEnd: function (evt) {
           var moved = state.orderSteps.splice(evt.oldIndex, 1)[0];
@@ -2469,9 +2719,6 @@
       });
     }
 
-    initMonaco(function () {
-      createMonacoEditor('order-fallback-monaco', generatedCode, 'python', { lineNumbers: false });
-    });
   }
 
   // -------------------------------------------------------------------------
@@ -2752,11 +2999,15 @@
     if (typeaheadItemBtn) {
       var pick = typeaheadItemBtn.getAttribute('data-typeahead-name');
       var pickTargetId = typeaheadItemBtn.getAttribute('data-target-id');
+      var pickStart = parseInt(typeaheadItemBtn.getAttribute('data-typeahead-start') || '-1', 10);
+      var pickEnd = parseInt(typeaheadItemBtn.getAttribute('data-typeahead-end') || '-1', 10);
       var pickTarget = pickTargetId ? document.getElementById(pickTargetId) : null;
       if (pickTarget) {
-        pickTarget.value = pick;
-        pickTarget.dispatchEvent(new Event('input', { bubbles: true }));
-        pickTarget.focus();
+        if (Number.isFinite(pickStart) && Number.isFinite(pickEnd) && pickStart >= 0 && pickEnd >= pickStart) {
+          replaceInputRange(pickTarget, pickStart, pickEnd, pick);
+        } else {
+          insertTextAtCursor(pickTarget, pick);
+        }
       }
       hideTypeaheadMenu();
       return;
@@ -2976,9 +3227,9 @@
       } else if (action === 'toggle-collapse') {
         state.orderCollapsed[targetStepId] = !state.orderCollapsed[targetStepId];
         renderCanvas();
-      } else if (action === 'add-child') {
-        if (!Array.isArray(stepRecord.step.children)) stepRecord.step.children = [];
-        stepRecord.step.children.push(createOrderStep('screen'));
+      } else if (action === 'add-else') {
+        stepRecord.step.has_else = true;
+        if (!Array.isArray(stepRecord.step.else_children)) stepRecord.step.else_children = [];
         state.orderCollapsed[targetStepId] = false;
         syncActiveOrderStepMap();
         renderCanvas();
@@ -2990,16 +3241,21 @@
     if (addStepBtn) {
       var kind = addStepBtn.getAttribute('data-add-step');
       var parentStepId = addStepBtn.getAttribute('data-parent-step-id');
+      var branch = addStepBtn.getAttribute('data-step-branch') || 'then';
+      var insertIndex = parseInt(addStepBtn.getAttribute('data-insert-index') || '-1', 10);
       var newStep = createOrderStep(kind);
       if (parentStepId) {
         var parentRecord = findStepRecord(state.orderSteps, parentStepId, null);
         if (parentRecord) {
-          if (!Array.isArray(parentRecord.step.children)) parentRecord.step.children = [];
-          parentRecord.step.children.push(newStep);
+          var targetList = getOrderBranchSteps(parentRecord.step, branch);
+          if (branch === 'else') parentRecord.step.has_else = true;
+          if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > targetList.length) insertIndex = targetList.length;
+          targetList.splice(insertIndex, 0, newStep);
           state.orderCollapsed[parentStepId] = false;
         }
       } else {
-        state.orderSteps.push(newStep);
+        if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > state.orderSteps.length) insertIndex = state.orderSteps.length;
+        state.orderSteps.splice(insertIndex, 0, newStep);
       }
       syncActiveOrderStepMap();
       renderCanvas();
@@ -3280,7 +3536,12 @@
   if (filterQuestionsCheckbox) {
     filterQuestionsCheckbox.addEventListener('change', function () {
       state.filterQuestionsOnly = filterQuestionsCheckbox.checked;
+      var selected = getBlockById(state.selectedBlockId);
+      if (!selected || !isBlockVisibleInOutline(selected)) {
+        state.selectedBlockId = getDefaultVisibleBlockId();
+      }
       renderOutline();
+      renderCanvas();
     });
   }
 
