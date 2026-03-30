@@ -85,7 +85,7 @@ _LITERAL_TEXT_KEYS = {
 
 # Keys whose values are always serialised as block-literal (|) style, even
 # when the text is a single line.
-_FORCE_LITERAL_KEYS: set = {"question", "subquestion"}
+_FORCE_LITERAL_KEYS: set = {"question", "subquestion", "code"}
 
 
 class _CanonicalDumper(yaml.SafeDumper):

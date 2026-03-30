@@ -64,16 +64,24 @@ html, body {
   color: #fff;
 }
 
-.editor-brand-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.15);
+.editor-brand-logo {
+  width: 30px;
+  height: 30px;
+  display: block;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.editor-brand-project {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
   color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
+  max-width: 38vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-top-tabs {
@@ -988,6 +996,39 @@ html, body {
   background: #fff;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius);
+}
+
+.editor-file-preview-frame {
+  width: 100%;
+  min-height: 72vh;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  background: #fff;
+}
+
+.editor-image-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 0 auto;
+}
+
+.editor-docx-preview {
+  min-height: 72vh;
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  background: #fff;
+  padding: 14px;
+  line-height: 1.5;
+}
+
+.editor-docx-preview p {
+  margin: 0 0 10px;
 }
 
 /* ===== Advanced accordion ===== */

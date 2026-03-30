@@ -16,13 +16,14 @@
   <header class="editor-topbar" id="topbar">
     <div class="editor-topbar-inner">
       <div class="editor-brand">
-        <span class="editor-brand-icon">&#9998;</span>
-        <span>Interview Editor</span>
+        <img class="editor-brand-logo" src="/al/editor/static/logo.svg" alt="ALWeaver">
+        <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
       </div>
       <nav class="editor-top-tabs" id="view-tabs">
         <button type="button" class="editor-top-tab btn btn-sm btn-light active" data-view="interview">Interview</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="templates">Templates</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="modules">Modules</button>
+        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="static">Static</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="data">Data Sources</button>
       </nav>
       <div class="editor-top-actions">
@@ -30,6 +31,7 @@
         <button type="button" class="btn btn-sm btn-outline-light" id="btn-new-project">New project</button>
         <button type="button" class="btn btn-sm btn-outline-light" id="btn-full-yaml">Full YAML</button>
         <button type="button" class="btn btn-sm btn-outline-light" id="btn-order-builder">Order builder</button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-standard-playground">Playground</button>
         <button type="button" class="btn btn-sm btn-light" id="btn-preview-interview">Preview</button>
       </div>
     </div>
@@ -51,19 +53,17 @@
       <div class="editor-section editor-section-search">
         <input class="form-control form-control-sm mb-2" id="search-input"
                placeholder="Search blocks&hellip;">
-        <div class="form-check form-switch editor-tiny" style="margin-bottom: 0;">
-          <input class="form-check-input" type="checkbox" id="filter-questions-checkbox" checked>
-          <label class="form-check-label" for="filter-questions-checkbox">Questions only</label>
-        </div>
       </div>
       <div class="editor-section">
         <div class="editor-tiny">Quick jump</div>
         <div class="editor-jump-list" id="jump-targets">
-          <button type="button" class="editor-jump-item active" data-jump="block">Blocks</button>
-          <button type="button" class="editor-jump-item" data-jump="metadata">Metadata</button>
-          <button type="button" class="editor-jump-item" data-jump="includes">Includes</button>
-          <button type="button" class="editor-jump-item" data-jump="defaults">Defaults</button>
+          <button type="button" class="editor-jump-item active" data-jump="questions">Questions</button>
+          <button type="button" class="editor-jump-item" data-jump="all">All blocks</button>
           <button type="button" class="editor-jump-item" data-jump="order">Order</button>
+          <button type="button" class="editor-jump-item" data-jump="code">Code</button>
+          <button type="button" class="editor-jump-item" data-jump="meta">Meta</button>
+          <button type="button" class="editor-jump-item" data-jump="attachments">Attachments</button>
+          <button type="button" class="editor-jump-item" data-jump="objects">Objects</button>
         </div>
       </div>
       <div class="editor-outline-header">

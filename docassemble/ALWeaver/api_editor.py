@@ -12,6 +12,8 @@ Provides:
     POST /al/editor/api/insert-block — insert a new block at a target position
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
+    POST /al/editor/api/ai/generate-screen — draft one question screen with AI
+    POST /al/editor/api/ai/generate-fields — draft fields for a question with AI
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
@@ -22,12 +24,15 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import mimetypes
 import os
 import re
 import shutil
+import textwrap
 import tempfile
 import uuid
 from copy import deepcopy
+from html import escape
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
@@ -56,6 +61,13 @@ from .editor_utils import (
     serialize_order_steps,
     update_block_in_yaml,
 )
+from .editor_ai_utils import (
+    DEFAULT_FIELD_TYPES,
+    normalize_generated_fields,
+    normalize_generated_screen,
+    pick_small_model_name,
+    validate_yaml_with_dayamlchecker,
+)
 from .playground_publish import (
     SECTION_TO_STORAGE,
     _copy_files_to_section,
@@ -68,6 +80,72 @@ from .playground_publish import (
 __all__: list = []
 
 EDITOR_BASE_PATH = "/al/editor"
+
+EDITOR_SECTION_ALIASES: Dict[str, str] = {
+    "template": "templates",
+    "templates": "templates",
+    "module": "modules",
+    "modules": "modules",
+    "static": "static",
+    "area-static": "static",
+    "static-files": "static",
+    "data": "data",
+    "source": "data",
+    "sources": "data",
+    "datasource": "data",
+    "datasources": "data",
+}
+
+EDITOR_SECTION_TO_STORAGE: Dict[str, str] = {
+    "templates": SECTION_TO_STORAGE["templates"],
+    "modules": SECTION_TO_STORAGE["modules"],
+    "static": SECTION_TO_STORAGE["static"],
+    "data": SECTION_TO_STORAGE["sources"],
+}
+
+EDITOR_TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".rst",
+    ".py",
+    ".js",
+    ".ts",
+    ".css",
+    ".scss",
+    ".less",
+    ".html",
+    ".xml",
+    ".csv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xlf",
+    ".xliff",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".mako",
+    ".feature",
+}
+
+EDITOR_IMAGE_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".avif",
+    ".tif",
+    ".tiff",
+}
+
+DEFAULT_DASHBOARD_EDITOR_URLS = {
+    "pdf": "/al/pdf-labeler?project={project}&filename={filename}",
+    "docx": "/al/docx-labeler?project={project}&filename={filename}",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +226,84 @@ def _normalize_filename(raw: Optional[str]) -> str:
     return value
 
 
+def _normalize_section(raw: Optional[str]) -> str:
+    value = str(raw or "").strip().lower()
+    if value not in EDITOR_SECTION_ALIASES:
+        raise ValueError("Invalid section")
+    return EDITOR_SECTION_ALIASES[value]
+
+
+def _normalize_storage_filename(raw: Optional[str]) -> str:
+    value = os.path.basename(str(raw or "").strip())
+    if not value or value in {".", ".."}:
+        raise ValueError("filename is required")
+    return value
+
+
+def _editor_storage_directory(user_id: int, project: str, storage_section: str) -> tuple[Any, str]:
+    from docassemble.webapp.files import SavedFile
+
+    area = SavedFile(user_id, fix=True, section=storage_section)
+    directory = area.directory if project == "default" else os.path.join(area.directory, project)
+    os.makedirs(directory, exist_ok=True)
+    return area, directory
+
+
+def _is_text_editable(filename: str, mimetype: str) -> bool:
+    ext = os.path.splitext(filename.lower())[1]
+    if ext in EDITOR_TEXT_EXTENSIONS:
+        return True
+    return bool(mimetype and mimetype.startswith("text/"))
+
+
+def _is_placeholder_file(filename: str) -> bool:
+    return filename.lower().endswith(".placeholder")
+
+
+def _preview_kind_for_file(filename: str, editable: bool) -> str:
+    ext = os.path.splitext(filename.lower())[1]
+    if ext == ".pdf":
+        return "pdf"
+    if ext == ".docx":
+        return "docx"
+    if ext in EDITOR_IMAGE_EXTENSIONS:
+        return "image"
+    if editable:
+        return "text"
+    return "binary"
+
+
+def _dashboard_editor_url(kind: str, project: str, filename: str) -> str:
+    pattern = DEFAULT_DASHBOARD_EDITOR_URLS[kind]
+    return pattern.format(project=quote(project, safe="/"), filename=quote(filename, safe=""))
+
+
+def _list_editor_section_files(user_id: int, project: str, section: str) -> List[Dict[str, Any]]:
+    storage_section = EDITOR_SECTION_TO_STORAGE[section]
+    _area, directory = _editor_storage_directory(user_id, project, storage_section)
+    if not os.path.isdir(directory):
+        return []
+    items: List[Dict[str, Any]] = []
+    for name in sorted(os.listdir(directory), key=lambda v: (_is_placeholder_file(v), v.lower())):
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            continue
+        guessed_mimetype, _enc = mimetypes.guess_type(name)
+        mimetype_value = guessed_mimetype or "application/octet-stream"
+        editable = _is_text_editable(name, mimetype_value) and not _is_placeholder_file(name)
+        items.append(
+            {
+                "filename": name,
+                "size": os.path.getsize(path),
+                "modified": int(os.path.getmtime(path)),
+                "mimetype": mimetype_value,
+                "editable": editable,
+                "preview_kind": _preview_kind_for_file(name, editable),
+            }
+        )
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Template helpers
 # ---------------------------------------------------------------------------
@@ -217,6 +373,89 @@ def _render_editor_page() -> str:
         "__EDITOR_BOOTSTRAP_JSON__",
         json.dumps(bootstrap, sort_keys=True),
     )
+
+
+def _load_llms_module():
+    try:
+        from docassemble.ALToolbox import llms
+
+        return llms
+    except Exception as exc:
+        log(f"ALWeaver editor: unable to load ALToolbox llms: {exc!r}", "error")
+        return None
+
+
+def _field_types_from_request(payload: Dict[str, Any]) -> List[str]:
+    raw = payload.get("field_types")
+    if not isinstance(raw, list):
+        return list(DEFAULT_FIELD_TYPES)
+    cleaned = [str(item).strip() for item in raw if str(item).strip()]
+    return cleaned or list(DEFAULT_FIELD_TYPES)
+
+
+def _question_block_by_id(blocks: List[Dict[str, Any]], block_id: str) -> Optional[Dict[str, Any]]:
+    for block in blocks:
+        if block.get("id") == block_id and block.get("type") == "question":
+            return block
+    return None
+
+
+def _interview_outline_text(blocks: List[Dict[str, Any]], max_items: int = 80) -> str:
+    lines: List[str] = []
+    for idx, block in enumerate(blocks[:max_items], start=1):
+        kind = str(block.get("type") or "other")
+        title = str(block.get("title") or "").strip() or "Untitled"
+        variable = str(block.get("variable") or "").strip()
+        suffix = f" [{variable}]" if variable else ""
+        lines.append(f"{idx}. {kind}: {title}{suffix}")
+    return "\n".join(lines)
+
+
+def _project_template_context_text(user_id: int, project: str, max_chars: int = 8000) -> str:
+    """Extract lightweight context from uploaded templates in playgroundtemplate."""
+    try:
+        from docassemble.webapp.files import SavedFile
+    except Exception:
+        return ""
+
+    area = SavedFile(user_id, fix=False, section=SECTION_TO_STORAGE["templates"])
+    project_dir = area.directory if project == "default" else os.path.join(area.directory, project)
+    if not os.path.isdir(project_dir):
+        return ""
+
+    chunks: List[str] = []
+    for filename in sorted(os.listdir(project_dir))[:3]:
+        path = os.path.join(project_dir, filename)
+        if not os.path.isfile(path):
+            continue
+        ext = os.path.splitext(filename.lower())[1]
+        extracted = ""
+        try:
+            if ext == ".pdf":
+                from pdfminer.high_level import extract_text
+
+                extracted = extract_text(path, maxpages=2)
+            elif ext == ".docx":
+                from docx2python import docx2python
+
+                extracted = docx2python(path).text
+        except Exception:
+            extracted = ""
+        compact = re.sub(r"\s+", " ", str(extracted or "")).strip()
+        if compact:
+            chunks.append(f"Template: {filename}\n{compact[:2200]}")
+        else:
+            chunks.append(f"Template: {filename}\n[text unavailable]")
+
+    return "\n\n".join(chunks)[:max_chars]
+
+
+def _ensure_dayamlchecker_valid(yaml_text: str) -> None:
+    ok, details = validate_yaml_with_dayamlchecker(yaml_text)
+    if ok:
+        return
+    detail_text = details.strip() or "DAYamlChecker rejected generated YAML"
+    raise ValueError(f"Generated YAML failed DAYamlChecker validation: {detail_text}")
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +559,454 @@ def editor_api_files() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: files error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-files", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_section_files() -> Response:
+    """List files for templates/modules/data sources in the selected project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        section = _normalize_section(request.args.get("section"))
+        files = _list_editor_section_files(uid, project, section)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "files": files,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: section-files error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_get_section_file() -> Response:
+    """Read a text-editable section file from templates/modules/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        section = _normalize_section(request.args.get("section"))
+        filename = _normalize_storage_filename(request.args.get("filename"))
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        _area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{filename} not found")
+        guessed_mimetype, _enc = mimetypes.guess_type(filename)
+        mimetype_value = guessed_mimetype or "application/octet-stream"
+        if not _is_text_editable(filename, mimetype_value):
+            raise ValueError("File is not text-editable")
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        content = raw.decode("utf-8", errors="replace")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                    "mimetype": mimetype_value,
+                    "editable": True,
+                    "content": content,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: get section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_save_section_file() -> Response:
+    """Save a text-editable section file in templates/modules/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        section = _normalize_section(post_data.get("section"))
+        filename = _normalize_storage_filename(post_data.get("filename"))
+        content = post_data.get("content")
+        if not isinstance(content, str):
+            raise ValueError("content must be a text string")
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        guessed_mimetype, _enc = mimetypes.guess_type(filename)
+        mimetype_value = guessed_mimetype or "application/octet-stream"
+        if not _is_text_editable(filename, mimetype_value):
+            raise ValueError("File is not text-editable")
+        path = os.path.join(directory, filename)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        area.finalize()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                    "size": len(content),
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: save section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/new", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_new_section_file() -> Response:
+    """Create a new file in templates/modules/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        section = _normalize_section(post_data.get("section"))
+        filename = _normalize_storage_filename(post_data.get("filename"))
+        content = post_data.get("content", "")
+        if not isinstance(content, str):
+            raise ValueError("content must be a text string")
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        if os.path.exists(path):
+            raise ValueError(f"{filename} already exists")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        area.finalize()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                    "size": len(content),
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: new section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/upload", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_upload_section_file() -> Response:
+    """Upload one or more files into templates/modules/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.form.get("project"))
+        section = _normalize_section(request.form.get("section"))
+        uploads = request.files.getlist("files")
+        if not uploads:
+            raise ValueError("No files uploaded")
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        saved_files: List[str] = []
+        for upload in uploads:
+            candidate_name = _normalize_storage_filename(upload.filename)
+            path = os.path.join(directory, candidate_name)
+            if os.path.exists(path):
+                stem, ext = os.path.splitext(candidate_name)
+                counter = 1
+                while os.path.exists(path):
+                    candidate_name = f"{stem}_{counter}{ext}"
+                    path = os.path.join(directory, candidate_name)
+                    counter += 1
+            upload.save(path)
+            saved_files.append(candidate_name)
+        area.finalize()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "saved_files": saved_files,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: upload section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/raw", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_section_file_raw() -> Response:
+    """Serve the raw bytes for a section file (preview/download iframe)."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        section = _normalize_section(request.args.get("section"))
+        filename = _normalize_storage_filename(request.args.get("filename"))
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        _area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{filename} not found")
+        guessed_mimetype, _enc = mimetypes.guess_type(filename)
+        mimetype_value = guessed_mimetype or "application/octet-stream"
+        with open(path, "rb") as fh:
+            payload = fh.read()
+        response = Response(payload, mimetype=mimetype_value)
+        response.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: section-file raw error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/docx-preview", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_section_file_docx_preview() -> Response:
+    """Return a low-fidelity HTML preview for DOCX template files."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        from docx2python import docx2python
+
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        section = _normalize_section(request.args.get("section"))
+        filename = _normalize_storage_filename(request.args.get("filename"))
+        if not filename.lower().endswith(".docx"):
+            raise ValueError("DOCX preview requires a .docx file")
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        _area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{filename} not found")
+
+        preview_text = docx2python(path).text or ""
+        lines = [line.strip() for line in preview_text.splitlines() if line.strip()]
+        if not lines:
+            lines = ["(No text content found in this DOCX.)"]
+        body_html = "".join(f"<p>{escape(line)}</p>" for line in lines[:400])
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                    "html": body_html,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: docx preview error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/dashboard-editor-url", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_dashboard_editor_url() -> Response:
+    """Return a URL for opening a template in a dedicated dashboard editor tab."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        project = _normalize_project(request.args.get("project"))
+        section = _normalize_section(request.args.get("section"))
+        filename = _normalize_storage_filename(request.args.get("filename"))
+        extension = os.path.splitext(filename.lower())[1]
+        if extension == ".pdf":
+            url = _dashboard_editor_url("pdf", project, filename)
+        elif extension == ".docx":
+            url = _dashboard_editor_url("docx", project, filename)
+        else:
+            raise ValueError("Dashboard editor is only available for PDF and DOCX templates")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                    "url": url,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: dashboard editor url error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -724,6 +1411,235 @@ def editor_api_save_order() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: save order error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-screen", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_ai_generate_screen() -> Response:
+    """Generate a single question screen draft from interview + template context."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        llms = _load_llms_module()
+        if llms is None:
+            raise ValueError("docassemble.ALToolbox.llms is not available")
+
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id") or "").strip()
+        user_instruction = str(post_data.get("instruction") or "").strip()
+        field_types = _field_types_from_request(post_data)
+
+        raw_yaml = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(raw_yaml)
+        blocks = model.get("blocks") or []
+        block = _question_block_by_id(blocks, block_id) if block_id else None
+        current_block_data = deepcopy(block.get("data") or {}) if block else {}
+
+        outline = _interview_outline_text(blocks)
+        template_context = _project_template_context_text(uid, project)
+        current_screen_payload = post_data.get("current_screen")
+
+        system_message = textwrap.dedent(
+            """
+            You are drafting ONE docassemble question screen.
+            Return ONLY JSON with keys:
+              question: string
+              subquestion: string
+              continue_button_field: string
+              fields: array of {label, field, datatype, choices?}
+
+            Rules:
+            - Usually draft 2-3 fields on a normal screen.
+            - Never return more than 7 fields.
+            - Choose datatypes from the provided allowed list.
+            - Keep labels plain and user-friendly.
+            - Keep variable names python-safe snake_case.
+            """
+        ).strip()
+
+        user_message = (
+            f"Allowed datatypes: {json.dumps(field_types)}\n\n"
+            f"Optional user instruction for this screen:\n{user_instruction or '[none]'}\n\n"
+            f"Current screen snapshot:\n{json.dumps(current_screen_payload or current_block_data, ensure_ascii=False)}\n\n"
+            f"Interview outline:\n{outline[:6000]}\n\n"
+            f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
+            f"Current raw interview YAML:\n{raw_yaml[:12000]}"
+        )
+
+        model_name = pick_small_model_name(llms)
+        drafted = llms.chat_completion(
+            system_message=system_message,
+            user_message=user_message,
+            json_mode=True,
+            model=model_name,
+        )
+        if not isinstance(drafted, dict):
+            raise ValueError("AI did not return a JSON object")
+
+        screen = normalize_generated_screen(drafted, allowed_datatypes=field_types)
+
+        candidate_block = deepcopy(current_block_data if isinstance(current_block_data, dict) else {})
+        candidate_block["id"] = str(candidate_block.get("id") or block_id or "ai_generated_screen")
+        candidate_block["question"] = screen.get("question")
+        if screen.get("subquestion"):
+            candidate_block["subquestion"] = screen.get("subquestion")
+        candidate_block["fields"] = screen.get("fields") or []
+        if screen.get("continue_button_field"):
+            candidate_block["continue button field"] = screen.get("continue_button_field")
+
+        candidate_yaml = canonical_block_yaml(candidate_block)
+        _ensure_dayamlchecker_valid(candidate_yaml)
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "screen": screen,
+                    "model": model_name,
+                    "validated_yaml": candidate_yaml,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: ai generate-screen error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-fields", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_ai_generate_fields() -> Response:
+    """Generate fields for one existing question block using full interview context."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        llms = _load_llms_module()
+        if llms is None:
+            raise ValueError("docassemble.ALToolbox.llms is not available")
+
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id") or "").strip()
+        if not block_id:
+            raise ValueError("block_id is required")
+        field_types = _field_types_from_request(post_data)
+
+        raw_yaml = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(raw_yaml)
+        blocks = model.get("blocks") or []
+        block = _question_block_by_id(blocks, block_id)
+        if not block:
+            raise ValueError("block_id must refer to a question block")
+
+        outline = _interview_outline_text(blocks)
+        template_context = _project_template_context_text(uid, project)
+        current_screen_payload = post_data.get("current_screen")
+        if not isinstance(current_screen_payload, dict):
+            current_screen_payload = deepcopy(block.get("data") or {})
+
+        system_message = textwrap.dedent(
+            """
+            You are generating fields for ONE docassemble question screen.
+            Return ONLY JSON with key:
+              fields: array of {label, field, datatype, choices?}
+
+            Rules:
+            - Usually return 2-3 fields for a normal screen.
+            - Never return more than 7 fields.
+            - Choose datatypes from the provided allowed list.
+            - Keep labels plain and user-friendly.
+            - Keep variable names python-safe snake_case.
+            """
+        ).strip()
+
+        user_message = (
+            f"Allowed datatypes: {json.dumps(field_types)}\n\n"
+            f"Current question screen data:\n{json.dumps(current_screen_payload, ensure_ascii=False)}\n\n"
+            f"Interview outline:\n{outline[:6000]}\n\n"
+            f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
+            f"Current raw interview YAML:\n{raw_yaml[:12000]}"
+        )
+
+        model_name = pick_small_model_name(llms)
+        drafted = llms.chat_completion(
+            system_message=system_message,
+            user_message=user_message,
+            json_mode=True,
+            model=model_name,
+        )
+        if not isinstance(drafted, dict):
+            raise ValueError("AI did not return a JSON object")
+
+        generated_fields = normalize_generated_fields(
+            drafted.get("fields", []),
+            allowed_datatypes=field_types,
+        )
+        if not generated_fields:
+            raise ValueError("AI did not return any usable fields")
+
+        candidate_block = deepcopy(block.get("data") or {})
+        candidate_block["id"] = str(candidate_block.get("id") or block_id)
+        candidate_block["fields"] = generated_fields
+        candidate_yaml = canonical_block_yaml(candidate_block)
+        _ensure_dayamlchecker_valid(candidate_yaml)
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "fields": generated_fields,
+                    "model": model_name,
+                    "validated_yaml": candidate_yaml,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: ai generate-fields error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

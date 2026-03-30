@@ -45,11 +45,23 @@
     canvasMode: 'project-selector',
     questionEditMode: 'preview',
     advancedOpen: false,
-    jumpTarget: 'block',
+    jumpTarget: 'questions',
     fullYamlTab: 'full',
     searchQuery: '',
     projectSearchQuery: '',
-    filterQuestionsOnly: true,
+    sectionFiles: {
+      templates: [],
+      modules: [],
+      static: [],
+      data: [],
+    },
+    sectionSelectedFile: {
+      templates: null,
+      modules: null,
+      static: null,
+      data: null,
+    },
+    sectionDirty: false,
     dirty: false,
     markdownPreviewMode: false,
     insertAfterBlockId: null,
@@ -64,6 +76,47 @@
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
 
+  function isInterviewView() {
+    return state.currentView === 'interview';
+  }
+
+  function getSectionFromView(view) {
+    if (view === 'templates') return 'templates';
+    if (view === 'modules') return 'modules';
+    if (view === 'static') return 'static';
+    if (view === 'data') return 'data';
+    return null;
+  }
+
+  function updateTopbarProject() {
+    var projectEl = document.getElementById('topbar-project-name');
+    if (!projectEl) return;
+    projectEl.textContent = state.project || 'No project selected';
+  }
+
+  function getCurrentSectionFilename(view) {
+    if (view === 'interview') return state.filename;
+    var selected = state.sectionSelectedFile[view];
+    if (selected) return selected;
+    var meta = getSelectedSectionFileMeta(view);
+    return meta ? meta.filename : null;
+  }
+
+  function buildStandardPlaygroundUrl() {
+    if (!state.project) return null;
+    var section = isInterviewView() ? 'playground' : getSectionFromView(state.currentView);
+    var filename = getCurrentSectionFilename(state.currentView);
+    var url = '/playground?project=' + encodeURIComponent(state.project);
+    if (section) url += '&section=' + encodeURIComponent(section);
+    if (filename) url += '&file=' + encodeURIComponent(filename);
+    return url;
+  }
+
+  function updateLeftSearchPlaceholder() {
+    if (!searchInput) return;
+    searchInput.placeholder = isInterviewView() ? 'Search blocks...' : 'Search files...';
+  }
+
   // -------------------------------------------------------------------------
   // Monaco management
   // -------------------------------------------------------------------------
@@ -73,6 +126,94 @@
   var _monacoLoaderBase = null;
   var _monacoEditors = {};
   var _textareaEditors = {};
+  var _makoLanguageRegistered = false;
+
+  function registerMakoLanguage() {
+    if (_makoLanguageRegistered || typeof monaco === 'undefined' || !monaco.languages) return;
+    if (typeof monaco.languages.getLanguages === 'function') {
+      var languages = monaco.languages.getLanguages();
+      for (var i = 0; i < languages.length; i++) {
+        if (languages[i] && languages[i].id === 'mako') {
+          _makoLanguageRegistered = true;
+          return;
+        }
+      }
+    }
+
+    monaco.languages.register({ id: 'mako' });
+    monaco.languages.setMonarchTokensProvider('mako', {
+      defaultToken: '',
+      tokenPostfix: '.mako',
+      keywords: [
+        'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
+        'False', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'None', 'not', 'or',
+        'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield', 'block', 'namespace',
+        'endblock', 'endfor', 'endif', 'endtry', 'endwhile', 'endwith'
+      ],
+      tokenizer: {
+        root: [
+          [/^\s*##.*$/, 'comment.mako'],
+          [/^\s*%\s*(if|elif|else|for|while|try|except|finally|with|def|block|namespace|endfor|endif|endwhile|endtry|endwith|endblock)\b.*$/, ['delimiter.mako', 'keyword.mako']],
+          [/^\s*%.*$/, 'meta.mako'],
+          [/<%doc>/, { token: 'comment.mako', next: '@docBlock' }],
+          [/<%/, { token: 'delimiter.mako', next: '@pythonBlock' }],
+          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
+          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
+          [/<\/?[A-Za-z][\w:-]*/, 'tag.mako'],
+          [/&[a-zA-Z_][\w-]*;/, 'string.escape'],
+          [/[{}()[\]]/, '@brackets'],
+          [/[;,.]/, 'delimiter'],
+          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
+          [/\b\d+\b/, 'number'],
+          [/"([^"\\]|\\.)*"/, 'string'],
+          [/'([^'\\]|\\.)*'/, 'string'],
+          [/\b[A-Za-z_][\w]*\b/, {
+            cases: {
+              '@keywords': 'keyword.mako',
+              '@default': 'identifier'
+            }
+          }],
+          [/\s+/, 'white'],
+        ],
+        expression: [
+          [/\}/, { token: 'delimiter.mako', next: '@pop' }],
+          { include: '@rootExpression' },
+        ],
+        parenExpression: [
+          [/\)/, { token: 'delimiter.mako', next: '@pop' }],
+          { include: '@rootExpression' },
+        ],
+        rootExpression: [
+          [/\s+/, 'white'],
+          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
+          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
+          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
+          [/[{}()[\]]/, '@brackets'],
+          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
+          [/\b\d+\b/, 'number'],
+          [/"([^"\\]|\\.)*"/, 'string'],
+          [/'([^'\\]|\\.)*'/, 'string'],
+          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
+          [/./, 'operator'],
+        ],
+        pythonBlock: [
+          [/%>/, { token: 'delimiter.mako', next: '@pop' }],
+          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
+          [/"([^"\\]|\\.)*"/, 'string'],
+          [/'([^'\\]|\\.)*'/, 'string'],
+          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
+          [/\b\d+\b/, 'number'],
+          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
+          [/./, 'operator'],
+        ],
+        docBlock: [
+          [/<\/doc>/, { token: 'comment.mako', next: '@pop' }],
+          [/.*$/, 'comment.mako'],
+        ],
+      },
+    });
+    _makoLanguageRegistered = true;
+  }
 
   function _loadScriptOnce(src, callback) {
     var existing = document.querySelector('script[data-editor-loader-src="' + src + '"]');
@@ -152,6 +293,7 @@
       var vsBase = _monacoLoaderBase || '/static/app/monaco-editor/min/vs';
       require.config({ paths: { vs: vsBase } });
       require(['vs/editor/editor.main'], function () {
+        registerMakoLanguage();
         _monacoLoading = false;
         _monacoReady = true;
         callback();
@@ -416,7 +558,6 @@
   var projectSelect = $('#project-select');
   var fileSelect = $('#file-select');
   var searchInput = $('#search-input');
-  var filterQuestionsCheckbox = $('#filter-questions-checkbox');
   var outlineList = $('#outline-list');
   var canvasContent = $('#canvas-content');
 
@@ -427,6 +568,7 @@
     'number', 'integer', 'currency', 'date', 'time', 'datetime',
     'email', 'password', 'url',
     'file', 'files', 'camera',
+    'code',
     'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
     'range', 'object', 'object_radio', 'object_checkboxes',
     'ml', 'microphone',
@@ -1857,6 +1999,57 @@
     }
   }
 
+  function _setButtonLoading(buttonId, loading, loadingText) {
+    var btn = document.getElementById(buttonId);
+    if (!btn) return;
+    if (loading) {
+      btn.setAttribute('data-prev-label', btn.textContent || '');
+      btn.textContent = loadingText;
+      btn.disabled = true;
+      return;
+    }
+    var prev = btn.getAttribute('data-prev-label');
+    if (prev !== null) {
+      btn.textContent = prev;
+      btn.removeAttribute('data-prev-label');
+    }
+    btn.disabled = false;
+  }
+
+  function _fieldsToExpandedRows(fields) {
+    var out = [];
+    (fields || []).forEach(function (field) {
+      if (!field || typeof field !== 'object') return;
+      var label = String(field.label || field.question || 'Field').trim() || 'Field';
+      var variable = String(field.field || field.variable || '').trim();
+      var datatype = String(field.datatype || field.type || 'text').trim() || 'text';
+      var row = {
+        label: label,
+        field: variable,
+        datatype: datatype,
+      };
+      if (Array.isArray(field.choices) && field.choices.length) {
+        row.choices = field.choices.map(function (choice) { return String(choice); });
+      }
+      out.push(row);
+    });
+    return out;
+  }
+
+  function applyAIGeneratedScreenToBlock(block, screen) {
+    if (!block || block.type !== 'question' || !screen || typeof screen !== 'object') return;
+    if (!block.data || typeof block.data !== 'object') block.data = {};
+    if (screen.question) {
+      block.data.question = String(screen.question);
+      block.title = String(screen.question);
+    }
+    if (screen.subquestion) block.data.subquestion = String(screen.subquestion);
+    else delete block.data.subquestion;
+    var fields = _fieldsToExpandedRows(screen.fields || []);
+    block.data.fields = fields;
+    if (screen.continue_button_field) block.data['continue button field'] = String(screen.continue_button_field);
+  }
+
   // -------------------------------------------------------------------------
   // Project / file selectors
   // -------------------------------------------------------------------------
@@ -1954,6 +2147,53 @@
     });
   }
 
+  function getSectionFiles(view) {
+    return state.sectionFiles[view] || [];
+  }
+
+  function getSelectedSectionFileMeta(view) {
+    var selectedName = state.sectionSelectedFile[view];
+    var files = getSectionFiles(view);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].filename === selectedName) return files[i];
+    }
+    return files.length ? files[0] : null;
+  }
+
+  function loadSectionFiles(view) {
+    var section = getSectionFromView(view);
+    if (!section || !state.project) {
+      if (section) {
+        state.sectionFiles[view] = [];
+        state.sectionSelectedFile[view] = null;
+      }
+      renderOutline();
+      renderCanvas();
+      return Promise.resolve();
+    }
+    return apiGet('/api/section-files?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section))
+      .then(function (res) {
+        if (!res.success || !res.data) return;
+        var files = Array.isArray(res.data.files) ? res.data.files : [];
+        state.sectionFiles[view] = files;
+        var selected = state.sectionSelectedFile[view];
+        var stillExists = false;
+        for (var i = 0; i < files.length; i++) {
+          if (files[i].filename === selected) {
+            stillExists = true;
+            break;
+          }
+        }
+        if (!stillExists) {
+          state.sectionSelectedFile[view] = files.length ? files[0].filename : null;
+        }
+        if (!isInterviewView()) {
+          renderOutline();
+          renderCanvas();
+        }
+      });
+  }
+
   function loadFiles() {
     if (!state.project) {
       state.files = [];
@@ -1975,9 +2215,18 @@
           state.blocks = [];
           renderOutline();
           renderCanvas();
+          loadSectionFiles('templates');
+          loadSectionFiles('modules');
+          loadSectionFiles('static');
+          loadSectionFiles('data');
           return;
         }
-        return loadFile();
+        return loadFile().then(function () {
+          loadSectionFiles('templates');
+          loadSectionFiles('modules');
+          loadSectionFiles('static');
+          loadSectionFiles('data');
+        });
       });
   }
 
@@ -2019,10 +2268,25 @@
   // -------------------------------------------------------------------------
   function filteredBlocks() {
     var q = state.searchQuery.toLowerCase().trim();
-    var filtered = state.blocks;
-    if (state.filterQuestionsOnly) {
-      filtered = filtered.filter(function (b) { return b.type === 'question'; });
-    }
+    var orderById = {};
+    state.orderIndices.forEach(function (idx) {
+      var block = state.blocks[idx];
+      if (block && block.id) orderById[block.id] = true;
+    });
+    var filtered = state.blocks.filter(function (b) {
+      if (state.jumpTarget === 'all') return true;
+      if (state.jumpTarget === 'questions') return b.type === 'question';
+      if (state.jumpTarget === 'order') return Boolean(orderById[b.id]);
+      if (state.jumpTarget === 'code') return b.type === 'code';
+      if (state.jumpTarget === 'objects') return b.type === 'objects';
+      if (state.jumpTarget === 'attachments') {
+        return Boolean((b.tags || []).indexOf('attachment') !== -1 || (b.data && (b.data.attachment || b.data.attachments)));
+      }
+      if (state.jumpTarget === 'meta') {
+        return b.type === 'metadata' || b.type === 'includes' || b.type === 'default_screen_parts' || b.type === 'other';
+      }
+      return true;
+    });
     if (!q) return filtered;
     return filtered.filter(function (b) {
       return [b.title, b.id, b.variable || '', b.yaml, (b.tags || []).join(' '), b.type]
@@ -2042,7 +2306,7 @@
   function getDefaultVisibleBlockId() {
     var visible = filteredBlocks();
     if (visible.length > 0) return visible[0].id;
-    return state.blocks.length ? state.blocks[0].id : null;
+    return null;
   }
 
   function typeClass(type) {
@@ -2065,6 +2329,10 @@
   }
 
   function renderOutline() {
+    if (!isInterviewView()) {
+      renderSectionOutline();
+      return;
+    }
     var blocks = filteredBlocks();
     var html = '';
     html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
@@ -2087,6 +2355,34 @@
     outlineList.innerHTML = html;
   }
 
+  function renderSectionOutline() {
+    var view = state.currentView;
+    var files = getSectionFiles(view);
+    var q = state.searchQuery.toLowerCase().trim();
+    var selected = state.sectionSelectedFile[view];
+    var filtered = files.filter(function (f) {
+      if (!q) return true;
+      return String(f.filename || '').toLowerCase().indexOf(q) !== -1;
+    });
+    var html = '';
+    if (!filtered.length) {
+      html = '<div class="text-muted small p-2">No files found.</div>';
+      outlineList.innerHTML = html;
+      return;
+    }
+    filtered.forEach(function (file) {
+      var active = selected === file.filename;
+      var tag = (file.preview_kind || file.mimetype || 'file').toUpperCase();
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-section-filename="' + esc(file.filename) + '">';
+      html += '<div class="editor-outline-item-row">';
+      if (active) html += '<div class="editor-outline-active-bar"></div>';
+      html += '<div style="min-width:0"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
+      html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag.slice(0, 4)) + '</div>';
+      html += '</div></div>';
+    });
+    outlineList.innerHTML = html;
+  }
+
   // -------------------------------------------------------------------------
   // Canvas dispatcher
   // -------------------------------------------------------------------------
@@ -2097,7 +2393,7 @@
     }
     for (var i = 0; i < state.blocks.length; i++) {
       if (state.blocks[i].id === state.selectedBlockId) {
-        if (state.filterQuestionsOnly && state.blocks[i].type !== 'question') {
+        if (!isBlockVisibleInOutline(state.blocks[i])) {
           var visibleId = getDefaultVisibleBlockId();
           return visibleId ? getBlockById(visibleId) : null;
         }
@@ -2148,6 +2444,8 @@
 
   function renderCanvas() {
     disposeMonacoEditors();
+    updateLeftSearchPlaceholder();
+    updateTopbarProject();
     if (state.currentView !== 'interview') {
       renderSecondaryView();
       return;
@@ -2277,6 +2575,10 @@
       html += '</div>';
     }
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Visual editor') + '</button>';
+    if (isPreview && !isMdPreview) {
+      html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen">AI draft screen</button>';
+      html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields">AI fields</button>';
+    }
     if (!isMdPreview) {
       html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
     }
@@ -2967,13 +3269,128 @@
   // -------------------------------------------------------------------------
   // Secondary view placeholder
   // -------------------------------------------------------------------------
+  function sectionTitle(view) {
+    if (view === 'templates') return 'Templates';
+    if (view === 'modules') return 'Modules';
+    if (view === 'static') return 'Static';
+    if (view === 'data') return 'Data Sources';
+    return 'Files';
+  }
+
+  function defaultNewFilename(view) {
+    if (view === 'modules') return 'new_module.py';
+    if (view === 'static') return 'new_static.css';
+    if (view === 'data') return 'new_data.yml';
+    return 'new_template.txt';
+  }
+
+  function renderSectionPreview(fileMeta) {
+    if (!fileMeta) {
+      return '<div class="editor-card"><div class="editor-card-body text-muted">No file selected.</div></div>';
+    }
+    var rawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(state.currentView)) + '&filename=' + encodeURIComponent(fileMeta.filename);
+    if (fileMeta.preview_kind === 'pdf') {
+      return '<div class="editor-card"><div class="editor-card-body"><iframe class="editor-file-preview-frame" src="' + esc(rawUrl) + '" title="PDF preview"></iframe></div></div>';
+    }
+    if (fileMeta.preview_kind === 'image') {
+      return '<div class="editor-card"><div class="editor-card-body"><img class="editor-image-preview" src="' + esc(rawUrl) + '" alt="Preview of ' + esc(fileMeta.filename) + '"></div></div>';
+    }
+    if (fileMeta.preview_kind === 'docx') {
+      return '<div class="editor-card"><div class="editor-card-body"><div id="docx-preview-container" class="editor-docx-preview text-muted">Loading DOCX preview&hellip;</div></div></div>';
+    }
+    return '<div class="editor-card"><div class="editor-card-body"><p class="text-muted mb-2">This file is not previewable inline.</p><a class="btn btn-sm btn-outline-secondary" href="' + esc(rawUrl) + '" target="_blank" rel="noopener noreferrer">Open file</a></div></div>';
+  }
+
+  function loadDocxPreview(view, filename) {
+    var container = document.getElementById('docx-preview-container');
+    if (!container) return;
+    apiGet('/api/section-file/docx-preview?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(view)) + '&filename=' + encodeURIComponent(filename))
+      .then(function (res) {
+        if (!res.success || !res.data || !res.data.html) {
+          container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
+          return;
+        }
+        container.innerHTML = res.data.html;
+      })
+      .catch(function () {
+        container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
+      });
+  }
+
   function renderSecondaryView() {
-    var label = state.currentView.charAt(0).toUpperCase() + state.currentView.slice(1);
-    canvasContent.innerHTML =
-      '<div class="editor-secondary-center"><div class="editor-secondary-card">' +
-      '<h2 style="font-weight:700">' + esc(label) + '</h2>' +
-      '<p class="text-muted mt-2">Switch to the Interview tab to edit question blocks.</p>' +
-      '</div></div>';
+    var view = state.currentView;
+    var section = getSectionFromView(view);
+    if (!section || !state.project) {
+      canvasContent.innerHTML = '<div class="editor-secondary-center"><div class="editor-secondary-card"><h2 style="font-weight:700">' + esc(sectionTitle(view)) + '</h2><p class="text-muted mt-2">Select a project to manage files in this section.</p></div></div>';
+      return;
+    }
+
+    var fileMeta = getSelectedSectionFileMeta(view);
+    if (fileMeta && state.sectionSelectedFile[view] !== fileMeta.filename) {
+      state.sectionSelectedFile[view] = fileMeta.filename;
+    }
+
+    var html = '';
+    html += '<div class="editor-full-yaml-shell">';
+    html += '<div class="editor-full-yaml-header">';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">' + esc(sectionTitle(view)) + '</h2></div>';
+    html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file">Upload</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file">+ New</button>';
+    if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
+      html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
+    }
+    html += '</div></div>';
+    html += '<input type="file" id="section-upload-input" style="display:none" multiple>';
+
+    if (!fileMeta) {
+      html += '<div class="editor-card"><div class="editor-card-body text-muted">No files in this section yet. Use Upload or + New.</div></div>';
+      html += '</div>';
+      canvasContent.innerHTML = html;
+      return;
+    }
+
+    var editable = Boolean(fileMeta.editable);
+    if (editable) {
+      html += '<div class="editor-card"><div class="editor-card-body">';
+      html += '<div class="d-flex justify-content-between align-items-center mb-2"><div class="editor-tiny">Editing ' + esc(fileMeta.filename) + '</div><button class="btn btn-sm btn-primary" id="save-section-file"' + (!state.sectionDirty ? ' disabled' : '') + '>Save</button></div>';
+      html += '<div class="editor-monaco-container" id="section-file-monaco" style="height:620px"></div>';
+      html += '</div></div>';
+    } else {
+      html += renderSectionPreview(fileMeta);
+    }
+
+    html += '</div>';
+    canvasContent.innerHTML = html;
+
+    if (editable) {
+      apiGet('/api/section-file?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename))
+        .then(function (res) {
+          var text = (res && res.success && res.data) ? String(res.data.content || '') : '';
+          var language = 'plaintext';
+          var lowerName = String(fileMeta.filename || '').toLowerCase();
+          if (lowerName.endsWith('.py')) language = 'python';
+          else if (lowerName.endsWith('.mako')) language = 'mako';
+          else if (lowerName.endsWith('.css') || lowerName.endsWith('.scss') || lowerName.endsWith('.less')) language = 'css';
+          else if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) language = 'html';
+          else if (lowerName.endsWith('.xml') || lowerName.endsWith('.svg')) language = 'xml';
+          else if (lowerName.endsWith('.json')) language = 'json';
+          else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) language = 'yaml';
+          else if (lowerName.endsWith('.csv')) language = 'plaintext';
+          initMonaco(function () {
+            createMonacoEditor('section-file-monaco', text, language, {
+              onChange: function () {
+                state.sectionDirty = true;
+                var saveBtn = document.getElementById('save-section-file');
+                if (saveBtn) saveBtn.disabled = false;
+              }
+            });
+            state.sectionDirty = false;
+          });
+        });
+    } else if (fileMeta.preview_kind === 'docx') {
+      loadDocxPreview(view, fileMeta.filename);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -3008,8 +3425,16 @@
       setActiveTopTab(topTab);
       if (state.currentView === 'interview') {
         state.canvasMode = state.project ? 'question' : 'project-selector';
+        if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+        renderOutline();
+        renderCanvas();
+      } else {
+        renderOutline();
+        renderCanvas();
+        loadSectionFiles(state.currentView);
       }
-      renderCanvas();
       return;
     }
 
@@ -3030,29 +3455,29 @@
       $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
       jumpItem.classList.add('active');
       state.jumpTarget = jump;
-      if (jump === 'order') {
-        state.canvasMode = 'order-builder';
-      } else if (jump === 'metadata' || jump === 'includes' || jump === 'defaults') {
-        state.canvasMode = 'full-yaml';
-        state.fullYamlTab = 'metadata';
-      } else {
-        state.canvasMode = 'question';
-      }
+      state.canvasMode = 'question';
       state.currentView = 'interview';
       var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab) setActiveTopTab(interviewTab);
+      state.selectedBlockId = getDefaultVisibleBlockId();
       renderCanvas();
+      renderOutline();
       return;
     }
 
     // Outline block selection
     var outlineItem = target.closest('.editor-outline-item');
     if (outlineItem) {
-      state.selectedBlockId = outlineItem.getAttribute('data-block-id');
-      state.canvasMode = 'question';
-      state.questionEditMode = 'preview';
-      state.advancedOpen = false;
-      state.markdownPreviewMode = false;
+      if (!isInterviewView()) {
+        var viewForFile = state.currentView;
+        state.sectionSelectedFile[viewForFile] = outlineItem.getAttribute('data-section-filename');
+      } else {
+        state.selectedBlockId = outlineItem.getAttribute('data-block-id');
+        state.canvasMode = 'question';
+        state.questionEditMode = 'preview';
+        state.advancedOpen = false;
+        state.markdownPreviewMode = false;
+      }
       renderOutline();
       renderCanvas();
       return;
@@ -3177,6 +3602,82 @@
       renderCanvas();
       return;
     }
+
+    if (target.id === 'btn-upload-section-file') {
+      var uploadInput = document.getElementById('section-upload-input');
+      if (uploadInput) uploadInput.click();
+      return;
+    }
+
+    if (target.id === 'btn-standard-playground') {
+      var standardPlaygroundUrl = buildStandardPlaygroundUrl();
+      if (standardPlaygroundUrl) {
+        window.open(standardPlaygroundUrl, '_blank');
+      }
+      return;
+    }
+
+    if (target.id === 'btn-new-section-file') {
+      if (!state.project || isInterviewView()) return;
+      var filenamePrompt = window.prompt('New filename', defaultNewFilename(state.currentView));
+      if (!filenamePrompt) return;
+      var sectionForNew = getSectionFromView(state.currentView);
+      apiPost('/api/section-file/new', {
+        project: state.project,
+        section: sectionForNew,
+        filename: filenamePrompt,
+        content: '',
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to create file.');
+          return;
+        }
+        state.sectionSelectedFile[state.currentView] = filenamePrompt;
+        state.sectionDirty = false;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'save-section-file') {
+      if (!state.project || isInterviewView()) return;
+      var sectionForSave = getSectionFromView(state.currentView);
+      var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
+      if (!sectionForSave || !sectionFileMeta) return;
+      var contentVal = getMonacoValue('section-file-monaco');
+      apiPost('/api/section-file', {
+        project: state.project,
+        section: sectionForSave,
+        filename: sectionFileMeta.filename,
+        content: contentVal,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to save file.');
+          return;
+        }
+        state.sectionDirty = false;
+        var saveSectionBtn = document.getElementById('save-section-file');
+        if (saveSectionBtn) saveSectionBtn.disabled = true;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'open-dashboard-editor') {
+      if (!state.project || isInterviewView()) return;
+      var sectionForEditor = getSectionFromView(state.currentView);
+      var templateMeta = getSelectedSectionFileMeta(state.currentView);
+      if (!templateMeta) return;
+      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(sectionForEditor) + '&filename=' + encodeURIComponent(templateMeta.filename))
+        .then(function (res) {
+          if (res.success && res.data && res.data.url) {
+            window.open(res.data.url, '_blank');
+          } else {
+            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
+          }
+        });
+      return;
+    }
     if (target.id === 'btn-new-project') {
       state.canvasMode = 'new-project';
       state.currentView = 'interview';
@@ -3208,6 +3709,72 @@
       saveCurrentBlockIfDirty().then(function () {
         apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
           .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
+      });
+      return;
+    }
+    if (target.id === 'ai-generate-screen') {
+      var questionBlock = getSelectedBlock();
+      if (!questionBlock || questionBlock.type !== 'question' || !state.project || !state.filename) return;
+      syncFieldsToData(questionBlock);
+      var screenInstruction = window.prompt('Optional guidance for this screen (leave blank for auto-draft):', '');
+      if (screenInstruction === null) return;
+      _setButtonLoading('ai-generate-screen', true, 'Drafting...');
+      apiPost('/api/ai/generate-screen', {
+        project: state.project,
+        filename: state.filename,
+        block_id: questionBlock.id,
+        instruction: screenInstruction,
+        field_types: FIELD_TYPES,
+        current_screen: {
+          question: questionBlock.data.question || '',
+          subquestion: questionBlock.data.subquestion || '',
+          fields: questionBlock.data.fields || [],
+        },
+      }).then(function (res) {
+        if (!res.success || !res.data || !res.data.screen) {
+          throw new Error((res.error && res.error.message) || 'AI screen generation failed');
+        }
+        applyAIGeneratedScreenToBlock(questionBlock, res.data.screen);
+        state.dirty = true;
+        renderCanvas();
+      }).catch(function (err) {
+        window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
+      }).finally(function () {
+        _setButtonLoading('ai-generate-screen', false, '');
+      });
+      return;
+    }
+    if (target.id === 'ai-generate-fields') {
+      var currentQuestionBlock = getSelectedBlock();
+      if (!currentQuestionBlock || currentQuestionBlock.type !== 'question' || !state.project || !state.filename) return;
+      syncFieldsToData(currentQuestionBlock);
+      _setButtonLoading('ai-generate-fields', true, 'Generating...');
+      apiPost('/api/ai/generate-fields', {
+        project: state.project,
+        filename: state.filename,
+        block_id: currentQuestionBlock.id,
+        field_types: FIELD_TYPES,
+        current_screen: {
+          question: currentQuestionBlock.data.question || '',
+          subquestion: currentQuestionBlock.data.subquestion || '',
+          fields: currentQuestionBlock.data.fields || [],
+        },
+      }).then(function (res) {
+        if (!res.success || !res.data || !Array.isArray(res.data.fields)) {
+          throw new Error((res.error && res.error.message) || 'AI field generation failed');
+        }
+        applyAIGeneratedScreenToBlock(currentQuestionBlock, {
+          question: currentQuestionBlock.data.question || '',
+          subquestion: currentQuestionBlock.data.subquestion || '',
+          fields: res.data.fields,
+          continue_button_field: currentQuestionBlock.data['continue button field'] || '',
+        });
+        state.dirty = true;
+        renderCanvas();
+      }).catch(function (err) {
+        window.alert('Unable to generate fields: ' + String((err && err.message) || err || 'Unknown error'));
+      }).finally(function () {
+        _setButtonLoading('ai-generate-fields', false, '');
       });
       return;
     }
@@ -3519,6 +4086,35 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.id === 'section-upload-input') {
+      if (!target.files || !target.files.length || !state.project || isInterviewView()) return;
+      var formData = new FormData();
+      formData.append('project', state.project);
+      formData.append('section', getSectionFromView(state.currentView));
+      for (var i = 0; i < target.files.length; i++) {
+        formData.append('files', target.files[i], target.files[i].name);
+      }
+      fetch(API + '/api/section-file/upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: formData,
+      }).then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.success) {
+            window.alert((res.error && res.error.message) || 'Upload failed.');
+            return;
+          }
+          if (res.data && Array.isArray(res.data.saved_files) && res.data.saved_files.length) {
+            state.sectionSelectedFile[state.currentView] = res.data.saved_files[0];
+          }
+          state.sectionDirty = false;
+          loadSectionFiles(state.currentView);
+        })
+        .finally(function () {
+          target.value = '';
+        });
+      return;
+    }
     if (target.matches('[data-symbol-role]')) {
       hideTypeaheadMenu();
     }
@@ -3718,20 +4314,15 @@
     loadFile();
   });
 
-  if (filterQuestionsCheckbox) {
-    filterQuestionsCheckbox.addEventListener('change', function () {
-      state.filterQuestionsOnly = filterQuestionsCheckbox.checked;
+  searchInput.addEventListener('input', function () {
+    state.searchQuery = searchInput.value;
+    if (isInterviewView()) {
       var selected = getBlockById(state.selectedBlockId);
       if (!selected || !isBlockVisibleInOutline(selected)) {
         state.selectedBlockId = getDefaultVisibleBlockId();
       }
-      renderOutline();
       renderCanvas();
-    });
-  }
-
-  searchInput.addEventListener('input', function () {
-    state.searchQuery = searchInput.value;
+    }
     renderOutline();
   });
 
