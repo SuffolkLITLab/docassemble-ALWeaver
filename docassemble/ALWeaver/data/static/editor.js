@@ -396,6 +396,17 @@
         '  - New field: new_field_' + stamp + '\n'
       );
     }
+    if (kind === 'review') {
+      return (
+        'id: review_' + stamp + '\n' +
+        'question: Review your answers\n' +
+        'review:\n' +
+        '  - Edit field: some_variable\n' +
+        '    button: |\n' +
+        '      Current value: ${ some_variable }\n' +
+        'continue button field: review_done_' + stamp + '\n'
+      );
+    }
     if (kind === 'code') {
       return (
         'id: code_' + stamp + '\n' +
@@ -411,16 +422,62 @@
         '  - user: Individual\n'
       );
     }
+    if (kind === 'includes') {
+      return (
+        'id: includes_' + stamp + '\n' +
+        'include:\n' +
+        '  - other_file.yml\n'
+      );
+    }
     if (kind === 'attachment') {
       return (
         'id: attachment_' + stamp + '\n' +
-        'question: Download your document\n' +
-        'subquestion: |\n' +
-        '  Your document is ready.\n' +
-        'attachments:\n' +
-        '  - name: Draft document\n' +
-        '    filename: draft_document\n' +
-        '    docx template file: draft_template.docx\n'
+        'attachment:\n' +
+        '  name: Draft document\n' +
+        '  filename: draft_document\n' +
+        '  docx template file: draft_template.docx\n' +
+        '  skip undefined: true\n' +
+        '  tagged pdf: true\n' +
+        '  variable name: draft_document_attachment[i]\n'
+      );
+    }
+    if (kind === 'table') {
+      return (
+        'id: table_' + stamp + '\n' +
+        'table: users.table\n' +
+        'rows: users\n' +
+        'columns:\n' +
+        '  - Name: row_item.name.full()\n' +
+        '  - Address: row_item.address.on_one_line()\n' +
+        'edit:\n' +
+        '  - name.first\n'
+      );
+    }
+    if (kind === 'template') {
+      return (
+        'id: template_' + stamp + '\n' +
+        'template: help_text_' + stamp + '\n' +
+        'subject: |\n' +
+        '  Help topic\n' +
+        'content: |\n' +
+        '  Add your help content here.\n'
+      );
+    }
+    if (kind === 'terms') {
+      return (
+        'id: terms_' + stamp + '\n' +
+        'terms:\n' +
+        '  legal term: |\n' +
+        '    Add the definition for this term.\n'
+      );
+    }
+    if (kind === 'sections') {
+      return (
+        'id: sections_' + stamp + '\n' +
+        'sections:\n' +
+        '  - intro: Introduction\n' +
+        '  - details: Details\n' +
+        '  - review: Review\n'
       );
     }
     return (
@@ -659,7 +716,7 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
+    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file' || role === 'yaml-file') {
       return role;
     }
     return 'all';
@@ -745,6 +802,18 @@
         });
       }
       return templateLike;
+    }
+    if (role === 'yaml-file') {
+      var yamlLike = _groupEntries(groups, ['yaml_files']);
+      if (!yamlLike.length) {
+        Object.keys(groups).forEach(function (key) {
+          if (key.toLowerCase().indexOf('yaml') === -1 && key.toLowerCase().indexOf('yml') === -1) return;
+          (groups[key] || []).forEach(function (name) {
+            yamlLike.push({ name: String(name), group: key });
+          });
+        });
+      }
+      return yamlLike;
     }
     if (role === 'static-file') {
       var staticFiles = _groupEntries(groups, ['static_files', 'static_images']);
@@ -1942,6 +2011,463 @@
     return yaml;
   }
 
+  function isSpecialStructuredBlockType(type) {
+    return type === 'includes' || type === 'attachment' || type === 'review' || type === 'table' || type === 'template' || type === 'terms' || type === 'sections';
+  }
+
+  function _serializeSpecialId(block, fallback) {
+    var idInput = document.getElementById('special-id');
+    return (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : fallback);
+  }
+
+  function _toBoolText(value) {
+    return value ? 'true' : 'false';
+  }
+
+  function _parseBoolValue(value) {
+    var text = String(value || '').trim().toLowerCase();
+    return text === 'true' || text === 'yes' || text === '1';
+  }
+
+  function _textAreaLines(id) {
+    var el = document.getElementById(id);
+    if (!el) return [];
+    return String(el.value || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
+  }
+
+  function serializeSpecialBlockToYaml(block) {
+    if (!block) return '';
+    if (block.type === 'includes') {
+      var includesYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'includes_block'));
+      var includeRows = _textAreaLines('includes-list');
+      var includeKey = (block.data && Object.prototype.hasOwnProperty.call(block.data, 'includes')) ? 'includes' : 'include';
+      if (includeRows.length <= 1) {
+        if (includeRows.length) includesYaml = appendYamlValue(includesYaml, includeKey, includeRows[0]);
+      } else {
+        includesYaml += includeKey + ':\n';
+        includeRows.forEach(function (line) {
+          includesYaml += '  - ' + escapeYamlStr(line) + '\n';
+        });
+      }
+      return includesYaml;
+    }
+
+    if (block.type === 'attachment') {
+      if (((document.getElementById('attachment-structured-supported') || {}).value || 'true') === 'false') {
+        return block.yaml || '';
+      }
+      var attachmentYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'attachment_block'));
+      var questionVal = ((document.getElementById('attachment-question') || {}).value || '').trim();
+      var subVal = (document.getElementById('attachment-subquestion') || {}).value || '';
+      if (questionVal) attachmentYaml = appendYamlValue(attachmentYaml, 'question', questionVal);
+      if (subVal.trim()) attachmentYaml = appendYamlValue(attachmentYaml, 'subquestion', subVal);
+      var includeAsList = (document.getElementById('attachment-as-list') || {}).checked;
+      var attName = ((document.getElementById('attachment-name') || {}).value || '').trim();
+      var attFileName = ((document.getElementById('attachment-filename') || {}).value || '').trim();
+      var attDocx = ((document.getElementById('attachment-docx-template') || {}).value || '').trim();
+      var attPdf = ((document.getElementById('attachment-pdf-template') || {}).value || '').trim();
+      var attVar = ((document.getElementById('attachment-variable-name') || {}).value || '').trim();
+      var attSkip = _parseBoolValue((document.getElementById('attachment-skip-undefined') || {}).value || 'false');
+      var attTagged = _parseBoolValue((document.getElementById('attachment-tagged-pdf') || {}).value || 'false');
+      var baseIndent = includeAsList ? '    ' : '  ';
+      attachmentYaml += (includeAsList ? 'attachments:\n  -\n' : 'attachment:\n');
+      if (attDocx) attachmentYaml += baseIndent + 'docx template file: ' + escapeYamlStr(attDocx) + '\n';
+      if (attPdf) attachmentYaml += baseIndent + 'pdf template file: ' + escapeYamlStr(attPdf) + '\n';
+      if (attFileName) attachmentYaml += baseIndent + 'filename: ' + escapeYamlStr(attFileName) + '\n';
+      if (attName) attachmentYaml += baseIndent + 'name: ' + escapeYamlStr(attName) + '\n';
+      attachmentYaml += baseIndent + 'skip undefined: ' + _toBoolText(attSkip) + '\n';
+      attachmentYaml += baseIndent + 'tagged pdf: ' + _toBoolText(attTagged) + '\n';
+      if (attVar) attachmentYaml += baseIndent + 'variable name: ' + escapeYamlStr(attVar) + '\n';
+      return attachmentYaml;
+    }
+
+    if (block.type === 'review') {
+      if (((document.getElementById('review-structured-supported') || {}).value || 'true') === 'false') {
+        return block.yaml || '';
+      }
+      var reviewYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'review_block'));
+      var reviewEventVal = ((document.getElementById('review-event') || {}).value || '').trim();
+      if (reviewEventVal) reviewYaml = appendYamlValue(reviewYaml, 'event', reviewEventVal);
+      var reviewNeedStr = ((document.getElementById('review-need') || {}).value || '').trim();
+      if (reviewNeedStr) reviewYaml = appendYamlListValue(reviewYaml, 'need', reviewNeedStr);
+      reviewYaml = appendYamlValue(reviewYaml, 'question', ((document.getElementById('review-question') || {}).value || '').trim() || 'Review your answers');
+      var reviewRows = document.querySelectorAll('.editor-review-row');
+      reviewYaml += 'review:\n';
+      reviewRows.forEach(function (row) {
+        var label = (row.querySelector('[data-review-prop="label"]') || {}).value || '';
+        var target = (row.querySelector('[data-review-prop="target"]') || {}).value || '';
+        var button = (row.querySelector('[data-review-prop="button"]') || {}).value || '';
+        var cleanLabel = String(label || '').trim();
+        var cleanTarget = String(target || '').trim();
+        if (!cleanLabel && !cleanTarget) return;
+        reviewYaml += '  - ' + escapeYamlStr(cleanLabel || 'Edit') + ': ' + escapeYamlStr(cleanTarget || '') + '\n';
+        if (String(button || '').trim()) reviewYaml += '    button: ' + escapeYamlStr(button) + '\n';
+      });
+      var continueField = ((document.getElementById('review-continue-field') || {}).value || '').trim();
+      if (continueField) reviewYaml = appendYamlValue(reviewYaml, 'continue button field', continueField);
+      var tabularChecked = Boolean((document.getElementById('review-tabular') || {}).checked);
+      if (tabularChecked) reviewYaml += 'tabular: true\n';
+      return reviewYaml;
+    }
+
+    if (block.type === 'table') {
+      var tableYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'table_block'));
+      tableYaml = appendYamlValue(tableYaml, 'table', ((document.getElementById('table-name') || {}).value || '').trim() || 'my_list.table');
+      tableYaml = appendYamlValue(tableYaml, 'rows', ((document.getElementById('table-rows') || {}).value || '').trim() || 'my_list');
+      var columnRows = _textAreaLines('table-columns');
+      tableYaml += 'columns:\n';
+      columnRows.forEach(function (line) {
+        var split = line.split(':');
+        if (split.length >= 2) {
+          var label = split.shift();
+          var expr = split.join(':');
+          tableYaml += '  - ' + escapeYamlStr(String(label || '').trim()) + ': ' + escapeYamlStr(String(expr || '').trim()) + '\n';
+        } else {
+          tableYaml += '  - ' + escapeYamlStr(line) + '\n';
+        }
+      });
+      var editRows = _textAreaLines('table-edit');
+      if (editRows.length) {
+        tableYaml += 'edit:\n';
+        editRows.forEach(function (line) {
+          tableYaml += '  - ' + escapeYamlStr(line) + '\n';
+        });
+      }
+      if (Boolean((document.getElementById('table-show-incomplete') || {}).checked)) tableYaml += 'show incomplete: true\n';
+      var showEmpty = ((document.getElementById('table-show-if-empty') || {}).value || '').trim();
+      if (showEmpty) tableYaml = appendYamlValue(tableYaml, 'show if empty', showEmpty);
+      return tableYaml;
+    }
+
+    if (block.type === 'template') {
+      var templateYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'template_block'));
+      templateYaml = appendYamlValue(templateYaml, 'template', ((document.getElementById('template-name') || {}).value || '').trim() || 'template_name');
+      var subjectText = (document.getElementById('template-subject') || {}).value || '';
+      var contentText = (document.getElementById('template-content') || {}).value || '';
+      if (String(subjectText).trim()) templateYaml = appendYamlValue(templateYaml, 'subject', subjectText);
+      if (String(contentText).trim()) templateYaml = appendYamlValue(templateYaml, 'content', contentText);
+      return templateYaml;
+    }
+
+    if (block.type === 'terms') {
+      var termsYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'terms_block'));
+      termsYaml += 'terms:\n';
+      var termRows = document.querySelectorAll('.editor-terms-row');
+      termRows.forEach(function (row) {
+        var term = (row.querySelector('[data-terms-prop="term"]') || {}).value || '';
+        var definition = (row.querySelector('[data-terms-prop="definition"]') || {}).value || '';
+        var cleanTerm = String(term || '').trim();
+        var cleanDef = String(definition || '').trim();
+        if (!cleanTerm || !cleanDef) return;
+        termsYaml += '  ' + escapeYamlStr(cleanTerm) + ': ' + escapeYamlStr(cleanDef) + '\n';
+      });
+      return termsYaml;
+    }
+
+    if (block.type === 'sections') {
+      var sectionsStyleEl = document.getElementById('sections-style');
+      var isAlNavMode = sectionsStyleEl && sectionsStyleEl.value === 'al';
+      var sectionRows = document.querySelectorAll('.editor-sections-row');
+      if (isAlNavMode) {
+        var alSectionsYaml = 'reconsider: True\n';
+        alSectionsYaml += 'variable name: al_nav_sections\n';
+        alSectionsYaml += 'data from code:\n';
+        sectionRows.forEach(function (row) {
+          var key = (row.querySelector('[data-sections-prop="key"]') || {}).value || '';
+          var label = (row.querySelector('[data-sections-prop="label"]') || {}).value || '';
+          var hidden = (row.querySelector('[data-sections-prop="hidden"]') || {}).value || '';
+          var cleanKey = String(key || '').trim();
+          var cleanLabel = String(label || '').trim();
+          if (!cleanKey || !cleanLabel) return;
+          alSectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': |\n';
+          alSectionsYaml += '      "' + cleanLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"\n';
+          if (String(hidden || '').trim()) {
+            alSectionsYaml += '    hidden: ' + String(hidden).trim() + '\n';
+          }
+        });
+        return alSectionsYaml;
+      }
+      var sectionsYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'sections_block'));
+      sectionsYaml += 'sections:\n';
+      sectionRows.forEach(function (row) {
+        var key = (row.querySelector('[data-sections-prop="key"]') || {}).value || '';
+        var label = (row.querySelector('[data-sections-prop="label"]') || {}).value || '';
+        var subs = (row.querySelector('[data-sections-prop="subs"]') || {}).value || '';
+        var cleanKey = String(key || '').trim();
+        var cleanLabel = String(label || '').trim();
+        if (!cleanKey || !cleanLabel) return;
+        var subsectionItems = String(subs || '').split(',').map(function (item) { return item.trim(); }).filter(Boolean);
+        if (!subsectionItems.length) {
+          sectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': ' + escapeYamlStr(cleanLabel) + '\n';
+        } else {
+          sectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': ' + escapeYamlStr(cleanLabel) + '\n';
+          sectionsYaml += '    subsections:\n';
+          subsectionItems.forEach(function (subName) {
+            sectionsYaml += '      - ' + escapeYamlStr(subName) + '\n';
+          });
+        }
+      });
+      return sectionsYaml;
+    }
+
+    return getMonacoValue('block-yaml-monaco') || block.yaml || '';
+  }
+
+  function renderSpecialBlock(block) {
+    var data = block.data || {};
+    var html = '';
+    var isPreview = state.questionEditMode === 'preview';
+
+    html += '<div class="editor-center-bar">';
+    html += '<div>';
+    html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
+    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    html += '</div>';
+    html += '<div class="d-flex gap-2">';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Structured view') + '</button>';
+    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
+    html += '</div></div>';
+
+    html += '<div class="editor-shell">';
+
+    if (!isPreview) {
+      html += '<div class="editor-card"><div class="editor-card-body">';
+      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '</div></div>';
+      html += '</div>';
+      canvasContent.innerHTML = html;
+      initMonaco(function () {
+        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+        });
+      });
+      return;
+    }
+
+    html += '<div class="editor-card"><div class="editor-card-body editor-card-body-compact">';
+    html += '<div class="editor-form-group"><label class="editor-tiny" for="special-id">Block ID</label>';
+    html += '<input class="form-control editor-form-control font-monospace" id="special-id" value="' + esc(block.id || '') + '"></div>';
+
+    if (block.type === 'includes') {
+      var includeValues = data.includes || data.include || [];
+      if (!Array.isArray(includeValues)) includeValues = [includeValues];
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="includes-list">Included YAML files (one per line)</label>';
+      html += '<textarea class="form-control editor-form-control font-monospace" id="includes-list" data-symbol-role="yaml-file" rows="6" placeholder="other_file.yml">' + esc(includeValues.join('\n')) + '</textarea>';
+      html += '<div class="editor-tiny mt-1">Type to see YAML files in this package, or enter a new filename.</div></div>';
+    } else if (block.type === 'attachment') {
+      var attachmentObj = {};
+      var useList = false;
+      var attachmentStructuredSupported = true;
+      if (data.attachment && typeof data.attachment === 'object') attachmentObj = data.attachment;
+      else if (Array.isArray(data.attachments) && data.attachments.length && typeof data.attachments[0] === 'object') {
+        attachmentObj = data.attachments[0];
+        useList = true;
+        if (data.attachments.length > 1) attachmentStructuredSupported = false;
+      }
+      html += '<input type="hidden" id="attachment-structured-supported" value="' + (attachmentStructuredSupported ? 'true' : 'false') + '">';
+      if (!attachmentStructuredSupported) {
+        html += '<div class="editor-info-box mb-3">This block has multiple attachments. Structured editing is disabled to avoid data loss. Switch to YAML mode to edit.</div>';
+      }
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-question">Question (optional)</label>';
+      html += '<input class="form-control editor-form-control" id="attachment-question" value="' + esc(String(data.question || '')) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-subquestion">Subquestion (optional)</label>';
+      html += '<textarea class="form-control editor-form-control" id="attachment-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea></div>';
+      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="attachment-as-list"' + (useList ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="attachment-as-list">Use attachments list format</label></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-docx-template">DOCX template file</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="attachment-docx-template" data-symbol-role="template-file" value="' + esc(String(attachmentObj['docx template file'] || '')) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-pdf-template">PDF template file</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="attachment-pdf-template" data-symbol-role="template-file" value="' + esc(String(attachmentObj['pdf template file'] || '')) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-filename">Filename</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="attachment-filename" value="' + esc(String(attachmentObj.filename || '')) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-name">Name</label>';
+      html += '<input class="form-control editor-form-control" id="attachment-name" value="' + esc(String(attachmentObj.name || '')) + '"></div>';
+      var attSkipUndef = Boolean(attachmentObj['skip undefined']);
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-skip-undefined">Skip undefined</label>';
+      html += '<select class="form-select editor-form-control" id="attachment-skip-undefined"><option value="true"' + (attSkipUndef ? ' selected' : '') + '>true</option><option value="false"' + (!attSkipUndef ? ' selected' : '') + '>false</option></select></div>';
+      var attTaggedPdf = Boolean(attachmentObj['tagged pdf']);
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-tagged-pdf">Tagged PDF</label>';
+      html += '<select class="form-select editor-form-control" id="attachment-tagged-pdf"><option value="true"' + (attTaggedPdf ? ' selected' : '') + '>true</option><option value="false"' + (!attTaggedPdf ? ' selected' : '') + '>false</option></select></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-variable-name">Variable name</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="attachment-variable-name" value="' + esc(String(attachmentObj['variable name'] || '')) + '"></div>';
+    } else if (block.type === 'review') {
+      var reviewItems = Array.isArray(data.review) ? data.review : [];
+      var reviewStructuredSupported = true;
+      reviewItems.forEach(function (item) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          reviewStructuredSupported = false;
+          return;
+        }
+        var reviewKeys = Object.keys(item).filter(function (key) { return key !== 'button'; });
+        if (reviewKeys.length !== 1) reviewStructuredSupported = false;
+        if (reviewKeys.length === 1) {
+          var reviewValue = item[reviewKeys[0]];
+          if (Array.isArray(reviewValue) || (reviewValue && typeof reviewValue === 'object')) reviewStructuredSupported = false;
+        }
+      });
+      html += '<input type="hidden" id="review-structured-supported" value="' + (reviewStructuredSupported ? 'true' : 'false') + '">';
+      if (!reviewStructuredSupported) {
+        html += '<div class="editor-info-box mb-3">This review block uses advanced syntax. Structured editing is disabled to avoid data loss. Switch to YAML mode to edit.</div>';
+      }
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-event">Event (optional — use for revisit events)</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '" placeholder="review_your_answers"></div>';
+      var reviewNeedVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need (optional, comma-separated variables)</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="review-need" data-symbol-role="all" value="' + esc(reviewNeedVal) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-question">Question</label>';
+      html += '<input class="form-control editor-form-control" id="review-question" value="' + esc(String(data.question || 'Review your answers')) + '"></div>';
+      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="review-tabular"' + (Boolean(data.tabular) ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="review-tabular">Tabular review style</label></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-continue-field">Continue button field</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="review-continue-field" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
+      if (reviewItems.length) {
+        reviewItems.forEach(function (item, idx) {
+          var label = '';
+          var target = '';
+          var buttonText = '';
+          if (item && typeof item === 'object') {
+            if (item.button) buttonText = String(item.button || '');
+            Object.keys(item).forEach(function (key) {
+              if (key === 'button') return;
+              if (!label) {
+                label = key;
+                target = String(item[key] || '');
+              }
+            });
+          }
+          html += '<div class="editor-review-row mb-3" data-review-idx="' + idx + '">';
+          html += '<label class="editor-tiny">Label</label><input class="form-control editor-form-control" data-review-prop="label" value="' + esc(label) + '">';
+          html += '<label class="editor-tiny mt-2">Variable/action</label><input class="form-control editor-form-control font-monospace" data-review-prop="target" data-symbol-role="all" value="' + esc(target) + '">';
+          html += '<label class="editor-tiny mt-2">Button text</label><textarea class="form-control editor-form-control" rows="3" data-review-prop="button">' + esc(buttonText) + '</textarea>';
+          html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-review="' + idx + '">Remove row</button></div>';
+          html += '</div>';
+        });
+      } else {
+        html += '<div class="editor-info-box mb-2">No review rows yet.</div>';
+      }
+      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-review-row">+ Add review row</button>';
+    } else if (block.type === 'table') {
+      var columns = Array.isArray(data.columns) ? data.columns : [];
+      var editFields = Array.isArray(data.edit) ? data.edit : [];
+      var columnLines = columns.map(function (item) {
+        if (!item || typeof item !== 'object') return String(item || '');
+        var keys = Object.keys(item);
+        if (!keys.length) return '';
+        return keys[0] + ': ' + String(item[keys[0]] || '');
+      }).filter(Boolean);
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-name">Table variable</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="table-name" value="' + esc(String(data.table || '')) + '" placeholder="users.table"></div>';
+      var tableListCandidates = getGatherListCandidates();
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-rows">Rows source (DAList variable)</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="table-rows" data-symbol-role="top-level" list="table-rows-suggestions" value="' + esc(String(data.rows || '')) + '" placeholder="users">';
+      html += '<datalist id="table-rows-suggestions">';
+      tableListCandidates.forEach(function (entry) {
+        html += '<option value="' + esc(entry.variable) + '">' + esc(entry.className) + '</option>';
+      });
+      html += '</datalist>';
+      html += '<div class="editor-tiny mt-1">Suggested DAList/ALPeopleList objects are provided; you can still type any expression.</div></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-columns">Columns (Label: expression, one per line)</label>';
+      html += '<textarea class="form-control editor-form-control font-monospace" id="table-columns" rows="5" placeholder="Name: row_item.name.full()">' + esc(columnLines.join('\n')) + '</textarea></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-edit">Editable fields (one per line)</label>';
+      html += '<textarea class="form-control editor-form-control font-monospace" id="table-edit" rows="3" placeholder="name.first">' + esc(editFields.join('\n')) + '</textarea></div>';
+      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="table-show-incomplete"' + (Boolean(data['show incomplete']) ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="table-show-incomplete">Show incomplete rows</label></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-show-if-empty">Show if empty</label>';
+      html += '<input class="form-control editor-form-control" id="table-show-if-empty" value="' + esc(String(data['show if empty'] || '')) + '"></div>';
+    } else if (block.type === 'template') {
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-name">Template variable name</label>';
+      html += '<input class="form-control editor-form-control font-monospace" id="template-name" data-symbol-role="all" value="' + esc(String(data.template || '')) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-subject">Subject</label>';
+      html += '<textarea class="form-control editor-form-control" id="template-subject" rows="2">' + esc(String(data.subject || '')) + '</textarea></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-content">Content</label>';
+      html += '<textarea class="form-control editor-form-control" id="template-content" rows="8">' + esc(String(data.content || '')) + '</textarea></div>';
+    } else if (block.type === 'terms') {
+      var termEntries = [];
+      if (data.terms && typeof data.terms === 'object') {
+        Object.keys(data.terms).forEach(function (termKey) {
+          termEntries.push({ term: termKey, definition: String(data.terms[termKey] || '') });
+        });
+      }
+      if (!termEntries.length) termEntries.push({ term: '', definition: '' });
+      termEntries.forEach(function (entry, idx) {
+        html += '<div class="editor-terms-row mb-3" data-terms-idx="' + idx + '">';
+        html += '<label class="editor-tiny">Term</label><input class="form-control editor-form-control" data-terms-prop="term" value="' + esc(entry.term) + '">';
+        html += '<label class="editor-tiny mt-2">Definition</label><textarea class="form-control editor-form-control" rows="3" data-terms-prop="definition">' + esc(entry.definition) + '</textarea>';
+        html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-terms="' + idx + '">Remove term</button></div>';
+        html += '</div>';
+      });
+      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-terms-row">+ Add term</button>';
+    } else if (block.type === 'sections') {
+      var isAlNavStyle = Boolean(data['variable name'] === 'al_nav_sections');
+      html += '<div class="editor-form-group mb-3"><label class="editor-tiny" for="sections-style">Sections style</label>';
+      html += '<select class="form-select editor-form-control" id="sections-style">';
+      html += '<option value="standard"' + (!isAlNavStyle ? ' selected' : '') + '>Standard (sections: initial block)</option>';
+      html += '<option value="al"' + (isAlNavStyle ? ' selected' : '') + '>AL dynamic navigation (al_nav_sections)</option>';
+      html += '</select>';
+      html += '<div class="editor-tiny mt-1">' + (isAlNavStyle ? 'Each section can optionally hide based on a Python condition. Uses AssemblyLine dynamic navigation.' : 'Defines navigation sections shown in the interview sidebar. Subsections are optional nested items.') + '</div></div>';
+      var sectionEntries = [];
+      if (isAlNavStyle) {
+        var alDataSource = data['data from code'] || data['data'] || [];
+        if (Array.isArray(alDataSource)) {
+          alDataSource.forEach(function (entry) {
+            if (!entry || typeof entry !== 'object') return;
+            var keys = Object.keys(entry).filter(function (k) { return k !== 'hidden'; });
+            if (!keys.length) return;
+            var key = keys[0];
+            var rawLabel = String(entry[key] || '').trim().replace(/\n$/, '').trim();
+            if ((rawLabel.startsWith('"') && rawLabel.endsWith('"')) || (rawLabel.startsWith("'") && rawLabel.endsWith("'"))) {
+              rawLabel = rawLabel.slice(1, -1);
+            }
+            var hidden = String(entry.hidden || '').trim();
+            sectionEntries.push({ key: key, label: rawLabel, subs: '', hidden: hidden });
+          });
+        }
+      } else if (Array.isArray(data.sections)) {
+        data.sections.forEach(function (entry) {
+          if (!entry || typeof entry !== 'object') return;
+          var keys = Object.keys(entry);
+          if (!keys.length) return;
+          var key = keys[0];
+          var val = entry[key];
+          var label = '';
+          var subs = [];
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            label = String(val.label || val.name || '');
+            if (Array.isArray(val.subsections)) subs = val.subsections.map(function (sub) { return String(sub); });
+          } else {
+            label = String(val || '');
+            if (Array.isArray(entry.subsections)) subs = entry.subsections.map(function (sub) { return String(sub); });
+          }
+          sectionEntries.push({ key: key, label: label, subs: subs.join(', '), hidden: '' });
+        });
+      }
+      if (!sectionEntries.length) sectionEntries.push({ key: '', label: '', subs: '', hidden: '' });
+      sectionEntries.forEach(function (entry, idx) {
+        html += '<div class="editor-sections-row mb-3" data-sections-idx="' + idx + '">';
+        html += '<label class="editor-tiny">Section key</label><input class="form-control editor-form-control font-monospace" data-sections-prop="key" value="' + esc(entry.key) + '">';
+        html += '<label class="editor-tiny mt-2">Section label</label><input class="form-control editor-form-control" data-sections-prop="label" value="' + esc(entry.label) + '">';
+        if (isAlNavStyle) {
+          html += '<label class="editor-tiny mt-2">Hidden condition (optional Python expression)</label><input class="form-control editor-form-control font-monospace" data-sections-prop="hidden" placeholder="not showifdef(&quot;some_var&quot;)" value="' + esc(entry.hidden || '') + '">';
+        } else {
+          html += '<label class="editor-tiny mt-2">Subsections (optional, comma-separated keys)</label><input class="form-control editor-form-control" data-sections-prop="subs" value="' + esc(entry.subs) + '">';
+        }
+        html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-sections="' + idx + '">Remove section</button></div>';
+        html += '</div>';
+      });
+      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-sections-row">+ Add section</button>';
+    }
+
+    html += '</div></div>';
+    html += '</div>';
+    canvasContent.innerHTML = html;
+
+    document.querySelectorAll('.editor-form-control').forEach(function (el) {
+      if (el.tagName && el.tagName.toLowerCase() === 'textarea') {
+        _initAutoResize(el, 48);
+      }
+    });
+  }
+
   function syncQuestionMetaToData(blk) {
     if (!blk || blk.type !== 'question') return;
     if (!blk.data) blk.data = {};
@@ -2387,7 +2913,7 @@
     if (type === 'code') return 'editor-outline-type-py';
     if (type === 'objects') return 'editor-outline-type-obj';
     if (type === 'metadata') return 'editor-outline-type-meta';
-    if (type === 'includes') return 'editor-outline-type-inc';
+    if (type === 'includes' || type === 'attachment' || type === 'review' || type === 'table' || type === 'template' || type === 'terms' || type === 'sections') return 'editor-outline-type-inc';
     return 'editor-outline-type-oth';
   }
 
@@ -2397,6 +2923,12 @@
     if (type === 'objects') return 'Obj';
     if (type === 'metadata') return 'Meta';
     if (type === 'includes') return 'Inc';
+    if (type === 'attachment') return 'Att';
+    if (type === 'review') return 'Rev';
+    if (type === 'table') return 'Tbl';
+    if (type === 'template') return 'Tpl';
+    if (type === 'terms') return 'Voc';
+    if (type === 'sections') return 'Sec';
     if (type === 'default_screen_parts') return 'Def';
     return type.charAt(0).toUpperCase() + type.slice(1, 3);
   }
@@ -2488,6 +3020,9 @@
     if (state.questionEditMode === 'preview' && block.type === 'objects') {
       return serializeObjectsToYaml(block);
     }
+    if (state.questionEditMode === 'preview' && isSpecialStructuredBlockType(block.type)) {
+      return serializeSpecialBlockToYaml(block);
+    }
     var yamlVal = getMonacoValue('block-yaml-monaco');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
     return yamlVal;
@@ -2558,6 +3093,8 @@
       renderCodeBlock(block);
     } else if (block.type === 'objects') {
       renderObjectsBlock(block);
+    } else if (isSpecialStructuredBlockType(block.type)) {
+      renderSpecialBlock(block);
     } else {
       renderGenericBlock(block);
     }
@@ -3993,6 +4530,8 @@
             block.yaml = serializeCodeToYaml(block);
           } else if (block.type === 'objects') {
             block.yaml = serializeObjectsToYaml(block);
+          } else if (isSpecialStructuredBlockType(block.type)) {
+            block.yaml = serializeSpecialBlockToYaml(block);
           }
         }
       }
@@ -4175,6 +4714,89 @@
       return;
     }
 
+    if (target.id === 'add-review-row') {
+      var reviewBlock = getSelectedBlock();
+      if (reviewBlock && reviewBlock.type === 'review') {
+        if (!reviewBlock.data || typeof reviewBlock.data !== 'object') reviewBlock.data = {};
+        if (!Array.isArray(reviewBlock.data.review)) reviewBlock.data.review = [];
+        reviewBlock.data.review.push({ 'Edit field': 'some_variable', button: 'Current value: ${ some_variable }' });
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.matches('[data-remove-review]')) {
+      var removeReviewIdx = parseInt(target.getAttribute('data-remove-review'), 10);
+      var reviewBlock2 = getSelectedBlock();
+      if (reviewBlock2 && reviewBlock2.type === 'review' && reviewBlock2.data && Array.isArray(reviewBlock2.data.review)) {
+        reviewBlock2.data.review.splice(removeReviewIdx, 1);
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.id === 'add-terms-row') {
+      var termsBlock = getSelectedBlock();
+      if (termsBlock && termsBlock.type === 'terms') {
+        if (!termsBlock.data || typeof termsBlock.data !== 'object') termsBlock.data = {};
+        if (!termsBlock.data.terms || typeof termsBlock.data.terms !== 'object') termsBlock.data.terms = {};
+        termsBlock.data.terms['new term'] = 'Definition';
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.matches('[data-remove-terms]')) {
+      var removeTermsIdx = parseInt(target.getAttribute('data-remove-terms'), 10);
+      var termsBlock2 = getSelectedBlock();
+      if (termsBlock2 && termsBlock2.type === 'terms' && termsBlock2.data && termsBlock2.data.terms && typeof termsBlock2.data.terms === 'object') {
+        var termKeys = Object.keys(termsBlock2.data.terms);
+        if (termKeys[removeTermsIdx]) delete termsBlock2.data.terms[termKeys[removeTermsIdx]];
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.id === 'add-sections-row') {
+      var sectionsBlock = getSelectedBlock();
+      if (sectionsBlock && sectionsBlock.type === 'sections') {
+        if (!sectionsBlock.data || typeof sectionsBlock.data !== 'object') sectionsBlock.data = {};
+        var sectionsStyleElAdd = document.getElementById('sections-style');
+        var isAlModeAdd = sectionsStyleElAdd && sectionsStyleElAdd.value === 'al';
+        if (isAlModeAdd) {
+          if (!Array.isArray(sectionsBlock.data['data from code'])) sectionsBlock.data['data from code'] = [];
+          sectionsBlock.data['data from code'].push({ new_section: '"New section"' });
+        } else {
+          if (!Array.isArray(sectionsBlock.data.sections)) sectionsBlock.data.sections = [];
+          sectionsBlock.data.sections.push({ new_section: 'New section' });
+        }
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.matches('[data-remove-sections]')) {
+      var removeSectionsIdx = parseInt(target.getAttribute('data-remove-sections'), 10);
+      var sectionsBlock2 = getSelectedBlock();
+      if (sectionsBlock2 && sectionsBlock2.type === 'sections' && sectionsBlock2.data) {
+        var sectionsStyleElRemove = document.getElementById('sections-style');
+        var isAlModeRemove = sectionsStyleElRemove && sectionsStyleElRemove.value === 'al';
+        if (isAlModeRemove && Array.isArray(sectionsBlock2.data['data from code'])) {
+          sectionsBlock2.data['data from code'].splice(removeSectionsIdx, 1);
+        } else if (Array.isArray(sectionsBlock2.data.sections)) {
+          sectionsBlock2.data.sections.splice(removeSectionsIdx, 1);
+        }
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
     // New project
     if (target.id === 'cancel-new-project') { state.canvasMode = 'project-selector'; _uploadedFiles = []; renderCanvas(); return; }
 
@@ -4247,10 +4869,15 @@
       return;
     }
     if (target.matches('[data-field-prop]') || target.matches('.editor-field-choices') ||
-        target.matches('.editor-obj-input') || target.id === 'q-title' || target.id === 'q-subquestion' ||
+        target.matches('.editor-obj-input') || target.matches('[data-review-prop]') ||
+        target.matches('[data-terms-prop]') || target.matches('[data-sections-prop]') ||
+        target.id === 'q-title' || target.id === 'q-subquestion' ||
         target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
         target.id === 'adv-continue-label' || target.id === 'adv-sets' || target.id === 'adv-need' ||
-        target.id === 'adv-event' || target.id === 'adv-generic-object') {
+        target.id === 'adv-event' || target.id === 'adv-generic-object' ||
+        target.id === 'special-id' || target.id.indexOf('attachment-') === 0 ||
+        target.id.indexOf('review-') === 0 || target.id.indexOf('table-') === 0 ||
+        target.id.indexOf('template-') === 0 || target.id === 'includes-list') {
       state.dirty = true;
       var saveBtn = document.getElementById('save-block-btn');
       if (saveBtn) saveBtn.disabled = false;
@@ -4292,6 +4919,52 @@
       var blk = getSelectedBlock();
       if (blk) {
         syncFieldsToData(blk);
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+    if (target.id === 'review-tabular' || target.id === 'table-show-incomplete' || target.id === 'attachment-as-list' ||
+        target.id === 'attachment-skip-undefined' || target.id === 'attachment-tagged-pdf') {
+      state.dirty = true;
+      var saveBtn3 = document.getElementById('save-block-btn');
+      if (saveBtn3) saveBtn3.disabled = false;
+      return;
+    }
+    if (target.id === 'sections-style') {
+      var sectionsBlockStyle = getSelectedBlock();
+      if (sectionsBlockStyle && sectionsBlockStyle.type === 'sections') {
+        var newStyle = target.value;
+        var styleRows = document.querySelectorAll('.editor-sections-row');
+        var capturedRows = [];
+        styleRows.forEach(function (row) {
+          capturedRows.push({
+            key: String((row.querySelector('[data-sections-prop="key"]') || {}).value || '').trim(),
+            label: String((row.querySelector('[data-sections-prop="label"]') || {}).value || '').trim(),
+            subs: String((row.querySelector('[data-sections-prop="subs"]') || {}).value || '').trim(),
+            hidden: String((row.querySelector('[data-sections-prop="hidden"]') || {}).value || '').trim(),
+          });
+        });
+        if (newStyle === 'al') {
+          sectionsBlockStyle.data = {
+            'variable name': 'al_nav_sections',
+            'reconsider': true,
+            'data from code': capturedRows.filter(function (r) { return r.key; }).map(function (r) {
+              var item = {};
+              item[r.key] = '"' + r.label.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+              if (r.hidden) item.hidden = r.hidden;
+              return item;
+            }),
+          };
+        } else {
+          sectionsBlockStyle.data = {
+            sections: capturedRows.filter(function (r) { return r.key; }).map(function (r) {
+              var item = {};
+              item[r.key] = r.label || r.key;
+              return item;
+            }),
+          };
+        }
         state.dirty = true;
         renderCanvas();
       }

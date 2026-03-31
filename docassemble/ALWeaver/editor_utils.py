@@ -41,6 +41,12 @@ BLOCK_TYPE_METADATA = "metadata"
 BLOCK_TYPE_INCLUDES = "includes"
 BLOCK_TYPE_DEFAULT_SCREEN_PARTS = "default_screen_parts"
 BLOCK_TYPE_OBJECTS = "objects"
+BLOCK_TYPE_ATTACHMENT = "attachment"
+BLOCK_TYPE_REVIEW = "review"
+BLOCK_TYPE_TABLE = "table"
+BLOCK_TYPE_TEMPLATE = "template"
+BLOCK_TYPE_TERMS = "terms"
+BLOCK_TYPE_SECTIONS = "sections"
 BLOCK_TYPE_OTHER = "other"
 
 # Keys whose presence unambiguously identifies certain block types.
@@ -55,16 +61,29 @@ _BLOCK_KEY_ORDER = [
     "include",
     "includes",
     "default screen parts",
+    "sections",
+    "terms",
     "event",
     "id",
     "generic object",
     "mandatory",
     "if",
+    "template",
+    "subject",
+    "content",
     "question",
     "subquestion",
     "under",
     "buttons",
     "fields",
+    "review",
+    "tabular",
+    "table",
+    "rows",
+    "columns",
+    "show incomplete",
+    "show if empty",
+    "edit",
     "attachment",
     "attachments",
     "continue button field",
@@ -204,6 +223,22 @@ def _detect_block_type(block: Dict[str, Any]) -> str:
         return BLOCK_TYPE_INCLUDES
     if _DEFAULT_SCREEN_KEYS & set(block):
         return BLOCK_TYPE_DEFAULT_SCREEN_PARTS
+    if "sections" in block:
+        return BLOCK_TYPE_SECTIONS
+    if block.get("variable name") == "al_nav_sections" and (
+        "data from code" in block or "data" in block
+    ):
+        return BLOCK_TYPE_SECTIONS
+    if "terms" in block:
+        return BLOCK_TYPE_TERMS
+    if "template" in block and ("content" in block or "subject" in block):
+        return BLOCK_TYPE_TEMPLATE
+    if "table" in block:
+        return BLOCK_TYPE_TABLE
+    if "review" in block:
+        return BLOCK_TYPE_REVIEW
+    if "attachment" in block or "attachments" in block:
+        return BLOCK_TYPE_ATTACHMENT
     if "question" in block:
         return BLOCK_TYPE_QUESTION
     if "code" in block:
@@ -229,6 +264,24 @@ def _extract_title(block: Dict[str, Any], block_type: str) -> str:
         return "Default screen parts"
     if block_type == BLOCK_TYPE_OBJECTS:
         return "Objects"
+    if block_type == BLOCK_TYPE_ATTACHMENT:
+        if "attachment" in block and isinstance(block.get("attachment"), dict):
+            name = str((block.get("attachment") or {}).get("name") or "").strip()
+            return name or "Attachment"
+        return "Attachments"
+    if block_type == BLOCK_TYPE_REVIEW:
+        question = str(block.get("question") or "").strip()
+        return question or "Review"
+    if block_type == BLOCK_TYPE_TABLE:
+        return str(block.get("table") or "Table")
+    if block_type == BLOCK_TYPE_TEMPLATE:
+        return str(block.get("template") or "Template")
+    if block_type == BLOCK_TYPE_TERMS:
+        return "Vocabulary terms"
+    if block_type == BLOCK_TYPE_SECTIONS:
+        if block.get("variable name") == "al_nav_sections":
+            return "AL navigation sections (al_nav_sections)"
+        return "Sections"
     return "Block"
 
 
@@ -814,6 +867,7 @@ def playground_get_variables(
         {name.split(".", 1)[0].split("[", 1)[0] for name in all_names if name}
     )
     symbol_groups: Dict[str, List[str]] = {}
+    yaml_files: List[str] = []
     for key, value in variable_info.items():
         if key == "all_names_reduced":
             continue
@@ -827,6 +881,22 @@ def playground_get_variables(
             )
             if cleaned:
                 symbol_groups[str(key)] = cleaned
+
+    try:
+        with _playground_user_context(user_id):
+            pg = Playground(project=project)
+            yaml_files = sorted(
+                {
+                    str(file_name).strip()
+                    for file_name in pg.file_list
+                    if isinstance(file_name, str)
+                    and str(file_name).strip().lower().endswith((".yml", ".yaml"))
+                }
+            )
+    except Exception:
+        yaml_files = []
+    if yaml_files:
+        symbol_groups["yaml_files"] = yaml_files
 
     # Derive classes and functions directly from parsed interview blocks to
     # provide role-specific suggestions (objects class picker, function picker).
@@ -920,6 +990,7 @@ def playground_get_variables(
         "top_level_names": top_level,
         "classes": sorted(classes),
         "functions": sorted(functions),
+        "yaml_files": yaml_files,
         "template_files": template_files,
         "static_files": static_files,
         "symbol_groups": symbol_groups,
