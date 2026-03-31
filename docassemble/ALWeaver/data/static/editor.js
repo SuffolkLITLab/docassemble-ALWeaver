@@ -115,6 +115,15 @@
   function updateLeftSearchPlaceholder() {
     if (!searchInput) return;
     searchInput.placeholder = isInterviewView() ? 'Search blocks...' : 'Search files...';
+    var searchTitle = document.getElementById('search-section-title');
+    if (searchTitle) searchTitle.textContent = isInterviewView() ? 'Search blocks' : 'Search files';
+  }
+
+  function updateLeftRailMode() {
+    var fileSection = document.getElementById('editor-file-section');
+    var quickJumpSection = document.getElementById('editor-quick-jump-section');
+    if (fileSection) fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
+    if (quickJumpSection) quickJumpSection.classList.toggle('editor-section-hidden', !isInterviewView());
   }
 
   // -------------------------------------------------------------------------
@@ -2444,6 +2453,7 @@
 
   function renderCanvas() {
     disposeMonacoEditors();
+    updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
     if (state.currentView !== 'interview') {
@@ -3337,7 +3347,8 @@
     html += '<div class="d-flex gap-2 flex-wrap">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file">Upload</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file">+ New</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-rename-section-file">Rename</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary editor-icon-btn" id="btn-rename-section-file" title="Rename file" aria-label="Rename file"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>';
+    html += '<button class="btn btn-sm btn-outline-danger editor-icon-btn" id="btn-delete-section-file" title="Delete file" aria-label="Delete file"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>';
     if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
     }
@@ -3497,6 +3508,12 @@
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
       var newYaml = makeNewBlockYaml(kind);
+      if (kind !== 'question' && state.jumpTarget === 'questions') {
+        state.jumpTarget = 'all';
+        $$('.editor-jump-item').forEach(function (j) {
+          j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
+        });
+      }
       apiPost('/api/insert-block', {
         project: state.project,
         filename: state.filename,
@@ -3506,7 +3523,9 @@
         if (res.success && res.data) {
           closeBootstrapModal('insert-modal');
           refreshFromFileResponse(res.data);
+          return;
         }
+        window.alert((res.error && res.error.message) || 'Unable to insert block.');
       });
       return;
     }
@@ -3629,6 +3648,23 @@
       return;
     }
 
+    if (target.id === 'btn-delete-file') {
+      if (!state.project || !state.filename || !isInterviewView()) return;
+      if (!window.confirm('Delete ' + state.filename + '?')) return;
+      apiPost('/api/file/delete', {
+        project: state.project,
+        filename: state.filename,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          return;
+        }
+        state.filename = null;
+        loadFiles();
+      });
+      return;
+    }
+
     if (target.id === 'btn-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
@@ -3677,6 +3713,27 @@
           return;
         }
         state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : renamedSectionFile;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'btn-delete-section-file') {
+      if (!state.project || isInterviewView()) return;
+      var sectionForDelete = getSectionFromView(state.currentView);
+      var sectionFileMetaForDelete = getSelectedSectionFileMeta(state.currentView);
+      if (!sectionForDelete || !sectionFileMetaForDelete) return;
+      if (!window.confirm('Delete ' + sectionFileMetaForDelete.filename + '?')) return;
+      apiPost('/api/section-file/delete', {
+        project: state.project,
+        section: sectionForDelete,
+        filename: sectionFileMetaForDelete.filename,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          return;
+        }
+        state.sectionSelectedFile[state.currentView] = null;
         loadSectionFiles(state.currentView);
       });
       return;

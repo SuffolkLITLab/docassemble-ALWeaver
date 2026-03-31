@@ -65,8 +65,8 @@ html, body {
 }
 
 .editor-brand-logo {
-  width: 30px;
-  height: 30px;
+  width: auto;
+  height: 34px;
   display: block;
   object-fit: contain;
   flex: 0 0 auto;
@@ -126,6 +126,20 @@ html, body {
   color: #212529;
   background-color: #f8f9fa;
   border-color: #f8f9fa;
+}
+
+.editor-icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.editor-section-hidden {
+  display: none !important;
 }
 
 /* ===== Layout ===== */

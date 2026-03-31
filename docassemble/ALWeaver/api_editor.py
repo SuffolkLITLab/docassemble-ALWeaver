@@ -1194,6 +1194,56 @@ def editor_api_rename_file() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/file/delete", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_delete_file() -> Response:
+    """Delete a YAML interview file from the current playground project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        _area, directory = _editor_playground_directory(uid, project)
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{filename} not found")
+        os.remove(path)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: delete file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/rename", methods=["POST"])
 @csrf.exempt
 @cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
@@ -1244,6 +1294,59 @@ def editor_api_rename_section_file() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: rename section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/delete", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_delete_section_file() -> Response:
+    """Delete a file inside templates/modules/static/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        section = _normalize_section(post_data.get("section"))
+        filename = _normalize_storage_filename(post_data.get("filename"))
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        _area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{filename} not found")
+        os.remove(path)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": filename,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: delete section-file error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
