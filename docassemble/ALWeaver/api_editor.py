@@ -36,6 +36,7 @@ from html import escape
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
+import yaml
 from flask import Response, jsonify, request
 from flask_cors import cross_origin
 from flask_login import current_user
@@ -465,6 +466,31 @@ def _ensure_dayamlchecker_valid(yaml_text: str) -> None:
         return
     detail_text = details.strip() or "DAYamlChecker rejected generated YAML"
     raise ValueError(f"Generated YAML failed DAYamlChecker validation: {detail_text}")
+
+
+def _validate_block_yaml_payload(block_yaml: str) -> None:
+    """Validate a single block payload before saving/inserting.
+
+    Reject placeholder-only blocks that contain no functional keys.
+    """
+    try:
+        parsed = yaml.safe_load(block_yaml)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("block_yaml must contain exactly one YAML mapping block")
+
+    normalized_keys = {
+        str(key).strip().lower()
+        for key in parsed.keys()
+        if str(key).strip()
+    }
+    if not normalized_keys:
+        raise ValueError("Block must contain at least one key")
+    if normalized_keys.issubset({"id", "comment"}):
+        raise ValueError(
+            "Block is incomplete: add at least one functional key besides id/comment"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1376,6 +1402,7 @@ def editor_api_save_block() -> Response:
             raise ValueError("block_id is required")
         if not isinstance(new_yaml, str) or not new_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")
+        _validate_block_yaml_payload(new_yaml)
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = update_block_in_yaml(current_content, block_id, new_yaml)
@@ -1454,6 +1481,7 @@ def editor_api_insert_block() -> Response:
         block_yaml = post_data.get("block_yaml")
         if not isinstance(block_yaml, str) or not block_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")
+        _validate_block_yaml_payload(block_yaml)
 
         current_content = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(current_content)

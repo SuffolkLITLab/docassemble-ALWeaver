@@ -828,8 +828,66 @@ def playground_get_variables(
             if cleaned:
                 symbol_groups[str(key)] = cleaned
 
-    # Include image names from the project's static folder for [FILE ...] insertion.
+    # Derive classes and functions directly from parsed interview blocks to
+    # provide role-specific suggestions (objects class picker, function picker).
+    classes: set[str] = set()
+    functions: set[str] = set()
+    try:
+        yaml_text = playground_read_yaml(user_id, project, filename)
+        model = parse_interview_yaml(yaml_text)
+        for block in model.get("blocks", []):
+            data = block.get("data", {}) or {}
+            objects = data.get("objects")
+            if isinstance(objects, list):
+                for obj in objects:
+                    if not isinstance(obj, dict):
+                        continue
+                    for _name, cls_value in obj.items():
+                        cls_text = str(cls_value or "").strip()
+                        if not cls_text:
+                            continue
+                        base_cls = cls_text.split(".using(", 1)[0].strip()
+                        if re.match(r"^[A-Za-z_][A-Za-z0-9_\.]*$", base_cls):
+                            classes.add(base_cls)
+
+            code_text = str(data.get("code") or "")
+            if code_text:
+                for match in re.finditer(
+                    r"(?m)^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code_text
+                ):
+                    fn = match.group(1).strip()
+                    if fn:
+                        functions.add(fn)
+    except Exception:
+        classes = set()
+        functions = set()
+
+    if classes:
+        symbol_groups["classes"] = sorted(classes)
+    if functions:
+        symbol_groups["functions"] = sorted(functions)
+
+    # Include files from the project's templates folder to power template pickers.
+    template_files: List[str] = []
+    try:
+        from docassemble.webapp.files import SavedFile
+
+        template_area = SavedFile(user_id, fix=False, section="playgroundtemplate")
+        template_project_dir = os.path.join(template_area.directory, project)
+        if os.path.isdir(template_project_dir):
+            template_files = sorted(
+                file_name
+                for file_name in os.listdir(template_project_dir)
+                if os.path.isfile(os.path.join(template_project_dir, file_name))
+            )
+    except Exception:
+        template_files = []
+    if template_files:
+        symbol_groups["template_files"] = template_files
+
+    # Include static file names from the project's static folder.
     image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff"}
+    static_files: List[str] = []
     static_images: List[str] = []
     try:
         from docassemble.webapp.files import SavedFile
@@ -837,14 +895,21 @@ def playground_get_variables(
         static_area = SavedFile(user_id, fix=False, section="playgroundstatic")
         static_project_dir = os.path.join(static_area.directory, project)
         if os.path.isdir(static_project_dir):
-            static_images = sorted(
+            static_files = sorted(
                 file_name
                 for file_name in os.listdir(static_project_dir)
                 if os.path.isfile(os.path.join(static_project_dir, file_name))
-                and os.path.splitext(file_name.lower())[1] in image_exts
             )
+            static_images = [
+                file_name
+                for file_name in static_files
+                if os.path.splitext(file_name.lower())[1] in image_exts
+            ]
     except Exception:
+        static_files = []
         static_images = []
+    if static_files:
+        symbol_groups["static_files"] = static_files
     if static_images:
         symbol_groups["static_images"] = static_images
 
@@ -853,6 +918,10 @@ def playground_get_variables(
         "filename": filename,
         "all_names": all_names,
         "top_level_names": top_level,
+        "classes": sorted(classes),
+        "functions": sorted(functions),
+        "template_files": template_files,
+        "static_files": static_files,
         "symbol_groups": symbol_groups,
     }
 

@@ -411,9 +411,23 @@
         '  - user: Individual\n'
       );
     }
+    if (kind === 'attachment') {
+      return (
+        'id: attachment_' + stamp + '\n' +
+        'question: Download your document\n' +
+        'subquestion: |\n' +
+        '  Your document is ready.\n' +
+        'attachments:\n' +
+        '  - name: Draft document\n' +
+        '    filename: draft_document\n' +
+        '    docx template file: draft_template.docx\n'
+      );
+    }
     return (
       'id: block_' + stamp + '\n' +
-      'comment: New block\n'
+      'code: |\n' +
+      '  # New block\n' +
+      '  pass\n'
     );
   }
 
@@ -645,7 +659,7 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image') {
+    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
       return role;
     }
     return 'all';
@@ -667,6 +681,21 @@
     return flattened;
   }
 
+  function _groupEntries(groups, keyNames) {
+    var out = [];
+    var normalized = (keyNames || []).map(function (name) { return String(name || '').toLowerCase(); });
+    Object.keys(groups || {}).forEach(function (key) {
+      if (normalized.indexOf(String(key || '').toLowerCase()) === -1) return;
+      var vals = groups[key];
+      if (!Array.isArray(vals)) return;
+      vals.forEach(function (name) {
+        var clean = String(name || '').trim();
+        if (clean) out.push({ name: clean, group: key });
+      });
+    });
+    return out;
+  }
+
   function getSymbolCandidates(role) {
     role = normalizeSymbolRole(role);
     var groups = state.symbolCatalog.groups || {};
@@ -677,19 +706,54 @@
       return topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; });
     }
     if (role === 'object-class') {
-      var classGroupKeys = Object.keys(groups).filter(function (key) {
-        return key.toLowerCase().indexOf('class') !== -1 || key.toLowerCase().indexOf('object') !== -1;
-      });
-      var classLike = [];
-      classGroupKeys.forEach(function (key) {
-        (groups[key] || []).forEach(function (name) { classLike.push({ name: name, group: key }); });
-      });
+      var classLike = _groupEntries(groups, ['classes']);
+      if (classLike.length === 0) {
+        var classGroupKeys = Object.keys(groups).filter(function (key) {
+          return key.toLowerCase().indexOf('class') !== -1 || key.toLowerCase().indexOf('object') !== -1;
+        });
+        classGroupKeys.forEach(function (key) {
+          (groups[key] || []).forEach(function (name) { classLike.push({ name: name, group: key }); });
+        });
+      }
       if (classLike.length === 0) {
         all.forEach(function (name) {
           if (/^[A-Z]/.test(name)) classLike.push({ name: name, group: 'all_names' });
         });
       }
       return classLike;
+    }
+    if (role === 'function-call') {
+      var functionLike = _groupEntries(groups, ['functions']);
+      if (functionLike.length === 0) {
+        Object.keys(groups).forEach(function (key) {
+          if (key.toLowerCase().indexOf('function') === -1) return;
+          (groups[key] || []).forEach(function (name) {
+            functionLike.push({ name: String(name), group: key });
+          });
+        });
+      }
+      return functionLike;
+    }
+    if (role === 'template-file') {
+      var templateLike = _groupEntries(groups, ['template_files', 'templates']);
+      if (templateLike.length === 0) {
+        Object.keys(groups).forEach(function (key) {
+          if (key.toLowerCase().indexOf('template') === -1) return;
+          (groups[key] || []).forEach(function (name) {
+            templateLike.push({ name: String(name), group: key });
+          });
+        });
+      }
+      return templateLike;
+    }
+    if (role === 'static-file') {
+      var staticFiles = _groupEntries(groups, ['static_files', 'static_images']);
+      if (!staticFiles.length) {
+        all.forEach(function (name) {
+          if (name.indexOf('.') !== -1) staticFiles.push({ name: name, group: 'all_names' });
+        });
+      }
+      return staticFiles;
     }
     if (role === 'section') {
       var sections = [];
@@ -701,7 +765,7 @@
       return sections.concat(topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; }));
     }
     if (role === 'static-image') {
-      var staticLike = [];
+      var staticLike = _groupEntries(groups, ['static_images']);
       Object.keys(groups).forEach(function (key) {
         var keyLower = key.toLowerCase();
         if (keyLower.indexOf('static') === -1 && keyLower.indexOf('image') === -1) return;
@@ -1485,7 +1549,7 @@
       html += '<input type="number" min="0" max="100" step="1" class="form-control form-control-sm mt-1" id="order-add-value" value="50"></div>';
     } else if (kind === 'function') {
       html += '<div class="mb-2"><label class="editor-tiny">Function call</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="all" value="function_call()"></div>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="function-call" value="function_call()"></div>';
     } else {
       html += '<div class="mb-2"><label class="editor-tiny">Raw Python</label>';
       html += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-add-code" rows="4">pass</textarea></div>';
@@ -3408,6 +3472,13 @@
   // -------------------------------------------------------------------------
   // Event delegation
   // -------------------------------------------------------------------------
+  document.addEventListener('mousedown', function (e) {
+    var target = e.target;
+    if (target.closest('.editor-symbol-typeahead-item')) {
+      e.preventDefault();
+    }
+  });
+
   document.addEventListener('click', function (e) {
     var target = e.target;
     var topTab = target.closest('.editor-top-tab');
@@ -3964,7 +4035,9 @@
           state.selectedBlockId = keepBlockId;
           renderOutline();
           renderCanvas();
+          return;
         }
+        window.alert((res.error && res.error.message) || 'Unable to save block.');
       });
       return;
     }
@@ -4215,9 +4288,6 @@
         });
       return;
     }
-    if (target.matches('[data-symbol-role]')) {
-      hideTypeaheadMenu();
-    }
     if (target.matches('[data-field-prop="type"]')) {
       var blk = getSelectedBlock();
       if (blk) {
@@ -4288,8 +4358,9 @@
     document.getElementById('order-edit-title').textContent = step.label || step.kind;
     var body = '';
     if (step.kind === 'screen' || step.kind === 'gather' || step.kind === 'function') {
+      var invokeRole = step.kind === 'function' ? 'function-call' : 'all';
       body += '<div class="mb-3"><label class="editor-tiny">Variable / expression</label>';
-      body += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="all" id="order-edit-invoke" value="' + esc(step.invoke || '') + '"></div>';
+      body += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-edit-invoke" value="' + esc(step.invoke || '') + '"></div>';
     }
     if (step.kind === 'condition') {
       body += '<div class="mb-3"><label class="editor-tiny">Condition</label>';
