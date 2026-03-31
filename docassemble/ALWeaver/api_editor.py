@@ -249,6 +249,15 @@ def _editor_storage_directory(user_id: int, project: str, storage_section: str) 
     return area, directory
 
 
+def _editor_playground_directory(user_id: int, project: str) -> tuple[Any, str]:
+    from docassemble.webapp.files import SavedFile
+
+    area = SavedFile(user_id, fix=True, section="playground")
+    directory = area.directory if project == "default" else os.path.join(area.directory, project)
+    os.makedirs(directory, exist_ok=True)
+    return area, directory
+
+
 def _is_text_editable(filename: str, mimetype: str) -> bool:
     ext = os.path.splitext(filename.lower())[1]
     if ext in EDITOR_TEXT_EXTENSIONS:
@@ -1118,6 +1127,123 @@ def editor_api_save_file() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: save file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/rename", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_rename_file() -> Response:
+    """Rename a YAML interview file within the current playground project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        old_filename = _normalize_filename(post_data.get("filename"))
+        new_filename = _normalize_filename(post_data.get("new_filename"))
+        if old_filename == new_filename:
+            raise ValueError("New filename must be different")
+        _area, directory = _editor_playground_directory(uid, project)
+        old_path = os.path.join(directory, old_filename)
+        if not os.path.isfile(old_path):
+            raise FileNotFoundError(f"{old_filename} not found")
+        new_path = os.path.join(directory, new_filename)
+        if os.path.exists(new_path):
+            raise ValueError(f"{new_filename} already exists")
+        os.rename(old_path, new_path)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": new_filename,
+                    "old_filename": old_filename,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: rename file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/section-file/rename", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_rename_section_file() -> Response:
+    """Rename a file inside templates/modules/static/data sources."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        section = _normalize_section(post_data.get("section"))
+        old_filename = _normalize_storage_filename(post_data.get("filename"))
+        new_filename = _normalize_storage_filename(post_data.get("new_filename"))
+        if old_filename == new_filename:
+            raise ValueError("New filename must be different")
+        storage_section = EDITOR_SECTION_TO_STORAGE[section]
+        _area, directory = _editor_storage_directory(uid, project, storage_section)
+        old_path = os.path.join(directory, old_filename)
+        if not os.path.isfile(old_path):
+            raise FileNotFoundError(f"{old_filename} not found")
+        new_path = os.path.join(directory, new_filename)
+        if os.path.exists(new_path):
+            raise ValueError(f"{new_filename} already exists")
+        os.rename(old_path, new_path)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": section,
+                    "filename": new_filename,
+                    "old_filename": old_filename,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: rename section-file error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

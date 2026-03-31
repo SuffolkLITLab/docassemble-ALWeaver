@@ -3337,6 +3337,7 @@
     html += '<div class="d-flex gap-2 flex-wrap">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file">Upload</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file">+ New</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-rename-section-file">Rename</button>';
     if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
     }
@@ -3609,6 +3610,25 @@
       return;
     }
 
+    if (target.id === 'btn-rename-file') {
+      if (!state.project || !state.filename || !isInterviewView()) return;
+      var renamedInterviewFile = window.prompt('Rename file to', state.filename);
+      if (!renamedInterviewFile) return;
+      apiPost('/api/file/rename', {
+        project: state.project,
+        filename: state.filename,
+        new_filename: renamedInterviewFile,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          return;
+        }
+        state.filename = res.data && res.data.filename ? res.data.filename : renamedInterviewFile;
+        loadFiles();
+      });
+      return;
+    }
+
     if (target.id === 'btn-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
@@ -3634,6 +3654,29 @@
         }
         state.sectionSelectedFile[state.currentView] = filenamePrompt;
         state.sectionDirty = false;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'btn-rename-section-file') {
+      if (!state.project || isInterviewView()) return;
+      var sectionForRename = getSectionFromView(state.currentView);
+      var sectionFileMetaForRename = getSelectedSectionFileMeta(state.currentView);
+      if (!sectionForRename || !sectionFileMetaForRename) return;
+      var renamedSectionFile = window.prompt('Rename file to', sectionFileMetaForRename.filename);
+      if (!renamedSectionFile) return;
+      apiPost('/api/section-file/rename', {
+        project: state.project,
+        section: sectionForRename,
+        filename: sectionFileMetaForRename.filename,
+        new_filename: renamedSectionFile,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          return;
+        }
+        state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : renamedSectionFile;
         loadSectionFiles(state.currentView);
       });
       return;

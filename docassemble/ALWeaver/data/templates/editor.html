@@ -16,7 +16,7 @@
   <header class="editor-topbar" id="topbar">
     <div class="editor-topbar-inner">
       <div class="editor-brand">
-        <img class="editor-brand-logo" src="/al/editor/static/logo.svg" alt="ALWeaver">
+        <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
         <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
       </div>
       <nav class="editor-top-tabs" id="view-tabs">
@@ -48,7 +48,10 @@
       </div>
       <div class="editor-section">
         <label class="editor-tiny" for="file-select">File</label>
-        <select class="form-select form-select-sm mt-1" id="file-select"></select>
+        <div class="d-flex gap-2 align-items-center mt-1">
+          <select class="form-select form-select-sm" id="file-select"></select>
+          <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0" id="btn-rename-file">Rename</button>
+        </div>
       </div>
       <div class="editor-section editor-section-search">
         <input class="form-control form-control-sm mb-2" id="search-input"
