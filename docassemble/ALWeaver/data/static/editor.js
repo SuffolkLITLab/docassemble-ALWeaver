@@ -65,6 +65,8 @@
     dirty: false,
     markdownPreviewMode: false,
     insertAfterBlockId: null,
+    reorderMode: false,
+    reorderOriginalOrder: [],
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -2217,13 +2219,21 @@
     var data = block.data || {};
     var html = '';
     var isPreview = state.questionEditMode === 'preview';
+    var isMdBlock = block.type === 'template' || block.type === 'attachment' || block.type === 'review';
+    var isMdPreview = isPreview && state.markdownPreviewMode && isMdBlock;
 
     html += '<div class="editor-center-bar">';
     html += '<div>';
     html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
     html += '</div>';
-    html += '<div class="d-flex gap-2">';
+    html += '<div class="d-flex gap-2 align-items-center">';
+    if (isPreview && isMdBlock) {
+      html += '<div class="btn-group btn-group-sm" role="group" aria-label="Edit or preview mode">';
+      html += '<button type="button" class="btn btn-sm ' + (!isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-off">Edit</button>';
+      html += '<button type="button" class="btn btn-sm ' + (isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-on"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+      html += '</div>';
+    }
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Structured view') + '</button>';
     html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
     html += '</div></div>';
@@ -2268,10 +2278,23 @@
       if (!attachmentStructuredSupported) {
         html += '<div class="editor-info-box mb-3">This block has multiple attachments. Structured editing is disabled to avoid data loss. Switch to YAML mode to edit.</div>';
       }
+      var isMdPreviewAttach = isPreview && state.markdownPreviewMode;
       html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-question">Question (optional)</label>';
-      html += '<input class="form-control editor-form-control" id="attachment-question" value="' + esc(String(data.question || '')) + '"></div>';
+      if (isMdPreviewAttach) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.question || '')) + '</div>';
+      } else {
+        html += renderMarkdownToolbar('attachment-question', false);
+        html += '<textarea class="form-control editor-form-control" id="attachment-question" rows="2">' + esc(String(data.question || '')) + '</textarea>';
+      }
+      html += '</div>';
       html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-subquestion">Subquestion (optional)</label>';
-      html += '<textarea class="form-control editor-form-control" id="attachment-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea></div>';
+      if (isMdPreviewAttach) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subquestion || '')) + '</div>';
+      } else {
+        html += renderMarkdownToolbar('attachment-subquestion', false);
+        html += '<textarea class="form-control editor-form-control" id="attachment-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea>';
+      }
+      html += '</div>';
       html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="attachment-as-list"' + (useList ? ' checked' : '') + '>';
       html += '<label class="form-check-label" for="attachment-as-list">Use attachments list format</label></div>';
       html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-docx-template">DOCX template file</label>';
@@ -2314,8 +2337,15 @@
       var reviewNeedVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
       html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need (optional, comma-separated variables)</label>';
       html += '<input class="form-control editor-form-control font-monospace" id="review-need" data-symbol-role="all" value="' + esc(reviewNeedVal) + '"></div>';
+      var isMdPreviewReview = isPreview && state.markdownPreviewMode;
       html += '<div class="editor-form-group"><label class="editor-tiny" for="review-question">Question</label>';
-      html += '<input class="form-control editor-form-control" id="review-question" value="' + esc(String(data.question || 'Review your answers')) + '"></div>';
+      if (isMdPreviewReview) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.question || 'Review your answers')) + '</div>';
+      } else {
+        html += renderMarkdownToolbar('review-question', false);
+        html += '<textarea class="form-control editor-form-control" id="review-question" rows="2">' + esc(String(data.question || 'Review your answers')) + '</textarea>';
+      }
+      html += '</div>';
       html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="review-tabular"' + (Boolean(data.tabular) ? ' checked' : '') + '>';
       html += '<label class="form-check-label" for="review-tabular">Tabular review style</label></div>';
       html += '<div class="editor-form-group"><label class="editor-tiny" for="review-continue-field">Continue button field</label>';
@@ -2377,10 +2407,23 @@
     } else if (block.type === 'template') {
       html += '<div class="editor-form-group"><label class="editor-tiny" for="template-name">Template variable name</label>';
       html += '<input class="form-control editor-form-control font-monospace" id="template-name" data-symbol-role="all" value="' + esc(String(data.template || '')) + '"></div>';
+      var isMdPreviewTemplate = isPreview && state.markdownPreviewMode;
       html += '<div class="editor-form-group"><label class="editor-tiny" for="template-subject">Subject</label>';
-      html += '<textarea class="form-control editor-form-control" id="template-subject" rows="2">' + esc(String(data.subject || '')) + '</textarea></div>';
+      if (isMdPreviewTemplate) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subject || '')) + '</div>';
+      } else {
+        html += renderMarkdownToolbar('template-subject', false);
+        html += '<textarea class="form-control editor-form-control" id="template-subject" rows="2">' + esc(String(data.subject || '')) + '</textarea>';
+      }
+      html += '</div>';
       html += '<div class="editor-form-group"><label class="editor-tiny" for="template-content">Content</label>';
-      html += '<textarea class="form-control editor-form-control" id="template-content" rows="8">' + esc(String(data.content || '')) + '</textarea></div>';
+      if (isMdPreviewTemplate) {
+        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.content || '')) + '</div>';
+      } else {
+        html += renderMarkdownToolbar('template-content', false);
+        html += '<textarea class="form-control editor-form-control" id="template-content" rows="8">' + esc(String(data.content || '')) + '</textarea>';
+      }
+      html += '</div>';
     } else if (block.type === 'terms') {
       var termEntries = [];
       if (data.terms && typeof data.terms === 'object') {
@@ -2940,24 +2983,39 @@
     }
     var blocks = filteredBlocks();
     var html = '';
+    if (state.reorderMode) {
+      html += '<div class="editor-reorder-bar">';
+      html += '<div><strong>Reorder mode</strong> — Drag items or use arrow keys</div>';
+      html += '<div class="d-flex gap-2">';
+      html += '<button type="button" class="btn btn-sm btn-primary" id="reorder-save">Save order</button>';
+      html += '<button type="button" class="btn btn-sm btn-secondary" id="reorder-cancel">Cancel</button>';
+      html += '</div></div>';
+    }
     html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
     blocks.forEach(function (block) {
       var active = state.selectedBlockId === block.id;
       var tl = typeLabel(block.type);
       var tc = typeClass(block.type);
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-block-id="' + esc(block.id) + '">';
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (state.reorderMode ? ' reorder-mode' : '') + '" data-block-id="' + esc(block.id) + '" tabindex="0" role="button" aria-pressed="' + (active ? 'true' : 'false') + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
+      if (state.reorderMode) {
+        html += '<div class="editor-outline-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>';
+      }
       html += '<div style="min-width:0"><div class="editor-outline-title">' + esc(block.title) + '</div>';
       if (block.variable) {
         html += '<div class="editor-outline-meta"><span>' + esc(block.variable) + '</span></div>';
       }
       html += '</div>';
       html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
+      html += '<div class="editor-outline-menu"><button type="button" class="btn btn-sm btn-outline-secondary editor-outline-menu-btn" data-outline-block-id="' + esc(block.id) + '" title="Block options" aria-label="Block options"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button></div>';
       html += '</div></div>';
       html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' + esc(block.id) + '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' + esc(block.title) + '</span></button></div>';
     });
     outlineList.innerHTML = html;
+    if (state.reorderMode) {
+      initSortable();
+    }
   }
 
   function renderSectionOutline() {
@@ -2986,6 +3044,112 @@
       html += '</div></div>';
     });
     outlineList.innerHTML = html;
+  }
+
+  // -------------------------------------------------------------------------
+  // Block reordering
+  // -------------------------------------------------------------------------
+  var _sortable = null;
+
+  function initSortable() {
+    if (_sortable) _sortable.destroy();
+    var outlineList = document.getElementById('outline-list');
+    if (!outlineList) return;
+
+    _sortable = Sortable.create(outlineList, {
+      handle: '.editor-outline-drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      dragClass: 'sortable-drag',
+      scroll: true,
+      scrollSpeed: 5,
+      scrollSensitivity: 30,
+      filter: '.editor-outline-insert',
+      onEnd: function () {
+        // Reordering is done, but changes will be saved via Save Order button
+      }
+    });
+  }
+
+  function getReorderedBlockIds() {
+    var outlineList = document.getElementById('outline-list');
+    if (!outlineList) return [];
+    var items = outlineList.querySelectorAll('.editor-outline-item');
+    var blockIds = [];
+    items.forEach(function (item) {
+      var blockId = item.getAttribute('data-block-id');
+      if (blockId) blockIds.push(blockId);
+    });
+    return blockIds;
+  }
+
+  function enterReorderMode() {
+    state.reorderOriginalOrder = state.blocks.map(function (b) { return b.id; });
+    state.reorderMode = true;
+    renderOutline();
+  }
+
+  function exitReorderMode() {
+    state.reorderMode = false;
+    state.reorderOriginalOrder = [];
+    if (_sortable) {
+      _sortable.destroy();
+      _sortable = null;
+    }
+    renderOutline();
+  }
+
+  function cancelReorder() {
+    exitReorderMode();
+    renderCanvas();
+  }
+
+  function saveReorder() {
+    var newOrder = getReorderedBlockIds();
+    if (!state.filename || newOrder.length === 0) {
+      return Promise.resolve(false);
+    }
+
+    return apiPost('/api/reorder-blocks', {
+      project: state.project,
+      filename: state.filename,
+      block_ids: newOrder,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        window.alert((res.error && res.error.message) || 'Unable to reorder blocks.');
+        return false;
+      }
+      refreshFromFileResponse(res.data);
+      exitReorderMode();
+      renderOutline();
+      renderCanvas();
+      return true;
+    }).catch(function (err) {
+      console.error('Reorder error:', err);
+      window.alert('Error reordering blocks.');
+      return false;
+    });
+  }
+
+  function moveBlockInOrder(blockId, direction) {
+    if (!state.reorderMode) return;
+    var items = Array.from(document.querySelectorAll('.editor-outline-item'));
+    var currentIndex = items.findIndex(function (item) {
+      return item.getAttribute('data-block-id') === blockId;
+    });
+    if (currentIndex === -1) return;
+
+    var targetIndex = currentIndex + (direction === 'up' ? -1 : 1);
+    if (targetIndex < 0 || targetIndex >= items.length) return;
+
+    var currentItem = items[currentIndex];
+    var targetItem = items[targetIndex];
+
+    if (direction === 'up') {
+      targetItem.parentNode.insertBefore(currentItem, targetItem);
+    } else {
+      targetItem.parentNode.insertBefore(currentItem, targetItem.nextSibling);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -4021,6 +4185,8 @@
     var topTab = target.closest('.editor-top-tab');
     var jumpItem = target.closest('.editor-jump-item');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
+    var outlineMenuBtn = target.closest('.editor-outline-menu-btn');
+    var outlineDeleteBtn = target.closest('[data-outline-delete-block-id]');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
     var symbolItemBtn = target.closest('[data-symbol-name]');
@@ -4037,6 +4203,95 @@
 
     if (!target.closest('#editor-symbol-typeahead') && !target.closest('[data-symbol-role]')) {
       hideTypeaheadMenu();
+    }
+
+    // Outline block menu
+    if (outlineMenuBtn) {
+      e.stopPropagation();
+      var blockId = outlineMenuBtn.getAttribute('data-outline-block-id');
+      var block = getBlockById(blockId);
+      if (!block) return;
+      var menuHtml = '<div class="dropdown-menu show editor-outline-menu-dropdown" style="position: absolute; top: 0; left: 0; z-index: 9999;">';
+      menuHtml += '<button type="button" class="dropdown-item" data-outline-action="reorder"><i class="fa-solid fa-arrows-up-down" aria-hidden="true"></i> ' + (state.reorderMode ? 'Exit reorder' : 'Reorder blocks') + '</button>';
+      menuHtml += '<div class="dropdown-divider"></div>';
+      menuHtml += '<button type="button" class="dropdown-item text-danger" data-outline-delete-block-id="' + esc(blockId) + '"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete block</button>';
+      menuHtml += '</div>';
+      var container = document.createElement('div');
+      container.innerHTML = menuHtml;
+      var menu = container.querySelector('.editor-outline-menu-dropdown');
+      document.body.appendChild(menu);
+      var rect = outlineMenuBtn.getBoundingClientRect();
+      menu.style.top = (rect.bottom + 4) + 'px';
+      menu.style.left = (rect.right - 150) + 'px';
+      menu.setAttribute('data-owner-btn-id', blockId);
+      var closeMenu = function () {
+        if (menu.parentNode) menu.parentNode.removeChild(menu);
+        document.removeEventListener('click', closeMenuOnOutside);
+      };
+      var closeMenuOnOutside = function (evt) {
+        if (!menu.contains(evt.target) && evt.target !== outlineMenuBtn) {
+          closeMenu();
+        }
+      };
+      setTimeout(function () {
+        document.addEventListener('click', closeMenuOnOutside);
+      }, 0);
+      return;
+    }
+
+    // Outline block delete
+    if (outlineDeleteBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var delBlockId = outlineDeleteBtn.getAttribute('data-outline-delete-block-id');
+      var delBlock = getBlockById(delBlockId);
+      if (!delBlock) return;
+      if (!window.confirm('Are you sure you want to delete this block?\n\n' + (delBlock.title || delBlock.id))) {
+        return;
+      }
+      apiPost('/api/delete-block', {
+        project: state.project,
+        filename: state.filename,
+        block_id: delBlockId,
+      }).then(function (res) {
+        if (res.success && res.data) {
+          refreshFromFileResponse(res.data);
+          state.selectedBlockId = getDefaultVisibleBlockId();
+          renderOutline();
+          renderCanvas();
+          return;
+        }
+        window.alert((res.error && res.error.message) || 'Unable to delete block.');
+      }).catch(function (err) {
+        console.error('Delete block error:', err);
+        window.alert('Error deleting block.');
+      });
+      return;
+    }
+
+    // Outline reorder action
+    var outlineReorderBtn = target.closest('[data-outline-action="reorder"]');
+    if (outlineReorderBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (state.reorderMode) {
+        exitReorderMode();
+        renderCanvas();
+      } else {
+        enterReorderMode();
+      }
+      return;
+    }
+
+    // Reorder save/cancel
+    if (target.id === 'reorder-save') {
+      saveReorder();
+      return;
+    }
+    if (target.id === 'reorder-cancel') {
+      if (!window.confirm('Discard block reordering?')) return;
+      cancelReorder();
+      return;
     }
 
     // View tabs
@@ -4997,6 +5252,38 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') hideTypeaheadMenu();
+
+    // Handle Enter/Space on outline items to select them
+    if ((e.key === 'Enter' || e.key === ' ') && !state.reorderMode) {
+      var outlineItem = document.activeElement.closest('.editor-outline-item');
+      if (outlineItem) {
+        e.preventDefault();
+        var blockId = outlineItem.getAttribute('data-block-id');
+        if (blockId) {
+          state.selectedBlockId = blockId;
+          state.canvasMode = 'question';
+          state.questionEditMode = 'preview';
+          state.advancedOpen = false;
+          state.markdownPreviewMode = false;
+          renderOutline();
+          renderCanvas();
+        }
+      }
+    }
+
+    // Keyboard shortcuts for reordering
+    if (state.reorderMode && state.selectedBlockId) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveBlockInOrder(state.selectedBlockId, 'up');
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveBlockInOrder(state.selectedBlockId, 'down');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        saveReorder();
+      }
+    }
   });
 
   // -------------------------------------------------------------------------

@@ -300,6 +300,11 @@ html, body {
 
 .editor-outline-item:hover { background: #f8f9fb; border-color: var(--editor-border); }
 
+.editor-outline-item:focus-visible {
+  outline: 2px solid var(--editor-primary);
+  outline-offset: -1px;
+}
+
 .editor-outline-item.active {
   border-color: var(--editor-primary);
   background: var(--editor-primary);
@@ -308,13 +313,21 @@ html, body {
 
 .editor-outline-item-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 6px;
   align-items: center;
 }
 
 .editor-outline-item.active .editor-outline-item-row {
-  grid-template-columns: 3px 1fr auto;
+  grid-template-columns: 3px 1fr auto auto;
+}
+
+.editor-outline-item.reorder-mode .editor-outline-item-row {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.editor-outline-item.reorder-mode.active .editor-outline-item-row {
+  grid-template-columns: 3px auto 1fr auto auto;
 }
 
 .editor-outline-active-bar {
@@ -355,6 +368,89 @@ html, body {
   padding: 1px 5px;
   border-radius: 3px;
   font-weight: 600;
+}
+
+.editor-outline-menu {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-outline-menu-btn {
+  padding: 2px 6px !important;
+  font-size: 13px;
+  visibility: hidden;
+}
+
+.editor-outline-item:hover .editor-outline-menu-btn {
+  visibility: visible;
+}
+
+.editor-outline-item.active .editor-outline-menu-btn {
+  visibility: visible;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.editor-outline-item.active .editor-outline-menu-btn:hover {
+  border-color: #fff !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ===== Reorder mode ===== */
+.editor-reorder-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--editor-radius-sm);
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.editor-outline-item.reorder-mode {
+  cursor: move;
+}
+
+.editor-outline-item.reorder-mode:hover {
+  background: #ede9fe;
+  border-color: #a78bfa;
+}
+
+.editor-outline-item.reorder-mode.sortable-ghost {
+  opacity: 0.4;
+  background: #e0e7ff;
+}
+
+.editor-outline-item.reorder-mode.sortable-drag {
+  opacity: 0.9;
+  background: #dbeafe;
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.editor-outline-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #cbd5e1;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.editor-outline-drag-handle:active {
+  cursor: grabbing;
+}
+
+.editor-outline-item.reorder-mode:hover .editor-outline-drag-handle {
+  color: #64748b;
 }
 
 /* ===== Main canvas — independent scroll ===== */

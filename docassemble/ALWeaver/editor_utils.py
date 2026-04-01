@@ -23,6 +23,8 @@ __all__ = [
     "generate_draft_order",
     "canonicalize_block_yaml",
     "update_block_in_yaml",
+    "delete_block_from_yaml",
+    "reorder_blocks_in_yaml",
     "playground_read_yaml",
     "playground_write_yaml",
     "playground_list_projects",
@@ -436,6 +438,52 @@ def update_block_in_yaml(
     if not found:
         raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
     return "\n---\n".join(updated) + "\n"
+
+
+def delete_block_from_yaml(full_yaml: str, block_id: str) -> str:
+    """Delete a single block from a full interview YAML by its id.
+
+    Locates the block matching *block_id* in the parsed output, then
+    rebuilds the YAML without it.
+    """
+    model = parse_interview_yaml(full_yaml)
+    blocks = model["blocks"]
+    updated: List[str] = []
+    found = False
+    for block in blocks:
+        if block["id"] == block_id:
+            found = True
+            continue
+
+        block_text = block["yaml"].strip()
+        if block_text and block_text != "{}":
+            updated.append(block_text)
+
+    if not found:
+        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
+    return "\n---\n".join(updated) + "\n" if updated else ""
+
+
+def reorder_blocks_in_yaml(full_yaml: str, block_ids: List[str]) -> str:
+    """Reorder blocks in a full interview YAML to match the given block_ids order.
+
+    Locates each block matching the ids in *block_ids*, then rebuilds the YAML
+    in the specified order.
+    """
+    model = parse_interview_yaml(full_yaml)
+    blocks = model["blocks"]
+    block_map = {block["id"]: block for block in blocks}
+    updated: List[str] = []
+
+    for block_id in block_ids:
+        if block_id not in block_map:
+            raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
+        block = block_map[block_id]
+        block_text = block["yaml"].strip()
+        if block_text and block_text != "{}":
+            updated.append(block_text)
+
+    return "\n---\n".join(updated) + "\n" if updated else ""
 
 
 # ---------------------------------------------------------------------------

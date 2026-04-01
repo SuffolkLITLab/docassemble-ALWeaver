@@ -10,6 +10,8 @@ Provides:
     POST /al/editor/api/file     — save full YAML back to a file
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
+    POST /al/editor/api/delete-block — delete a block by id
+    POST /al/editor/api/reorder-blocks — reorder blocks in a file
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
@@ -1588,6 +1590,159 @@ def editor_api_variables() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: variables error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/delete-block", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_delete_block() -> Response:
+    """Delete a block from a YAML file by block id."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id", "")).strip()
+        if not block_id:
+            raise ValueError("block_id is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        from .editor_utils import delete_block_from_yaml
+
+        updated_content = delete_block_from_yaml(current_content, block_id)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        model = parse_interview_yaml(updated_content)
+        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
+        order_steps: list = []
+        for idx in model.get("order_blocks", []):
+            block = model["blocks"][idx]
+            code = block.get("data", {}).get("code", "")
+            if code:
+                parsed_steps = parse_order_code(code)
+                order_step_map[block["id"]] = parsed_steps
+                if not order_steps:
+                    order_steps = parsed_steps
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model[
+                        "default_screen_parts_blocks"
+                    ],
+                    "order_blocks": model["order_blocks"],
+                    "order_steps": order_steps,
+                    "order_step_map": order_step_map,
+                    "raw_yaml": updated_content,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: delete block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reorder-blocks", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_reorder_blocks() -> Response:
+    """Reorder blocks in a YAML file."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_ids = post_data.get("block_ids", [])
+
+        if not isinstance(block_ids, list) or not block_ids:
+            raise ValueError("block_ids must be a non-empty list")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        from .editor_utils import reorder_blocks_in_yaml
+
+        updated_content = reorder_blocks_in_yaml(current_content, block_ids)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        model = parse_interview_yaml(updated_content)
+        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
+        order_steps: list = []
+        for idx in model.get("order_blocks", []):
+            block = model["blocks"][idx]
+            code = block.get("data", {}).get("code", "")
+            if code:
+                parsed_steps = parse_order_code(code)
+                order_step_map[block["id"]] = parsed_steps
+                if not order_steps:
+                    order_steps = parsed_steps
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model[
+                        "default_screen_parts_blocks"
+                    ],
+                    "order_blocks": model["order_blocks"],
+                    "order_steps": order_steps,
+                    "order_step_map": order_step_map,
+                    "raw_yaml": updated_content,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: reorder blocks error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
