@@ -36,7 +36,7 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
-  if not get_config("enable weaver for unauthenticated users", False):
+  if not get_config("enable weaver for unauthenticated users", True):
     if not (user_logged_in() and user_has_privilege(["developer", "admin"])):
       not_authorized
   multi_user = True
