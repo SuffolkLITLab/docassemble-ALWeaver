@@ -1,3 +1,35 @@
+[build-system]
+requires = ["setuptools>=60,<82.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docassemble.ALWeaver"
+version = "2.1.0"
+description = "Quickly turn a PDF or Word form into a draft Docassemble interview."
+readme = "README.md"
+authors = [
+    { name="Quinten Steenhuis", email="qsteenhuis@suffolk.edu" },
+]
+dependencies = [
+    "PyYAML>=5.1.2",
+    "beautifulsoup4>=4.11.1",
+    "docassemble.ALToolbox>=0.4.2",
+    "docassemble.AssemblyLine>=2.11.3",
+    "docx2python>=1.27.1",
+    "more-itertools>=8.6.0",
+    "numpy>=1.0.4",
+    "pikepdf>=5.1.1",
+    "formfyxer>=0.3.0a1",
+]
+license = "MIT"
+license-files = ["LICENSE*"]
+
+[project.urls]
+GitHub = "https://github.com/SuffolkLITLab/docassemble-ALWeaver"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 [tool.bandit]
 exclude_dirs = ["scripts", "venv", ".venv"]
 
@@ -95,3 +127,19 @@ ignore_missing_imports=true
 [[tool.mypy.overrides]]
 module = "docassemble.ALWeaver.interview_generator"
 disable_error_code=["import-untyped"]
+
+[dependency-groups]
+dev = [
+    "docassemble.base",
+    "docassemble.webapp",
+    "more_itertools",
+    "pyyaml",
+    "docx2python",
+    "boto3",
+    "pandas-stubs",
+    "mypy",
+    "dayamlchecker",
+    "types-requests",
+    "types-PyYAML",
+]
+
