@@ -30,6 +30,7 @@ jobs:
         uses: suffolkLITLab/ALKiln/action_for_github_server@v5
         with:
           SHOW_DOCKER_OUTPUT: "${{ github.event.inputs.show_docker_output }}"
+          DOCASSEMBLECLI_VERSION: "0.0.25"
       - run: echo "ALKiln finished starting the isolated GitHub docassemble server"
       - name: Use ALKiln to run tests
         uses: SuffolkLITLab/ALKiln@v5
