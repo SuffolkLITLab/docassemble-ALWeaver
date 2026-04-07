@@ -148,7 +148,7 @@ def get_possible_deps_as_choices(dep_category=None):
                 ]
             )
 
-    return list(unique_everseen(dep_choices))
+    return list(unique_everseen(dep_choices, key=lambda x: frozenset(x.items())))
 
 
 def get_pypi_deps_from_choices(choices: Union[List[str], DADict]):
@@ -201,7 +201,7 @@ def get_full_dep_details(dep_category: Optional[str] = None) -> List:
         elif dep_category == "jurisdiction":
             dep_choices.extend(capabilities[capability].get("jurisdiction_choices", []))
 
-    return list(unique_everseen(dep_choices))
+    return list(unique_everseen(dep_choices, key=lambda x: frozenset(x.items())))
 
 
 def get_matching_deps(
@@ -234,7 +234,12 @@ def get_matching_deps(
 
     if len(dep_choices) > 0 or str(state).lower() == "any":
         return DADict(
-            elements={item: True for item in unique_everseen(dep_choices)},
+            elements={
+                item: True
+                for item in unique_everseen(
+                    dep_choices, key=lambda x: frozenset(x.items())
+                )
+            },
             auto_gather=False,
             gathered=True,
         )
