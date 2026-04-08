@@ -30,6 +30,8 @@ __all__ = [
     "playground_list_projects",
     "playground_list_yaml_files",
     "playground_get_variables",
+    "rename_saved_file",
+    "delete_saved_file",
 ]
 
 
@@ -202,6 +204,32 @@ def canonicalize_block_yaml(block_yaml: str) -> str:
     if not isinstance(parsed, dict):
         return block_yaml.strip()
     return canonical_block_yaml(parsed)
+
+
+def rename_saved_file(area: Any, directory: str, old_filename: str, new_filename: str) -> None:
+    """Rename a playground-backed file and sync the backing SavedFile storage."""
+
+    old_path = os.path.join(directory, old_filename)
+    if not os.path.isfile(old_path):
+        raise FileNotFoundError(f"{old_filename} not found")
+
+    new_path = os.path.join(directory, new_filename)
+    if os.path.exists(new_path):
+        raise ValueError(f"{new_filename} already exists")
+
+    os.rename(old_path, new_path)
+    area.finalize()
+
+
+def delete_saved_file(area: Any, directory: str, filename: str) -> None:
+    """Delete a playground-backed file and sync the backing SavedFile storage."""
+
+    path = os.path.join(directory, filename)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{filename} not found")
+
+    os.remove(path)
+    area.finalize()
 
 
 def _stable_block_id(index: int, block: Dict[str, Any]) -> str:

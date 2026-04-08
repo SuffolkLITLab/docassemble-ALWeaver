@@ -44,7 +44,9 @@
     currentView: 'interview',
     canvasMode: 'project-selector',
     questionEditMode: 'preview',
+    questionBlockTab: 'screen',
     advancedOpen: false,
+    advancedShowMore: false,
     jumpTarget: 'questions',
     fullYamlTab: 'full',
     searchQuery: '',
@@ -65,8 +67,9 @@
     dirty: false,
     markdownPreviewMode: false,
     insertAfterBlockId: null,
-    reorderMode: false,
-    reorderOriginalOrder: [],
+    fullYamlStash: {},
+    validationErrors: [],
+    validationOpen: false,
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -398,17 +401,6 @@
         '  - New field: new_field_' + stamp + '\n'
       );
     }
-    if (kind === 'review') {
-      return (
-        'id: review_' + stamp + '\n' +
-        'question: Review your answers\n' +
-        'review:\n' +
-        '  - Edit field: some_variable\n' +
-        '    button: |\n' +
-        '      Current value: ${ some_variable }\n' +
-        'continue button field: review_done_' + stamp + '\n'
-      );
-    }
     if (kind === 'code') {
       return (
         'id: code_' + stamp + '\n' +
@@ -424,62 +416,16 @@
         '  - user: Individual\n'
       );
     }
-    if (kind === 'includes') {
-      return (
-        'id: includes_' + stamp + '\n' +
-        'include:\n' +
-        '  - other_file.yml\n'
-      );
-    }
     if (kind === 'attachment') {
       return (
         'id: attachment_' + stamp + '\n' +
-        'attachment:\n' +
-        '  name: Draft document\n' +
-        '  filename: draft_document\n' +
-        '  docx template file: draft_template.docx\n' +
-        '  skip undefined: true\n' +
-        '  tagged pdf: true\n' +
-        '  variable name: draft_document_attachment[i]\n'
-      );
-    }
-    if (kind === 'table') {
-      return (
-        'id: table_' + stamp + '\n' +
-        'table: users.table\n' +
-        'rows: users\n' +
-        'columns:\n' +
-        '  - Name: row_item.name.full()\n' +
-        '  - Address: row_item.address.on_one_line()\n' +
-        'edit:\n' +
-        '  - name.first\n'
-      );
-    }
-    if (kind === 'template') {
-      return (
-        'id: template_' + stamp + '\n' +
-        'template: help_text_' + stamp + '\n' +
-        'subject: |\n' +
-        '  Help topic\n' +
-        'content: |\n' +
-        '  Add your help content here.\n'
-      );
-    }
-    if (kind === 'terms') {
-      return (
-        'id: terms_' + stamp + '\n' +
-        'terms:\n' +
-        '  legal term: |\n' +
-        '    Add the definition for this term.\n'
-      );
-    }
-    if (kind === 'sections') {
-      return (
-        'id: sections_' + stamp + '\n' +
-        'sections:\n' +
-        '  - intro: Introduction\n' +
-        '  - details: Details\n' +
-        '  - review: Review\n'
+        'question: Download your document\n' +
+        'subquestion: |\n' +
+        '  Your document is ready.\n' +
+        'attachments:\n' +
+        '  - name: Draft document\n' +
+        '    filename: draft_document\n' +
+        '    docx template file: draft_template.docx\n'
       );
     }
     return (
@@ -617,9 +563,11 @@
     state.advancedOpen = false;
     state.markdownPreviewMode = false;
     state.dirty = false;
+    state.fullYamlStash = {};
     loadAvailableSymbols();
     renderOutline();
     renderCanvas();
+    runValidation();
   }
 
   function setActiveTopTab(targetTab) {
@@ -650,10 +598,86 @@
     'number', 'integer', 'currency', 'date', 'time', 'datetime',
     'email', 'password', 'url',
     'file', 'files', 'camera',
-    'code',
     'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
-    'range', 'object', 'object_radio', 'object_checkboxes',
-    'ml', 'microphone',
+    'range', 'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
+    'ml', 'mlarea', 'microphone', 'camcorder',
+    'hidden', 'raw', 'note', 'html', 'raw html', 'code',
+    'user', 'environment',
+  ];
+
+  var FIELD_TYPE_GROUPS = [
+    { label: 'Text inputs', items: ['text', 'area', 'raw', 'email', 'password', 'url', 'ml', 'mlarea'] },
+    { label: 'Numbers', items: ['number', 'integer', 'currency', 'range'] },
+    { label: 'Choices', items: ['radio', 'checkboxes', 'dropdown', 'combobox', 'multiselect'] },
+    { label: 'Booleans', items: ['yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe', 'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe'] },
+    { label: 'Date and time', items: ['date', 'time', 'datetime'] },
+    { label: 'Files and media', items: ['file', 'files', 'camera', 'microphone', 'camcorder', 'environment'] },
+    { label: 'Objects', items: ['object', 'object_radio', 'object_checkboxes', 'object_multiselect', 'user'] },
+    { label: 'Standalone content', items: ['note', 'html', 'raw html'] },
+    { label: 'Special', items: ['hidden', 'code'] },
+  ];
+
+  var FIELD_STANDALONE_TYPES = ['note', 'html', 'raw html', 'code'];
+
+  var FIELD_TYPE_LABELS = {
+    raw: 'Raw',
+    note: 'Note row',
+    html: 'HTML row',
+    'raw html': 'Raw HTML row',
+    code: 'Fields code',
+    hidden: 'Hidden input',
+    mlarea: 'ML area',
+    object_radio: 'Object radio',
+    object_checkboxes: 'Object checkboxes',
+    object_multiselect: 'Object multiselect',
+    yesnowide: 'Yes/no wide',
+    yesnoradio: 'Yes/no radio',
+    yesnomaybe: 'Yes/no maybe',
+    noyeswide: 'No/yes wide',
+    noyesradio: 'No/yes radio',
+    noyesmaybe: 'No/yes maybe',
+  };
+
+  function _normalizeFieldType(type) {
+    return String(type || 'text').trim().toLowerCase() || 'text';
+  }
+
+  function _isStandaloneFieldType(type) {
+    return FIELD_STANDALONE_TYPES.indexOf(_normalizeFieldType(type)) !== -1;
+  }
+
+  function _fieldTypeSupportsStandaloneContent(type) {
+    return _isStandaloneFieldType(type);
+  }
+
+  // All known field modifier keys
+  var FIELD_MODIFIER_KEYS = [
+    'datatype', 'input type', 'required', 'disabled', 'under text', 'hint',
+    'help', 'default', 'choices', 'code', 'exclude', 'none of the above',
+    'all of the above', 'shuffle', 'show if', 'hide if', 'enable if',
+    'disable if', 'js show if', 'js hide if', 'js enable if', 'js disable if',
+    'disable others', 'note', 'html', 'raw html', 'no label', 'css class',
+    'label above field', 'floating label', 'grid', 'item grid', 'label', 'field',
+    'field metadata', 'min', 'max', 'minlength', 'maxlength', 'step', 'rows',
+    'validate', 'validation code', 'validation messages', 'accept',
+    'maximum image size', 'image upload type', 'persistent', 'private',
+    'allow users', 'allow privileges', 'file css class', 'inline width',
+    'address autocomplete', 'uncheck others', 'check others', 'object labeler',
+  ];
+
+  // Question-level modifier keys (from modifiers.html)
+  var QUESTION_MODIFIER_KEYS = [
+    'id', 'if', 'mandatory', 'sets', 'only sets', 'need', 'event',
+    'generic object', 'continue button field', 'continue button label',
+    'continue button color', 'audio', 'video', 'help', 'decoration',
+    'script', 'css', 'progress', 'section', 'prevent going back',
+    'back button', 'back button label', 'corner back button label',
+    'terms', 'auto terms', 'language', 'role', 'reload',
+    'ga id', 'segment id', 'segment', 'breadcrumb', 'supersedes',
+    'allowed to set', 'hide continue button', 'disable continue button',
+    'scan for variables', 'depends on', 'undefine', 'reconsider',
+    'action buttons', 'comment', 'tabular', 'resume button label',
+    'validation code',
   ];
 
   // -------------------------------------------------------------------------
@@ -704,6 +728,31 @@
     return out;
   }
 
+  function generateBlockId(questionText, blocks, currentId) {
+    var base = String(questionText || '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40) || 'question';
+    var existing = {};
+    (blocks || []).forEach(function (b) {
+      if (b.id && b.id !== currentId) existing[b.id] = true;
+    });
+    var id = base;
+    var count = 2;
+    while (existing[id]) {
+      id = base + '_' + count;
+      count += 1;
+    }
+    return id;
+  }
+
+  function isBlockIdUnique(id, blocks, currentId) {
+    if (!id) return false;
+    return !(blocks || []).some(function (b) {
+      return b.id === id && b.id !== currentId;
+    });
+  }
+
   function fuzzyMatch(query, text) {
     var q = String(query || '').toLowerCase().trim();
     var t = String(text || '').toLowerCase();
@@ -718,7 +767,7 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file' || role === 'yaml-file') {
+    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
       return role;
     }
     return 'all';
@@ -804,18 +853,6 @@
         });
       }
       return templateLike;
-    }
-    if (role === 'yaml-file') {
-      var yamlLike = _groupEntries(groups, ['yaml_files']);
-      if (!yamlLike.length) {
-        Object.keys(groups).forEach(function (key) {
-          if (key.toLowerCase().indexOf('yaml') === -1 && key.toLowerCase().indexOf('yml') === -1) return;
-          (groups[key] || []).forEach(function (name) {
-            yamlLike.push({ name: String(name), group: key });
-          });
-        });
-      }
-      return yamlLike;
     }
     if (role === 'static-file') {
       var staticFiles = _groupEntries(groups, ['static_files', 'static_images']);
@@ -984,25 +1021,33 @@
   function renderMarkdownToolbar(targetId, compact) {
     var cls = compact ? ' editor-md-toolbar-compact' : '';
     var html = '<div class="editor-md-toolbar' + cls + '" data-md-toolbar-for="' + esc(targetId) + '">';
+    // Primary actions — always visible
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="bold" data-target-id="' + esc(targetId) + '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="italic" data-target-id="' + esc(targetId) + '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="heading" data-target-id="' + esc(targetId) + '" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="link" data-target-id="' + esc(targetId) + '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="image" data-target-id="' + esc(targetId) + '" title="Image"><i class="fa-regular fa-image" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="table" data-target-id="' + esc(targetId) + '" title="Table"><i class="fa-solid fa-table" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="file" data-target-id="' + esc(targetId) + '" title="FILE markup"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="qr" data-target-id="' + esc(targetId) + '" title="QR code"><i class="fa-solid fa-qrcode" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="youtube" data-target-id="' + esc(targetId) + '" title="YouTube"><i class="fa-brands fa-youtube" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="field" data-target-id="' + esc(targetId) + '" title="Embed field"><i class="fa-solid fa-i-cursor" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="target" data-target-id="' + esc(targetId) + '" title="Embed target"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="twocol" data-target-id="' + esc(targetId) + '" title="Two-column layout"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako" data-target-id="' + esc(targetId) + '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '" title="Insert variable name only"><i class="fa-solid fa-at" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '" title="Insert Mako conditional"><i class="fa-solid fa-code-branch" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '" title="Insert Mako loop"><i class="fa-solid fa-repeat" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '" title="Insert Mako Python block"><i class="fa-solid fa-terminal" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="docs-markup" data-target-id="' + esc(targetId) + '" title="Docassemble markup docs"><i class="fa-solid fa-book" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="docs-mako" data-target-id="' + esc(targetId) + '" title="Mako syntax docs"><i class="fa-solid fa-book-open" aria-hidden="true"></i></button>';
+    // Kebab overflow menu for less common actions
+    html += '<div class="dropdown d-inline-block">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="image" data-target-id="' + esc(targetId) + '"><i class="fa-regular fa-image me-2" aria-hidden="true"></i>Image</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="table" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table me-2" aria-hidden="true"></i>Table</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="file" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-file-lines me-2" aria-hidden="true"></i>FILE markup</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="qr" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-qrcode me-2" aria-hidden="true"></i>QR code</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="youtube" data-target-id="' + esc(targetId) + '"><i class="fa-brands fa-youtube me-2" aria-hidden="true"></i>YouTube</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="field" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-i-cursor me-2" aria-hidden="true"></i>Embed field</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="target" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-bullseye me-2" aria-hidden="true"></i>Embed target</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="twocol" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table-columns me-2" aria-hidden="true"></i>Two-column layout</button></li>';
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-at me-2" aria-hidden="true"></i>Insert variable name</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Mako conditional</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-repeat me-2" aria-hidden="true"></i>Mako loop</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-markup" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book me-2" aria-hidden="true"></i>Markup docs</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-mako" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book-open me-2" aria-hidden="true"></i>Mako docs</button></li>';
+    html += '</ul></div>';
     html += '</div>';
     return html;
   }
@@ -1763,7 +1808,8 @@
   }
 
   // Datatypes that accept a choices list
-  var CHOICE_TYPES = ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown'];
+  var CHOICE_TYPES = ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
+                      'object', 'object_radio', 'object_checkboxes', 'object_multiselect'];
 
   function escapeYamlStr(str) {
     if (!str) return str;
@@ -1798,6 +1844,17 @@
     return yaml;
   }
 
+  function appendYamlBlockValue(yaml, key, value) {
+    if (value === undefined || value === null) return yaml;
+    var text = String(value);
+    if (!text.trim()) return yaml;
+    yaml += key + ': |\n';
+    text.split('\n').forEach(function (line) {
+      yaml += '      ' + line + '\n';
+    });
+    return yaml;
+  }
+
   function serializeQuestionToYaml(block) {
     var yaml = '';
 
@@ -1812,8 +1869,9 @@
       yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
     }
 
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
       yaml += 'mandatory: True\n';
     }
 
@@ -1849,13 +1907,46 @@
       yaml += 'fields:\n';
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
-        var label = row.querySelector('[data-field-prop="label"]').value || 'Label';
+        var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
         var type = row.querySelector('[data-field-prop="type"]').value;
+        var isStandaloneType = _fieldTypeSupportsStandaloneContent(type);
+        var labelEl = row.querySelector('[data-field-prop="label"]');
+        var label = labelEl ? String(labelEl.value || '') : '';
+        if (!isStandaloneType && !label) label = 'Label';
         var variable = row.querySelector('[data-field-prop="variable"]').value;
-        var choicesEl = document.getElementById('field-choices-' + i);
-
+        var choicesEl = document.getElementById('field-choices-' + rowIdx);
+        var codeEl = document.getElementById('field-code-' + rowIdx);
+        var showIfEl = document.getElementById('field-showif-' + rowIdx);
+        var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
+        var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
+        var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
+        var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
+        var sfmods = {};
+        fmodInputs.forEach(function (el) { var k = el.getAttribute('data-fmod'); var v = el.value.trim(); if (v) sfmods[k] = v; });
+        var hasCodeExpr = codeEl && codeEl.value.trim();
+        var hasChoices = choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1;
+        var showIfVal = showIfEl ? showIfEl.value.trim() : '';
+        var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
+        var isRequired = requiredSwitch ? requiredSwitch.checked : true;
+        var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(sfmods).length > 0;
         var isMultiLineLabel = label.indexOf('\n') !== -1;
-        if (isMultiLineLabel) {
+        if (isStandaloneType) {
+          yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
+          if (hasChoices) {
+            yaml += '    choices:\n';
+            choicesEl.value.split('\n').forEach(function (c) { if (c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n'; });
+          }
+          if (hasCodeExpr) {
+            var codeStr = codeEl.value.trim();
+            yaml += '    code: |\n';
+            codeStr.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+          }
+          if (!isRequired) yaml += '    required: False\n';
+          if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
+          Object.keys(sfmods).forEach(function (k) { yaml += '    ' + k + ': ' + escapeYamlStr(sfmods[k]) + '\n'; });
+          continue;
+        }
+        if (isMultiLineLabel || hasMods) {
           yaml += '  - label: ' + escapeYamlStr(label) + '\n';
           if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
         } else {
@@ -1867,12 +1958,22 @@
           }
         }
         if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
-        if (choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1) {
+        if (hasChoices) {
           yaml += '    choices:\n';
-          choicesEl.value.split('\n').forEach(function (c) {
-            if (c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n';
-          });
+          choicesEl.value.split('\n').forEach(function (c) { if (c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n'; });
         }
+        if (hasCodeExpr) {
+          var codeStr = codeEl.value.trim();
+          if (codeStr.indexOf('\n') !== -1) {
+            yaml += '    code: |\n';
+            codeStr.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+          } else {
+            yaml += '    code: ' + codeStr + '\n';
+          }
+        }
+        if (!isRequired) yaml += '    required: False\n';
+        if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
+        Object.keys(sfmods).forEach(function (k) { yaml += '    ' + k + ': ' + escapeYamlStr(sfmods[k]) + '\n'; });
       }
     }
 
@@ -1885,6 +1986,42 @@
     if (contLabel && contLabel.value.trim()) {
       yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
     }
+
+    // Extended advanced fields
+    var _simpleAdvKeys = [
+      ['adv-continue-color', 'continue button color'],
+      ['adv-hide-continue', 'hide continue button'],
+      ['adv-disable-continue', 'disable continue button'],
+      ['adv-prevent-back', 'prevent going back'],
+      ['adv-back-button', 'back button'],
+      ['adv-back-button-label', 'back button label'],
+      ['adv-progress', 'progress'],
+      ['adv-section', 'section'],
+      ['adv-audio', 'audio'],
+      ['adv-video', 'video'],
+      ['adv-decoration', 'decoration'],
+      ['adv-language', 'language'],
+      ['adv-reload', 'reload'],
+      ['adv-role', 'role'],
+      ['adv-ga-id', 'ga id'],
+      ['adv-segment-id', 'segment id'],
+      ['adv-scan-vars', 'scan for variables'],
+      ['adv-resume-button-label', 'resume button label'],
+    ];
+    _simpleAdvKeys.forEach(function (pair) {
+      var el = document.getElementById(pair[0]);
+      if (el && String(el.value || '').trim()) yaml = appendYamlValue(yaml, pair[1], el.value);
+    });
+    ['adv-help', 'adv-script', 'adv-css', 'adv-validation-code', 'adv-comment'].forEach(function (id) {
+      var el = document.getElementById(id);
+      var keyMap = { 'adv-help': 'help', 'adv-script': 'script', 'adv-css': 'css', 'adv-validation-code': 'validation code', 'adv-comment': 'comment' };
+      if (el && String(el.value || '').trim()) yaml = appendYamlValue(yaml, keyMap[id], el.value);
+    });
+    ['adv-allowed-to-set', 'adv-depends-on', 'adv-undefine', 'adv-reconsider'].forEach(function (id) {
+      var el = document.getElementById(id);
+      var keyMap = { 'adv-allowed-to-set': 'allowed to set', 'adv-depends-on': 'depends on', 'adv-undefine': 'undefine', 'adv-reconsider': 'reconsider' };
+      if (el && String(el.value || '').trim()) yaml = appendYamlListValue(yaml, keyMap[id], el.value);
+    });
 
     return yaml;
   }
@@ -1901,8 +2038,9 @@
       yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
     }
 
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
       yaml += 'mandatory: True\n';
     }
 
@@ -1961,8 +2099,9 @@
       yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
     }
 
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
       yaml += 'mandatory: True\n';
     }
 
@@ -2011,504 +2150,6 @@
     }
 
     return yaml;
-  }
-
-  function isSpecialStructuredBlockType(type) {
-    return type === 'includes' || type === 'attachment' || type === 'review' || type === 'table' || type === 'template' || type === 'terms' || type === 'sections';
-  }
-
-  function _serializeSpecialId(block, fallback) {
-    var idInput = document.getElementById('special-id');
-    return (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : fallback);
-  }
-
-  function _toBoolText(value) {
-    return value ? 'true' : 'false';
-  }
-
-  function _parseBoolValue(value) {
-    var text = String(value || '').trim().toLowerCase();
-    return text === 'true' || text === 'yes' || text === '1';
-  }
-
-  function _textAreaLines(id) {
-    var el = document.getElementById(id);
-    if (!el) return [];
-    return String(el.value || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
-  }
-
-  function serializeSpecialBlockToYaml(block) {
-    if (!block) return '';
-    if (block.type === 'includes') {
-      var includesYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'includes_block'));
-      var includeRows = _textAreaLines('includes-list');
-      var includeKey = (block.data && Object.prototype.hasOwnProperty.call(block.data, 'includes')) ? 'includes' : 'include';
-      if (includeRows.length <= 1) {
-        if (includeRows.length) includesYaml = appendYamlValue(includesYaml, includeKey, includeRows[0]);
-      } else {
-        includesYaml += includeKey + ':\n';
-        includeRows.forEach(function (line) {
-          includesYaml += '  - ' + escapeYamlStr(line) + '\n';
-        });
-      }
-      return includesYaml;
-    }
-
-    if (block.type === 'attachment') {
-      if (((document.getElementById('attachment-structured-supported') || {}).value || 'true') === 'false') {
-        return block.yaml || '';
-      }
-      var attachmentYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'attachment_block'));
-      var questionVal = ((document.getElementById('attachment-question') || {}).value || '').trim();
-      var subVal = (document.getElementById('attachment-subquestion') || {}).value || '';
-      if (questionVal) attachmentYaml = appendYamlValue(attachmentYaml, 'question', questionVal);
-      if (subVal.trim()) attachmentYaml = appendYamlValue(attachmentYaml, 'subquestion', subVal);
-      var includeAsList = (document.getElementById('attachment-as-list') || {}).checked;
-      var attName = ((document.getElementById('attachment-name') || {}).value || '').trim();
-      var attFileName = ((document.getElementById('attachment-filename') || {}).value || '').trim();
-      var attDocx = ((document.getElementById('attachment-docx-template') || {}).value || '').trim();
-      var attPdf = ((document.getElementById('attachment-pdf-template') || {}).value || '').trim();
-      var attVar = ((document.getElementById('attachment-variable-name') || {}).value || '').trim();
-      var attSkip = _parseBoolValue((document.getElementById('attachment-skip-undefined') || {}).value || 'false');
-      var attTagged = _parseBoolValue((document.getElementById('attachment-tagged-pdf') || {}).value || 'false');
-      var baseIndent = includeAsList ? '    ' : '  ';
-      attachmentYaml += (includeAsList ? 'attachments:\n  -\n' : 'attachment:\n');
-      if (attDocx) attachmentYaml += baseIndent + 'docx template file: ' + escapeYamlStr(attDocx) + '\n';
-      if (attPdf) attachmentYaml += baseIndent + 'pdf template file: ' + escapeYamlStr(attPdf) + '\n';
-      if (attFileName) attachmentYaml += baseIndent + 'filename: ' + escapeYamlStr(attFileName) + '\n';
-      if (attName) attachmentYaml += baseIndent + 'name: ' + escapeYamlStr(attName) + '\n';
-      attachmentYaml += baseIndent + 'skip undefined: ' + _toBoolText(attSkip) + '\n';
-      attachmentYaml += baseIndent + 'tagged pdf: ' + _toBoolText(attTagged) + '\n';
-      if (attVar) attachmentYaml += baseIndent + 'variable name: ' + escapeYamlStr(attVar) + '\n';
-      return attachmentYaml;
-    }
-
-    if (block.type === 'review') {
-      if (((document.getElementById('review-structured-supported') || {}).value || 'true') === 'false') {
-        return block.yaml || '';
-      }
-      var reviewYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'review_block'));
-      var reviewEventVal = ((document.getElementById('review-event') || {}).value || '').trim();
-      if (reviewEventVal) reviewYaml = appendYamlValue(reviewYaml, 'event', reviewEventVal);
-      var reviewNeedStr = ((document.getElementById('review-need') || {}).value || '').trim();
-      if (reviewNeedStr) reviewYaml = appendYamlListValue(reviewYaml, 'need', reviewNeedStr);
-      reviewYaml = appendYamlValue(reviewYaml, 'question', ((document.getElementById('review-question') || {}).value || '').trim() || 'Review your answers');
-      var reviewRows = document.querySelectorAll('.editor-review-row');
-      reviewYaml += 'review:\n';
-      reviewRows.forEach(function (row) {
-        var label = (row.querySelector('[data-review-prop="label"]') || {}).value || '';
-        var target = (row.querySelector('[data-review-prop="target"]') || {}).value || '';
-        var button = (row.querySelector('[data-review-prop="button"]') || {}).value || '';
-        var cleanLabel = String(label || '').trim();
-        var cleanTarget = String(target || '').trim();
-        if (!cleanLabel && !cleanTarget) return;
-        reviewYaml += '  - ' + escapeYamlStr(cleanLabel || 'Edit') + ': ' + escapeYamlStr(cleanTarget || '') + '\n';
-        if (String(button || '').trim()) reviewYaml += '    button: ' + escapeYamlStr(button) + '\n';
-      });
-      var continueField = ((document.getElementById('review-continue-field') || {}).value || '').trim();
-      if (continueField) reviewYaml = appendYamlValue(reviewYaml, 'continue button field', continueField);
-      var tabularChecked = Boolean((document.getElementById('review-tabular') || {}).checked);
-      if (tabularChecked) reviewYaml += 'tabular: true\n';
-      return reviewYaml;
-    }
-
-    if (block.type === 'table') {
-      var tableYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'table_block'));
-      tableYaml = appendYamlValue(tableYaml, 'table', ((document.getElementById('table-name') || {}).value || '').trim() || 'my_list.table');
-      tableYaml = appendYamlValue(tableYaml, 'rows', ((document.getElementById('table-rows') || {}).value || '').trim() || 'my_list');
-      var columnRows = _textAreaLines('table-columns');
-      tableYaml += 'columns:\n';
-      columnRows.forEach(function (line) {
-        var split = line.split(':');
-        if (split.length >= 2) {
-          var label = split.shift();
-          var expr = split.join(':');
-          tableYaml += '  - ' + escapeYamlStr(String(label || '').trim()) + ': ' + escapeYamlStr(String(expr || '').trim()) + '\n';
-        } else {
-          tableYaml += '  - ' + escapeYamlStr(line) + '\n';
-        }
-      });
-      var editRows = _textAreaLines('table-edit');
-      if (editRows.length) {
-        tableYaml += 'edit:\n';
-        editRows.forEach(function (line) {
-          tableYaml += '  - ' + escapeYamlStr(line) + '\n';
-        });
-      }
-      if (Boolean((document.getElementById('table-show-incomplete') || {}).checked)) tableYaml += 'show incomplete: true\n';
-      var showEmpty = ((document.getElementById('table-show-if-empty') || {}).value || '').trim();
-      if (showEmpty) tableYaml = appendYamlValue(tableYaml, 'show if empty', showEmpty);
-      return tableYaml;
-    }
-
-    if (block.type === 'template') {
-      var templateYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'template_block'));
-      templateYaml = appendYamlValue(templateYaml, 'template', ((document.getElementById('template-name') || {}).value || '').trim() || 'template_name');
-      var subjectText = (document.getElementById('template-subject') || {}).value || '';
-      var contentText = (document.getElementById('template-content') || {}).value || '';
-      if (String(subjectText).trim()) templateYaml = appendYamlValue(templateYaml, 'subject', subjectText);
-      if (String(contentText).trim()) templateYaml = appendYamlValue(templateYaml, 'content', contentText);
-      return templateYaml;
-    }
-
-    if (block.type === 'terms') {
-      var termsYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'terms_block'));
-      termsYaml += 'terms:\n';
-      var termRows = document.querySelectorAll('.editor-terms-row');
-      termRows.forEach(function (row) {
-        var term = (row.querySelector('[data-terms-prop="term"]') || {}).value || '';
-        var definition = (row.querySelector('[data-terms-prop="definition"]') || {}).value || '';
-        var cleanTerm = String(term || '').trim();
-        var cleanDef = String(definition || '').trim();
-        if (!cleanTerm || !cleanDef) return;
-        termsYaml += '  ' + escapeYamlStr(cleanTerm) + ': ' + escapeYamlStr(cleanDef) + '\n';
-      });
-      return termsYaml;
-    }
-
-    if (block.type === 'sections') {
-      var sectionsStyleEl = document.getElementById('sections-style');
-      var isAlNavMode = sectionsStyleEl && sectionsStyleEl.value === 'al';
-      var sectionRows = document.querySelectorAll('.editor-sections-row');
-      if (isAlNavMode) {
-        var alSectionsYaml = 'reconsider: True\n';
-        alSectionsYaml += 'variable name: al_nav_sections\n';
-        alSectionsYaml += 'data from code:\n';
-        sectionRows.forEach(function (row) {
-          var key = (row.querySelector('[data-sections-prop="key"]') || {}).value || '';
-          var label = (row.querySelector('[data-sections-prop="label"]') || {}).value || '';
-          var hidden = (row.querySelector('[data-sections-prop="hidden"]') || {}).value || '';
-          var cleanKey = String(key || '').trim();
-          var cleanLabel = String(label || '').trim();
-          if (!cleanKey || !cleanLabel) return;
-          alSectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': |\n';
-          alSectionsYaml += '      "' + cleanLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"\n';
-          if (String(hidden || '').trim()) {
-            alSectionsYaml += '    hidden: ' + String(hidden).trim() + '\n';
-          }
-        });
-        return alSectionsYaml;
-      }
-      var sectionsYaml = appendYamlValue('', 'id', _serializeSpecialId(block, 'sections_block'));
-      sectionsYaml += 'sections:\n';
-      sectionRows.forEach(function (row) {
-        var key = (row.querySelector('[data-sections-prop="key"]') || {}).value || '';
-        var label = (row.querySelector('[data-sections-prop="label"]') || {}).value || '';
-        var subs = (row.querySelector('[data-sections-prop="subs"]') || {}).value || '';
-        var cleanKey = String(key || '').trim();
-        var cleanLabel = String(label || '').trim();
-        if (!cleanKey || !cleanLabel) return;
-        var subsectionItems = String(subs || '').split(',').map(function (item) { return item.trim(); }).filter(Boolean);
-        if (!subsectionItems.length) {
-          sectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': ' + escapeYamlStr(cleanLabel) + '\n';
-        } else {
-          sectionsYaml += '  - ' + escapeYamlStr(cleanKey) + ': ' + escapeYamlStr(cleanLabel) + '\n';
-          sectionsYaml += '    subsections:\n';
-          subsectionItems.forEach(function (subName) {
-            sectionsYaml += '      - ' + escapeYamlStr(subName) + '\n';
-          });
-        }
-      });
-      return sectionsYaml;
-    }
-
-    return getMonacoValue('block-yaml-monaco') || block.yaml || '';
-  }
-
-  function renderSpecialBlock(block) {
-    var data = block.data || {};
-    var html = '';
-    var isPreview = state.questionEditMode === 'preview';
-    var isMdBlock = block.type === 'template' || block.type === 'attachment' || block.type === 'review';
-    var isMdPreview = isPreview && state.markdownPreviewMode && isMdBlock;
-
-    html += '<div class="editor-center-bar">';
-    html += '<div>';
-    html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
-    html += '</div>';
-    html += '<div class="d-flex gap-2 align-items-center">';
-    if (isPreview && isMdBlock) {
-      html += '<div class="btn-group btn-group-sm" role="group" aria-label="Edit or preview mode">';
-      html += '<button type="button" class="btn btn-sm ' + (!isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-off">Edit</button>';
-      html += '<button type="button" class="btn btn-sm ' + (isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-on"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
-      html += '</div>';
-    }
-    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Structured view') + '</button>';
-    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
-    html += '</div></div>';
-
-    html += '<div class="editor-shell">';
-
-    if (!isPreview) {
-      html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
-      html += '</div></div>';
-      html += '</div>';
-      canvasContent.innerHTML = html;
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
-        });
-      });
-      return;
-    }
-
-    html += '<div class="editor-card"><div class="editor-card-body editor-card-body-compact">';
-    html += '<div class="editor-form-group"><label class="editor-tiny" for="special-id">Block ID</label>';
-    html += '<input class="form-control editor-form-control font-monospace" id="special-id" value="' + esc(block.id || '') + '"></div>';
-
-    if (block.type === 'includes') {
-      var includeValues = data.includes || data.include || [];
-      if (!Array.isArray(includeValues)) includeValues = [includeValues];
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="includes-list">Included YAML files (one per line)</label>';
-      html += '<textarea class="form-control editor-form-control font-monospace" id="includes-list" data-symbol-role="yaml-file" rows="6" placeholder="other_file.yml">' + esc(includeValues.join('\n')) + '</textarea>';
-      html += '<div class="editor-tiny mt-1">Type to see YAML files in this package, or enter a new filename.</div></div>';
-    } else if (block.type === 'attachment') {
-      var attachmentObj = {};
-      var useList = false;
-      var attachmentStructuredSupported = true;
-      if (data.attachment && typeof data.attachment === 'object') attachmentObj = data.attachment;
-      else if (Array.isArray(data.attachments) && data.attachments.length && typeof data.attachments[0] === 'object') {
-        attachmentObj = data.attachments[0];
-        useList = true;
-        if (data.attachments.length > 1) attachmentStructuredSupported = false;
-      }
-      html += '<input type="hidden" id="attachment-structured-supported" value="' + (attachmentStructuredSupported ? 'true' : 'false') + '">';
-      if (!attachmentStructuredSupported) {
-        html += '<div class="editor-info-box mb-3">This block has multiple attachments. Structured editing is disabled to avoid data loss. Switch to YAML mode to edit.</div>';
-      }
-      var isMdPreviewAttach = isPreview && state.markdownPreviewMode;
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-question">Question (optional)</label>';
-      if (isMdPreviewAttach) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.question || '')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('attachment-question', false);
-        html += '<textarea class="form-control editor-form-control" id="attachment-question" rows="2">' + esc(String(data.question || '')) + '</textarea>';
-      }
-      html += '</div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-subquestion">Subquestion (optional)</label>';
-      if (isMdPreviewAttach) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subquestion || '')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('attachment-subquestion', false);
-        html += '<textarea class="form-control editor-form-control" id="attachment-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea>';
-      }
-      html += '</div>';
-      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="attachment-as-list"' + (useList ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="attachment-as-list">Use attachments list format</label></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-docx-template">DOCX template file</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="attachment-docx-template" data-symbol-role="template-file" value="' + esc(String(attachmentObj['docx template file'] || '')) + '"></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-pdf-template">PDF template file</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="attachment-pdf-template" data-symbol-role="template-file" value="' + esc(String(attachmentObj['pdf template file'] || '')) + '"></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-filename">Filename</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="attachment-filename" value="' + esc(String(attachmentObj.filename || '')) + '"></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-name">Name</label>';
-      html += '<input class="form-control editor-form-control" id="attachment-name" value="' + esc(String(attachmentObj.name || '')) + '"></div>';
-      var attSkipUndef = Boolean(attachmentObj['skip undefined']);
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-skip-undefined">Skip undefined</label>';
-      html += '<select class="form-select editor-form-control" id="attachment-skip-undefined"><option value="true"' + (attSkipUndef ? ' selected' : '') + '>true</option><option value="false"' + (!attSkipUndef ? ' selected' : '') + '>false</option></select></div>';
-      var attTaggedPdf = Boolean(attachmentObj['tagged pdf']);
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-tagged-pdf">Tagged PDF</label>';
-      html += '<select class="form-select editor-form-control" id="attachment-tagged-pdf"><option value="true"' + (attTaggedPdf ? ' selected' : '') + '>true</option><option value="false"' + (!attTaggedPdf ? ' selected' : '') + '>false</option></select></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="attachment-variable-name">Variable name</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="attachment-variable-name" value="' + esc(String(attachmentObj['variable name'] || '')) + '"></div>';
-    } else if (block.type === 'review') {
-      var reviewItems = Array.isArray(data.review) ? data.review : [];
-      var reviewStructuredSupported = true;
-      reviewItems.forEach(function (item) {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-          reviewStructuredSupported = false;
-          return;
-        }
-        var reviewKeys = Object.keys(item).filter(function (key) { return key !== 'button'; });
-        if (reviewKeys.length !== 1) reviewStructuredSupported = false;
-        if (reviewKeys.length === 1) {
-          var reviewValue = item[reviewKeys[0]];
-          if (Array.isArray(reviewValue) || (reviewValue && typeof reviewValue === 'object')) reviewStructuredSupported = false;
-        }
-      });
-      html += '<input type="hidden" id="review-structured-supported" value="' + (reviewStructuredSupported ? 'true' : 'false') + '">';
-      if (!reviewStructuredSupported) {
-        html += '<div class="editor-info-box mb-3">This review block uses advanced syntax. Structured editing is disabled to avoid data loss. Switch to YAML mode to edit.</div>';
-      }
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-event">Event (optional — use for revisit events)</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '" placeholder="review_your_answers"></div>';
-      var reviewNeedVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need (optional, comma-separated variables)</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="review-need" data-symbol-role="all" value="' + esc(reviewNeedVal) + '"></div>';
-      var isMdPreviewReview = isPreview && state.markdownPreviewMode;
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-question">Question</label>';
-      if (isMdPreviewReview) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.question || 'Review your answers')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('review-question', false);
-        html += '<textarea class="form-control editor-form-control" id="review-question" rows="2">' + esc(String(data.question || 'Review your answers')) + '</textarea>';
-      }
-      html += '</div>';
-      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="review-tabular"' + (Boolean(data.tabular) ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="review-tabular">Tabular review style</label></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-continue-field">Continue button field</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="review-continue-field" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
-      if (reviewItems.length) {
-        reviewItems.forEach(function (item, idx) {
-          var label = '';
-          var target = '';
-          var buttonText = '';
-          if (item && typeof item === 'object') {
-            if (item.button) buttonText = String(item.button || '');
-            Object.keys(item).forEach(function (key) {
-              if (key === 'button') return;
-              if (!label) {
-                label = key;
-                target = String(item[key] || '');
-              }
-            });
-          }
-          html += '<div class="editor-review-row mb-3" data-review-idx="' + idx + '">';
-          html += '<label class="editor-tiny">Label</label><input class="form-control editor-form-control" data-review-prop="label" value="' + esc(label) + '">';
-          html += '<label class="editor-tiny mt-2">Variable/action</label><input class="form-control editor-form-control font-monospace" data-review-prop="target" data-symbol-role="all" value="' + esc(target) + '">';
-          html += '<label class="editor-tiny mt-2">Button text</label><textarea class="form-control editor-form-control" rows="3" data-review-prop="button">' + esc(buttonText) + '</textarea>';
-          html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-review="' + idx + '">Remove row</button></div>';
-          html += '</div>';
-        });
-      } else {
-        html += '<div class="editor-info-box mb-2">No review rows yet.</div>';
-      }
-      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-review-row">+ Add review row</button>';
-    } else if (block.type === 'table') {
-      var columns = Array.isArray(data.columns) ? data.columns : [];
-      var editFields = Array.isArray(data.edit) ? data.edit : [];
-      var columnLines = columns.map(function (item) {
-        if (!item || typeof item !== 'object') return String(item || '');
-        var keys = Object.keys(item);
-        if (!keys.length) return '';
-        return keys[0] + ': ' + String(item[keys[0]] || '');
-      }).filter(Boolean);
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-name">Table variable</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="table-name" value="' + esc(String(data.table || '')) + '" placeholder="users.table"></div>';
-      var tableListCandidates = getGatherListCandidates();
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-rows">Rows source (DAList variable)</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="table-rows" data-symbol-role="top-level" list="table-rows-suggestions" value="' + esc(String(data.rows || '')) + '" placeholder="users">';
-      html += '<datalist id="table-rows-suggestions">';
-      tableListCandidates.forEach(function (entry) {
-        html += '<option value="' + esc(entry.variable) + '">' + esc(entry.className) + '</option>';
-      });
-      html += '</datalist>';
-      html += '<div class="editor-tiny mt-1">Suggested DAList/ALPeopleList objects are provided; you can still type any expression.</div></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-columns">Columns (Label: expression, one per line)</label>';
-      html += '<textarea class="form-control editor-form-control font-monospace" id="table-columns" rows="5" placeholder="Name: row_item.name.full()">' + esc(columnLines.join('\n')) + '</textarea></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-edit">Editable fields (one per line)</label>';
-      html += '<textarea class="form-control editor-form-control font-monospace" id="table-edit" rows="3" placeholder="name.first">' + esc(editFields.join('\n')) + '</textarea></div>';
-      html += '<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="table-show-incomplete"' + (Boolean(data['show incomplete']) ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="table-show-incomplete">Show incomplete rows</label></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="table-show-if-empty">Show if empty</label>';
-      html += '<input class="form-control editor-form-control" id="table-show-if-empty" value="' + esc(String(data['show if empty'] || '')) + '"></div>';
-    } else if (block.type === 'template') {
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-name">Template variable name</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="template-name" data-symbol-role="all" value="' + esc(String(data.template || '')) + '"></div>';
-      var isMdPreviewTemplate = isPreview && state.markdownPreviewMode;
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-subject">Subject</label>';
-      if (isMdPreviewTemplate) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subject || '')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('template-subject', false);
-        html += '<textarea class="form-control editor-form-control" id="template-subject" rows="2">' + esc(String(data.subject || '')) + '</textarea>';
-      }
-      html += '</div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="template-content">Content</label>';
-      if (isMdPreviewTemplate) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.content || '')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('template-content', false);
-        html += '<textarea class="form-control editor-form-control" id="template-content" rows="8">' + esc(String(data.content || '')) + '</textarea>';
-      }
-      html += '</div>';
-    } else if (block.type === 'terms') {
-      var termEntries = [];
-      if (data.terms && typeof data.terms === 'object') {
-        Object.keys(data.terms).forEach(function (termKey) {
-          termEntries.push({ term: termKey, definition: String(data.terms[termKey] || '') });
-        });
-      }
-      if (!termEntries.length) termEntries.push({ term: '', definition: '' });
-      termEntries.forEach(function (entry, idx) {
-        html += '<div class="editor-terms-row mb-3" data-terms-idx="' + idx + '">';
-        html += '<label class="editor-tiny">Term</label><input class="form-control editor-form-control" data-terms-prop="term" value="' + esc(entry.term) + '">';
-        html += '<label class="editor-tiny mt-2">Definition</label><textarea class="form-control editor-form-control" rows="3" data-terms-prop="definition">' + esc(entry.definition) + '</textarea>';
-        html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-terms="' + idx + '">Remove term</button></div>';
-        html += '</div>';
-      });
-      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-terms-row">+ Add term</button>';
-    } else if (block.type === 'sections') {
-      var isAlNavStyle = Boolean(data['variable name'] === 'al_nav_sections');
-      html += '<div class="editor-form-group mb-3"><label class="editor-tiny" for="sections-style">Sections style</label>';
-      html += '<select class="form-select editor-form-control" id="sections-style">';
-      html += '<option value="standard"' + (!isAlNavStyle ? ' selected' : '') + '>Standard (sections: initial block)</option>';
-      html += '<option value="al"' + (isAlNavStyle ? ' selected' : '') + '>AL dynamic navigation (al_nav_sections)</option>';
-      html += '</select>';
-      html += '<div class="editor-tiny mt-1">' + (isAlNavStyle ? 'Each section can optionally hide based on a Python condition. Uses AssemblyLine dynamic navigation.' : 'Defines navigation sections shown in the interview sidebar. Subsections are optional nested items.') + '</div></div>';
-      var sectionEntries = [];
-      if (isAlNavStyle) {
-        var alDataSource = data['data from code'] || data['data'] || [];
-        if (Array.isArray(alDataSource)) {
-          alDataSource.forEach(function (entry) {
-            if (!entry || typeof entry !== 'object') return;
-            var keys = Object.keys(entry).filter(function (k) { return k !== 'hidden'; });
-            if (!keys.length) return;
-            var key = keys[0];
-            var rawLabel = String(entry[key] || '').trim().replace(/\n$/, '').trim();
-            if ((rawLabel.startsWith('"') && rawLabel.endsWith('"')) || (rawLabel.startsWith("'") && rawLabel.endsWith("'"))) {
-              rawLabel = rawLabel.slice(1, -1);
-            }
-            var hidden = String(entry.hidden || '').trim();
-            sectionEntries.push({ key: key, label: rawLabel, subs: '', hidden: hidden });
-          });
-        }
-      } else if (Array.isArray(data.sections)) {
-        data.sections.forEach(function (entry) {
-          if (!entry || typeof entry !== 'object') return;
-          var keys = Object.keys(entry);
-          if (!keys.length) return;
-          var key = keys[0];
-          var val = entry[key];
-          var label = '';
-          var subs = [];
-          if (val && typeof val === 'object' && !Array.isArray(val)) {
-            label = String(val.label || val.name || '');
-            if (Array.isArray(val.subsections)) subs = val.subsections.map(function (sub) { return String(sub); });
-          } else {
-            label = String(val || '');
-            if (Array.isArray(entry.subsections)) subs = entry.subsections.map(function (sub) { return String(sub); });
-          }
-          sectionEntries.push({ key: key, label: label, subs: subs.join(', '), hidden: '' });
-        });
-      }
-      if (!sectionEntries.length) sectionEntries.push({ key: '', label: '', subs: '', hidden: '' });
-      sectionEntries.forEach(function (entry, idx) {
-        html += '<div class="editor-sections-row mb-3" data-sections-idx="' + idx + '">';
-        html += '<label class="editor-tiny">Section key</label><input class="form-control editor-form-control font-monospace" data-sections-prop="key" value="' + esc(entry.key) + '">';
-        html += '<label class="editor-tiny mt-2">Section label</label><input class="form-control editor-form-control" data-sections-prop="label" value="' + esc(entry.label) + '">';
-        if (isAlNavStyle) {
-          html += '<label class="editor-tiny mt-2">Hidden condition (optional Python expression)</label><input class="form-control editor-form-control font-monospace" data-sections-prop="hidden" placeholder="not showifdef(&quot;some_var&quot;)" value="' + esc(entry.hidden || '') + '">';
-        } else {
-          html += '<label class="editor-tiny mt-2">Subsections (optional, comma-separated keys)</label><input class="form-control editor-form-control" data-sections-prop="subs" value="' + esc(entry.subs) + '">';
-        }
-        html += '<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-sections="' + idx + '">Remove section</button></div>';
-        html += '</div>';
-      });
-      html += '<button type="button" class="btn btn-sm btn-outline-primary" id="add-sections-row">+ Add section</button>';
-    }
-
-    html += '</div></div>';
-    html += '</div>';
-    canvasContent.innerHTML = html;
-
-    document.querySelectorAll('.editor-form-control').forEach(function (el) {
-      if (el.tagName && el.tagName.toLowerCase() === 'textarea') {
-        _initAutoResize(el, 48);
-      }
-    });
   }
 
   function syncQuestionMetaToData(blk) {
@@ -2561,9 +2202,10 @@
       delete blk.data['if'];
     }
 
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatoryBtn) {
-      if (mandatoryBtn.getAttribute('data-enabled') === 'true') blk.data.mandatory = true;
+    if (mandatorySwitch || mandatoryBtn) {
+      if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) blk.data.mandatory = true;
       else delete blk.data.mandatory;
     }
 
@@ -2601,6 +2243,50 @@
       if (genericObjectInput.value.trim()) blk.data['generic object'] = genericObjectInput.value.trim();
       else delete blk.data['generic object'];
     }
+
+    // Extended advanced fields (show more)
+    function _syncSimple(id, key) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var v = String(el.value || '').trim();
+      if (v) blk.data[key] = v; else delete blk.data[key];
+    }
+    function _syncList(id, key) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var v = String(el.value || '').trim();
+      if (v) {
+        var parts = v.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+        blk.data[key] = parts.length > 1 ? parts : (parts[0] || v);
+      } else delete blk.data[key];
+    }
+    _syncSimple('adv-continue-color', 'continue button color');
+    _syncSimple('adv-back-button', 'back button');
+    _syncSimple('adv-back-button-label', 'back button label');
+    _syncSimple('adv-hide-continue', 'hide continue button');
+    _syncSimple('adv-disable-continue', 'disable continue button');
+    _syncSimple('adv-prevent-back', 'prevent going back');
+    _syncSimple('adv-progress', 'progress');
+    _syncSimple('adv-section', 'section');
+    _syncSimple('adv-help', 'help');
+    _syncSimple('adv-audio', 'audio');
+    _syncSimple('adv-video', 'video');
+    _syncSimple('adv-decoration', 'decoration');
+    _syncSimple('adv-script', 'script');
+    _syncSimple('adv-css', 'css');
+    _syncSimple('adv-language', 'language');
+    _syncSimple('adv-reload', 'reload');
+    _syncSimple('adv-role', 'role');
+    _syncSimple('adv-ga-id', 'ga id');
+    _syncSimple('adv-segment-id', 'segment id');
+    _syncSimple('adv-comment', 'comment');
+    _syncSimple('adv-validation-code', 'validation code');
+    _syncSimple('adv-resume-button-label', 'resume button label');
+    _syncSimple('adv-scan-vars', 'scan for variables');
+    _syncList('adv-allowed-to-set', 'allowed to set');
+    _syncList('adv-depends-on', 'depends on');
+    _syncList('adv-undefine', 'undefine');
+    _syncList('adv-reconsider', 'reconsider');
   }
 
   function syncFieldsToData(blk) {
@@ -2614,29 +2300,50 @@
     blk.data.fields = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      var label = row.querySelector('[data-field-prop="label"]').value || 'Label';
+      var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
       var type = row.querySelector('[data-field-prop="type"]').value;
+      var isStandaloneType = _fieldTypeSupportsStandaloneContent(type);
+      var labelEl = row.querySelector('[data-field-prop="label"]');
+      var label = labelEl ? String(labelEl.value || '') : '';
+      if (!isStandaloneType && !label) label = 'Label';
       var variable = row.querySelector('[data-field-prop="variable"]').value;
-      var rowIdx = row.getAttribute('data-field-idx');
       var choicesEl = document.getElementById('field-choices-' + rowIdx);
-
-      if (!variable && type === 'text') {
+      var codeEl = document.getElementById('field-code-' + rowIdx);
+      var showIfEl = document.getElementById('field-showif-' + rowIdx);
+      var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
+      var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
+      var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
+      var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
+      var syncFmods = {};
+      fmodInputs.forEach(function (el) { var k = el.getAttribute('data-fmod'); var v = el.value.trim(); if (v) syncFmods[k] = v; });
+      var hasCodeExpr = codeEl && codeEl.value.trim();
+      var hasChoices = choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1;
+      var showIfVal = showIfEl ? showIfEl.value.trim() : '';
+      var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
+      var isRequired = requiredSwitch ? requiredSwitch.checked : true;
+      var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(syncFmods).length > 0;
+      if (isStandaloneType) {
+        var standaloneObj = {};
+        standaloneObj[type] = label;
+        Object.keys(syncFmods).forEach(function (k) { standaloneObj[k] = syncFmods[k]; });
+        blk.data.fields.push(standaloneObj);
+        continue;
+      }
+      if (!variable && type === 'text' && !hasMods) {
         blk.data.fields.push(label);
         continue;
       }
-      var inner = {};
-      if (variable) inner.variable = variable;
-      if (type && type !== 'text') inner.datatype = type;
-      if (choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1) {
-        inner.choices = choicesEl.value.split('\n').map(function (c) { return c.trim(); }).filter(Boolean);
+      // Use expanded label:/field: format for round-trip fidelity with modifiers
+      var fieldObj = { label: label };
+      if (variable) fieldObj.field = variable;
+      if (type && type !== 'text') fieldObj.datatype = type;
+      if (hasChoices) {
+        fieldObj.choices = choicesEl.value.split('\n').map(function (c) { return c.trim(); }).filter(Boolean);
       }
-      var fieldObj = {};
-      if (Object.keys(inner).length === 1 && inner.variable) {
-        fieldObj[label] = inner.variable;
-      } else {
-        if (!inner.variable) inner.variable = label;
-        fieldObj[label] = inner;
-      }
+      if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
+      if (!isRequired) fieldObj.required = false;
+      if (showIfVal) fieldObj[showIfKey] = showIfVal;
+      Object.keys(syncFmods).forEach(function (k) { fieldObj[k] = syncFmods[k]; });
       blk.data.fields.push(fieldObj);
     }
   }
@@ -2851,7 +2558,10 @@
         if (!res.success) return;
         rememberRecentProject(state.project);
         state.files = res.data.files || [];
-        state.filename = state.files.length ? state.files[0].filename : null;
+        var currentStillExists = state.filename && state.files.some(function (f) { return f.filename === state.filename; });
+        if (!currentStillExists) {
+          state.filename = state.files.length ? state.files[0].filename : null;
+        }
         populateFiles();
         if (state.files.length === 0) {
           state.blocks = [];
@@ -2878,7 +2588,14 @@
       '/api/file?project=' + encodeURIComponent(state.project) +
       '&filename=' + encodeURIComponent(state.filename)
     ).then(function (res) {
-      if (!res.success) return;
+      if (!res.success) {
+        state.blocks = [];
+        state.rawYaml = '';
+        state.dirty = false;
+        renderOutline();
+        renderCanvas();
+        return;
+      }
       var d = res.data;
       state.blocks = d.blocks || [];
       state.metadataIndices = d.metadata_blocks || [];
@@ -2891,6 +2608,13 @@
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
       loadAvailableSymbols();
+      renderOutline();
+      renderCanvas();
+      runValidation();
+    }).catch(function () {
+      state.blocks = [];
+      state.rawYaml = '';
+      state.dirty = false;
       renderOutline();
       renderCanvas();
     });
@@ -2956,7 +2680,7 @@
     if (type === 'code') return 'editor-outline-type-py';
     if (type === 'objects') return 'editor-outline-type-obj';
     if (type === 'metadata') return 'editor-outline-type-meta';
-    if (type === 'includes' || type === 'attachment' || type === 'review' || type === 'table' || type === 'template' || type === 'terms' || type === 'sections') return 'editor-outline-type-inc';
+    if (type === 'includes') return 'editor-outline-type-inc';
     return 'editor-outline-type-oth';
   }
 
@@ -2966,12 +2690,6 @@
     if (type === 'objects') return 'Obj';
     if (type === 'metadata') return 'Meta';
     if (type === 'includes') return 'Inc';
-    if (type === 'attachment') return 'Att';
-    if (type === 'review') return 'Rev';
-    if (type === 'table') return 'Tbl';
-    if (type === 'template') return 'Tpl';
-    if (type === 'terms') return 'Voc';
-    if (type === 'sections') return 'Sec';
     if (type === 'default_screen_parts') return 'Def';
     return type.charAt(0).toUpperCase() + type.slice(1, 3);
   }
@@ -2983,39 +2701,24 @@
     }
     var blocks = filteredBlocks();
     var html = '';
-    if (state.reorderMode) {
-      html += '<div class="editor-reorder-bar">';
-      html += '<div><strong>Reorder mode</strong> — Drag items or use arrow keys</div>';
-      html += '<div class="d-flex gap-2">';
-      html += '<button type="button" class="btn btn-sm btn-primary" id="reorder-save">Save order</button>';
-      html += '<button type="button" class="btn btn-sm btn-secondary" id="reorder-cancel">Cancel</button>';
-      html += '</div></div>';
-    }
     html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
     blocks.forEach(function (block) {
       var active = state.selectedBlockId === block.id;
       var tl = typeLabel(block.type);
       var tc = typeClass(block.type);
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (state.reorderMode ? ' reorder-mode' : '') + '" data-block-id="' + esc(block.id) + '" tabindex="0" role="button" aria-pressed="' + (active ? 'true' : 'false') + '">';
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-block-id="' + esc(block.id) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
-      if (state.reorderMode) {
-        html += '<div class="editor-outline-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>';
-      }
       html += '<div style="min-width:0"><div class="editor-outline-title">' + esc(block.title) + '</div>';
       if (block.variable) {
         html += '<div class="editor-outline-meta"><span>' + esc(block.variable) + '</span></div>';
       }
       html += '</div>';
       html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
-      html += '<div class="editor-outline-menu"><button type="button" class="btn btn-sm btn-outline-secondary editor-outline-menu-btn" data-outline-block-id="' + esc(block.id) + '" title="Block options" aria-label="Block options"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button></div>';
       html += '</div></div>';
       html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' + esc(block.id) + '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' + esc(block.title) + '</span></button></div>';
     });
     outlineList.innerHTML = html;
-    if (state.reorderMode) {
-      initSortable();
-    }
   }
 
   function renderSectionOutline() {
@@ -3044,112 +2747,6 @@
       html += '</div></div>';
     });
     outlineList.innerHTML = html;
-  }
-
-  // -------------------------------------------------------------------------
-  // Block reordering
-  // -------------------------------------------------------------------------
-  var _sortable = null;
-
-  function initSortable() {
-    if (_sortable) _sortable.destroy();
-    var outlineList = document.getElementById('outline-list');
-    if (!outlineList) return;
-
-    _sortable = Sortable.create(outlineList, {
-      handle: '.editor-outline-drag-handle',
-      animation: 150,
-      ghostClass: 'sortable-ghost',
-      dragClass: 'sortable-drag',
-      scroll: true,
-      scrollSpeed: 5,
-      scrollSensitivity: 30,
-      filter: '.editor-outline-insert',
-      onEnd: function () {
-        // Reordering is done, but changes will be saved via Save Order button
-      }
-    });
-  }
-
-  function getReorderedBlockIds() {
-    var outlineList = document.getElementById('outline-list');
-    if (!outlineList) return [];
-    var items = outlineList.querySelectorAll('.editor-outline-item');
-    var blockIds = [];
-    items.forEach(function (item) {
-      var blockId = item.getAttribute('data-block-id');
-      if (blockId) blockIds.push(blockId);
-    });
-    return blockIds;
-  }
-
-  function enterReorderMode() {
-    state.reorderOriginalOrder = state.blocks.map(function (b) { return b.id; });
-    state.reorderMode = true;
-    renderOutline();
-  }
-
-  function exitReorderMode() {
-    state.reorderMode = false;
-    state.reorderOriginalOrder = [];
-    if (_sortable) {
-      _sortable.destroy();
-      _sortable = null;
-    }
-    renderOutline();
-  }
-
-  function cancelReorder() {
-    exitReorderMode();
-    renderCanvas();
-  }
-
-  function saveReorder() {
-    var newOrder = getReorderedBlockIds();
-    if (!state.filename || newOrder.length === 0) {
-      return Promise.resolve(false);
-    }
-
-    return apiPost('/api/reorder-blocks', {
-      project: state.project,
-      filename: state.filename,
-      block_ids: newOrder,
-    }).then(function (res) {
-      if (!res.success || !res.data) {
-        window.alert((res.error && res.error.message) || 'Unable to reorder blocks.');
-        return false;
-      }
-      refreshFromFileResponse(res.data);
-      exitReorderMode();
-      renderOutline();
-      renderCanvas();
-      return true;
-    }).catch(function (err) {
-      console.error('Reorder error:', err);
-      window.alert('Error reordering blocks.');
-      return false;
-    });
-  }
-
-  function moveBlockInOrder(blockId, direction) {
-    if (!state.reorderMode) return;
-    var items = Array.from(document.querySelectorAll('.editor-outline-item'));
-    var currentIndex = items.findIndex(function (item) {
-      return item.getAttribute('data-block-id') === blockId;
-    });
-    if (currentIndex === -1) return;
-
-    var targetIndex = currentIndex + (direction === 'up' ? -1 : 1);
-    if (targetIndex < 0 || targetIndex >= items.length) return;
-
-    var currentItem = items[currentIndex];
-    var targetItem = items[targetIndex];
-
-    if (direction === 'up') {
-      targetItem.parentNode.insertBefore(currentItem, targetItem);
-    } else {
-      targetItem.parentNode.insertBefore(currentItem, targetItem.nextSibling);
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -3184,9 +2781,6 @@
     if (state.questionEditMode === 'preview' && block.type === 'objects') {
       return serializeObjectsToYaml(block);
     }
-    if (state.questionEditMode === 'preview' && isSpecialStructuredBlockType(block.type)) {
-      return serializeSpecialBlockToYaml(block);
-    }
     var yamlVal = getMonacoValue('block-yaml-monaco');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
     return yamlVal;
@@ -3214,6 +2808,118 @@
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Validation / Error drawer
+  // -------------------------------------------------------------------------
+  var _validationInFlight = false;
+
+  function runValidation() {
+    if (!state.project || !state.filename || _validationInFlight) return;
+    _validationInFlight = true;
+    apiGet('/api/weaver/validate?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+      .then(function (res) {
+        _validationInFlight = false;
+        if (res.success && res.data) {
+          state.validationErrors = res.data.errors || [];
+        } else {
+          state.validationErrors = [];
+        }
+        renderValidationDrawer();
+      })
+      .catch(function () {
+        _validationInFlight = false;
+        state.validationErrors = [{ level: 'error', message: 'Could not run validation right now.' }];
+        renderValidationDrawer();
+      });
+  }
+
+  function _validationLevelRank(level) {
+    if (level === 'error') return 3;
+    if (level === 'warning') return 2;
+    return 1;
+  }
+
+  function _validationSummary(errors) {
+    var counts = { error: 0, warning: 0, info: 0 };
+    (errors || []).forEach(function (err) {
+      var level = String((err && err.level) || 'error').toLowerCase();
+      if (level !== 'error' && level !== 'warning' && level !== 'info') level = 'error';
+      counts[level] += 1;
+    });
+    return counts;
+  }
+
+  function renderValidationDrawer() {
+    var drawer = document.getElementById('validation-drawer');
+    if (!drawer) return;
+    var count = state.validationErrors.length;
+    var summary = _validationSummary(state.validationErrors);
+    var hasProblems = (summary.error + summary.warning) > 0;
+    var levelClass = summary.error > 0 ? 'validation-error' : (summary.warning > 0 ? 'validation-warning' : 'validation-info');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-validation-badge]'), function (badge) {
+      badge.textContent = count > 0 ? String(count) : '';
+      badge.classList.toggle('d-none', count === 0);
+      badge.classList.toggle('validation-error', summary.error > 0);
+      badge.classList.toggle('validation-warning', summary.error === 0 && summary.warning > 0);
+      badge.classList.toggle('validation-info', summary.error === 0 && summary.warning === 0 && summary.info > 0);
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-btn'), function (btn) {
+      btn.classList.toggle('editor-validation-has-issues', hasProblems);
+      btn.classList.toggle('editor-validation-has-info', !hasProblems && summary.info > 0);
+    });
+
+    drawer.classList.toggle('editor-validation-has-issues', hasProblems);
+    drawer.classList.remove('validation-error', 'validation-warning', 'validation-info');
+    if (count > 0) drawer.classList.add(levelClass);
+
+    var body = document.getElementById('validation-drawer-body');
+    if (!body) return;
+    if (!state.validationOpen) {
+      drawer.classList.remove('open');
+      body.innerHTML = '';
+      return;
+    }
+    drawer.classList.add('open');
+    if (count === 0) {
+      body.innerHTML = '<div class="text-muted small p-2">No errors or warnings found.</div>';
+      return;
+    }
+    var sortedErrors = (state.validationErrors || []).slice().sort(function (a, b) {
+      var levelA = String((a && a.level) || 'error').toLowerCase();
+      var levelB = String((b && b.level) || 'error').toLowerCase();
+      var rankDiff = _validationLevelRank(levelB) - _validationLevelRank(levelA);
+      if (rankDiff !== 0) return rankDiff;
+      return Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0);
+    });
+    var html = '<div class="editor-validation-summary small text-muted mb-2">'
+      + summary.error + ' errors, '
+      + summary.warning + ' warnings, '
+      + summary.info + ' infos'
+      + '</div>';
+    html += '<ul class="editor-validation-list">';
+    sortedErrors.forEach(function (err) {
+      var level = String((err && err.level) || 'error').toLowerCase();
+      var icon = 'fa-circle-info';
+      if (level === 'warning') icon = 'fa-triangle-exclamation';
+      if (level === 'error') icon = 'fa-circle-xmark';
+      var lineText = err.line_number ? ('Line ' + Number(err.line_number)) : '';
+      if (lineText && err.file_name) lineText += ' - ';
+      if (err.file_name) lineText += String(err.file_name).split('/').pop();
+      html += '<li class="editor-validation-item">';
+      html += '<i class="fa-solid ' + icon + ' editor-validation-item-icon ' + esc(level) + '" aria-hidden="true"></i>';
+      html += '<div class="editor-validation-item-msg">';
+      html += '<div>' + esc(err.message || 'Unknown issue') + '</div>';
+      if (lineText) html += '<div class="editor-validation-item-meta">' + esc(lineText) + '</div>';
+      if (err.variable) html += '<span class="editor-validation-item-var">' + esc(err.variable) + '</span>';
+      html += '</div>';
+      html += '</li>';
+    });
+    html += '</ul>';
+    body.innerHTML = html;
+  }
+
   function renderCanvas() {
     disposeMonacoEditors();
     updateLeftRailMode();
@@ -3221,6 +2927,7 @@
     updateTopbarProject();
     if (state.currentView !== 'interview') {
       renderSecondaryView();
+      renderValidationDrawer();
       return;
     }
     if (state.canvasMode === 'project-selector') {
@@ -3234,6 +2941,7 @@
     } else {
       renderBlockCanvas();
     }
+    renderValidationDrawer();
   }
 
   // -------------------------------------------------------------------------
@@ -3257,8 +2965,6 @@
       renderCodeBlock(block);
     } else if (block.type === 'objects') {
       renderObjectsBlock(block);
-    } else if (isSpecialStructuredBlockType(block.type)) {
-      renderSpecialBlock(block);
     } else {
       renderGenericBlock(block);
     }
@@ -3344,28 +3050,49 @@
     html += '<div></div>';
     html += '<div class="d-flex gap-2 align-items-center">';
     if (isPreview) {
-      html += '<div class="btn-group btn-group-sm" role="group" aria-label="Edit or preview mode">';
-      html += '<button type="button" class="btn btn-sm ' + (!isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-off">Edit</button>';
-      html += '<button type="button" class="btn btn-sm ' + (isMdPreview ? 'btn-primary' : 'btn-outline-secondary') + '" id="md-preview-on"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+      html += '<div class="editor-preview-toggle" role="group" aria-label="Edit or preview mode">';
+      html += '<button type="button" class="editor-preview-toggle-btn' + (!isMdPreview ? ' active' : '') + '" id="md-preview-off" title="Edit fields"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>';
+      html += '<button type="button" class="editor-preview-toggle-btn' + (isMdPreview ? ' active' : '') + '" id="md-preview-on" title="Preview rendered text"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>';
       html += '</div>';
-    }
-    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isPreview ? 'Edit YAML' : 'Visual editor') + '</button>';
-    if (isPreview && !isMdPreview) {
-      html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen">AI draft screen</button>';
-      html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields">AI fields</button>';
+      html += '<button class="btn btn-sm btn-outline-secondary editor-icon-btn" id="toggle-edit-mode" title="Edit raw YAML"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+    } else {
+      html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode"><i class="fa-solid fa-table-cells me-1" aria-hidden="true"></i>Visual editor</button>';
     }
     if (!isMdPreview) {
-      html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
+      html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save</button>';
     }
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
 
     if (isPreview) {
+      if (!isMdPreview) {
+        html += '<div class="editor-question-tabs-row">';
+        html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
+        html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen">Screen</button></li>';
+        html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options">Question options</button></li>';
+        html += '</ul>';
+        html += '<div class="form-check form-switch editor-question-mandatory-switch">';
+        html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
+        html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
+        html += '</div>';
+        html += '</div>';
+      }
+
+      if (isMdPreview || state.questionBlockTab === 'screen') {
       html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
 
+      // Block ID — always visible at top
+      if (!isMdPreview) {
+        html += '<div class="editor-block-id-row">';
+        html += '<span class="editor-block-id-label">ID</span>';
+        html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' + esc(block.id) + '" placeholder="block_id" autocomplete="off">';
+        html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+        html += '</div>';
+      }
+
       // Question
-      html += '<div class="editor-form-group">';
+      html += '<div class="editor-form-group' + (isMdPreview ? '' : ' mt-2') + '">';
       html += '<label class="editor-tiny" for="q-title">Question</label>';
       if (isMdPreview) {
         html += '<div class="md-preview-wrapper">' + renderMarkdown(data.question || '') + '</div>';
@@ -3386,18 +3113,19 @@
       }
       html += '</div>';
 
-      html += '</div></div>';
-
+      // Fields section — merged into same card
       if (fields.length > 0) {
-        html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
-        html += '<div class="editor-section-legend">Fields</div>';
+        html += '<div class="editor-section-legend mt-3">Fields</div>';
         if (!isMdPreview) {
           html += '<div class="editor-field-grid-header">';
-          html += '<div>Label</div><div>Type</div><div>Variable</div><div></div>';
+          html += '<div>Label</div><div>Type</div><div>Variable name</div><div></div>';
           html += '</div>';
         }
         fields.forEach(function (f, fi) {
-          var label = '', varName = '', dtype = 'text', choices = '';
+          var label = '', varName = '', dtype = 'text', choices = '', codeExpr = '';
+          var contentText = '';
+          // Extract all known field modifiers into a bag
+          var fmods = {};
           if (typeof f === 'object' && f !== null) {
             // Detect label:/field: expanded style
             if (Object.prototype.hasOwnProperty.call(f, 'label') &&
@@ -3413,68 +3141,148 @@
                   return String(c);
                 }).join('\n');
               }
+              if (f.code) codeExpr = typeof f.code === 'string' ? f.code.trim() : String(f.code);
+              // Collect all modifiers
+              FIELD_MODIFIER_KEYS.forEach(function (mk) {
+                if (mk !== 'label' && mk !== 'field' && mk !== 'datatype' && mk !== 'choices' && mk !== 'code' && f[mk] !== undefined) {
+                  fmods[mk] = f[mk];
+                }
+              });
             } else {
-              // Shorthand: {"Label": "variable"} or {"Label": {datatype:...}}
               var keys = Object.keys(f);
               if (keys.length > 0) {
-                label = keys[0];
-                var val = f[keys[0]];
-                if (typeof val === 'string') {
-                  varName = val;
-                } else if (typeof val === 'object' && val !== null) {
-                  varName = val.variable || val.name || keys[0];
-                  dtype = val.datatype || val.input_type || 'text';
-                  if (val.choices && Array.isArray(val.choices)) {
-                    choices = val.choices.map(function (c) {
-                      if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
-                      return String(c);
-                    }).join('\n');
+                var firstKey = keys[0];
+                var _isTypeShorthand = FIELD_TYPES.indexOf(firstKey) !== -1 || firstKey === 'no label';
+                if (_isTypeShorthand) {
+                  dtype = firstKey;
+                  var val = f[firstKey];
+                  if (_isStandaloneFieldType(firstKey)) {
+                    contentText = typeof val === 'string' ? val : '';
+                    label = contentText;
+                    varName = '';
+                  } else if (firstKey === 'no label') {
+                    label = '(no label)';
+                    varName = typeof val === 'string' ? val : '';
+                  } else {
+                    varName = typeof val === 'string' ? val : '';
+                    label = varName ? varName.replace(/_/g, ' ').replace(/\[.*$/, '') : firstKey;
+                  }
+                } else {
+                  label = firstKey;
+                  var val = f[firstKey];
+                  if (typeof val === 'string') {
+                    varName = val;
+                  } else if (typeof val === 'object' && val !== null) {
+                    varName = val.variable || val.name || firstKey;
+                    dtype = val.datatype || val.input_type || 'text';
+                    if (val.choices && Array.isArray(val.choices)) {
+                      choices = val.choices.map(function (c) {
+                        if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
+                        return String(c);
+                      }).join('\n');
+                    }
                   }
                 }
+                if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
+                if (f.input_type && dtype === 'text') dtype = f.input_type;
+                if (!choices && f.choices && Array.isArray(f.choices)) {
+                  choices = f.choices.map(function (c) {
+                    if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
+                    return String(c);
+                  }).join('\n');
+                }
+                var _codeSource = f.code || (typeof val === 'object' && val !== null ? val.code : null);
+                if (_codeSource) codeExpr = typeof _codeSource === 'string' ? _codeSource.trim() : String(_codeSource);
+                FIELD_MODIFIER_KEYS.forEach(function (mk) {
+                  if (mk !== 'label' && mk !== 'field' && mk !== 'datatype' && mk !== 'choices' && mk !== 'code' && f[mk] !== undefined) {
+                    fmods[mk] = f[mk];
+                  }
+                });
               }
             }
           } else if (typeof f === 'string') {
             label = f;
           }
 
+          var isStandaloneType = _fieldTypeSupportsStandaloneContent(dtype);
           var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
+          var hasCode = Boolean(codeExpr);
+          var requiredVal = fmods.required;
+          var isRequired = requiredVal === undefined || requiredVal === true || requiredVal === 'True';
+          var showIfVal = fmods['show if'] || fmods['hide if'] || '';
+          var showIfKey = fmods['hide if'] ? 'hide if' : 'show if';
+          if (typeof showIfVal === 'object') showIfVal = JSON.stringify(showIfVal);
 
           if (isMdPreview) {
             html += '<div class="editor-field-row-preview">';
-            html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(label) + '</div>';
-            html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(dtype) + '</div>';
-            html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
+            if (isStandaloneType) {
+              if (dtype === 'html' || dtype === 'raw html') {
+                html += '<div class="md-preview-wrapper md-preview-label">' + String(label || '') + '</div>';
+              } else if (dtype === 'code') {
+                html += '<div class="md-preview-wrapper md-preview-label"><pre class="mb-0"><code>' + esc(String(label || '')) + '</code></pre></div>';
+              } else {
+                html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(String(label || '')) + '</div>';
+              }
+              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(_fieldTypeLabel(dtype)) + '</div>';
+              html += '<div></div>';
+            } else {
+              html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(label) + '</div>';
+              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(dtype) + '</div>';
+              html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
+            }
             html += '</div>';
           } else {
-            html += '<div class="editor-field-row" data-field-idx="' + fi + '">';
-            html += '<textarea class="form-control editor-form-control" data-field-prop="label" data-label-field="true" rows="1" placeholder="Field label" title="Right-click for insert tools">' + esc(label) + '</textarea>';
-            html += '<select class="form-select editor-form-control" data-field-prop="type">';
+            html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
+            if (isStandaloneType) {
+              html += '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' + esc(_fieldStandalonePlaceholder(dtype)) + '" title="Right-click for insert tools" rows="' + _fieldStandaloneRows(dtype) + '">' + esc(label) + '</textarea>';
+            } else {
+              html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
+            }
+            html += _renderFieldTypeDropdown(fi, dtype);
+            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
+            html += '<div class="editor-field-actions">';
+            if (!isStandaloneType) {
+              html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
+              html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
+              html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
+              html += '</div>';
+              var activeIndicators = _fieldActiveIndicators(dtype, fmods, choices, codeExpr);
+              if (activeIndicators.length > 0) {
+                html += '<div class="editor-field-indicators" aria-label="Active options">';
+                activeIndicators.slice(0, 3).forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
+                html += '</div>';
+              }
+            }
+            html += '<div class="editor-field-kebab-wrapper">';
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html += '</div>';
+            html += '<button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
+            html += '</div>';
+            html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
             FIELD_TYPES.forEach(function (t) {
               html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
             });
             html += '</select>';
-            html += '<input class="form-control editor-form-control font-monospace" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
-            html += '<div class="editor-field-actions"><button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button></div>';
             html += '</div>';
-            if (hasChoices || choices) {
-              html += '<div class="editor-field-choices-row" data-field-idx="' + fi + '">';
-              html += '<label class="editor-tiny" for="field-choices-' + fi + '">Choices (one per line)</label>';
-              html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="2">' + esc(choices) + '</textarea>';
-              html += '</div>';
-            }
+            html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
           }
         });
         if (!isMdPreview) {
-          html += '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button></div>';
+          html += '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
+          html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+          html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
+          html += '</div>';
         }
-        html += '</div></div>';
       } else if (!isMdPreview) {
-        html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
-        html += '<div class="editor-section-legend">Fields</div>';
+        html += '<div class="editor-section-legend mt-3">Fields</div>';
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
-        html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn">+ Add field</button>';
-        html += '</div></div>';
+        html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
+        html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
+        html += '</div>';
       }
+
+      html += '</div></div>';
 
       // Attachment info
       if (data.attachment || data.attachments) {
@@ -3483,8 +3291,9 @@
         html += '</div></div>';
       }
 
-      // Advanced (only in edit mode)
-      if (!isMdPreview) {
+      }
+
+      if (!isMdPreview && state.questionBlockTab === 'options') {
         html += renderAdvancedPanel(block);
       }
 
@@ -3513,6 +3322,16 @@
       document.querySelectorAll('[data-field-prop="label"]').forEach(function (ta) {
         _initAutoResize(ta, 36);
       });
+      // Live uniqueness hint on the block ID field
+      var idInput = document.getElementById('adv-id');
+      if (idInput) {
+        idInput.addEventListener('input', function () {
+          var val = idInput.value.trim();
+          var unique = !val || isBlockIdUnique(val, state.blocks, block.id);
+          idInput.style.borderColor = (!val || unique) ? '' : '#dc3545';
+          idInput.title = unique ? '' : 'This ID is already used by another block';
+        });
+      }
     }
   }
 
@@ -3665,63 +3484,489 @@
     });
   }
 
+  // --- Field modifiers panel (kebab menu for individual fields) ---
+  var _openFieldModsPanels = {};
+  var _fieldSettingsTabs = {};
+
+  function _fieldTypeIcon(dtype) {
+    var key = String(dtype || 'text').toLowerCase();
+    var map = {
+      text: 'fa-pencil',
+      area: 'fa-paragraph',
+      raw: 'fa-code',
+      number: 'fa-hashtag',
+      integer: 'fa-hashtag',
+      currency: 'fa-dollar-sign',
+      range: 'fa-sliders',
+      email: 'fa-envelope',
+      password: 'fa-lock',
+      url: 'fa-link',
+      date: 'fa-calendar-day',
+      time: 'fa-clock',
+      datetime: 'fa-calendar-check',
+      yesno: 'fa-toggle-on',
+      yesnowide: 'fa-toggle-on',
+      yesnoradio: 'fa-circle-dot',
+      yesnomaybe: 'fa-circle-half-stroke',
+      noyes: 'fa-toggle-off',
+      noyeswide: 'fa-toggle-off',
+      noyesradio: 'fa-circle-dot',
+      noyesmaybe: 'fa-circle-half-stroke',
+      dropdown: 'fa-chevron-down',
+      radio: 'fa-circle-dot',
+      checkboxes: 'fa-square-check',
+      multiselect: 'fa-list-check',
+      combobox: 'fa-bars-staggered',
+      file: 'fa-file-arrow-up',
+      files: 'fa-folder-open',
+      camera: 'fa-camera',
+      microphone: 'fa-microphone',
+      camcorder: 'fa-video',
+      hidden: 'fa-eye-slash',
+      note: 'fa-note-sticky',
+      html: 'fa-code',
+      'raw html': 'fa-code',
+      code: 'fa-file-code',
+      ml: 'fa-brain',
+      mlarea: 'fa-brain',
+      object: 'fa-cube',
+      object_radio: 'fa-circle-dot',
+      object_checkboxes: 'fa-square-check',
+      object_multiselect: 'fa-list-check',
+      user: 'fa-user',
+      environment: 'fa-server',
+    };
+    return map[key] || 'fa-input-text';
+  }
+
+  function _fieldActiveIndicators(dtype, fmods, choices, codeExpr) {
+    var indicators = [];
+    if (CHOICE_TYPES.indexOf(dtype) !== -1 && choices) indicators.push('choices');
+    if (codeExpr) indicators.push('code');
+    if (fmods['show if'] || fmods['hide if'] || fmods['enable if'] || fmods['disable if']) indicators.push('logic');
+    if (fmods.default || fmods.help || fmods.hint) indicators.push('display');
+    if (fmods.validate || fmods['validation code']) indicators.push('validation');
+    return indicators;
+  }
+
+  function _fieldTypeLabel(dtype) {
+    var value = String(dtype || 'text');
+    return FIELD_TYPE_LABELS[value] || value.replace(/_/g, ' ');
+  }
+
+  function _fieldStandalonePlaceholder(dtype) {
+    switch (_normalizeFieldType(dtype)) {
+      case 'note':
+        return 'Note text';
+      case 'html':
+      case 'raw html':
+        return 'HTML content';
+      case 'code':
+        return 'Python expression';
+      default:
+        return 'Content';
+    }
+  }
+
+  function _fieldStandaloneRows(dtype) {
+    return _normalizeFieldType(dtype) === 'code' ? 4 : 3;
+  }
+
+  function _renderFieldTypeDropdown(fi, dtype) {
+    var html = '';
+    html += '<div class="dropdown editor-field-type-dropdown">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-field-type-btn" id="field-type-btn-' + fi + '" data-bs-toggle="dropdown" aria-expanded="false" title="Datatype">';
+    html += '<i class="fa-solid ' + _fieldTypeIcon(dtype) + '" aria-hidden="true"></i>';
+    html += '<span>' + esc(_fieldTypeLabel(dtype)) + '</span>';
+    html += '</button>';
+    html += '<div class="dropdown-menu editor-field-type-menu" aria-labelledby="field-type-btn-' + fi + '">';
+    FIELD_TYPE_GROUPS.forEach(function (group, gi) {
+      if (gi > 0) html += '<div class="dropdown-divider"></div>';
+      html += '<h6 class="dropdown-header">' + esc(group.label) + '</h6>';
+      group.items.forEach(function (item) {
+        html += '<button type="button" class="dropdown-item editor-field-type-item' + (item === dtype ? ' active' : '') + '" data-field-datatype="' + item + '" data-field-idx="' + fi + '">';
+        html += '<i class="fa-solid ' + _fieldTypeIcon(item) + ' me-2" aria-hidden="true"></i>' + esc(_fieldTypeLabel(item));
+        html += '</button>';
+      });
+    });
+    html += '</div></div>';
+    return html;
+  }
+  function _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal) {
+    // Always render (with display:none when closed) so DOM elements exist for serialization
+    var isOpen = _openFieldModsPanels[fi];
+    var isStandalone = _fieldTypeSupportsStandaloneContent(dtype);
+    var activeTab = _fieldSettingsTabs[fi] || (isStandalone ? 'logic' : 'basic');
+    var tabLabels = {
+      basic: 'Basic',
+      logic: 'Logic',
+      help: 'Help',
+      validation: 'Validation',
+      appearance: 'Appearance',
+      metadata: 'Metadata',
+      more: 'More',
+    };
+    var availableTabs = isStandalone ? ['logic'] : ['basic', 'logic', 'help', 'validation', 'appearance', 'metadata', 'more'];
+    if (availableTabs.indexOf(activeTab) === -1) activeTab = availableTabs[0];
+
+    function row(labelFor, labelText, controlHtml, rowClass) {
+      var out = '<div class="' + (rowClass || 'editor-field-mod-row') + '">';
+      if (labelText) out += '<label class="editor-tiny" for="' + esc(labelFor) + '">' + esc(labelText) + '</label>';
+      out += controlHtml;
+      out += '</div>';
+      return out;
+    }
+
+    function pairRow(leftHtml, rightHtml) {
+      return '<div class="editor-field-mod-row editor-field-mod-row-pair">' + leftHtml + rightHtml + '</div>';
+    }
+
+    function hiddenField(name) {
+      return '<input type="hidden" id="' + esc(name) + '-' + fi + '" data-fmod="' + esc(name) + '" data-field-idx="' + fi + '" value="">';
+    }
+
+    function renderBasicTab() {
+      var out = '';
+      out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+      out += row('field-code-' + fi, 'code (Python expression)', '<textarea class="form-control editor-form-control font-monospace editor-field-code" id="field-code-' + fi + '" rows="3">' + esc(String(codeExpr || '')) + '</textarea>');
+      out += row('fmod-default-' + fi, 'default', '<input class="form-control editor-form-control font-monospace" id="fmod-default-' + fi + '" data-fmod="default" data-field-idx="' + fi + '" value="' + esc(String(fmods['default'] || '')) + '">');
+      out += row('fmod-input-type-' + fi, 'input type', '<select class="form-select editor-form-control" id="fmod-input-type-' + fi + '" data-fmod="input type" data-field-idx="' + fi + '"><option value="">(default)</option>' + ['area', 'radio', 'dropdown', 'combobox', 'ajax', 'datalist'].map(function (t) { return '<option value="' + t + '"' + (fmods['input type'] === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>');
+      out += row('fmod-disabled-' + fi, 'disabled', '<select class="form-select editor-form-control" id="fmod-disabled-' + fi + '" data-fmod="disabled" data-field-idx="' + fi + '"><option value=""' + (!fmods.disabled ? ' selected' : '') + '>No</option><option value="True"' + (fmods.disabled ? ' selected' : '') + '>Yes</option></select>');
+      return out;
+    }
+
+    function renderLogicTab() {
+      var out = '';
+      out += '<div class="editor-field-option-row" data-field-idx="' + fi + '">';
+      out += '<label class="editor-tiny" for="field-showif-' + fi + '">condition</label>';
+      out += '<select class="editor-field-showif-key" data-field-idx="' + fi + '" aria-label="Condition type">';
+      out += '<option value="show if"' + (showIfKey === 'show if' ? ' selected' : '') + '>show if</option>';
+      out += '<option value="hide if"' + (showIfKey === 'hide if' ? ' selected' : '') + '>hide if</option>';
+      out += '</select>';
+      out += '<input class="form-control editor-form-control font-monospace editor-field-showif-input" data-field-prop="showif" data-field-idx="' + fi + '" id="field-showif-' + fi + '" value="' + esc(String(showIfVal || '')) + '" placeholder="variable_name or object condition">';
+      out += '</div>';
+      out += row('fmod-enableif-' + fi, 'enable if', '<input class="form-control editor-form-control font-monospace" id="fmod-enableif-' + fi + '" data-fmod="enable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['enable if'] || '')) + '">');
+      out += row('fmod-disableif-' + fi, 'disable if', '<input class="form-control editor-form-control font-monospace" id="fmod-disableif-' + fi + '" data-fmod="disable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['disable if'] || '')) + '">');
+      out += '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:10px;">JavaScript conditions</div>';
+      out += row('fmod-jsshowif-' + fi, 'js show if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsshowif-' + fi + '" data-fmod="js show if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js show if'] || '')) + '" placeholder="JavaScript expression">');
+      out += row('fmod-jshideif-' + fi, 'js hide if', '<input class="form-control editor-form-control font-monospace" id="fmod-jshideif-' + fi + '" data-fmod="js hide if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js hide if'] || '')) + '" placeholder="JavaScript expression">');
+      out += row('fmod-jsenabledif-' + fi, 'js enable if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsenabledif-' + fi + '" data-fmod="js enable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js enable if'] || '')) + '" placeholder="JavaScript expression">');
+      out += row('fmod-jsdisabledif-' + fi, 'js disable if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsdisabledif-' + fi + '" data-fmod="js disable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js disable if'] || '')) + '" placeholder="JavaScript expression">');
+      out += row('fmod-exclude-' + fi, 'exclude', '<input class="form-control editor-form-control font-monospace" id="fmod-exclude-' + fi + '" data-fmod="exclude" data-field-idx="' + fi + '" value="' + esc(String(fmods.exclude || '')) + '">');
+      out += pairRow(
+        '<div><label class="editor-tiny" for="fmod-nota-' + fi + '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' + fi + '" data-fmod="none of the above" data-field-idx="' + fi + '" value="' + esc(String(fmods['none of the above'] !== undefined ? fmods['none of the above'] : '')) + '"></div>',
+        '<div><label class="editor-tiny" for="fmod-aota-' + fi + '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' + fi + '" data-fmod="all of the above" data-field-idx="' + fi + '" value="' + esc(String(fmods['all of the above'] !== undefined ? fmods['all of the above'] : '')) + '"></div>'
+      );
+      out += row('fmod-shuffle-' + fi, 'shuffle', '<select class="form-select editor-form-control" id="fmod-shuffle-' + fi + '" data-fmod="shuffle" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.shuffle ? ' selected' : '') + '>Yes</option></select>');
+      out += row('fmod-disableothers-' + fi, 'disable others', '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' + fi + '" data-fmod="disable others" data-field-idx="' + fi + '" value="' + esc(typeof fmods['disable others'] === 'boolean' ? String(fmods['disable others']) : String(fmods['disable others'] || '')) + '" placeholder="True or list of variables">');
+      return out;
+    }
+
+    function renderHelpTab() {
+      var out = '';
+      out += row('fmod-help-' + fi, 'help', '<input class="form-control editor-form-control" id="fmod-help-' + fi + '" data-fmod="help" data-field-idx="' + fi + '" value="' + esc(String(fmods.help || '')) + '">');
+      out += row('fmod-hint-' + fi, 'hint', '<input class="form-control editor-form-control" id="fmod-hint-' + fi + '" data-fmod="hint" data-field-idx="' + fi + '" value="' + esc(String(fmods.hint || '')) + '">');
+      out += row('fmod-under-text-' + fi, 'under text', '<input class="form-control editor-form-control" id="fmod-under-text-' + fi + '" data-fmod="under text" data-field-idx="' + fi + '" value="' + esc(String(fmods["under text"] || '')) + '">');
+      out += row('fmod-note-' + fi, 'note', '<input class="form-control editor-form-control" id="fmod-note-' + fi + '" data-fmod="note" data-field-idx="' + fi + '" value="' + esc(String(fmods.note || '')) + '">');
+      return out;
+    }
+
+    function renderValidationTab() {
+      var out = '';
+      var isNumericType = ['number', 'integer', 'currency', 'range'].indexOf(dtype) !== -1;
+      var isLengthType = ['text', 'area', 'raw', 'email', 'password', 'url', 'ml', 'mlarea', 'checkboxes', 'multiselect'].indexOf(dtype) !== -1;
+      if (isNumericType || fmods.min !== undefined || fmods.max !== undefined) {
+        out += pairRow(
+          '<div><label class="editor-tiny" for="fmod-min-' + fi + '">min</label><input class="form-control editor-form-control font-monospace" id="fmod-min-' + fi + '" data-fmod="min" data-field-idx="' + fi + '" value="' + esc(String(fmods.min !== undefined ? fmods.min : '')) + '"></div>',
+          '<div><label class="editor-tiny" for="fmod-max-' + fi + '">max</label><input class="form-control editor-form-control font-monospace" id="fmod-max-' + fi + '" data-fmod="max" data-field-idx="' + fi + '" value="' + esc(String(fmods.max !== undefined ? fmods.max : '')) + '"></div>'
+        );
+      } else {
+        out += hiddenField('fmod-min');
+        out += hiddenField('fmod-max');
+      }
+      if (dtype === 'range' || fmods.step !== undefined) {
+        out += row('fmod-step-' + fi, 'step', '<input class="form-control editor-form-control font-monospace" id="fmod-step-' + fi + '" data-fmod="step" data-field-idx="' + fi + '" value="' + esc(String(fmods.step !== undefined ? fmods.step : '')) + '">');
+      } else {
+        out += hiddenField('fmod-step');
+      }
+      if (isLengthType || fmods.minlength !== undefined || fmods.maxlength !== undefined) {
+        out += pairRow(
+          '<div><label class="editor-tiny" for="fmod-minlength-' + fi + '">minlength</label><input class="form-control editor-form-control font-monospace" id="fmod-minlength-' + fi + '" data-fmod="minlength" data-field-idx="' + fi + '" value="' + esc(String(fmods.minlength || '')) + '"></div>',
+          '<div><label class="editor-tiny" for="fmod-maxlength-' + fi + '">maxlength</label><input class="form-control editor-form-control font-monospace" id="fmod-maxlength-' + fi + '" data-fmod="maxlength" data-field-idx="' + fi + '" value="' + esc(String(fmods.maxlength || '')) + '"></div>'
+        );
+      } else {
+        out += hiddenField('fmod-minlength');
+        out += hiddenField('fmod-maxlength');
+      }
+      out += row('fmod-validate-' + fi, 'validate', '<input class="form-control editor-form-control font-monospace" id="fmod-validate-' + fi + '" data-fmod="validate" data-field-idx="' + fi + '" value="' + esc(String(fmods.validate || '')) + '" placeholder="function_name or lambda">');
+      out += row('fmod-validation-code-' + fi, 'validation code', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-code-' + fi + '" data-fmod="validation code" data-field-idx="' + fi + '" rows="2" placeholder="Python to validate">' + esc(String(fmods['validation code'] || '')) + '</textarea>');
+      out += row('fmod-validation-messages-' + fi, 'validation messages', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-messages-' + fi + '" data-fmod="validation messages" data-field-idx="' + fi + '" rows="2" placeholder="YAML dict of rule: message">' + esc(typeof fmods['validation messages'] === 'object' ? JSON.stringify(fmods['validation messages'], null, 2) : String(fmods['validation messages'] || '')) + '</textarea>');
+      if (['file', 'files'].indexOf(dtype) !== -1 || fmods.accept !== undefined) {
+        out += row('fmod-accept-' + fi, 'accept', '<input class="form-control editor-form-control" id="fmod-accept-' + fi + '" data-fmod="accept" data-field-idx="' + fi + '" value="' + esc(String(fmods.accept || '')) + '">');
+      }
+      return out;
+    }
+
+    function renderAppearanceTab() {
+      var out = '';
+      out += row('fmod-no-label-' + fi, 'no label', '<select class="form-select editor-form-control" id="fmod-no-label-' + fi + '" data-fmod="no label" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['no label'] ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods['no label'] === false || fmods['no label'] === 'False' ? ' selected' : '') + '>No</option></select>');
+      out += row('fmod-css-class-' + fi, 'css class', '<input class="form-control editor-form-control" id="fmod-css-class-' + fi + '" data-fmod="css class" data-field-idx="' + fi + '" value="' + esc(String(fmods['css class'] || '')) + '">');
+      out += row('fmod-label-above-' + fi, 'label above field', '<select class="form-select editor-form-control" id="fmod-label-above-' + fi + '" data-fmod="label above field" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['label above field'] ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods['label above field'] === false || fmods['label above field'] === 'False' ? ' selected' : '') + '>No</option></select>');
+      out += row('fmod-floating-label-' + fi, 'floating label', '<select class="form-select editor-form-control" id="fmod-floating-label-' + fi + '" data-fmod="floating label" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['floating label'] ? ' selected' : '') + '>Yes</option></select>');
+      out += row('fmod-grid-' + fi, 'grid', '<input class="form-control editor-form-control font-monospace" id="fmod-grid-' + fi + '" data-fmod="grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods.grid === 'object' ? JSON.stringify(fmods.grid) : String(fmods.grid || '')) + '" placeholder="1-12">');
+      out += row('fmod-item-grid-' + fi, 'item grid', '<input class="form-control editor-form-control font-monospace" id="fmod-item-grid-' + fi + '" data-fmod="item grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods['item grid'] === 'object' ? JSON.stringify(fmods['item grid']) : String(fmods['item grid'] || '')) + '" placeholder="1-12">');
+      out += row('fmod-rows-' + fi, 'rows', '<input class="form-control editor-form-control font-monospace" id="fmod-rows-' + fi + '" data-fmod="rows" data-field-idx="' + fi + '" value="' + esc(String(fmods.rows || '')) + '" placeholder="textarea rows">');
+      out += row('fmod-inline-width-' + fi, 'inline width', '<input class="form-control editor-form-control font-monospace" id="fmod-inline-width-' + fi + '" data-fmod="inline width" data-field-idx="' + fi + '" value="' + esc(String(fmods['inline width'] || '')) + '" placeholder="15em">');
+      return out;
+    }
+
+    function renderMetadataTab() {
+      var out = '';
+      out += row('fmod-field-metadata-' + fi, 'field metadata', '<textarea class="form-control editor-form-control font-monospace" id="fmod-field-metadata-' + fi + '" data-fmod="field metadata" data-field-idx="' + fi + '" rows="4" placeholder="YAML">' + esc(typeof fmods['field metadata'] === 'object' ? JSON.stringify(fmods['field metadata'], null, 2) : String(fmods['field metadata'] || '')) + '</textarea>');
+      return out;
+    }
+
+    function renderMoreTab() {
+      var out = '';
+      out += row('fmod-address-auto-' + fi, 'address autocomplete', '<textarea class="form-control editor-form-control font-monospace" id="fmod-address-auto-' + fi + '" data-fmod="address autocomplete" data-field-idx="' + fi + '" rows="3" placeholder="True or YAML">' + esc(String(fmods['address autocomplete'] || '')) + '</textarea>');
+      out += row('fmod-maximum-image-size-' + fi, 'maximum image size', '<input class="form-control editor-form-control font-monospace" id="fmod-maximum-image-size-' + fi + '" data-fmod="maximum image size" data-field-idx="' + fi + '" value="' + esc(String(fmods['maximum image size'] || '')) + '">');
+      out += row('fmod-image-upload-type-' + fi, 'image upload type', '<input class="form-control editor-form-control" id="fmod-image-upload-type-' + fi + '" data-fmod="image upload type" data-field-idx="' + fi + '" value="' + esc(String(fmods['image upload type'] || '')) + '" placeholder="jpeg">');
+      out += row('fmod-persistent-' + fi, 'persistent', '<select class="form-select editor-form-control" id="fmod-persistent-' + fi + '" data-fmod="persistent" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.persistent ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.persistent === false || fmods.persistent === 'False' ? ' selected' : '') + '>No</option></select>');
+      out += row('fmod-private-' + fi, 'private', '<select class="form-select editor-form-control" id="fmod-private-' + fi + '" data-fmod="private" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.private ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.private === false || fmods.private === 'False' ? ' selected' : '') + '>No</option></select>');
+      out += row('fmod-allow-users-' + fi, 'allow users', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-users-' + fi + '" data-fmod="allow users" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow users'] || '')) + '" placeholder="emails or user ids">');
+      out += row('fmod-allow-privileges-' + fi, 'allow privileges', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-privileges-' + fi + '" data-fmod="allow privileges" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow privileges'] || '')) + '" placeholder="developer, user">');
+      out += row('fmod-file-css-class-' + fi, 'file css class', '<input class="form-control editor-form-control" id="fmod-file-css-class-' + fi + '" data-fmod="file css class" data-field-idx="' + fi + '" value="' + esc(String(fmods['file css class'] || '')) + '">');
+      out += row('fmod-object-labeler-' + fi, 'object labeler', '<input class="form-control editor-form-control font-monospace" id="fmod-object-labeler-' + fi + '" data-fmod="object labeler" data-field-idx="' + fi + '" value="' + esc(String(fmods['object labeler'] || '')) + '" placeholder="lambda y: y.name">');
+      return out;
+    }
+
+    var html = '<div class="editor-field-mods-panel' + (isStandalone ? ' editor-field-mods-panel-standalone' : '') + '" data-field-idx="' + fi + '"' + (isOpen ? '' : ' hidden') + '>';
+    html += '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist">';
+    availableTabs.forEach(function (tabKey) {
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (activeTab === tabKey ? 'active' : '') + '" data-field-settings-tab="' + tabKey + '" data-field-idx="' + fi + '">' + esc(tabLabels[tabKey] || tabKey) + '</button></li>';
+    });
+    html += '</ul>';
+    html += '<div class="editor-field-settings-tabcontent">';
+
+    function pane(tabKey, bodyHtml) {
+      return '<div class="editor-field-settings-tabpane" data-field-settings-pane="' + tabKey + '"' + (activeTab === tabKey ? '' : ' hidden') + '>' + bodyHtml + '</div>';
+    }
+
+    if (isStandalone) {
+      html += pane('logic', renderLogicTab());
+    } else {
+      html += pane('basic', renderBasicTab());
+      html += pane('logic', renderLogicTab());
+      html += pane('help', renderHelpTab());
+      html += pane('validation', renderValidationTab());
+      html += pane('appearance', renderAppearanceTab());
+      html += pane('metadata', renderMetadataTab());
+      html += pane('more', renderMoreTab());
+    }
+
+    html += '</div></div>';
+    return html;
+  }
+
   // --- Advanced panel (shared across block types) ---
   function renderAdvancedPanel(block) {
     var data = block.data || {};
     var ifEnabled = Boolean(data['if'] || data._editor_if_enabled);
     var mandatoryEnabled = Boolean(data.mandatory);
+    var showMore = state.advancedShowMore;
+    var forceOpen = block && block.type === 'question' && state.questionBlockTab === 'options';
     var html = '';
     html += '<div class="editor-card" style="margin-top:12px">';
-    html += '<button class="editor-advanced-toggle" id="toggle-advanced">Advanced options ' + (state.advancedOpen ? '&#8722;' : '+') + '</button>';
-    if (state.advancedOpen) {
-      html += '<div class="editor-advanced-body editor-advanced-grid">';
+    if (!forceOpen) {
+      html += '<button class="editor-advanced-toggle" id="toggle-advanced">Advanced options ' + (state.advancedOpen ? '&#8722;' : '+') + '</button>';
+    }
+    if (forceOpen || state.advancedOpen) {
+      html += '<div class="editor-advanced-body">';
 
-      // Block ID (editable)
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' + esc(block.id) + '"></div>';
-
-      // Variable
-      if (block.variable) {
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-variable">Variable</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-variable" value="' + esc(block.variable) + '" readonly></div>';
+      // Block ID (editable) — for non-question blocks; question blocks show it in the main card
+      if (block.type !== 'question') {
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' + esc(block.id) + '"></div>';
       }
 
+      // If condition
       var ifVal = data['if'] || '';
       html += '<div class="editor-form-group editor-form-group-compact">';
       html += '<div class="form-check form-switch editor-inline-toggle">';
       html += '<input class="form-check-input" type="checkbox" id="adv-enable-if"' + (ifEnabled ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="adv-enable-if">Add condition</label>';
+      html += '<label class="form-check-label" for="adv-enable-if">Condition (if)</label>';
       html += '</div>';
       if (ifEnabled) {
-        html += '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" value="' + esc(String(ifVal)) + '">';
+        html += '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" value="' + esc(String(ifVal)) + '" placeholder="Python expression">';
       }
       html += '</div>';
 
-      html += '<div class="editor-form-group editor-form-group-compact"><label class="editor-tiny" for="adv-mandatory-toggle">Mandatory</label>';
-      html += '<button type="button" class="btn btn-sm ' + (mandatoryEnabled ? 'btn-primary' : 'btn-outline-secondary') + '" id="adv-mandatory-toggle" data-enabled="' + (mandatoryEnabled ? 'true' : 'false') + '">' + (mandatoryEnabled ? 'On' : 'Off') + '</button></div>';
-
+      // Continue button field/label — always visible
       html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-field">Continue button field</label>';
       html += '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
 
       html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-label">Continue button label</label>';
       html += '<input class="form-control editor-form-control" id="adv-continue-label" value="' + esc(String(data['continue button label'] || '')) + '"></div>';
 
-      // Additional keys
+      // Sets/only sets — always visible
       var setsVal = data.sets || data['only sets'] || '';
       if (Array.isArray(setsVal)) setsVal = setsVal.join(', ');
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' + (data['only sets'] ? 'Only sets' : 'Sets') + '</label>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' + (data['only sets'] ? 'Only sets' : 'Sets') + ' <span class="text-muted">(comma-separated variables)</span></label>';
       html += '<input class="form-control editor-form-control font-monospace" id="adv-sets" data-sets-key="' + (data['only sets'] ? 'only sets' : 'sets') + '" value="' + esc(String(setsVal)) + '"></div>';
 
-      var needVal = data.need || '';
-      if (Array.isArray(needVal)) needVal = needVal.join(', ');
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' + esc(String(needVal)) + '"></div>';
+      // Show more toggle
+      html += '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px">' + (showMore ? '&#8722; Show fewer options' : '+ Show more options') + '</button>';
 
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '"></div>';
+      if (showMore) {
+        // Need
+        var needVal = data.need || '';
+        if (Array.isArray(needVal)) needVal = needVal.join(', ');
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need <span class="text-muted">(blocks)</span></label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' + esc(String(needVal)) + '"></div>';
 
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' + esc(String(data['generic object'] || '')) + '"></div>';
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event <span class="text-muted">(event name)</span></label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '"></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' + esc(String(data['generic object'] || '')) + '"></div>';
+
+        // Continue button color
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-color">Continue button color</label>';
+        html += '<select class="form-select editor-form-control" id="adv-continue-color">';
+        ['', 'primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark'].forEach(function (c) {
+          html += '<option value="' + c + '"' + (data['continue button color'] === c ? ' selected' : '') + '>' + (c || '(default)') + '</option>';
+        });
+        html += '</select></div>';
+
+        // Hide / disable continue button
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-hide-continue">Hide continue button</label>';
+        html += '<select class="form-select editor-form-control" id="adv-hide-continue">';
+        html += '<option value=""' + (!data['hide continue button'] ? ' selected' : '') + '>(default)</option>';
+        html += '<option value="True"' + (data['hide continue button'] ? ' selected' : '') + '>Yes</option>';
+        html += '</select></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-disable-continue">Disable continue button</label>';
+        html += '<select class="form-select editor-form-control" id="adv-disable-continue">';
+        html += '<option value=""' + (!data['disable continue button'] ? ' selected' : '') + '>(default)</option>';
+        html += '<option value="True"' + (data['disable continue button'] ? ' selected' : '') + '>Yes</option>';
+        html += '</select></div>';
+
+        // Prevent going back / back button
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-prevent-back">Prevent going back</label>';
+        html += '<select class="form-select editor-form-control" id="adv-prevent-back">';
+        html += '<option value=""' + (!data['prevent going back'] ? ' selected' : '') + '>(default)</option>';
+        html += '<option value="True"' + (data['prevent going back'] ? ' selected' : '') + '>Yes</option>';
+        html += '</select></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button">Back button</label>';
+        html += '<select class="form-select editor-form-control" id="adv-back-button">';
+        html += '<option value="">(default)</option>';
+        html += '<option value="True"' + (data['back button'] === true || data['back button'] === 'True' ? ' selected' : '') + '>True</option>';
+        html += '<option value="False"' + (data['back button'] === false || data['back button'] === 'False' ? ' selected' : '') + '>False</option>';
+        html += '</select></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button-label">Back button label</label>';
+        html += '<input class="form-control editor-form-control" id="adv-back-button-label" value="' + esc(String(data['back button label'] || '')) + '"></div>';
+
+        // Progress / section
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-progress">Progress <span class="text-muted">(0-100)</span></label>';
+        html += '<input class="form-control editor-form-control" id="adv-progress" value="' + esc(String(data.progress !== undefined ? data.progress : '')) + '" placeholder="e.g. 50"></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-section">Section</label>';
+        html += '<input class="form-control editor-form-control" id="adv-section" value="' + esc(String(data.section || '')) + '"></div>';
+
+        // Help (question level)
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-help">Help text (question level)</label>';
+        html += '<textarea class="form-control editor-form-control" id="adv-help" rows="2">' + esc(String(data.help || '')) + '</textarea></div>';
+
+        // Audio / video
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-audio">Audio URL/variable</label>';
+        html += '<input class="form-control editor-form-control" id="adv-audio" value="' + esc(String(data.audio || '')) + '"></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-video">Video URL/variable</label>';
+        html += '<input class="form-control editor-form-control" id="adv-video" value="' + esc(String(data.video || '')) + '"></div>';
+
+        // Decoration
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-decoration">Decoration</label>';
+        html += '<input class="form-control editor-form-control" id="adv-decoration" value="' + esc(String(data.decoration || '')) + '"></div>';
+
+        // Script / CSS
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-script">Script (inline JS)</label>';
+        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-script" rows="2">' + esc(String(data.script || '')) + '</textarea></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-css">CSS (inline)</label>';
+        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-css" rows="2">' + esc(String(data.css || '')) + '</textarea></div>';
+
+        // Language
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-language">Language</label>';
+        html += '<input class="form-control editor-form-control" id="adv-language" value="' + esc(String(data.language || '')) + '" placeholder="e.g. es"></div>';
+
+        // Allowed to set
+        var allowedToSetVal = data['allowed to set'] || '';
+        if (Array.isArray(allowedToSetVal)) allowedToSetVal = allowedToSetVal.join(', ');
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-allowed-to-set">Allowed to set</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-allowed-to-set" value="' + esc(String(allowedToSetVal)) + '"></div>';
+
+        // Depends on / undefine / reconsider
+        var dependsOnVal = data['depends on'] || '';
+        if (Array.isArray(dependsOnVal)) dependsOnVal = dependsOnVal.join(', ');
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-depends-on">Depends on</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-depends-on" value="' + esc(String(dependsOnVal)) + '"></div>';
+
+        var undefineVal = data.undefine || '';
+        if (Array.isArray(undefineVal)) undefineVal = undefineVal.join(', ');
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-undefine">Undefine</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-undefine" value="' + esc(String(undefineVal)) + '"></div>';
+
+        var reconsiderVal = data.reconsider || '';
+        if (Array.isArray(reconsiderVal)) reconsiderVal = reconsiderVal.join(', ');
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-reconsider">Reconsider</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="adv-reconsider" value="' + esc(String(reconsiderVal)) + '"></div>';
+
+        // Scan for variables
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-scan-vars">Scan for variables</label>';
+        html += '<select class="form-select editor-form-control" id="adv-scan-vars">';
+        html += '<option value="">(default)</option>';
+        html += '<option value="True"' + (data['scan for variables'] === true || data['scan for variables'] === 'True' ? ' selected' : '') + '>True</option>';
+        html += '<option value="False"' + (data['scan for variables'] === false || data['scan for variables'] === 'False' ? ' selected' : '') + '>False</option>';
+        html += '</select></div>';
+
+        // Validation code
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-validation-code">Validation code (Python)</label>';
+        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-validation-code" rows="2">' + esc(String(data['validation code'] || '')) + '</textarea></div>';
+
+        // Resume button label (for tabular)
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-resume-button-label">Resume button label</label>';
+        html += '<input class="form-control editor-form-control" id="adv-resume-button-label" value="' + esc(String(data['resume button label'] || '')) + '"></div>';
+
+        // Reload
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-reload">Reload</label>';
+        html += '<select class="form-select editor-form-control" id="adv-reload">';
+        html += '<option value="">(default)</option>';
+        html += '<option value="True"' + (data.reload === true || data.reload === 'True' ? ' selected' : '') + '>True</option>';
+        html += '</select></div>';
+
+        // Role
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-role">Role</label>';
+        html += '<input class="form-control editor-form-control" id="adv-role" value="' + esc(String(data.role || '')) + '"></div>';
+
+        // GA / Segment IDs
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-ga-id">GA ID</label>';
+        html += '<input class="form-control editor-form-control" id="adv-ga-id" value="' + esc(String(data['ga id'] || '')) + '"></div>';
+
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-segment-id">Segment ID</label>';
+        html += '<input class="form-control editor-form-control" id="adv-segment-id" value="' + esc(String(data['segment id'] || '')) + '"></div>';
+
+        // Comment
+        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-comment">Comment</label>';
+        html += '<textarea class="form-control editor-form-control" id="adv-comment" rows="2">' + esc(String(data.comment || '')) + '</textarea></div>';
+
+        // Variable (read-only if present)
+        if (block.variable) {
+          html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-variable">Variable (read-only)</label>';
+          html += '<input class="form-control editor-form-control font-monospace" id="adv-variable" value="' + esc(block.variable) + '" readonly></div>';
+        }
+      } // end showMore
 
       html += '</div>';
     }
@@ -3732,6 +3977,14 @@
   // -------------------------------------------------------------------------
   // Full YAML editor (Monaco)
   // -------------------------------------------------------------------------
+  function _stashFullYamlContent() {
+    if (state.canvasMode !== 'full-yaml') return;
+    var content = getMonacoValue('full-yaml-monaco');
+    if (content) {
+      state.fullYamlStash[state.fullYamlTab] = content;
+    }
+  }
+
   function renderFullYaml() {
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
@@ -3770,8 +4023,11 @@
     html += '</div>';
     canvasContent.innerHTML = html;
 
+    // Use stashed content if available, otherwise build from state
     var content = '';
-    if (state.fullYamlTab === 'full') {
+    if (state.fullYamlStash[state.fullYamlTab]) {
+      content = state.fullYamlStash[state.fullYamlTab];
+    } else if (state.fullYamlTab === 'full') {
       content = state.rawYaml;
     } else if (state.fullYamlTab === 'order') {
       if (activeOrderBlock) {
@@ -3911,6 +4167,13 @@
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
     html += renderOrderStepTree(state.orderSteps, 0, '', 'then');
     if (state.orderSteps.length === 0) {
+      if (!activeOrderBlock) {
+        html += '<div class="editor-info-box mb-2">';
+        html += '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
+        html += 'For example:';
+        html += '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
+        html += '</div>';
+      }
       html += '<p class="text-muted small mb-0">No order steps yet. Use the add row below or click "Auto-generate" to create a draft.</p>';
     }
     html += '</div></div></div>';
@@ -4185,8 +4448,6 @@
     var topTab = target.closest('.editor-top-tab');
     var jumpItem = target.closest('.editor-jump-item');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
-    var outlineMenuBtn = target.closest('.editor-outline-menu-btn');
-    var outlineDeleteBtn = target.closest('[data-outline-delete-block-id]');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
     var symbolItemBtn = target.closest('[data-symbol-name]');
@@ -4205,92 +4466,22 @@
       hideTypeaheadMenu();
     }
 
-    // Outline block menu
-    if (outlineMenuBtn) {
-      e.stopPropagation();
-      var blockId = outlineMenuBtn.getAttribute('data-outline-block-id');
-      var block = getBlockById(blockId);
-      if (!block) return;
-      var menuHtml = '<div class="dropdown-menu show editor-outline-menu-dropdown" style="position: absolute; top: 0; left: 0; z-index: 9999;">';
-      menuHtml += '<button type="button" class="dropdown-item" data-outline-action="reorder"><i class="fa-solid fa-arrows-up-down" aria-hidden="true"></i> ' + (state.reorderMode ? 'Exit reorder' : 'Reorder blocks') + '</button>';
-      menuHtml += '<div class="dropdown-divider"></div>';
-      menuHtml += '<button type="button" class="dropdown-item text-danger" data-outline-delete-block-id="' + esc(blockId) + '"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete block</button>';
-      menuHtml += '</div>';
-      var container = document.createElement('div');
-      container.innerHTML = menuHtml;
-      var menu = container.querySelector('.editor-outline-menu-dropdown');
-      document.body.appendChild(menu);
-      var rect = outlineMenuBtn.getBoundingClientRect();
-      menu.style.top = (rect.bottom + 4) + 'px';
-      menu.style.left = (rect.right - 150) + 'px';
-      menu.setAttribute('data-owner-btn-id', blockId);
-      var closeMenu = function () {
-        if (menu.parentNode) menu.parentNode.removeChild(menu);
-        document.removeEventListener('click', closeMenuOnOutside);
-      };
-      var closeMenuOnOutside = function (evt) {
-        if (!menu.contains(evt.target) && evt.target !== outlineMenuBtn) {
-          closeMenu();
-        }
-      };
-      setTimeout(function () {
-        document.addEventListener('click', closeMenuOnOutside);
-      }, 0);
+    // Validation drawer toggle
+    if (target.id === 'validation-toggle' || target.closest('#validation-toggle')) {
+      state.validationOpen = !state.validationOpen;
+      renderValidationDrawer();
+      return;
+    }
+    if (target.id === 'btn-check-errors' || target.closest('#btn-check-errors')) {
+      state.validationOpen = true;
+      runValidation();
       return;
     }
 
-    // Outline block delete
-    if (outlineDeleteBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      var delBlockId = outlineDeleteBtn.getAttribute('data-outline-delete-block-id');
-      var delBlock = getBlockById(delBlockId);
-      if (!delBlock) return;
-      if (!window.confirm('Are you sure you want to delete this block?\n\n' + (delBlock.title || delBlock.id))) {
-        return;
-      }
-      apiPost('/api/delete-block', {
-        project: state.project,
-        filename: state.filename,
-        block_id: delBlockId,
-      }).then(function (res) {
-        if (res.success && res.data) {
-          refreshFromFileResponse(res.data);
-          state.selectedBlockId = getDefaultVisibleBlockId();
-          renderOutline();
-          renderCanvas();
-          return;
-        }
-        window.alert((res.error && res.error.message) || 'Unable to delete block.');
-      }).catch(function (err) {
-        console.error('Delete block error:', err);
-        window.alert('Error deleting block.');
-      });
-      return;
-    }
-
-    // Outline reorder action
-    var outlineReorderBtn = target.closest('[data-outline-action="reorder"]');
-    if (outlineReorderBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (state.reorderMode) {
-        exitReorderMode();
-        renderCanvas();
-      } else {
-        enterReorderMode();
-      }
-      return;
-    }
-
-    // Reorder save/cancel
-    if (target.id === 'reorder-save') {
-      saveReorder();
-      return;
-    }
-    if (target.id === 'reorder-cancel') {
-      if (!window.confirm('Discard block reordering?')) return;
-      cancelReorder();
+    // Hamburger menu toggle
+    if (target.id === 'topbar-hamburger' || target.closest('#topbar-hamburger')) {
+      var mobileMenu = document.getElementById('topbar-mobile-menu');
+      if (mobileMenu) mobileMenu.classList.toggle('d-none');
       return;
     }
 
@@ -4350,7 +4541,9 @@
         state.selectedBlockId = outlineItem.getAttribute('data-block-id');
         state.canvasMode = 'question';
         state.questionEditMode = 'preview';
+        state.questionBlockTab = 'screen';
         state.advancedOpen = false;
+        state.advancedShowMore = false;
         state.markdownPreviewMode = false;
       }
       renderOutline();
@@ -4370,8 +4563,10 @@
     if (insertChoiceBtn) {
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
-      var newYaml = makeNewBlockYaml(kind);
-      if (kind !== 'question' && state.jumpTarget === 'questions') {
+      var isAiScreen = kind === 'ai-screen';
+      var insertKind = isAiScreen ? 'question' : kind;
+      var newYaml = makeNewBlockYaml(insertKind);
+      if (insertKind !== 'question' && state.jumpTarget === 'questions') {
         state.jumpTarget = 'all';
         $$('.editor-jump-item').forEach(function (j) {
           j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
@@ -4386,6 +4581,36 @@
         if (res.success && res.data) {
           closeBootstrapModal('insert-modal');
           refreshFromFileResponse(res.data);
+          if (isAiScreen) {
+            var newBlock = getSelectedBlock();
+            if (!newBlock || newBlock.type !== 'question') return;
+            var screenInstruction = window.prompt('Optional guidance for this screen (leave blank for auto-draft):', '');
+            if (screenInstruction === null) return;
+            _setButtonLoading('ai-generate-screen', true, 'Drafting...');
+            apiPost('/api/ai/generate-screen', {
+              project: state.project,
+              filename: state.filename,
+              block_id: newBlock.id,
+              instruction: screenInstruction,
+              field_types: FIELD_TYPES,
+              current_screen: {
+                question: newBlock.data.question || '',
+                subquestion: newBlock.data.subquestion || '',
+                fields: newBlock.data.fields || [],
+              },
+            }).then(function (aiRes) {
+              if (!aiRes.success || !aiRes.data || !aiRes.data.screen) {
+                throw new Error((aiRes.error && aiRes.error.message) || 'AI screen generation failed');
+              }
+              applyAIGeneratedScreenToBlock(newBlock, aiRes.data.screen);
+              state.dirty = true;
+              renderCanvas();
+            }).catch(function (err) {
+              window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
+            }).finally(function () {
+              _setButtonLoading('ai-generate-screen', false, '');
+            });
+          }
           return;
         }
         window.alert((res.error && res.error.message) || 'Unable to insert block.');
@@ -4397,6 +4622,19 @@
       var mdAction = mdInsertBtn.getAttribute('data-md-insert');
       var targetId = mdInsertBtn.getAttribute('data-target-id');
       var targetEl = targetId ? document.getElementById(targetId) : null;
+      if (!targetEl) {
+        var toolbar = mdInsertBtn.closest('[data-md-toolbar-for]');
+        if (toolbar) {
+          var fallbackId = toolbar.getAttribute('data-md-toolbar-for');
+          if (fallbackId) targetEl = document.getElementById(fallbackId);
+        }
+      }
+      if (!targetEl) {
+        var activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+          targetEl = activeEl;
+        }
+      }
       applyMarkdownInsert(targetEl, mdAction);
       return;
     }
@@ -4650,6 +4888,7 @@
       return;
     }
     if (target.id === 'btn-full-yaml') {
+      _stashFullYamlContent();
       state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
       state.currentView = 'interview';
       var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
@@ -4665,6 +4904,23 @@
       var interviewTab3 = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab3) setActiveTopTab(interviewTab3);
       renderCanvas();
+      return;
+    }
+    if (target.id === 'btn-save-file') {
+      if (!state.filename) return;
+      saveCurrentBlockIfDirty();
+      return;
+    }
+    if (target.id === 'gen-block-id') {
+      var titleEl = document.getElementById('q-title');
+      var idEl = document.getElementById('adv-id');
+      if (!idEl) return;
+      var questionText = titleEl ? titleEl.value : '';
+      var currentBlock = getSelectedBlock();
+      var allBlocks = state.blocks || [];
+      var newId = generateBlockId(questionText, allBlocks, currentBlock ? currentBlock.id : null);
+      idEl.value = newId;
+      idEl.dispatchEvent(new Event('input'));
       return;
     }
     if (target.id === 'btn-preview-interview') {
@@ -4785,8 +5041,6 @@
             block.yaml = serializeCodeToYaml(block);
           } else if (block.type === 'objects') {
             block.yaml = serializeObjectsToYaml(block);
-          } else if (isSpecialStructuredBlockType(block.type)) {
-            block.yaml = serializeSpecialBlockToYaml(block);
           }
         }
       }
@@ -4795,22 +5049,66 @@
       renderCanvas();
       return;
     }
+
+    if (target.matches('[data-question-tab]')) {
+      state.questionBlockTab = target.getAttribute('data-question-tab') || 'screen';
+      renderCanvas();
+      return;
+    }
+
+    if (target.matches('[data-field-settings-tab]')) {
+      var tabFi = parseInt(target.getAttribute('data-field-idx'), 10);
+      _fieldSettingsTabs[tabFi] = target.getAttribute('data-field-settings-tab') || 'basic';
+      renderCanvas();
+      return;
+    }
+
+    if (target.matches('[data-field-datatype]')) {
+      var typeFi = parseInt(target.getAttribute('data-field-idx'), 10);
+      var nextType = target.getAttribute('data-field-datatype') || 'text';
+      var typeBlock = getSelectedBlock();
+      if (typeBlock && typeBlock.type === 'question') {
+        syncFieldsToData(typeBlock);
+        if (typeBlock.data && Array.isArray(typeBlock.data.fields) && typeBlock.data.fields[typeFi]) {
+          if (typeof typeBlock.data.fields[typeFi] === 'string') {
+            typeBlock.data.fields[typeFi] = { label: typeBlock.data.fields[typeFi], field: '', datatype: nextType };
+          } else {
+            typeBlock.data.fields[typeFi].datatype = nextType;
+          }
+        }
+        state.dirty = true;
+        renderCanvas();
+      }
+      return;
+    }
+
     if (target.id === 'toggle-advanced') {
       state.advancedOpen = !state.advancedOpen;
       renderCanvas();
       return;
     }
-    if (target.id === 'adv-mandatory-toggle') {
-      var enabled = target.getAttribute('data-enabled') === 'true';
-      target.setAttribute('data-enabled', enabled ? 'false' : 'true');
-      target.classList.toggle('btn-primary', !enabled);
-      target.classList.toggle('btn-outline-secondary', enabled);
-      target.textContent = enabled ? 'Off' : 'On';
-      state.dirty = true;
+
+    // Advanced show more toggle
+    if (target.id === 'adv-show-more') {
+      state.advancedShowMore = !state.advancedShowMore;
+      renderCanvas();
       return;
     }
 
-    // Save block
+    // Kebab field options toggle
+    var kebabBtn = target.closest ? target.closest('.editor-field-kebab-btn') : null;
+    if (!kebabBtn && target.classList.contains('editor-field-kebab-btn')) kebabBtn = target;
+    if (kebabBtn) {
+      var kFi = parseInt(kebabBtn.getAttribute('data-field-idx'), 10);
+      _openFieldModsPanels[kFi] = !_openFieldModsPanels[kFi];
+      var modsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + kFi + '"]');
+      if (modsPanel) {
+        if (_openFieldModsPanels[kFi]) modsPanel.removeAttribute('hidden'); else modsPanel.setAttribute('hidden', '');
+      }
+      kebabBtn.setAttribute('aria-expanded', _openFieldModsPanels[kFi] ? 'true' : 'false');
+      state.dirty = true;
+      return;
+    }
 
     if (target.id === 'save-block-btn') {
       var block = getSelectedBlock();
@@ -4837,11 +5135,17 @@
     }
 
     // Full YAML tabs
-    if (target.matches('[data-yaml-tab]')) { state.fullYamlTab = target.getAttribute('data-yaml-tab'); renderCanvas(); return; }
-    if (target.id === 'back-to-question') { state.canvasMode = 'question'; renderCanvas(); return; }
+    if (target.matches('[data-yaml-tab]')) {
+      _stashFullYamlContent();
+      state.fullYamlTab = target.getAttribute('data-yaml-tab');
+      renderCanvas();
+      return;
+    }
+    if (target.id === 'back-to-question') { _stashFullYamlContent(); state.canvasMode = 'question'; renderCanvas(); return; }
     if (target.id === 'save-full-yaml') {
       var yamlContent = getMonacoValue('full-yaml-monaco');
       if (!yamlContent) return;
+      state.fullYamlStash = {};
       if (state.fullYamlTab === 'order' && state.activeOrderBlockId) {
         apiPost('/api/block', {
           project: state.project,
@@ -4925,7 +5229,8 @@
       if (blk && blk.data) {
         syncFieldsToData(blk);
         if (!blk.data.fields) blk.data.fields = [];
-        blk.data.fields.push({ 'New field': 'new_variable' });
+        blk.data.fields.push({ label: 'New field', field: 'new_variable' });
+        _openFieldModsPanels = {};
         state.dirty = true;
         renderCanvas();
       }
@@ -4939,6 +5244,7 @@
       if (blk2 && blk2.data && blk2.data.fields) {
         syncFieldsToData(blk2);
         blk2.data.fields.splice(fi, 1);
+        _openFieldModsPanels = {};
         state.dirty = true;
         renderCanvas();
       }
@@ -4963,89 +5269,6 @@
       var blk4 = getSelectedBlock();
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.id === 'add-review-row') {
-      var reviewBlock = getSelectedBlock();
-      if (reviewBlock && reviewBlock.type === 'review') {
-        if (!reviewBlock.data || typeof reviewBlock.data !== 'object') reviewBlock.data = {};
-        if (!Array.isArray(reviewBlock.data.review)) reviewBlock.data.review = [];
-        reviewBlock.data.review.push({ 'Edit field': 'some_variable', button: 'Current value: ${ some_variable }' });
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.matches('[data-remove-review]')) {
-      var removeReviewIdx = parseInt(target.getAttribute('data-remove-review'), 10);
-      var reviewBlock2 = getSelectedBlock();
-      if (reviewBlock2 && reviewBlock2.type === 'review' && reviewBlock2.data && Array.isArray(reviewBlock2.data.review)) {
-        reviewBlock2.data.review.splice(removeReviewIdx, 1);
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.id === 'add-terms-row') {
-      var termsBlock = getSelectedBlock();
-      if (termsBlock && termsBlock.type === 'terms') {
-        if (!termsBlock.data || typeof termsBlock.data !== 'object') termsBlock.data = {};
-        if (!termsBlock.data.terms || typeof termsBlock.data.terms !== 'object') termsBlock.data.terms = {};
-        termsBlock.data.terms['new term'] = 'Definition';
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.matches('[data-remove-terms]')) {
-      var removeTermsIdx = parseInt(target.getAttribute('data-remove-terms'), 10);
-      var termsBlock2 = getSelectedBlock();
-      if (termsBlock2 && termsBlock2.type === 'terms' && termsBlock2.data && termsBlock2.data.terms && typeof termsBlock2.data.terms === 'object') {
-        var termKeys = Object.keys(termsBlock2.data.terms);
-        if (termKeys[removeTermsIdx]) delete termsBlock2.data.terms[termKeys[removeTermsIdx]];
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.id === 'add-sections-row') {
-      var sectionsBlock = getSelectedBlock();
-      if (sectionsBlock && sectionsBlock.type === 'sections') {
-        if (!sectionsBlock.data || typeof sectionsBlock.data !== 'object') sectionsBlock.data = {};
-        var sectionsStyleElAdd = document.getElementById('sections-style');
-        var isAlModeAdd = sectionsStyleElAdd && sectionsStyleElAdd.value === 'al';
-        if (isAlModeAdd) {
-          if (!Array.isArray(sectionsBlock.data['data from code'])) sectionsBlock.data['data from code'] = [];
-          sectionsBlock.data['data from code'].push({ new_section: '"New section"' });
-        } else {
-          if (!Array.isArray(sectionsBlock.data.sections)) sectionsBlock.data.sections = [];
-          sectionsBlock.data.sections.push({ new_section: 'New section' });
-        }
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
-
-    if (target.matches('[data-remove-sections]')) {
-      var removeSectionsIdx = parseInt(target.getAttribute('data-remove-sections'), 10);
-      var sectionsBlock2 = getSelectedBlock();
-      if (sectionsBlock2 && sectionsBlock2.type === 'sections' && sectionsBlock2.data) {
-        var sectionsStyleElRemove = document.getElementById('sections-style');
-        var isAlModeRemove = sectionsStyleElRemove && sectionsStyleElRemove.value === 'al';
-        if (isAlModeRemove && Array.isArray(sectionsBlock2.data['data from code'])) {
-          sectionsBlock2.data['data from code'].splice(removeSectionsIdx, 1);
-        } else if (Array.isArray(sectionsBlock2.data.sections)) {
-          sectionsBlock2.data.sections.splice(removeSectionsIdx, 1);
-        }
         state.dirty = true;
         renderCanvas();
       }
@@ -5124,15 +5347,12 @@
       return;
     }
     if (target.matches('[data-field-prop]') || target.matches('.editor-field-choices') ||
-        target.matches('.editor-obj-input') || target.matches('[data-review-prop]') ||
-        target.matches('[data-terms-prop]') || target.matches('[data-sections-prop]') ||
-        target.id === 'q-title' || target.id === 'q-subquestion' ||
+        target.matches('.editor-obj-input') || target.id === 'q-title' || target.id === 'q-subquestion' ||
         target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
         target.id === 'adv-continue-label' || target.id === 'adv-sets' || target.id === 'adv-need' ||
         target.id === 'adv-event' || target.id === 'adv-generic-object' ||
-        target.id === 'special-id' || target.id.indexOf('attachment-') === 0 ||
-        target.id.indexOf('review-') === 0 || target.id.indexOf('table-') === 0 ||
-        target.id.indexOf('template-') === 0 || target.id === 'includes-list') {
+        target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
+        target.matches('.editor-field-showif-key')) {
       state.dirty = true;
       var saveBtn = document.getElementById('save-block-btn');
       if (saveBtn) saveBtn.disabled = false;
@@ -5141,6 +5361,12 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch') {
+      state.dirty = true;
+      var saveBtnSwitch = document.getElementById('save-block-btn');
+      if (saveBtnSwitch) saveBtnSwitch.disabled = false;
+      return;
+    }
     if (target.id === 'section-upload-input') {
       if (!target.files || !target.files.length || !state.project || isInterviewView()) return;
       var formData = new FormData();
@@ -5179,52 +5405,6 @@
       }
       return;
     }
-    if (target.id === 'review-tabular' || target.id === 'table-show-incomplete' || target.id === 'attachment-as-list' ||
-        target.id === 'attachment-skip-undefined' || target.id === 'attachment-tagged-pdf') {
-      state.dirty = true;
-      var saveBtn3 = document.getElementById('save-block-btn');
-      if (saveBtn3) saveBtn3.disabled = false;
-      return;
-    }
-    if (target.id === 'sections-style') {
-      var sectionsBlockStyle = getSelectedBlock();
-      if (sectionsBlockStyle && sectionsBlockStyle.type === 'sections') {
-        var newStyle = target.value;
-        var styleRows = document.querySelectorAll('.editor-sections-row');
-        var capturedRows = [];
-        styleRows.forEach(function (row) {
-          capturedRows.push({
-            key: String((row.querySelector('[data-sections-prop="key"]') || {}).value || '').trim(),
-            label: String((row.querySelector('[data-sections-prop="label"]') || {}).value || '').trim(),
-            subs: String((row.querySelector('[data-sections-prop="subs"]') || {}).value || '').trim(),
-            hidden: String((row.querySelector('[data-sections-prop="hidden"]') || {}).value || '').trim(),
-          });
-        });
-        if (newStyle === 'al') {
-          sectionsBlockStyle.data = {
-            'variable name': 'al_nav_sections',
-            'reconsider': true,
-            'data from code': capturedRows.filter(function (r) { return r.key; }).map(function (r) {
-              var item = {};
-              item[r.key] = '"' + r.label.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-              if (r.hidden) item.hidden = r.hidden;
-              return item;
-            }),
-          };
-        } else {
-          sectionsBlockStyle.data = {
-            sections: capturedRows.filter(function (r) { return r.key; }).map(function (r) {
-              var item = {};
-              item[r.key] = r.label || r.key;
-              return item;
-            }),
-          };
-        }
-        state.dirty = true;
-        renderCanvas();
-      }
-      return;
-    }
     if (target.id === 'adv-enable-if') {
       var blk2 = getSelectedBlock();
       if (blk2) {
@@ -5252,38 +5432,6 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') hideTypeaheadMenu();
-
-    // Handle Enter/Space on outline items to select them
-    if ((e.key === 'Enter' || e.key === ' ') && !state.reorderMode) {
-      var outlineItem = document.activeElement.closest('.editor-outline-item');
-      if (outlineItem) {
-        e.preventDefault();
-        var blockId = outlineItem.getAttribute('data-block-id');
-        if (blockId) {
-          state.selectedBlockId = blockId;
-          state.canvasMode = 'question';
-          state.questionEditMode = 'preview';
-          state.advancedOpen = false;
-          state.markdownPreviewMode = false;
-          renderOutline();
-          renderCanvas();
-        }
-      }
-    }
-
-    // Keyboard shortcuts for reordering
-    if (state.reorderMode && state.selectedBlockId) {
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        moveBlockInOrder(state.selectedBlockId, 'up');
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        moveBlockInOrder(state.selectedBlockId, 'down');
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        saveReorder();
-      }
-    }
   });
 
   // -------------------------------------------------------------------------

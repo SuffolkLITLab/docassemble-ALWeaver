@@ -10,8 +10,6 @@ Provides:
     POST /al/editor/api/file     — save full YAML back to a file
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
-    POST /al/editor/api/delete-block — delete a block by id
-    POST /al/editor/api/reorder-blocks — reorder blocks in a file
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
@@ -20,6 +18,7 @@ Provides:
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
     GET  /al/editor/api/preview-url — get the interview preview URL
+    GET  /al/editor/api/weaver/validate — validate a YAML file with Weaver checks
 """
 
 from __future__ import annotations
@@ -51,6 +50,7 @@ from .api_utils import generate_interview_from_bytes, validate_upload_metadata
 from .editor_utils import (
     canonical_block_yaml,
     canonicalize_block_yaml,
+    delete_saved_file,
     generate_draft_order,
     parse_interview_yaml,
     parse_order_code,
@@ -60,6 +60,7 @@ from .editor_utils import (
     playground_list_yaml_files,
     playground_read_yaml,
     playground_write_yaml,
+    rename_saved_file,
     serialize_blocks_to_yaml,
     serialize_order_steps,
     update_block_in_yaml,
@@ -224,6 +225,24 @@ def _normalize_filename(raw: Optional[str]) -> str:
     value = os.path.basename(str(raw or "").strip())
     if not value or value in {".", ".."}:
         raise ValueError("YAML filename is required")
+    if not value.lower().endswith((".yml", ".yaml")):
+        raise ValueError("File must be a YAML interview")
+    return value
+
+
+def _normalize_renamed_storage_filename(raw: Optional[str], existing_filename: str) -> str:
+    value = os.path.basename(str(raw or "").strip())
+    if not value or value in {".", ".."}:
+        raise ValueError("YAML filename is required")
+    if "." not in value:
+        existing_ext = os.path.splitext(existing_filename)[1]
+        if existing_ext:
+            value = value + existing_ext
+    return value
+
+
+def _normalize_renamed_filename(raw: Optional[str], existing_filename: str) -> str:
+    value = _normalize_renamed_storage_filename(raw, existing_filename)
     if not value.lower().endswith((".yml", ".yaml")):
         raise ValueError("File must be a YAML interview")
     return value
@@ -1118,6 +1137,163 @@ def editor_api_get_file() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/weaver/validate", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_validate() -> Response:
+    """Run DAYamlChecker on a playground YAML file and return errors."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        raw_yaml = playground_read_yaml(uid, project, filename)
+
+        errors: List[Dict[str, Any]] = []
+        used_structured_checker = False
+        try:
+            # Prefer structured API so we can return level + line_number reliably.
+            from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+
+            checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+            for err in checker_errors:
+                msg = str(getattr(err, "err_str", "") or "").strip() or str(err)
+                lowered = msg.lower()
+                level = "error"
+                if lowered.startswith("warning:"):
+                    level = "warning"
+                    msg = msg[len("warning:") :].strip()
+                elif lowered.startswith("info:"):
+                    level = "info"
+                    msg = msg[len("info:") :].strip()
+                variable = ""
+                qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
+                if qmatch:
+                    variable = qmatch.group(1)
+                errors.append(
+                    {
+                        "level": level,
+                        "message": msg,
+                        "variable": variable,
+                        "line_number": getattr(err, "line_number", None),
+                        "file_name": getattr(err, "file_name", filename),
+                        "source": "dayamlchecker",
+                    }
+                )
+            used_structured_checker = True
+        except Exception:
+            # Fallback: keep legacy subprocess checker behavior if module import fails.
+            ok, output = validate_yaml_with_dayamlchecker(raw_yaml)
+            if not ok and output:
+                for line in output.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    level = "error"
+                    if line.lower().startswith("warning"):
+                        level = "warning"
+                    elif line.lower().startswith("info"):
+                        level = "info"
+                    variable = ""
+                    qmatch = re.search(r"'([^']+)'", line)
+                    if qmatch:
+                        variable = qmatch.group(1)
+                    errors.append(
+                        {
+                            "level": level,
+                            "message": line,
+                            "variable": variable,
+                            "line_number": None,
+                            "file_name": filename,
+                            "source": "dayamlchecker-cli",
+                        }
+                    )
+
+        # Also include playground-style undefined variable and parse diagnostics.
+        try:
+            variable_info = playground_get_variables(uid, project, filename)
+            undefined_names = variable_info.get("undefined_names") if isinstance(variable_info, dict) else None
+            if isinstance(undefined_names, (list, set, tuple)):
+                for var_name in sorted(
+                    str(name).strip() for name in undefined_names if str(name).strip()
+                ):
+                    errors.append(
+                        {
+                            "level": "warning",
+                            "message": f"Undefined variable referenced: {var_name}",
+                            "variable": var_name,
+                            "line_number": None,
+                            "file_name": filename,
+                            "source": "playground",
+                        }
+                    )
+        except Exception as exc:
+            errors.append(
+                {
+                    "level": "error",
+                    "message": str(exc) or "Playground parser reported an error",
+                    "variable": "",
+                    "line_number": None,
+                    "file_name": filename,
+                    "source": "playground",
+                }
+            )
+
+        # Deduplicate identical diagnostics from multiple sources.
+        deduped: List[Dict[str, Any]] = []
+        seen: set = set()
+        for err in errors:
+            key = (
+                str(err.get("level") or ""),
+                str(err.get("message") or ""),
+                str(err.get("variable") or ""),
+                str(err.get("line_number") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(err)
+        errors = deduped
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "errors": errors,
+                "summary": {
+                    "count": len(errors),
+                    "errors": sum(1 for err in errors if err.get("level") == "error"),
+                    "warnings": sum(1 for err in errors if err.get("level") == "warning"),
+                    "infos": sum(1 for err in errors if err.get("level") == "info"),
+                },
+                "checker": "dayamlchecker",
+                "structured": used_structured_checker,
+            },
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: validate error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/file", methods=["POST"])
 @csrf.exempt
 @cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
@@ -1178,17 +1354,11 @@ def editor_api_rename_file() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         old_filename = _normalize_filename(post_data.get("filename"))
-        new_filename = _normalize_filename(post_data.get("new_filename"))
+        new_filename = _normalize_renamed_filename(post_data.get("new_filename"), old_filename)
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
-        _area, directory = _editor_playground_directory(uid, project)
-        old_path = os.path.join(directory, old_filename)
-        if not os.path.isfile(old_path):
-            raise FileNotFoundError(f"{old_filename} not found")
-        new_path = os.path.join(directory, new_filename)
-        if os.path.exists(new_path):
-            raise ValueError(f"{new_filename} already exists")
-        os.rename(old_path, new_path)
+        area, directory = _editor_playground_directory(uid, project)
+        rename_saved_file(area, directory, old_filename, new_filename)
         return jsonify(
             {
                 "success": True,
@@ -1235,11 +1405,8 @@ def editor_api_delete_file() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
-        _area, directory = _editor_playground_directory(uid, project)
-        path = os.path.join(directory, filename)
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"{filename} not found")
-        os.remove(path)
+        area, directory = _editor_playground_directory(uid, project)
+        delete_saved_file(area, directory, filename)
         return jsonify(
             {
                 "success": True,
@@ -1286,18 +1453,12 @@ def editor_api_rename_section_file() -> Response:
         project = _normalize_project(post_data.get("project"))
         section = _normalize_section(post_data.get("section"))
         old_filename = _normalize_storage_filename(post_data.get("filename"))
-        new_filename = _normalize_storage_filename(post_data.get("new_filename"))
+        new_filename = _normalize_renamed_storage_filename(post_data.get("new_filename"), old_filename)
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
-        _area, directory = _editor_storage_directory(uid, project, storage_section)
-        old_path = os.path.join(directory, old_filename)
-        if not os.path.isfile(old_path):
-            raise FileNotFoundError(f"{old_filename} not found")
-        new_path = os.path.join(directory, new_filename)
-        if os.path.exists(new_path):
-            raise ValueError(f"{new_filename} already exists")
-        os.rename(old_path, new_path)
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        rename_saved_file(area, directory, old_filename, new_filename)
         return jsonify(
             {
                 "success": True,
@@ -1347,11 +1508,8 @@ def editor_api_delete_section_file() -> Response:
         section = _normalize_section(post_data.get("section"))
         filename = _normalize_storage_filename(post_data.get("filename"))
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
-        _area, directory = _editor_storage_directory(uid, project, storage_section)
-        path = os.path.join(directory, filename)
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"{filename} not found")
-        os.remove(path)
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        delete_saved_file(area, directory, filename)
         return jsonify(
             {
                 "success": True,
@@ -1590,159 +1748,6 @@ def editor_api_variables() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: variables error: {exc!r}", "error")
-        return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "server_error", "message": str(exc)},
-            },
-            500,
-        )
-
-
-@app.route(f"{EDITOR_BASE_PATH}/api/delete-block", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
-def editor_api_delete_block() -> Response:
-    """Delete a block from a YAML file by block id."""
-    request_id = str(uuid.uuid4())
-    if not _editor_auth_check():
-        return _auth_fail(request_id)
-    try:
-        uid = _current_user_id()
-        post_data = request.get_json(silent=True) or {}
-        project = _normalize_project(post_data.get("project"))
-        filename = _normalize_filename(post_data.get("filename"))
-        block_id = str(post_data.get("block_id", "")).strip()
-        if not block_id:
-            raise ValueError("block_id is required")
-
-        current_content = playground_read_yaml(uid, project, filename)
-        from .editor_utils import delete_block_from_yaml
-
-        updated_content = delete_block_from_yaml(current_content, block_id)
-        playground_write_yaml(uid, project, filename, updated_content)
-
-        model = parse_interview_yaml(updated_content)
-        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-        order_steps: list = []
-        for idx in model.get("order_blocks", []):
-            block = model["blocks"][idx]
-            code = block.get("data", {}).get("code", "")
-            if code:
-                parsed_steps = parse_order_code(code)
-                order_step_map[block["id"]] = parsed_steps
-                if not order_steps:
-                    order_steps = parsed_steps
-        return jsonify(
-            {
-                "success": True,
-                "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "filename": filename,
-                    "blocks": model["blocks"],
-                    "metadata_blocks": model["metadata_blocks"],
-                    "include_blocks": model["include_blocks"],
-                    "default_screen_parts_blocks": model[
-                        "default_screen_parts_blocks"
-                    ],
-                    "order_blocks": model["order_blocks"],
-                    "order_steps": order_steps,
-                    "order_step_map": order_step_map,
-                    "raw_yaml": updated_content,
-                },
-            }
-        )
-    except (ValueError, FileNotFoundError) as exc:
-        status = 404 if isinstance(exc, FileNotFoundError) else 400
-        return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "validation_error", "message": str(exc)},
-            },
-            status,
-        )
-    except Exception as exc:
-        log(f"ALWeaver editor: delete block error: {exc!r}", "error")
-        return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "server_error", "message": str(exc)},
-            },
-            500,
-        )
-
-
-@app.route(f"{EDITOR_BASE_PATH}/api/reorder-blocks", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
-def editor_api_reorder_blocks() -> Response:
-    """Reorder blocks in a YAML file."""
-    request_id = str(uuid.uuid4())
-    if not _editor_auth_check():
-        return _auth_fail(request_id)
-    try:
-        uid = _current_user_id()
-        post_data = request.get_json(silent=True) or {}
-        project = _normalize_project(post_data.get("project"))
-        filename = _normalize_filename(post_data.get("filename"))
-        block_ids = post_data.get("block_ids", [])
-
-        if not isinstance(block_ids, list) or not block_ids:
-            raise ValueError("block_ids must be a non-empty list")
-
-        current_content = playground_read_yaml(uid, project, filename)
-        from .editor_utils import reorder_blocks_in_yaml
-
-        updated_content = reorder_blocks_in_yaml(current_content, block_ids)
-        playground_write_yaml(uid, project, filename, updated_content)
-
-        model = parse_interview_yaml(updated_content)
-        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-        order_steps: list = []
-        for idx in model.get("order_blocks", []):
-            block = model["blocks"][idx]
-            code = block.get("data", {}).get("code", "")
-            if code:
-                parsed_steps = parse_order_code(code)
-                order_step_map[block["id"]] = parsed_steps
-                if not order_steps:
-                    order_steps = parsed_steps
-        return jsonify(
-            {
-                "success": True,
-                "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "filename": filename,
-                    "blocks": model["blocks"],
-                    "metadata_blocks": model["metadata_blocks"],
-                    "include_blocks": model["include_blocks"],
-                    "default_screen_parts_blocks": model[
-                        "default_screen_parts_blocks"
-                    ],
-                    "order_blocks": model["order_blocks"],
-                    "order_steps": order_steps,
-                    "order_step_map": order_step_map,
-                    "raw_yaml": updated_content,
-                },
-            }
-        )
-    except (ValueError, FileNotFoundError) as exc:
-        status = 404 if isinstance(exc, FileNotFoundError) else 400
-        return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "validation_error", "message": str(exc)},
-            },
-            status,
-        )
-    except Exception as exc:
-        log(f"ALWeaver editor: reorder blocks error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

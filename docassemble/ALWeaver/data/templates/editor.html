@@ -19,20 +19,38 @@
         <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
         <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
       </div>
-      <nav class="editor-top-tabs" id="view-tabs">
+      <nav class="editor-top-tabs d-none d-lg-flex" id="view-tabs">
         <button type="button" class="editor-top-tab btn btn-sm btn-light active" data-view="interview">Interview</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="templates">Templates</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="modules">Modules</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="static">Static</button>
         <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="data">Data Sources</button>
       </nav>
-      <div class="editor-top-actions">
+      <div class="editor-top-actions d-none d-lg-flex">
         <button type="button" class="btn btn-sm btn-outline-light" id="btn-project-selector">Projects</button>
-        <button type="button" class="btn btn-sm btn-outline-light" id="btn-new-project">New project</button>
-        <button type="button" class="btn btn-sm btn-outline-light" id="btn-full-yaml">Full YAML</button>
-        <button type="button" class="btn btn-sm btn-outline-light" id="btn-order-builder">Order builder</button>
-        <button type="button" class="btn btn-sm btn-outline-light" id="btn-standard-playground">Playground</button>
-        <button type="button" class="btn btn-sm btn-light" id="btn-preview-interview">Preview</button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-full-yaml">YAML</button>
+        <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" id="btn-check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
+        <button type="button" class="btn btn-sm btn-light" id="btn-preview-interview"><i class="fa-solid fa-play me-1" aria-hidden="true"></i>Run</button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-save-file"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-light d-lg-none ms-auto" id="topbar-hamburger" aria-label="Menu"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+    </div>
+    <!-- Mobile dropdown menu -->
+    <div class="editor-mobile-menu d-none" id="topbar-mobile-menu">
+      <nav class="editor-mobile-tabs">
+        <button type="button" class="editor-top-tab btn btn-sm btn-light active" data-view="interview">Interview</button>
+        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="templates">Templates</button>
+        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="modules">Modules</button>
+        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="static">Static</button>
+        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="data">Data Sources</button>
+      </nav>
+      <div class="editor-mobile-actions">
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-project-selector">Projects</button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-full-yaml">YAML</button>
+        <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" id="btn-check-errors">Errors <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
+        <button type="button" class="btn btn-sm btn-outline-light" id="btn-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
+        <button type="button" class="btn btn-sm btn-light" id="btn-preview-interview"><i class="fa-solid fa-play me-1" aria-hidden="true"></i>Run</button>
       </div>
     </div>
   </header>
@@ -71,8 +89,9 @@
           <button type="button" class="editor-jump-item" data-jump="objects">Objects</button>
         </div>
       </div>
-      <div class="editor-outline-header">
+      <div class="editor-outline-header d-flex align-items-center justify-content-between">
         <span class="editor-tiny">Outline</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order" style="font-size:11px;padding:2px 7px;height:auto;"><i class="fa-solid fa-list-ol me-1" aria-hidden="true"></i>Order</button>
       </div>
       <div class="editor-outline-list" id="outline-list"></div>
     </aside>
@@ -86,6 +105,17 @@
       </div>
     </main>
 
+  </div>
+
+  <!-- Validation / Errors drawer -->
+  <div class="editor-validation-drawer" id="validation-drawer">
+    <button type="button" class="editor-validation-toggle" id="validation-toggle">
+      <i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>
+      <span>Errors &amp; Warnings</span>
+      <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span>
+      <i class="fa-solid fa-chevron-up ms-auto editor-validation-chevron" aria-hidden="true"></i>
+    </button>
+    <div class="editor-validation-body" id="validation-drawer-body"></div>
   </div>
 </div>
 
@@ -101,16 +131,9 @@
       </div>
       <div class="modal-body">
         <div class="d-grid gap-2">
-          <button type="button" class="btn btn-primary text-start" data-insert="question">New question screen</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="review">New review screen</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="code">New code block</button>
+          <button type="button" class="btn btn-primary text-start" data-insert="question">New question screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="ai-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="code">New code block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="objects">New objects block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="includes">New includes block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="attachment">New attachment block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="table">New table block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="template">New template block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="terms">New vocabulary terms block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="sections">New sections block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="other">New YAML block</button>
         </div>
         <div class="mt-3">
