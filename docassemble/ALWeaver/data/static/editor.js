@@ -131,6 +131,17 @@
     if (quickJumpSection) quickJumpSection.classList.toggle('editor-section-hidden', !isInterviewView());
   }
 
+  function updateOutlineHeader() {
+    var outlineHeading = document.getElementById('outline-heading');
+    if (outlineHeading) {
+      outlineHeading.textContent = isInterviewView() ? 'Outline' : 'File list';
+    }
+    var orderButton = document.getElementById('btn-order-builder');
+    if (orderButton) {
+      orderButton.classList.toggle('d-none', !isInterviewView());
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Monaco management
   // -------------------------------------------------------------------------
@@ -2923,6 +2934,7 @@
   function renderCanvas() {
     disposeMonacoEditors();
     updateLeftRailMode();
+    updateOutlineHeader();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
     if (state.currentView !== 'interview') {

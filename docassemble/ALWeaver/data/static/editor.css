@@ -138,6 +138,14 @@ html, body {
   line-height: 1;
 }
 
+.editor-outline-order-btn {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .editor-section-hidden {
   display: none !important;
 }
