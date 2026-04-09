@@ -65,10 +65,9 @@
         <select class="form-select form-select-sm mt-1" id="project-select"></select>
       </div>
       <div class="editor-section" id="editor-file-section">
-        <label class="editor-tiny" for="file-select">YAML file</label>
-        <div class="d-flex gap-2 align-items-center flex-wrap mt-1">
-          <select class="form-select form-select-sm flex-grow-1" id="file-select"></select>
-          <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0" id="btn-new-file" title="Create new YAML file" aria-label="Create new YAML file">+ New YAML</button>
+        <label class="editor-tiny" for="file-select">File</label>
+        <div class="d-flex gap-2 align-items-center mt-1">
+          <select class="form-select form-select-sm" id="file-select"></select>
           <button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn flex-shrink-0" id="btn-rename-file" title="Rename file" aria-label="Rename file"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
           <button type="button" class="btn btn-sm btn-outline-danger editor-icon-btn flex-shrink-0" id="btn-delete-file" title="Delete file" aria-label="Delete file"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
         </div>
@@ -91,8 +90,8 @@
         </div>
       </div>
       <div class="editor-outline-header d-flex align-items-center justify-content-between">
-        <span class="editor-tiny" id="outline-heading">Outline</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary editor-outline-order-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order"><i class="fa-solid fa-list-ol me-1" aria-hidden="true"></i>Order</button>
+        <span class="editor-tiny">Outline</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order" style="font-size:11px;padding:2px 7px;height:auto;"><i class="fa-solid fa-list-ol me-1" aria-hidden="true"></i>Order</button>
       </div>
       <div class="editor-outline-list" id="outline-list"></div>
     </aside>

@@ -131,17 +131,6 @@
     if (quickJumpSection) quickJumpSection.classList.toggle('editor-section-hidden', !isInterviewView());
   }
 
-  function updateOutlineHeader() {
-    var outlineHeading = document.getElementById('outline-heading');
-    if (outlineHeading) {
-      outlineHeading.textContent = isInterviewView() ? 'Outline' : 'File list';
-    }
-    var orderButton = document.getElementById('btn-order-builder');
-    if (orderButton) {
-      orderButton.classList.toggle('d-none', !isInterviewView());
-    }
-  }
-
   // -------------------------------------------------------------------------
   // Monaco management
   // -------------------------------------------------------------------------
@@ -2934,7 +2923,6 @@
   function renderCanvas() {
     disposeMonacoEditors();
     updateLeftRailMode();
-    updateOutlineHeader();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
     if (state.currentView !== 'interview') {
@@ -4334,24 +4322,6 @@
     return 'new_template.txt';
   }
 
-  function defaultNewInterviewFilename() {
-    var baseName = 'new_interview.yml';
-    var existing = {};
-    (state.files || []).forEach(function (file) {
-      if (file && file.filename) {
-        existing[String(file.filename).toLowerCase()] = true;
-      }
-    });
-    if (!existing[baseName]) return baseName;
-    var stem = 'new_interview';
-    var ext = '.yml';
-    var counter = 2;
-    while (existing[(stem + '_' + counter + ext).toLowerCase()]) {
-      counter += 1;
-    }
-    return stem + '_' + counter + ext;
-  }
-
   function renderSectionPreview(fileMeta) {
     if (!fileMeta) {
       return '<div class="editor-card"><div class="editor-card-body text-muted">No file selected.</div></div>';
@@ -4751,24 +4721,6 @@
       var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab0) setActiveTopTab(interviewTab0);
       renderCanvas();
-      return;
-    }
-
-    if (target.id === 'btn-new-file') {
-      if (!state.project || !isInterviewView()) return;
-      var newInterviewFilename = window.prompt('New YAML filename', defaultNewInterviewFilename());
-      if (!newInterviewFilename) return;
-      apiPost('/api/file/new', {
-        project: state.project,
-        filename: newInterviewFilename,
-      }).then(function (res) {
-        if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to create file.');
-          return;
-        }
-        state.filename = res.data && res.data.filename ? res.data.filename : newInterviewFilename;
-        loadFiles();
-      });
       return;
     }
 
