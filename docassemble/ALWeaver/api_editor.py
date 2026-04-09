@@ -6,6 +6,7 @@ Provides:
     GET  /al/editor              — serve the editor single-page application
     GET  /al/editor/api/projects — list playground projects
     GET  /al/editor/api/files    — list YAML files in a project
+    POST /al/editor/api/file/new — create a new YAML interview file
     GET  /al/editor/api/file     — read & parse a YAML file
     POST /al/editor/api/file     — save full YAML back to a file
     POST /al/editor/api/block    — update a single block in-place
@@ -230,6 +231,17 @@ def _normalize_filename(raw: Optional[str]) -> str:
     return value
 
 
+def _normalize_new_filename(raw: Optional[str]) -> str:
+    value = os.path.basename(str(raw or "").strip())
+    if not value or value in {".", ".."}:
+        raise ValueError("YAML filename is required")
+    if "." not in value:
+        value = f"{value}.yml"
+    if not value.lower().endswith((".yml", ".yaml")):
+        raise ValueError("File must be a YAML interview")
+    return value
+
+
 def _normalize_renamed_storage_filename(raw: Optional[str], existing_filename: str) -> str:
     value = os.path.basename(str(raw or "").strip())
     if not value or value in {".", ".."}:
@@ -246,6 +258,16 @@ def _normalize_renamed_filename(raw: Optional[str], existing_filename: str) -> s
     if not value.lower().endswith((".yml", ".yaml")):
         raise ValueError("File must be a YAML interview")
     return value
+
+
+def _default_new_interview_yaml() -> str:
+    return (
+        "metadata:\n"
+        "  title: New interview\n"
+        "---\n"
+        f"id: question_{uuid.uuid4().hex[:8]}\n"
+        "question: New question\n"
+    )
 
 
 def _normalize_section(raw: Optional[str]) -> str:
@@ -615,6 +637,62 @@ def editor_api_files() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: files error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/new", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_new_file() -> Response:
+    """Create a new YAML interview file in the current playground project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_new_filename(post_data.get("filename"))
+        existing_filenames = {
+            item.get("filename")
+            for item in playground_list_yaml_files(uid, project)
+            if isinstance(item, dict)
+        }
+        if filename in existing_filenames:
+            raise ValueError(f"{filename} already exists")
+        content = post_data.get("content")
+        if not isinstance(content, str) or not content.strip():
+            content = _default_new_interview_yaml()
+        playground_write_yaml(uid, project, filename, content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "size": len(content),
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: new file error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
