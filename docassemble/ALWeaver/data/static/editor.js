@@ -129,6 +129,34 @@
     var quickJumpSection = document.getElementById('editor-quick-jump-section');
     if (fileSection) fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
     if (quickJumpSection) quickJumpSection.classList.toggle('editor-section-hidden', !isInterviewView());
+    updateOutlineHeader();
+  }
+
+  function updateOutlineHeader() {
+    var outlineHeader = document.querySelector('.editor-outline-header .editor-tiny');
+    var orderButton = document.getElementById('btn-order-builder');
+    if (outlineHeader) {
+      outlineHeader.textContent = isInterviewView() ? 'Outline' : 'File list';
+    }
+    if (orderButton) {
+      orderButton.classList.toggle('d-none', !isInterviewView());
+    }
+  }
+
+  function isOutlineDragEnabled() {
+    return isInterviewView() && !state.searchQuery.trim();
+  }
+
+  function isCommentedBlock(block) {
+    return Boolean(block && (block.type === 'commented' || (block.tags || []).indexOf('commented') !== -1));
+  }
+
+  function getBlockDisplayType(block) {
+    if (!block) return '';
+    if (block.type === 'commented' && block.data && block.data._commented_type) {
+      return String(block.data._commented_type || 'commented');
+    }
+    return String(block.type || '');
   }
 
   // -------------------------------------------------------------------------
@@ -139,6 +167,7 @@
   var _monacoFailed = false;
   var _monacoLoaderBase = null;
   var _monacoEditors = {};
+  var _outlineSortable = null;
   var _textareaEditors = {};
   var _makoLanguageRegistered = false;
 
@@ -256,8 +285,6 @@
 
   function _getMonacoLoaderCandidates() {
     return [
-      '/static/app/monaco-editor/min/vs/loader.js',
-      '/packagestatic/docassemble.webapp/monaco-editor/min/vs/loader.js',
       'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js'
     ];
   }
@@ -304,7 +331,7 @@
         callback();
         return;
       }
-      var vsBase = _monacoLoaderBase || '/static/app/monaco-editor/min/vs';
+      var vsBase = _monacoLoaderBase || 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
       require.config({ paths: { vs: vsBase } });
       require(['vs/editor/editor.main'], function () {
         registerMakoLanguage();
@@ -2629,6 +2656,165 @@
     return loadFiles();
   }
 
+  function getOutlineBlockIds() {
+    return state.blocks.map(function (block) { return block.id; }).filter(Boolean);
+  }
+
+  function getVisibleOutlineBlockIds() {
+    return filteredBlocks().map(function (block) { return block.id; }).filter(Boolean);
+  }
+
+  function getBlockIndexById(blockId) {
+    for (var i = 0; i < state.blocks.length; i++) {
+      if (state.blocks[i].id === blockId) return i;
+    }
+    return -1;
+  }
+
+  function reorderOutlineBlocks(blockIds, selectedBlockId) {
+    if (!state.project || !state.filename || !Array.isArray(blockIds)) return Promise.resolve();
+    return apiPost('/api/block/reorder', {
+      project: state.project,
+      filename: state.filename,
+      block_ids: blockIds,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        window.alert((res.error && res.error.message) || 'Unable to move block.');
+        return;
+      }
+      refreshFromFileResponse(res.data);
+      if (selectedBlockId) {
+        state.selectedBlockId = selectedBlockId;
+        renderOutline();
+        renderCanvas();
+      }
+    });
+  }
+
+  function moveOutlineBlock(blockId, delta) {
+    var blockIds = getVisibleOutlineBlockIds();
+    var currentIndex = blockIds.indexOf(blockId);
+    if (currentIndex < 0) return;
+    var targetIndex = currentIndex + delta;
+    if (targetIndex < 0 || targetIndex >= blockIds.length) return;
+    blockIds.splice(currentIndex, 1);
+    blockIds.splice(targetIndex, 0, blockId);
+    reorderVisibleOutlineBlocks(blockIds, blockId);
+  }
+
+  function moveOutlineBlockToEdge(blockId, edge) {
+    var blockIds = getVisibleOutlineBlockIds();
+    var currentIndex = blockIds.indexOf(blockId);
+    if (currentIndex < 0) return;
+    blockIds.splice(currentIndex, 1);
+    if (edge === 'top') {
+      blockIds.unshift(blockId);
+    } else {
+      blockIds.push(blockId);
+    }
+    reorderVisibleOutlineBlocks(blockIds, blockId);
+  }
+
+  function buildFullOutlineOrderFromVisibleIds(visibleIds) {
+    var visibleSet = {};
+    var nextVisibleIndex = 0;
+    var orderedVisibleIds = Array.isArray(visibleIds) ? visibleIds.slice() : [];
+    orderedVisibleIds.forEach(function (id) {
+      if (id) visibleSet[id] = true;
+    });
+    return state.blocks.map(function (block) {
+      if (block && block.id && visibleSet[block.id] && nextVisibleIndex < orderedVisibleIds.length) {
+        return orderedVisibleIds[nextVisibleIndex++];
+      }
+      return block.id;
+    });
+  }
+
+  function reorderVisibleOutlineBlocks(visibleIds, selectedBlockId) {
+    return reorderOutlineBlocks(buildFullOutlineOrderFromVisibleIds(visibleIds), selectedBlockId);
+  }
+
+  function persistOutlineDragOrder() {
+    if (!outlineList) return;
+    var ids = [];
+    outlineList.querySelectorAll('.editor-outline-item[data-block-id]').forEach(function (item) {
+      ids.push(item.getAttribute('data-block-id'));
+    });
+    reorderVisibleOutlineBlocks(ids, state.selectedBlockId);
+  }
+
+  function initOutlineSortable() {
+    if (_outlineSortable && _outlineSortable.destroy) {
+      _outlineSortable.destroy();
+      _outlineSortable = null;
+    }
+    if (!outlineList || !isOutlineDragEnabled() || typeof Sortable === 'undefined') return;
+    _outlineSortable = Sortable.create(outlineList, {
+      animation: 150,
+      handle: '.editor-outline-drag-handle',
+      draggable: '.editor-outline-item',
+      filter: '.editor-outline-item-actions, .editor-outline-menu-btn',
+      preventOnFilter: false,
+      onEnd: function () {
+        persistOutlineDragOrder();
+      }
+    });
+  }
+
+  function getBlockMenuHtml(block, index, totalCount) {
+    var blockId = esc(block.id);
+    var moveUpDisabled = index <= 0;
+    var moveDownDisabled = index >= totalCount - 1;
+    var enableLabel = block.type === 'commented' ? 'Re-enable block' : 'Disable (comment out)';
+    var enableAction = block.type === 'commented' ? 'enable' : 'comment';
+    var html = '';
+    html += '<div class="dropdown editor-outline-item-actions">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-outline-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Block actions" title="Block actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu dropdown-menu-end editor-outline-item-action-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-top" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '>Move to top</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-up" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '>Move up</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-down" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '>Move down</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-bottom" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '>Move to bottom</button></li>';
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="' + enableAction + '" data-block-id="' + blockId + '">' + enableLabel + '</button></li>';
+    html += '<li><button type="button" class="dropdown-item text-danger" data-block-action="delete" data-block-id="' + blockId + '">Delete block</button></li>';
+    html += '</ul></div>';
+    return html;
+  }
+
+  function getProjectCardMenuHtml(projectName) {
+    var projectId = esc(projectName);
+    var html = '';
+    html += '<div class="dropdown editor-project-card-actions">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu dropdown-menu-end editor-project-card-action-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' + projectId + '">Rename project</button></li>';
+    html += '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' + projectId + '">Delete project</button></li>';
+    html += '</ul></div>';
+    return html;
+  }
+
+  function reloadProjectsAfterMutation(projectName, replacementName) {
+    return apiGet('/api/projects').then(function (res) {
+      if (res.success && res.data) {
+        state.projects = res.data.projects || [];
+        populateProjects();
+      }
+      if (replacementName) {
+        state.project = replacementName;
+      } else if (projectName && state.project === projectName) {
+        state.project = null;
+        state.filename = null;
+        state.blocks = [];
+      }
+      if (replacementName) {
+        loadFiles();
+      } else {
+        renderCanvas();
+      }
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Outline
   // -------------------------------------------------------------------------
@@ -2640,16 +2826,17 @@
       if (block && block.id) orderById[block.id] = true;
     });
     var filtered = state.blocks.filter(function (b) {
+      var blockType = getBlockDisplayType(b);
       if (state.jumpTarget === 'all') return true;
-      if (state.jumpTarget === 'questions') return b.type === 'question';
+      if (state.jumpTarget === 'questions') return blockType === 'question';
       if (state.jumpTarget === 'order') return Boolean(orderById[b.id]);
-      if (state.jumpTarget === 'code') return b.type === 'code';
-      if (state.jumpTarget === 'objects') return b.type === 'objects';
+      if (state.jumpTarget === 'code') return blockType === 'code';
+      if (state.jumpTarget === 'objects') return blockType === 'objects';
       if (state.jumpTarget === 'attachments') {
         return Boolean((b.tags || []).indexOf('attachment') !== -1 || (b.data && (b.data.attachment || b.data.attachments)));
       }
       if (state.jumpTarget === 'meta') {
-        return b.type === 'metadata' || b.type === 'includes' || b.type === 'default_screen_parts' || b.type === 'other';
+        return blockType === 'metadata' || blockType === 'includes' || blockType === 'default_screen_parts' || blockType === 'other';
       }
       return true;
     });
@@ -2681,10 +2868,12 @@
     if (type === 'objects') return 'editor-outline-type-obj';
     if (type === 'metadata') return 'editor-outline-type-meta';
     if (type === 'includes') return 'editor-outline-type-inc';
+    if (type === 'commented') return 'editor-outline-type-disabled';
     return 'editor-outline-type-oth';
   }
 
   function typeLabel(type) {
+    if (type === 'commented') return 'Off';
     if (type === 'question') return 'Q';
     if (type === 'code') return 'Py';
     if (type === 'objects') return 'Obj';
@@ -2695,6 +2884,7 @@
   }
 
   function renderOutline() {
+    updateOutlineHeader();
     if (!isInterviewView()) {
       renderSectionOutline();
       return;
@@ -2704,21 +2894,29 @@
     html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
     blocks.forEach(function (block) {
       var active = state.selectedBlockId === block.id;
-      var tl = typeLabel(block.type);
-      var tc = typeClass(block.type);
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-block-id="' + esc(block.id) + '">';
+      var displayType = getBlockDisplayType(block);
+      var tl = typeLabel(displayType);
+      var tc = typeClass(displayType);
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + '" data-block-id="' + esc(block.id) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
-      html += '<div style="min-width:0"><div class="editor-outline-title">' + esc(block.title) + '</div>';
+      if (isOutlineDragEnabled()) {
+        html += '<button type="button" class="editor-outline-drag-handle btn btn-sm btn-link" title="Drag to reorder" aria-label="Drag to reorder"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></button>';
+      } else {
+        html += '<span class="editor-outline-drag-spacer" aria-hidden="true"></span>';
+      }
+      html += '<div class="editor-outline-item-main"><div class="editor-outline-title">' + esc(block.title) + '</div>';
       if (block.variable) {
         html += '<div class="editor-outline-meta"><span>' + esc(block.variable) + '</span></div>';
       }
       html += '</div>';
       html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
+      html += getBlockMenuHtml(block, blocks.indexOf(block), blocks.length);
       html += '</div></div>';
       html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' + esc(block.id) + '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' + esc(block.title) + '</span></button></div>';
     });
     outlineList.innerHTML = html;
+    initOutlineSortable();
   }
 
   function renderSectionOutline() {
@@ -2734,6 +2932,7 @@
     if (!filtered.length) {
       html = '<div class="text-muted small p-2">No files found.</div>';
       outlineList.innerHTML = html;
+      initOutlineSortable();
       return;
     }
     filtered.forEach(function (file) {
@@ -2747,6 +2946,7 @@
       html += '</div></div>';
     });
     outlineList.innerHTML = html;
+    initOutlineSortable();
   }
 
   // -------------------------------------------------------------------------
@@ -2961,6 +3161,8 @@
 
     if (block.type === 'question') {
       renderQuestionBlock(block);
+    } else if (block.type === 'commented') {
+      renderCommentedBlock(block);
     } else if (block.type === 'code') {
       renderCodeBlock(block);
     } else if (block.type === 'objects') {
@@ -3009,11 +3211,14 @@
       html += '<div class="editor-project-section-title">Recent projects</div>';
       html += '<div class="editor-project-cards">';
       recent.forEach(function (name) {
+        html += '<div class="editor-project-card-shell editor-project-card-shell-recent">';
         html += '<button type="button" class="editor-project-card editor-project-card-recent" data-project-card="' + esc(name) + '">';
         html += '<span class="editor-project-card-badge">Recent</span>';
         html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
         html += '<span class="editor-project-card-meta">Open project</span>';
         html += '</button>';
+        html += getProjectCardMenuHtml(name);
+        html += '</div>';
       });
       html += '</div></div>';
     }
@@ -3025,10 +3230,13 @@
     } else {
       html += '<div class="editor-project-cards">';
       filteredProjects.forEach(function (name) {
+        html += '<div class="editor-project-card-shell">';
         html += '<button type="button" class="editor-project-card" data-project-card="' + esc(name) + '">';
         html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
         html += '<span class="editor-project-card-meta">Open project</span>';
         html += '</button>';
+        html += getProjectCardMenuHtml(name);
+        html += '</div>';
       });
       html += '</div>';
     }
@@ -3482,6 +3690,29 @@
         onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
       });
     });
+  }
+
+  function renderCommentedBlock(block) {
+    var html = '';
+    html += '<div class="editor-center-bar">';
+    html += '<div>';
+    html += '<span class="editor-pill editor-pill-muted">Disabled</span>';
+    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title || block.id) + '</div>';
+    html += '</div>';
+    html += '<div class="d-flex gap-2">';
+    html += '<button class="btn btn-sm btn-primary" id="enable-block-btn"><i class="fa-solid fa-circle-play me-1" aria-hidden="true"></i>Re-enable block</button>';
+    html += '</div></div>';
+
+    html += '<div class="editor-shell">';
+    html += '<div class="editor-card"><div class="editor-card-body">';
+    html += '<div class="editor-form-group">';
+    html += '<label class="editor-tiny" for="commented-block-yaml">Commented YAML</label>';
+    html += '<textarea class="form-control editor-form-control font-monospace editor-commented-yaml" id="commented-block-yaml" rows="14" readonly>' + esc(block.yaml || '') + '</textarea>';
+    html += '</div>';
+    html += '</div></div>';
+    html += '</div>';
+
+    canvasContent.innerHTML = html;
   }
 
   // --- Field modifiers panel (kebab menu for individual fields) ---
@@ -4457,10 +4688,104 @@
     var openAddStepBtn = target.closest('[data-open-add-step]');
     var orderBlockBtn = target.closest('[data-order-block-id]');
     var stepSelectInput = target.closest('[data-step-select]');
+    var blockActionBtn = target.closest('[data-block-action]');
+    var projectActionBtn = target.closest('[data-project-action]');
     var removeFieldBtn = target.closest('[data-remove-field]');
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
     var projectCardBtn = target.closest('[data-project-card]');
+
+    if (blockActionBtn) {
+      var blockAction = blockActionBtn.getAttribute('data-block-action');
+      var blockActionId = blockActionBtn.getAttribute('data-block-id');
+      if (!blockActionId) return;
+      if (blockAction === 'move-up') {
+        moveOutlineBlock(blockActionId, -1);
+      } else if (blockAction === 'move-down') {
+        moveOutlineBlock(blockActionId, 1);
+      } else if (blockAction === 'move-top') {
+        moveOutlineBlockToEdge(blockActionId, 'top');
+      } else if (blockAction === 'move-bottom') {
+        moveOutlineBlockToEdge(blockActionId, 'bottom');
+      } else if (blockAction === 'comment') {
+        if (!window.confirm('Disable this block by commenting it out?')) return;
+        apiPost('/api/block/comment', {
+          project: state.project,
+          filename: state.filename,
+          block_id: blockActionId,
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data);
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to disable block.');
+        });
+      } else if (blockAction === 'delete') {
+        if (!window.confirm('Delete this block permanently?')) return;
+        apiPost('/api/block/delete', {
+          project: state.project,
+          filename: state.filename,
+          block_id: blockActionId,
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data);
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to delete block.');
+        });
+      } else if (blockAction === 'enable') {
+        if (!window.confirm('Re-enable this block?')) return;
+        apiPost('/api/block/enable', {
+          project: state.project,
+          filename: state.filename,
+          block_id: blockActionId,
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data);
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to re-enable block.');
+        });
+      }
+      return;
+    }
+
+    if (projectActionBtn) {
+      var projectAction = projectActionBtn.getAttribute('data-project-action');
+      var projectName = projectActionBtn.getAttribute('data-project-name');
+      if (!projectName) return;
+      if (projectAction === 'rename') {
+        var renamed = window.prompt('Rename project:', projectName);
+        if (renamed === null) return;
+        renamed = renamed.trim();
+        if (!renamed || renamed === projectName) return;
+        apiPost('/api/project/rename', { project: projectName, new_project: renamed })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              window.alert((res.error && res.error.message) || 'Unable to rename project.');
+              return;
+            }
+            reloadProjectsAfterMutation(projectName, res.data.project);
+          });
+        return;
+      }
+      if (projectAction === 'delete') {
+        if (!window.confirm('Delete project "' + projectName + '" and all of its files?')) return;
+        apiPost('/api/project/delete', { project: projectName })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              window.alert((res.error && res.error.message) || 'Unable to delete project.');
+              return;
+            }
+            reloadProjectsAfterMutation(projectName, null);
+          });
+        return;
+      }
+    }
+
+    if (target.closest('.editor-outline-drag-handle') || target.closest('.editor-outline-menu-btn') || target.closest('.editor-outline-item-actions') || target.closest('.editor-project-card-menu-btn') || target.closest('.editor-project-card-actions')) {
+      return;
+    }
 
     if (!target.closest('#editor-symbol-typeahead') && !target.closest('[data-symbol-role]')) {
       hideTypeaheadMenu();
@@ -5130,6 +5455,23 @@
           return;
         }
         window.alert((res.error && res.error.message) || 'Unable to save block.');
+      });
+      return;
+    }
+    if (target.id === 'enable-block-btn') {
+      var disabledBlock = getSelectedBlock();
+      if (!disabledBlock || disabledBlock.type !== 'commented') return;
+      if (!window.confirm('Re-enable this block?')) return;
+      apiPost('/api/block/enable', {
+        project: state.project,
+        filename: state.filename,
+        block_id: disabledBlock.id,
+      }).then(function (res) {
+        if (res.success && res.data) {
+          refreshFromFileResponse(res.data);
+          return;
+        }
+        window.alert((res.error && res.error.message) || 'Unable to re-enable block.');
       });
       return;
     }

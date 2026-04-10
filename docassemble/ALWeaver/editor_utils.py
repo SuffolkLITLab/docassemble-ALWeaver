@@ -24,6 +24,8 @@ __all__ = [
     "canonicalize_block_yaml",
     "update_block_in_yaml",
     "delete_block_from_yaml",
+    "comment_out_block_in_yaml",
+    "enable_commented_block_in_yaml",
     "reorder_blocks_in_yaml",
     "playground_read_yaml",
     "playground_write_yaml",
@@ -51,6 +53,7 @@ BLOCK_TYPE_TABLE = "table"
 BLOCK_TYPE_TEMPLATE = "template"
 BLOCK_TYPE_TERMS = "terms"
 BLOCK_TYPE_SECTIONS = "sections"
+BLOCK_TYPE_COMMENTED = "commented"
 BLOCK_TYPE_OTHER = "other"
 
 # Keys whose presence unambiguously identifies certain block types.
@@ -241,12 +244,30 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
     explicit_id = block.get("id")
     if explicit_id:
         return str(explicit_id)
-    raw = canonical_block_yaml(block)
+    stable_block = {key: value for key, value in block.items() if not str(key).startswith("_")}
+    raw = canonical_block_yaml(stable_block)
     digest = hashlib.sha1(raw.encode()).hexdigest()[:8]  # noqa: S324 — not security
     return f"block-{index}-{digest}"
 
 
+def _uncomment_yaml_block(block_yaml: str) -> str:
+    uncommented_lines = []
+    for line in block_yaml.rstrip().splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            comment_offset = line.index("#")
+            remainder = line[comment_offset + 1 :]
+            if remainder.startswith(" "):
+                remainder = remainder[1:]
+            uncommented_lines.append(remainder)
+        else:
+            uncommented_lines.append(line)
+    return "\n".join(uncommented_lines)
+
+
 def _detect_block_type(block: Dict[str, Any]) -> str:
+    if block.get("_commented"):
+        return BLOCK_TYPE_COMMENTED
     if _METADATA_KEYS & set(block):
         return BLOCK_TYPE_METADATA
     if _INCLUDE_KEYS & set(block):
@@ -362,22 +383,13 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         order_blocks: indices of mandatory code blocks (interview order)
         raw_yaml: the original YAML text
     """
-    docs: List[Any] = []
-    try:
-        docs = list(yaml.safe_load_all(raw_yaml))
-    except yaml.YAMLError:
-        # Fall back to splitting on --- and parsing individually
-        segments = re.split(r"^---\s*$", raw_yaml, flags=re.MULTILINE)
-        for seg in segments:
-            seg = seg.strip()
-            if not seg:
-                continue
-            try:
-                parsed = yaml.safe_load(seg)
-                if parsed is not None:
-                    docs.append(parsed)
-            except yaml.YAMLError:
-                docs.append({"_unparseable": True, "_raw": seg})
+    def _is_comment_only_segment(segment: str) -> bool:
+        lines = [line for line in segment.splitlines() if line.strip()]
+        if not lines:
+            return False
+        return all(line.lstrip().startswith("#") for line in lines)
+
+    segments = re.split(r"^---\s*$", raw_yaml, flags=re.MULTILINE)
 
     blocks: List[Dict[str, Any]] = []
     metadata_indices: List[int] = []
@@ -385,9 +397,68 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
     default_sp_indices: List[int] = []
     order_indices: List[int] = []
 
-    for i, doc in enumerate(docs):
+    for i, segment in enumerate(segments):
+        segment_text = segment.strip()
+        if not segment_text:
+            continue
+
+        if _is_comment_only_segment(segment):
+            uncommented = _uncomment_yaml_block(segment_text)
+            try:
+                parsed_commented = yaml.safe_load(uncommented)
+            except yaml.YAMLError:
+                parsed_commented = None
+            underlying_type = BLOCK_TYPE_OTHER
+            if isinstance(parsed_commented, dict):
+                doc = dict(parsed_commented)
+                underlying_type = _detect_block_type(doc)
+            elif parsed_commented is None:
+                doc = {"_raw": uncommented}
+            else:
+                doc = {"_raw": str(parsed_commented)}
+            if isinstance(doc, dict):
+                doc["_commented"] = True
+                doc["_commented_type"] = underlying_type
+                doc["_commented_yaml"] = segment_text
+            block_type = BLOCK_TYPE_COMMENTED
+            block_id = _stable_block_id(i, doc)
+            tags = [BLOCK_TYPE_COMMENTED]
+            for tag in _extract_tags(doc, underlying_type):
+                if tag not in tags:
+                    tags.append(tag)
+            entry: Dict[str, Any] = {
+                "id": block_id,
+                "index": i,
+                "type": block_type,
+                "title": _extract_title(doc, underlying_type),
+                "variable": _extract_variable(doc, underlying_type),
+                "tags": tags,
+                "yaml": segment_text,
+                "data": doc,
+            }
+            blocks.append(entry)
+            continue
+
+        try:
+            doc = yaml.safe_load(segment)
+        except yaml.YAMLError:
+            blocks.append({
+                "id": _stable_block_id(i, {"_raw": segment_text}),
+                "index": i,
+                "type": BLOCK_TYPE_OTHER,
+                "title": "Unparseable block",
+                "variable": None,
+                "tags": [BLOCK_TYPE_OTHER],
+                "yaml": segment_text,
+                "data": {"_unparseable": True, "_raw": segment_text},
+            })
+            continue
+
+        if doc is None:
+            continue
+
         if not isinstance(doc, dict):
-            doc = {"_raw": str(doc)} if doc is not None else {}
+            doc = {"_raw": str(doc)}
 
         block_type = _detect_block_type(doc)
         block_id = _stable_block_id(i, doc)
@@ -484,6 +555,58 @@ def delete_block_from_yaml(full_yaml: str, block_id: str) -> str:
             continue
 
         block_text = block["yaml"].strip()
+        if block_text and block_text != "{}":
+            updated.append(block_text)
+
+    if not found:
+        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
+    return "\n---\n".join(updated) + "\n" if updated else ""
+
+
+def _comment_yaml_block(block_yaml: str) -> str:
+    commented_lines = []
+    for line in block_yaml.rstrip().splitlines():
+        commented_lines.append(f"# {line}" if line else "#")
+    return "\n".join(commented_lines)
+
+
+def comment_out_block_in_yaml(full_yaml: str, block_id: str) -> str:
+    """Comment out a single block in a full interview YAML by its id."""
+    model = parse_interview_yaml(full_yaml)
+    blocks = model["blocks"]
+    updated: List[str] = []
+    found = False
+    for block in blocks:
+        block_text = _comment_yaml_block(block["yaml"]) if block["id"] == block_id else block["yaml"]
+        if block["id"] == block_id:
+            found = True
+
+        block_text = block_text.strip()
+        if block_text and block_text != "{}":
+            updated.append(block_text)
+
+    if not found:
+        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
+    return "\n---\n".join(updated) + "\n" if updated else ""
+
+
+def enable_commented_block_in_yaml(full_yaml: str, block_id: str) -> str:
+    """Restore a previously commented-out block in a full interview YAML."""
+    model = parse_interview_yaml(full_yaml)
+    blocks = model["blocks"]
+    updated: List[str] = []
+    found = False
+    for block in blocks:
+        if block["id"] == block_id:
+            if block.get("type") != BLOCK_TYPE_COMMENTED:
+                raise ValueError(f"Block with id {block_id!r} is not commented out")
+            uncommented = canonicalize_block_yaml(_uncomment_yaml_block(block["yaml"]))
+            block_text = uncommented
+            found = True
+        else:
+            block_text = block["yaml"]
+
+        block_text = block_text.strip()
         if block_text and block_text != "{}":
             updated.append(block_text)
 

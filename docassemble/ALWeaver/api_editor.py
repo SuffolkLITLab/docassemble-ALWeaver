@@ -51,6 +51,8 @@ from .api_utils import generate_interview_from_bytes, validate_upload_metadata
 from .editor_utils import (
     canonical_block_yaml,
     canonicalize_block_yaml,
+    comment_out_block_in_yaml,
+    delete_block_from_yaml,
     delete_saved_file,
     generate_draft_order,
     parse_interview_yaml,
@@ -64,6 +66,8 @@ from .editor_utils import (
     rename_saved_file,
     serialize_blocks_to_yaml,
     serialize_order_steps,
+    enable_commented_block_in_yaml,
+    reorder_blocks_in_yaml,
     update_block_in_yaml,
 )
 from .editor_ai_utils import (
@@ -76,10 +80,12 @@ from .editor_ai_utils import (
 from .playground_publish import (
     SECTION_TO_STORAGE,
     _copy_files_to_section,
+    delete_project,
     create_project,
     get_list_of_projects,
     next_available_project_name,
     normalize_project_name,
+    rename_project,
 )
 
 __all__: list = []
@@ -300,6 +306,39 @@ def _editor_playground_directory(user_id: int, project: str) -> tuple[Any, str]:
     directory = area.directory if project == "default" else os.path.join(area.directory, project)
     os.makedirs(directory, exist_ok=True)
     return area, directory
+
+
+def _build_file_response_data(
+    updated_content: str,
+    project: str,
+    filename: str,
+    *,
+    inserted_block_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    model = parse_interview_yaml(updated_content)
+    order_step_map: Dict[str, List[Dict[str, Any]]] = {}
+    order_steps: list = []
+    for idx in model.get("order_blocks", []):
+        block = model["blocks"][idx]
+        code = block.get("data", {}).get("code", "")
+        if code:
+            parsed_steps = parse_order_code(code)
+            order_step_map[block["id"]] = parsed_steps
+            if not order_steps:
+                order_steps = parsed_steps
+    return {
+        "project": project,
+        "filename": filename,
+        "blocks": model["blocks"],
+        "metadata_blocks": model["metadata_blocks"],
+        "include_blocks": model["include_blocks"],
+        "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+        "order_blocks": model["order_blocks"],
+        "order_steps": order_steps,
+        "order_step_map": order_step_map,
+        "raw_yaml": updated_content,
+        **({"inserted_block_id": inserted_block_id} if inserted_block_id else {}),
+    }
 
 
 def _is_text_editable(filename: str, mimetype: str) -> bool:
@@ -597,6 +636,96 @@ def editor_api_projects() -> Response:
         })
     except Exception as exc:
         log(f"ALWeaver editor: projects error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/rename", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_rename_project() -> Response:
+    """Rename a playground project across all sections."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        old_project = _normalize_project(post_data.get("project"))
+        new_project = _normalize_project(post_data.get("new_project"))
+        if old_project == new_project:
+            raise ValueError("New project name must be different")
+        rename_project(uid, old_project, new_project)
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "project": new_project,
+                "old_project": old_project,
+                "projects": playground_list_projects(uid),
+            },
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: rename project error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/delete", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_delete_project() -> Response:
+    """Delete a playground project across all sections."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        delete_project(uid, project)
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "project": project,
+                "projects": playground_list_projects(uid),
+            },
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: delete project error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -1688,6 +1817,199 @@ def editor_api_save_block() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: save block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/block/delete", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_delete_block() -> Response:
+    """Delete a single block from a YAML file by block id."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id", "")).strip()
+        if not block_id:
+            raise ValueError("block_id is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        updated_content = delete_block_from_yaml(current_content, block_id)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": _build_file_response_data(updated_content, project, filename),
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: delete block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/block/comment", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_comment_block() -> Response:
+    """Disable a single block by commenting it out in YAML."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id", "")).strip()
+        if not block_id:
+            raise ValueError("block_id is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        updated_content = comment_out_block_in_yaml(current_content, block_id)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": _build_file_response_data(updated_content, project, filename),
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/block/enable", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_enable_block() -> Response:
+    """Re-enable a previously commented-out block in a YAML file."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_id = str(post_data.get("block_id", "")).strip()
+        if not block_id:
+            raise ValueError("block_id is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        updated_content = enable_commented_block_in_yaml(current_content, block_id)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": _build_file_response_data(updated_content, project, filename),
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: enable block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: comment block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/block/reorder", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_reorder_blocks() -> Response:
+    """Reorder all blocks in a YAML file by block id."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        block_ids = post_data.get("block_ids")
+        if not isinstance(block_ids, list):
+            raise ValueError("block_ids must be a list")
+        normalized_block_ids = [str(block_id).strip() for block_id in block_ids if str(block_id).strip()]
+
+        current_content = playground_read_yaml(uid, project, filename)
+        updated_content = reorder_blocks_in_yaml(current_content, normalized_block_ids)
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": _build_file_response_data(updated_content, project, filename),
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: reorder blocks error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
