@@ -90,7 +90,7 @@
         </div>
       </div>
       <div class="editor-outline-header d-flex align-items-center justify-content-between">
-        <span class="editor-tiny">Outline</span>
+        <span class="editor-tiny">Block outline</span>
         <button type="button" class="btn btn-sm btn-outline-secondary editor-order-builder-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order"><i class="fa-solid fa-list-ol" aria-hidden="true"></i><span>Order</span></button>
       </div>
       <div class="editor-outline-list" id="outline-list"></div>
@@ -109,12 +109,21 @@
 
   <!-- Validation / Errors drawer -->
   <div class="editor-validation-drawer" id="validation-drawer">
-    <button type="button" class="editor-validation-toggle" id="validation-toggle">
-      <i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>
-      <span>Errors &amp; Warnings</span>
-      <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span>
-      <i class="fa-solid fa-chevron-up ms-auto editor-validation-chevron" aria-hidden="true"></i>
-    </button>
+    <div class="editor-validation-header">
+      <button type="button" class="editor-validation-toggle" id="validation-toggle">
+        <i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>
+        <span id="validation-drawer-title">Errors &amp; Warnings</span>
+        <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span>
+        <i class="fa-solid fa-chevron-up ms-auto editor-validation-chevron" aria-hidden="true"></i>
+      </button>
+      <div class="dropdown editor-validation-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-validation-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Validation actions" title="Validation actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end editor-validation-menu">
+          <li><button type="button" class="dropdown-item" id="btn-run-validation"><i class="fa-solid fa-triangle-exclamation me-2" aria-hidden="true"></i>Errors &amp; warnings</button></li>
+          <li><button type="button" class="dropdown-item" id="btn-style-check"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>Style check</button></li>
+        </ul>
+      </div>
+    </div>
     <div class="editor-validation-body" id="validation-drawer-body"></div>
   </div>
 </div>

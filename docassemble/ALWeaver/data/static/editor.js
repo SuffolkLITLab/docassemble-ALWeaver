@@ -70,6 +70,7 @@
     fullYamlStash: {},
     validationErrors: [],
     validationOpen: false,
+    validationMode: 'validation',
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -594,7 +595,7 @@
     loadAvailableSymbols();
     renderOutline();
     renderCanvas();
-    runValidation();
+    runCurrentValidationCheck();
   }
 
   function setActiveTopTab(targetTab) {
@@ -2883,6 +2884,78 @@
     return type.charAt(0).toUpperCase() + type.slice(1, 3);
   }
 
+  function _lintFindingLevel(finding) {
+    return String((finding && finding.level) || (finding && finding.severity) || 'error').toLowerCase();
+  }
+
+  function _findingsMatchBlock(finding, block) {
+    if (!finding || !block) return false;
+    var findingBlockId = String((finding && (finding.block_id || finding.screen_id)) || '').trim();
+    if (findingBlockId && findingBlockId === String(block.id || '').trim()) return true;
+    if (finding && finding.screen_link) {
+      var linkId = String(finding.screen_link || '').replace(/^#screen-/, '').trim();
+      if (linkId && linkId === String(block.id || '').trim()) return true;
+    }
+    var lineNumber = Number((finding && finding.line_number) || 0);
+    if (lineNumber > 0) {
+      var startLine = Number(block.line_start || 0);
+      var endLine = Number(block.line_end || 0);
+      if (startLine > 0 && endLine >= startLine && lineNumber >= startLine && lineNumber <= endLine) {
+        return true;
+      }
+    }
+    var ruleId = String((finding && finding.rule_id) || '').trim();
+    if ((ruleId === 'missing-metadata-fields' || ruleId === 'missing-custom-theme') && block.type === 'metadata') {
+      return true;
+    }
+    var problematicText = String((finding && finding.problematic_text) || '').trim();
+    if (problematicText) {
+      var yamlText = String(block.yaml || '');
+      var title = String(block.title || '');
+      if (yamlText.indexOf(problematicText) !== -1 || title.indexOf(problematicText) !== -1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getBlockLintFindings(blockId) {
+    var block = getBlockById(blockId);
+    if (!block) return [];
+    return (state.validationErrors || []).filter(function (finding) {
+      return _findingsMatchBlock(finding, block);
+    });
+  }
+
+  function getBlockLintSummary(findings) {
+    var summary = { error: 0, warning: 0, info: 0 };
+    (findings || []).forEach(function (finding) {
+      var level = _lintFindingLevel(finding);
+      if (level !== 'error' && level !== 'warning' && level !== 'info') level = 'error';
+      summary[level] += 1;
+    });
+    return summary;
+  }
+
+  function getBlockLintHighestLevel(findings) {
+    var summary = getBlockLintSummary(findings);
+    if (summary.error > 0) return 'error';
+    if (summary.warning > 0) return 'warning';
+    if (summary.info > 0) return 'info';
+    return '';
+  }
+
+  function getBlockLintLeadMessage(findings) {
+    if (!findings || !findings.length) return '';
+    return String((findings[0] && findings[0].message) || '').trim();
+  }
+
+  function getBlockLintFeedbackClass(findings) {
+    var level = getBlockLintHighestLevel(findings);
+    if (!level) return '';
+    return 'editor-outline-item-lint-' + level;
+  }
+
   function renderOutline() {
     updateOutlineHeader();
     if (!isInterviewView()) {
@@ -2897,7 +2970,9 @@
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
       var tc = typeClass(displayType);
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + '" data-block-id="' + esc(block.id) + '">';
+      var lintFindings = getBlockLintFindings(block.id);
+      var lintClass = lintFindings.length ? (' ' + getBlockLintFeedbackClass(lintFindings)) : '';
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + lintClass + '" data-block-id="' + esc(block.id) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       if (isOutlineDragEnabled()) {
@@ -2908,6 +2983,19 @@
       html += '<div class="editor-outline-item-main"><div class="editor-outline-title">' + esc(block.title) + '</div>';
       if (block.variable) {
         html += '<div class="editor-outline-meta"><span>' + esc(block.variable) + '</span></div>';
+      }
+      if (lintFindings.length) {
+        var lintLevel = getBlockLintHighestLevel(lintFindings) || 'info';
+        var lintIcon = 'fa-circle-info';
+        if (lintLevel === 'warning') lintIcon = 'fa-triangle-exclamation';
+        if (lintLevel === 'error') lintIcon = 'fa-circle-xmark';
+        html += '<div class="editor-outline-lint ' + esc(lintLevel) + '">';
+        html += '<i class="fa-solid ' + lintIcon + ' editor-outline-lint-icon" aria-hidden="true"></i>';
+        html += '<span class="editor-outline-lint-text">' + esc(getBlockLintLeadMessage(lintFindings) || 'Lint finding') + '</span>';
+        if (lintFindings.length > 1) {
+          html += '<span class="editor-outline-lint-count">+' + esc(String(lintFindings.length - 1)) + '</span>';
+        }
+        html += '</div>';
       }
       html += '</div>';
       html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
@@ -3013,8 +3101,21 @@
   // -------------------------------------------------------------------------
   var _validationInFlight = false;
 
+  function getValidationDrawerTitle() {
+    return state.validationMode === 'style' ? 'Style check' : 'Errors & Warnings';
+  }
+
+  function runCurrentValidationCheck() {
+    if (state.validationMode === 'style') {
+      runStyleCheck();
+      return;
+    }
+    runValidation();
+  }
+
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
+    state.validationMode = 'validation';
     _validationInFlight = true;
     apiGet('/api/weaver/validate?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
       .then(function (res) {
@@ -3025,11 +3126,36 @@
           state.validationErrors = [];
         }
         renderValidationDrawer();
+        renderOutline();
       })
       .catch(function () {
         _validationInFlight = false;
         state.validationErrors = [{ level: 'error', message: 'Could not run validation right now.' }];
         renderValidationDrawer();
+        renderOutline();
+      });
+  }
+
+  function runStyleCheck() {
+    if (!state.project || !state.filename || _validationInFlight) return;
+    state.validationMode = 'style';
+    _validationInFlight = true;
+    apiGet('/api/weaver/style-check?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename) + '&include_llm=1')
+      .then(function (res) {
+        _validationInFlight = false;
+        if (res.success && res.data) {
+          state.validationErrors = res.data.errors || [];
+        } else {
+          state.validationErrors = [];
+        }
+        renderValidationDrawer();
+        renderOutline();
+      })
+      .catch(function () {
+        _validationInFlight = false;
+        state.validationErrors = [{ level: 'error', message: 'Could not run style check right now.' }];
+        renderValidationDrawer();
+        renderOutline();
       });
   }
 
@@ -3052,6 +3178,8 @@
   function renderValidationDrawer() {
     var drawer = document.getElementById('validation-drawer');
     if (!drawer) return;
+    var title = document.getElementById('validation-drawer-title');
+    if (title) title.textContent = getValidationDrawerTitle();
     var count = state.validationErrors.length;
     var summary = _validationSummary(state.validationErrors);
     var hasProblems = (summary.error + summary.warning) > 0;
@@ -3107,7 +3235,7 @@
       var lineText = err.line_number ? ('Line ' + Number(err.line_number)) : '';
       if (lineText && err.file_name) lineText += ' - ';
       if (err.file_name) lineText += String(err.file_name).split('/').pop();
-      html += '<li class="editor-validation-item">';
+      html += '<li class="editor-validation-item' + (err.block_id ? ' editor-validation-item-linked' : '') + '"' + (err.block_id ? ' data-block-id="' + esc(String(err.block_id)) + '"' : '') + '>';
       html += '<i class="fa-solid ' + icon + ' editor-validation-item-icon ' + esc(level) + '" aria-hidden="true"></i>';
       html += '<div class="editor-validation-item-msg">';
       html += '<div>' + esc(err.message || 'Unknown issue') + '</div>';
@@ -4800,6 +4928,32 @@
     if (target.id === 'btn-check-errors' || target.closest('#btn-check-errors')) {
       state.validationOpen = true;
       runValidation();
+      return;
+    }
+    if (target.id === 'btn-run-validation' || target.closest('#btn-run-validation')) {
+      state.validationOpen = true;
+      runValidation();
+      return;
+    }
+    if (target.id === 'btn-style-check' || target.closest('#btn-style-check')) {
+      state.validationOpen = true;
+      runStyleCheck();
+      return;
+    }
+
+    var validationItem = target.closest('.editor-validation-item[data-block-id]');
+    if (validationItem) {
+      var validationBlockId = validationItem.getAttribute('data-block-id');
+      if (validationBlockId) {
+        state.currentView = 'interview';
+        state.validationOpen = true;
+        state.selectedBlockId = validationBlockId;
+        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab) setActiveTopTab(interviewTab);
+        renderOutline();
+        renderCanvas();
+        renderValidationDrawer();
+      }
       return;
     }
 

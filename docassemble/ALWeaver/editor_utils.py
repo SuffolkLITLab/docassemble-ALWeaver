@@ -383,13 +383,37 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         order_blocks: indices of mandatory code blocks (interview order)
         raw_yaml: the original YAML text
     """
+    raw_lines = raw_yaml.splitlines()
+
     def _is_comment_only_segment(segment: str) -> bool:
         lines = [line for line in segment.splitlines() if line.strip()]
         if not lines:
             return False
         return all(line.lstrip().startswith("#") for line in lines)
 
-    segments = re.split(r"^---\s*$", raw_yaml, flags=re.MULTILINE)
+    segments: List[Dict[str, Any]] = []
+    segment_start_line = 1
+    segment_lines: List[str] = []
+    for line_number, line in enumerate(raw_lines, start=1):
+        if re.match(r"^---\s*$", line):
+            segments.append(
+                {
+                    "start_line": segment_start_line,
+                    "end_line": line_number - 1,
+                    "text": "\n".join(segment_lines),
+                }
+            )
+            segment_lines = []
+            segment_start_line = line_number + 1
+        else:
+            segment_lines.append(line)
+    segments.append(
+        {
+            "start_line": segment_start_line,
+            "end_line": len(raw_lines),
+            "text": "\n".join(segment_lines),
+        }
+    )
 
     blocks: List[Dict[str, Any]] = []
     metadata_indices: List[int] = []
@@ -398,11 +422,14 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
     order_indices: List[int] = []
 
     for i, segment in enumerate(segments):
-        segment_text = segment.strip()
+        segment_text_raw = str(segment["text"])
+        segment_text = segment_text_raw.strip()
+        line_start = int(segment["start_line"])
+        line_end = int(segment["end_line"])
         if not segment_text:
             continue
 
-        if _is_comment_only_segment(segment):
+        if _is_comment_only_segment(segment_text_raw):
             uncommented = _uncomment_yaml_block(segment_text)
             try:
                 parsed_commented = yaml.safe_load(uncommented)
@@ -429,6 +456,8 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             entry: Dict[str, Any] = {
                 "id": block_id,
                 "index": i,
+                "line_start": line_start,
+                "line_end": line_end,
                 "type": block_type,
                 "title": _extract_title(doc, underlying_type),
                 "variable": _extract_variable(doc, underlying_type),
@@ -440,11 +469,13 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             continue
 
         try:
-            doc = yaml.safe_load(segment)
+            doc = yaml.safe_load(segment_text_raw)
         except yaml.YAMLError:
             blocks.append({
                 "id": _stable_block_id(i, {"_raw": segment_text}),
                 "index": i,
+                "line_start": line_start,
+                "line_end": line_end,
                 "type": BLOCK_TYPE_OTHER,
                 "title": "Unparseable block",
                 "variable": None,
@@ -467,6 +498,8 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         entry: Dict[str, Any] = {
             "id": block_id,
             "index": i,
+            "line_start": line_start,
+            "line_end": line_end,
             "type": block_type,
             "title": _extract_title(doc, block_type),
             "variable": _extract_variable(doc, block_type),

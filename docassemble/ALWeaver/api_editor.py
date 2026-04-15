@@ -341,6 +341,132 @@ def _build_file_response_data(
     }
 
 
+def _lint_level_from_severity(severity: Any) -> str:
+    value = str(severity or "").strip().lower()
+    if value == "red":
+        return "error"
+    if value == "yellow":
+        return "warning"
+    if value == "green":
+        return "info"
+    if value in {"error", "warning", "info"}:
+        return value
+    return "error"
+
+
+def _block_lookup_map(blocks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    lookup: Dict[str, Dict[str, Any]] = {}
+    for block in blocks:
+        block_id = str(block.get("id") or "").strip()
+        if block_id:
+            lookup[block_id] = block
+    return lookup
+
+
+def _block_line_span(block: Dict[str, Any]) -> Optional[tuple[int, int]]:
+    try:
+        line_start = int(block.get("line_start") or 0)
+        line_end = int(block.get("line_end") or 0)
+    except Exception:
+        return None
+    if line_start <= 0 or line_end < line_start:
+        return None
+    return (line_start, line_end)
+
+
+def _resolve_lint_block_id(
+    finding: Dict[str, Any],
+    blocks: List[Dict[str, Any]],
+    block_lookup: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Optional[str]:
+    block_lookup = block_lookup or _block_lookup_map(blocks)
+
+    for key in ("block_id", "screen_id"):
+        candidate = str(finding.get(key) or "").strip()
+        if candidate and candidate in block_lookup:
+            return candidate
+
+    screen_link = str(finding.get("screen_link") or "").strip()
+    if screen_link.startswith("#screen-"):
+        candidate = screen_link[len("#screen-"):].strip()
+        if candidate and candidate in block_lookup:
+            return candidate
+
+    line_number = finding.get("line_number")
+    try:
+        numeric_line = int(line_number)
+    except Exception:
+        numeric_line = None
+    if numeric_line:
+        for block in blocks:
+            span = _block_line_span(block)
+            if not span:
+                continue
+            if span[0] <= numeric_line <= span[1]:
+                return str(block.get("id") or "").strip() or None
+
+    rule_id = str(finding.get("rule_id") or "").strip()
+    if rule_id in {"missing-metadata-fields", "missing-custom-theme"}:
+        for block in blocks:
+            if block.get("type") == "metadata":
+                return str(block.get("id") or "").strip() or None
+
+    problematic_text = str(finding.get("problematic_text") or "").strip()
+    if problematic_text:
+        for block in blocks:
+            if problematic_text in str(block.get("yaml") or ""):
+                return str(block.get("id") or "").strip() or None
+            if problematic_text in str(block.get("title") or ""):
+                return str(block.get("id") or "").strip() or None
+
+    return None
+
+
+def _annotate_lint_findings(
+    findings: List[Dict[str, Any]],
+    blocks: List[Dict[str, Any]],
+    *,
+    source_name: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    block_lookup = _block_lookup_map(blocks)
+    annotated: List[Dict[str, Any]] = []
+    for finding in findings:
+        item = dict(finding)
+        if item.get("severity") is not None:
+            item["level"] = _lint_level_from_severity(item.get("severity"))
+        else:
+            item["level"] = _lint_level_from_severity(item.get("level"))
+        block_id = _resolve_lint_block_id(item, blocks, block_lookup)
+        if block_id:
+            item["block_id"] = block_id
+            block = block_lookup.get(block_id)
+            if block:
+                item.setdefault("block_title", block.get("title"))
+                item.setdefault("block_type", block.get("type"))
+                item.setdefault("line_start", block.get("line_start"))
+                item.setdefault("line_end", block.get("line_end"))
+        if source_name:
+            item.setdefault("source_name", source_name)
+        annotated.append(item)
+    return annotated
+
+
+def _lint_summary_for_findings(findings: List[Dict[str, Any]]) -> Dict[str, int]:
+    summary = {"error": 0, "warning": 0, "info": 0}
+    for finding in findings:
+        level = _lint_level_from_severity(finding.get("level") or finding.get("severity"))
+        if level not in summary:
+            level = "error"
+        summary[level] += 1
+    return summary
+
+
+def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
+    from docassemble.ALDashboard.interview_linter import lint_interview_content
+
+    return lint_interview_content(raw_yaml, include_llm=include_llm)
+
+
 def _is_text_editable(filename: str, mimetype: str) -> bool:
     ext = os.path.splitext(filename.lower())[1]
     if ext in EDITOR_TEXT_EXTENSIONS:
@@ -1357,6 +1483,7 @@ def editor_api_validate() -> Response:
         project = _normalize_project(request.args.get("project"))
         filename = _normalize_filename(request.args.get("filename"))
         raw_yaml = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(raw_yaml)
 
         errors: List[Dict[str, Any]] = []
         used_structured_checker = False
@@ -1462,7 +1589,7 @@ def editor_api_validate() -> Response:
                 continue
             seen.add(key)
             deduped.append(err)
-        errors = deduped
+        errors = _annotate_lint_findings(deduped, model["blocks"], source_name="validation")
 
         return jsonify({
             "success": True,
@@ -1491,6 +1618,70 @@ def editor_api_validate() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: validate error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/weaver/style-check", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_style_check() -> Response:
+    """Run the system-wide interview linter and return block-aware style findings."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        include_llm = str(request.args.get("include_llm", "1")).strip().lower() not in {"0", "false", "no"}
+        raw_yaml = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(raw_yaml)
+        lint_result = _run_interview_linter(raw_yaml, include_llm=include_llm)
+        findings = lint_result.get("findings", []) if isinstance(lint_result, dict) else []
+        if not isinstance(findings, list):
+            findings = []
+        annotated_findings = _annotate_lint_findings(findings, model["blocks"], source_name="style-check")
+        summary = _lint_summary_for_findings(annotated_findings)
+
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "project": project,
+                "filename": filename,
+                "errors": annotated_findings,
+                "summary": {
+                    "count": len(annotated_findings),
+                    "errors": summary["error"],
+                    "warnings": summary["warning"],
+                    "infos": summary["info"],
+                },
+                "checker": "ALDashboard.interview_linter",
+                "structured": True,
+                "include_llm": include_llm,
+                "screen_catalog": lint_result.get("screen_catalog", []) if isinstance(lint_result, dict) else [],
+                "lint_mode": lint_result.get("lint_mode") if isinstance(lint_result, dict) else None,
+            },
+        })
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: style-check error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
