@@ -299,11 +299,53 @@ def _detect_block_type(block: Dict[str, Any]) -> str:
     return BLOCK_TYPE_OTHER
 
 
+def _extract_order_block_label(code_str: str, block: Dict[str, Any]) -> str:
+    """Derive a meaningful label for an interview-order code block.
+
+    Priority:
+      1) Final trailing ``interview_order_xyz = True`` variable name
+      2) The block's ``id:`` key
+      3) First comment line (stripped of ``#``)
+      4) First code line (fallback)
+    """
+    lines = code_str.strip().splitlines()
+    # 1) Walk backwards for a trailing named-block assignment
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = re.match(r"^(\w[\w.]*?)\s*=\s*True\s*$", stripped)
+        if m:
+            return m.group(1)
+        break
+    # 2) id: key on the block
+    block_id_key = str(block.get("id", "")).strip()
+    if block_id_key:
+        return block_id_key
+    # 3) First comment in the code
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            label = stripped.lstrip("#").strip()
+            if label:
+                return label
+        elif stripped:
+            break
+    # 4) First code line
+    return lines[0].strip()[:60] if lines else "Code block"
+
+
 def _extract_title(block: Dict[str, Any], block_type: str) -> str:
     if block_type == BLOCK_TYPE_QUESTION:
         return str(block.get("question", "Untitled question"))
     if block_type == BLOCK_TYPE_CODE:
         code_str = str(block.get("code", ""))
+        block_id_key = str(block.get("id", ""))
+        is_order = bool(block.get("mandatory")) or block_id_key.startswith(
+            "interview_order"
+        ) or block_id_key.startswith("interview order")
+        if is_order:
+            return _extract_order_block_label(code_str, block)
         first_line = code_str.strip().split("\n", 1)[0][:60]
         return first_line or "Code block"
     if block_type == BLOCK_TYPE_METADATA:
@@ -686,11 +728,55 @@ STEP_RAW = "raw"
 _RE_SET_PARTS = re.compile(
     r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)"""
 )
+_RE_NAV_SET_SECTION = re.compile(
+    r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)"""
+)
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
 _RE_IF = re.compile(r"if\s+(.+):$")
 _RE_ELSE = re.compile(r"else:$")
+
+
+def _join_continuation_lines(lines: list) -> list:
+    """Collapse implicit multi-line expressions (open brackets) into single lines.
+
+    Python allows implicit continuation inside ``()``, ``[]``, and ``{}``.  This
+    helper joins those so the order-step parser treats them as one step.
+    """
+    result: list = []
+    depth = 0
+    accumulator: list = []
+
+    for line in lines:
+        stripped = line.strip()
+        if depth == 0 and not accumulator:
+            accumulator.append(line)
+            for ch in stripped:
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth = max(depth - 1, 0)
+            if depth == 0:
+                result.append(accumulator[0])
+                accumulator = []
+        else:
+            if accumulator:
+                accumulator.append(stripped)
+            for ch in stripped:
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth = max(depth - 1, 0)
+            if depth == 0:
+                joined = accumulator[0].rstrip() + " " + " ".join(accumulator[1:])
+                result.append(joined)
+                accumulator = []
+
+    if accumulator:
+        result.append(accumulator[0].rstrip() + " " + " ".join(accumulator[1:]))
+
+    return result
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
@@ -703,8 +789,10 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         simple_variable → screen step
         function_call(...) → function step
         anything else → raw step
+
+    Multi-line expressions joined by open brackets are treated as a single step.
     """
-    raw_lines = code.splitlines()
+    raw_lines = _join_continuation_lines(code.splitlines())
 
     def _line_indent(raw_line: str) -> int:
         return len(raw_line) - len(raw_line.lstrip(" "))
@@ -722,6 +810,16 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
 
     def _parse_line(stripped_line: str, step_id: str) -> Dict[str, Any]:
         m = _RE_SET_PARTS.search(stripped_line)
+        if m:
+            return {
+                "id": step_id,
+                "kind": STEP_SECTION,
+                "label": "Start section",
+                "summary": f"Set section to {m.group(1)}",
+                "value": m.group(1),
+            }
+
+        m = _RE_NAV_SET_SECTION.search(stripped_line)
         if m:
             return {
                 "id": step_id,
@@ -875,7 +973,7 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
                 value = step.get("value", "")
-                lines.append(f"{prefix}set_parts(subtitle='{value}')")
+                lines.append(f"{prefix}nav.set_section('{value}')")
             elif kind == STEP_PROGRESS:
                 value = step.get("value", "0")
                 lines.append(f"{prefix}set_progress({value})")

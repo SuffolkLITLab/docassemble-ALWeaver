@@ -1521,18 +1521,30 @@
     var heading = getOrderStepHeading(step);
     var detail = getOrderStepDetail(step);
     var tooltip = '';
-    if (step && step.kind === 'screen') {
+    if (step && (step.kind === 'screen' || step.kind === 'gather')) {
       var screenBlock = findBlockByInvoke(step);
       var title = screenBlock ? cleanOrderText(screenBlock.title || '') : '';
       var variable = cleanOrderText(step.invoke || step.summary || '');
-      if (title) {
+      // Variable is always primary; question title is secondary preview
+      if (variable) {
+        heading = variable;
+        detail = (title && title !== variable) ? title : '';
+      } else if (title) {
         heading = title;
         detail = '';
-        tooltip = variable && variable !== title ? variable : '';
-      } else if (variable) {
-        heading = variable;
-        tooltip = title && title !== variable ? title : '';
       }
+      tooltip = '';
+    } else if (step && step.kind === 'raw') {
+      // Show first code line as heading with no duplicate detail
+      var firstLine = cleanOrderText((step.code || '').split('\n')[0]);
+      heading = firstLine || step.label || 'Python';
+      detail = '';
+    } else if (step && step.kind === 'section') {
+      heading = step.value ? 'Set section: ' + step.value : (step.summary || 'Section');
+      detail = step.value ? 'nav.set_section(\'' + step.value + '\')' : '';
+    } else if (step && step.kind === 'progress') {
+      heading = step.value ? 'Set progress to ' + step.value + '%' : (step.summary || 'Progress');
+      detail = step.value ? 'set_progress(' + step.value + ')' : '';
     }
     return {
       heading: heading,
@@ -1770,7 +1782,7 @@
     var lines = [];
     stepList.forEach(function (step, index) {
       var prefix = new Array(indent + 1).join(' ');
-      if (step.kind === 'section') lines.push(prefix + "set_parts(subtitle='" + String(step.value || '') + "')");
+      if (step.kind === 'section') lines.push(prefix + "nav.set_section('" + String(step.value || '') + "')");
       else if (step.kind === 'progress') lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
       else if (step.kind === 'gather' || step.kind === 'screen' || step.kind === 'function') lines.push(prefix + String(step.invoke || ''));
       else if (step.kind === 'condition') {
@@ -4349,7 +4361,8 @@
     html += '<div class="editor-full-yaml-header">';
     html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Full YAML</h2></div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="back-to-question">Back to blocks</button>';
+    var backLabel = state._prevCanvasMode === 'order-builder' ? '\u2190 Interview Order' : 'Back to blocks';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="back-to-question">' + backLabel + '</button>';
     html += '</div></div>';
 
     html += '<div class="editor-tab-bar">';
@@ -4411,10 +4424,13 @@
   // Order builder
   // -------------------------------------------------------------------------
   function renderOrderInsertRow(parentStepId, branch, index, depth) {
-    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
-    html += '<div class="editor-order-insert-controls">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add step</button>';
-    html += '</div></div>';
+    var indentPx = depth * 24;
+    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '; padding-left:' + indentPx + 'px">';
+    html += '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '" title="Add step">';
+    html += '<span class="editor-order-insert-line" aria-hidden="true"></span>';
+    html += '<span class="editor-order-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span>';
+    html += '</button>';
+    html += '</div>';
     return html;
   }
 
@@ -4472,8 +4488,27 @@
       }
       html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="edit" data-step-id="' + esc(step.id) + '" title="Edit"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span class="visually-hidden">Edit step</span></button>';
       html += '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-step-action="remove" data-step-id="' + esc(step.id) + '" title="Remove"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove step</span></button>';
+      // Kebab menu for secondary actions — only for screen/gather steps with a block ref
+      var hasBlockRef = (step.kind === 'screen' || step.kind === 'gather') && !!step.invoke;
+      if (hasBlockRef) {
+        html += '<div class="dropdown">';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" title="More actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">More</span></button>';
+        html += '<ul class="dropdown-menu dropdown-menu-end">';
+        var blockRef = findBlockByInvoke(step);
+        if (blockRef) {
+          html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block</button></li>';
+        } else {
+          var inCatalog = step.invoke && state.symbolCatalog && state.symbolCatalog.all.indexOf(step.invoke) !== -1;
+          html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '">' + (inCatalog ? '<i class="fa-solid fa-file-import me-2"></i>Defined in included file' : '<i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block') + '</button></li>';
+        }
+        html += '</ul></div>';
+      }
       html += '</div>';
       html += '</div>';
+      // Inline edit row shown when this step is being edited
+      if (_inlineEditStepId === step.id) {
+        html += renderInlineEditRow(step);
+      }
       if (step.kind === 'condition') {
         html += '<div class="editor-order-children' + (isCollapsed ? ' d-none' : '') + '">';
         html += renderOrderBranch(step, depth + 1, 'then', 'Then');
@@ -4520,7 +4555,7 @@
     html += '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
     html += '<span>Steps</span>';
     html += '<div class="editor-order-actions">';
-    html += '<span class="editor-order-actions-hint">Use any inline Add step row to choose type + details in one modal.</span>';
+    html += '<span class="editor-order-actions-hint">Use + to add steps</span>';
     html += '</div></div>';
 
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
@@ -4550,8 +4585,14 @@
         draggable: '.editor-order-step-shell',
         animation: 150,
         onEnd: function (evt) {
-          var moved = state.orderSteps.splice(evt.oldIndex, 1)[0];
-          state.orderSteps.splice(evt.newIndex, 0, moved);
+          // Use draggable-only indices so that interspersed insert-rows don't
+          // offset the positions. Fall back to oldIndex/newIndex for older
+          // versions of SortableJS that don't expose the draggable variants.
+          var fromIdx = (evt.oldDraggableIndex != null) ? evt.oldDraggableIndex : evt.oldIndex;
+          var toIdx   = (evt.newDraggableIndex != null) ? evt.newDraggableIndex : evt.newIndex;
+          if (fromIdx < 0 || fromIdx >= state.orderSteps.length) return;
+          var moved = state.orderSteps.splice(fromIdx, 1)[0];
+          state.orderSteps.splice(toIdx, 0, moved);
           renderOrderBuilder();
         }
       });
@@ -4797,6 +4838,10 @@
   // -------------------------------------------------------------------------
   document.addEventListener('mousedown', function (e) {
     var target = e.target;
+    // Prevent input blur when clicking anywhere inside the typeahead (including scrollbar)
+    if (target.closest('#editor-symbol-typeahead') || target.id === 'editor-symbol-typeahead') {
+      e.preventDefault();
+    }
     if (target.closest('.editor-symbol-typeahead-item')) {
       e.preventDefault();
     }
@@ -5000,11 +5045,34 @@
       $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
       jumpItem.classList.add('active');
       state.jumpTarget = jump;
-      state.canvasMode = 'question';
+      // The "Order" filter button goes straight into the order builder canvas
+      if (jump === 'order') {
+        syncActiveOrderStepMap();
+        if (!state.activeOrderBlockId) state.activeOrderBlockId = getDefaultOrderBlockId();
+        state.currentView = 'interview';
+        var interviewTabOrder = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTabOrder) setActiveTopTab(interviewTabOrder);
+        if (!state.activeOrderBlockId) {
+          console.warn('[Order] No order block found — orderIndices=' + JSON.stringify(state.orderIndices) + ', blocks=' + state.blocks.length + ', file=' + state.filename);
+          state.canvasMode = 'order-builder';
+          renderCanvas();
+          renderOutline();
+          return;
+        }
+        var _jumpOrderBlockId = state.activeOrderBlockId;
+        loadOrderStepsForBlock(_jumpOrderBlockId).then(function () {
+          state.canvasMode = 'order-builder';
+          renderCanvas();
+          renderOutline();
+        });
+        return;
+      } else {
+        state.canvasMode = 'question';
+        state.selectedBlockId = getDefaultVisibleBlockId();
+      }
       state.currentView = 'interview';
       var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab) setActiveTopTab(interviewTab);
-      state.selectedBlockId = getDefaultVisibleBlockId();
       renderCanvas();
       renderOutline();
       return;
@@ -5378,11 +5446,20 @@
     if (target.id === 'btn-order-builder') {
       syncActiveOrderStepMap();
       if (!state.activeOrderBlockId) state.activeOrderBlockId = getDefaultOrderBlockId();
-      state.canvasMode = 'order-builder';
       state.currentView = 'interview';
       var interviewTab3 = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab3) setActiveTopTab(interviewTab3);
-      renderCanvas();
+      if (!state.activeOrderBlockId) {
+        console.warn('[Order] btn-order-builder: no order block found — orderIndices=' + JSON.stringify(state.orderIndices) + ', blocks=' + state.blocks.length + ', file=' + state.filename);
+        state.canvasMode = 'order-builder';
+        renderCanvas();
+        return;
+      }
+      var _btnOrderBlockId = state.activeOrderBlockId;
+      loadOrderStepsForBlock(_btnOrderBlockId).then(function () {
+        state.canvasMode = 'order-builder';
+        renderCanvas();
+      });
       return;
     }
     if (target.id === 'btn-save-file') {
@@ -5637,7 +5714,15 @@
       renderCanvas();
       return;
     }
-    if (target.id === 'back-to-question') { _stashFullYamlContent(); state.canvasMode = 'question'; renderCanvas(); return; }
+    if (target.id === 'back-to-question') {
+      _stashFullYamlContent();
+      var returnMode = state._prevCanvasMode || 'question';
+      state._prevCanvasMode = null;
+      state.canvasMode = returnMode;
+      renderOutline();
+      renderCanvas();
+      return;
+    }
     if (target.id === 'save-full-yaml') {
       var yamlContent = getMonacoValue('full-yaml-monaco');
       if (!yamlContent) return;
@@ -5666,7 +5751,13 @@
       if (wrapSelectedOrderSteps()) renderCanvas();
       return;
     }
-    if (target.id === 'order-to-raw') { state.canvasMode = 'full-yaml'; state.fullYamlTab = 'order'; renderCanvas(); return; }
+    if (target.id === 'order-to-raw') {
+      state._prevCanvasMode = 'order-builder';
+      state.canvasMode = 'full-yaml';
+      state.fullYamlTab = 'order';
+      renderCanvas();
+      return;
+    }
     if (target.id === 'order-back-to-code') {
       if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
       state.canvasMode = 'question';
@@ -5685,6 +5776,12 @@
     // Step actions
     if (stepActionBtn) {
       var action = stepActionBtn.getAttribute('data-step-action');
+      // inline-cancel needs no step record
+      if (action === 'inline-cancel') {
+        _inlineEditStepId = null;
+        renderCanvas();
+        return;
+      }
       var targetStepId = stepActionBtn.getAttribute('data-step-id');
       var stepRecord = findStepRecord(state.orderSteps, targetStepId, null);
       if (!stepRecord) return;
@@ -5706,6 +5803,35 @@
         state.orderCollapsed[targetStepId] = false;
         syncActiveOrderStepMap();
         renderCanvas();
+      } else if (action === 'inline-save') {
+        var inlineInvoke = document.getElementById('order-inline-edit-invoke');
+        var inlineCondition = document.getElementById('order-inline-edit-condition');
+        var inlineValue = document.getElementById('order-inline-edit-value');
+        if (inlineInvoke) { stepRecord.step.invoke = inlineInvoke.value; stepRecord.step.summary = inlineInvoke.value; }
+        if (inlineCondition) { stepRecord.step.condition = inlineCondition.value; stepRecord.step.summary = inlineCondition.value; }
+        if (inlineValue) {
+          stepRecord.step.value = inlineValue.value;
+          if (stepRecord.step.kind === 'section') stepRecord.step.summary = 'Section: ' + inlineValue.value;
+          if (stepRecord.step.kind === 'progress') stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
+        }
+        _inlineEditStepId = null;
+        syncActiveOrderStepMap();
+        renderCanvas();
+      } else if (action === 'go-to-block') {
+        var targetBlock = findBlockByInvoke(stepRecord.step);
+        if (targetBlock) {
+          _inlineEditStepId = null;
+          state.canvasMode = 'question';
+          state.selectedBlockId = targetBlock.id;
+          renderOutline();
+          renderCanvas();
+        } else {
+          var invokeLabel = stepRecord.step.invoke || stepRecord.step.value || stepRecord.step.summary || '';
+          var inOther = invokeLabel && state.symbolCatalog && state.symbolCatalog.all.indexOf(invokeLabel) !== -1;
+          window.alert(invokeLabel
+            ? '"' + invokeLabel + '" is ' + (inOther ? 'defined in an included file, not editable here.' : 'not found in this file.')
+            : 'No block reference available for this step.');
+        }
       }
       return;
     }
@@ -5956,35 +6082,74 @@
   }
 
   var _editStepId = null;
+  var _inlineEditStepId = null;
+
   function showOrderEdit(step, stepId) {
     if (!step) return;
-    _editStepId = stepId;
-    document.getElementById('order-edit-title').textContent = step.label || step.kind;
-    var body = '';
+    // Raw/multi-line code uses the modal; all other kinds use an inline edit row
+    if (step.kind === 'raw') {
+      _editStepId = stepId;
+      _inlineEditStepId = null;
+      document.getElementById('order-edit-title').textContent = step.label || step.kind;
+      var body = '<div class="mb-3"><label class="editor-tiny">Python code</label>';
+      body += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-edit-code" rows="4">' + esc(step.code || '') + '</textarea></div>';
+      document.getElementById('order-edit-body').innerHTML = body;
+      var editModal = getOrCreateBootstrapModal('order-edit-modal');
+      if (editModal) editModal.show();
+      return;
+    }
+    _inlineEditStepId = stepId;
+    _editStepId = null;
+    renderCanvas();
+    setTimeout(function () {
+      var inlineInput = document.querySelector('.editor-order-inline-edit input, .editor-order-inline-edit textarea');
+      if (inlineInput) inlineInput.focus();
+    }, 50);
+  }
+
+  function renderInlineEditRow(step) {
+    var html = '<div class="editor-order-inline-edit">';
     if (step.kind === 'screen' || step.kind === 'gather' || step.kind === 'function') {
       var invokeRole = step.kind === 'function' ? 'function-call' : 'all';
-      body += '<div class="mb-3"><label class="editor-tiny">Variable / expression</label>';
-      body += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-edit-invoke" value="' + esc(step.invoke || '') + '"></div>';
+      html += '<label class="editor-tiny">Variable / expression</label>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-inline-edit-invoke" value="' + esc(step.invoke || '') + '">';
+    } else if (step.kind === 'condition') {
+      html += '<label class="editor-tiny">Condition</label>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="all" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
+    } else if (step.kind === 'section') {
+      // Build list of section names from sections blocks
+      var sectionNames = [];
+      state.blocks.forEach(function (b) {
+        var secs = b.data && b.data.sections;
+        if (!Array.isArray(secs)) return;
+        secs.forEach(function (s) {
+          if (typeof s === 'string') { if (sectionNames.indexOf(s) === -1) sectionNames.push(s); }
+          else if (s && typeof s === 'object') {
+            Object.keys(s).forEach(function (k) {
+              var v = s[k];
+              // keys are display labels, values are section identifiers
+              if (v && typeof v === 'string' && sectionNames.indexOf(v) === -1) sectionNames.push(v);
+              if (k && sectionNames.indexOf(k) === -1) sectionNames.push(k);
+            });
+          }
+        });
+      });
+      html += '<label class="editor-tiny">Section name</label>';
+      if (sectionNames.length > 0) {
+        html += '<datalist id="order-section-list">' + sectionNames.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
+        html += '<input class="form-control form-control-sm mt-1" list="order-section-list" id="order-inline-edit-value" value="' + esc(step.value || '') + '" placeholder="Section name">';
+      } else {
+        html += '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' + esc(step.value || '') + '" placeholder="Section name">';
+      }
+    } else if (step.kind === 'progress') {
+      html += '<label class="editor-tiny">Progress value</label>';
+      html += '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' + esc(step.value || '') + '">';
     }
-    if (step.kind === 'condition') {
-      body += '<div class="mb-3"><label class="editor-tiny">Condition</label>';
-      body += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="all" id="order-edit-condition" value="' + esc(step.condition || step.summary || '') + '"></div>';
-    }
-    if (step.kind === 'section') {
-      body += '<div class="mb-3"><label class="editor-tiny">Section name</label>';
-      body += '<input class="form-control form-control-sm mt-1" data-symbol-role="section" id="order-edit-value" value="' + esc(step.value || '') + '"></div>';
-    }
-    if (step.kind === 'progress') {
-      body += '<div class="mb-3"><label class="editor-tiny">Progress value</label>';
-      body += '<input class="form-control form-control-sm mt-1" id="order-edit-value" value="' + esc(step.value || '') + '"></div>';
-    }
-    if (step.kind === 'raw') {
-      body += '<div class="mb-3"><label class="editor-tiny">Python code</label>';
-      body += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-edit-code" rows="4">' + esc(step.code || '') + '</textarea></div>';
-    }
-    document.getElementById('order-edit-body').innerHTML = body;
-    var editModal = getOrCreateBootstrapModal('order-edit-modal');
-    if (editModal) editModal.show();
+    html += '<div class="d-flex gap-2 mt-1">';
+    html += '<button type="button" class="btn btn-sm btn-primary py-0 px-2" data-step-action="inline-save" data-step-id="' + esc(step.id) + '">Save</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="inline-cancel">Cancel</button>';
+    html += '</div></div>';
+    return html;
   }
 
   document.getElementById('order-edit-save').addEventListener('click', function () {

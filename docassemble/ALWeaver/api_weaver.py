@@ -14,18 +14,23 @@ from docassemble.webapp.app_object import app, csrf
 from docassemble.webapp.server import api_verify, jsonify_with_status, r
 from docassemble.webapp.worker_common import workerapp
 
-from .api_utils import (
-    WEAVER_API_BASE_PATH,
-    WeaverAPIValidationError,
-    build_docs_html,
-    build_openapi_spec,
-    coerce_async_flag,
-    coerce_generation_options,
-    coerce_response_flags,
-    decode_base64_content,
-    generate_interview_from_bytes,
-    merge_raw_options,
-)
+try:
+    from .api_utils import (
+        WEAVER_API_BASE_PATH,
+        WeaverAPIValidationError,
+        build_docs_html,
+        build_openapi_spec,
+        coerce_async_flag,
+        coerce_generation_options,
+        coerce_response_flags,
+        decode_base64_content,
+        generate_interview_from_bytes,
+        merge_raw_options,
+    )
+except Exception as _api_utils_import_err:
+    import traceback as _traceback
+    log("ALWeaver api_weaver: FAILED TO IMPORT api_utils: " + _traceback.format_exc(), "error")
+    raise
 
 __all__ = []
 JOB_KEY_PREFIX = "da:alweaver:job:"

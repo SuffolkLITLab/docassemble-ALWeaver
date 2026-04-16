@@ -48,35 +48,45 @@ from docassemble.webapp.app_object import app, csrf
 from docassemble.webapp.server import jsonify_with_status
 
 from .api_utils import generate_interview_from_bytes, validate_upload_metadata
-from .editor_utils import (
-    canonical_block_yaml,
-    canonicalize_block_yaml,
-    comment_out_block_in_yaml,
-    delete_block_from_yaml,
-    delete_saved_file,
-    generate_draft_order,
-    parse_interview_yaml,
-    parse_order_code,
-    playground_get_variables,
-    playground_interview_url,
-    playground_list_projects,
-    playground_list_yaml_files,
-    playground_read_yaml,
-    playground_write_yaml,
-    rename_saved_file,
-    serialize_blocks_to_yaml,
-    serialize_order_steps,
-    enable_commented_block_in_yaml,
-    reorder_blocks_in_yaml,
-    update_block_in_yaml,
-)
-from .editor_ai_utils import (
-    DEFAULT_FIELD_TYPES,
-    normalize_generated_fields,
-    normalize_generated_screen,
-    pick_small_model_name,
-    validate_yaml_with_dayamlchecker,
-)
+try:
+    from .editor_utils import (
+        canonical_block_yaml,
+        canonicalize_block_yaml,
+        comment_out_block_in_yaml,
+        delete_block_from_yaml,
+        delete_saved_file,
+        generate_draft_order,
+        parse_interview_yaml,
+        parse_order_code,
+        playground_get_variables,
+        playground_interview_url,
+        playground_list_projects,
+        playground_list_yaml_files,
+        playground_read_yaml,
+        playground_write_yaml,
+        rename_saved_file,
+        serialize_blocks_to_yaml,
+        serialize_order_steps,
+        enable_commented_block_in_yaml,
+        reorder_blocks_in_yaml,
+        update_block_in_yaml,
+    )
+except Exception as _editor_utils_import_err:
+    import traceback as _traceback
+    log("ALWeaver api_editor: FAILED TO IMPORT editor_utils: " + _traceback.format_exc(), "error")
+    raise
+try:
+    from .editor_ai_utils import (
+        DEFAULT_FIELD_TYPES,
+        normalize_generated_fields,
+        normalize_generated_screen,
+        pick_small_model_name,
+        validate_yaml_with_dayamlchecker,
+    )
+except Exception as _ai_utils_import_err:
+    import traceback as _traceback
+    log("ALWeaver api_editor: FAILED TO IMPORT editor_ai_utils: " + _traceback.format_exc(), "error")
+    raise
 from .playground_publish import (
     SECTION_TO_STORAGE,
     _copy_files_to_section,

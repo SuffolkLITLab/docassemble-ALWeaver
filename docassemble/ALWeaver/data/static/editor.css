@@ -1231,7 +1231,7 @@ html, body {
   background: #fff;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
-  padding: 6px 10px;
+  padding: 3px 8px;
   overflow: visible;
 }
 
@@ -1378,21 +1378,92 @@ html, body {
 
 .editor-order-insert {
   display: flex;
-  justify-content: flex-start;
-  margin-left: calc(var(--order-depth, 0) * 16px + 34px);
+  justify-content: center;
+  padding: 1px 0;
 }
 
 .editor-order-insert-controls {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 2px 0 4px;
+  display: none; /* wrapper no longer used */
 }
 
-.editor-order-insert-controls .btn {
-  font-size: 11px;
-  line-height: 1.2;
-  padding: 2px 9px;
+/* Centered circle-plus insert — mirrors .editor-outline-insert-btn */
+.editor-order-insert-btn {
+  position: relative;
+  width: 100%;
+  min-height: 20px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--editor-muted);
+  cursor: pointer;
+}
+
+.editor-order-insert-line {
+  position: absolute;
+  left: 45%;
+  right: 45%;
+  top: 50%;
+  border-top: 1px dashed transparent;
+  transition: left 0.2s ease, right 0.2s ease, border-color 0.2s ease;
+}
+
+.editor-order-insert-icon {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 300;
+  color: var(--editor-muted);
+  border: 1px solid #d0d9e7;
+  transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.editor-order-insert-btn:hover .editor-order-insert-line,
+.editor-order-insert-btn:focus-visible .editor-order-insert-line {
+  left: 10%;
+  right: 10%;
+  border-top-color: rgba(13, 57, 112, 0.3);
+}
+
+.editor-order-insert-btn:hover .editor-order-insert-icon,
+.editor-order-insert-btn:focus-visible .editor-order-insert-icon {
+  color: var(--editor-primary);
+  background: #eef4ff;
+  border-color: rgba(13, 57, 112, 0.4);
+  box-shadow: 0 0 0 3px rgba(13, 57, 112, 0.07);
+}
+
+.editor-order-insert-btn:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-order-insert-line,
+  .editor-order-insert-icon {
+    transition: none;
+  }
+  .editor-order-insert-btn:hover .editor-order-insert-line,
+  .editor-order-insert-btn:focus-visible .editor-order-insert-line {
+    left: 10%;
+    right: 10%;
+  }
+}
+
+.editor-order-inline-edit {
+  margin: 2px 8px 6px calc(var(--order-depth, 0) * 24px + 8px);
+  padding: 8px 10px;
+  background: var(--bs-body-bg, #fff);
+  border: 1px solid var(--bs-primary, #0d6efd);
+  border-radius: 6px;
 }
 
 .editor-order-step-new {
