@@ -3135,7 +3135,7 @@ Rules:
         """
         self.questions.auto_gather = False
         for screen in screen_list:
-            if not screen.get("question"):
+            if not (screen.get("question") or "").strip():
                 continue
             new_screen = self.questions.appendObject()
             continue_button_field = _get_continue_button_field(screen)
@@ -3215,18 +3215,19 @@ Rules:
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
         for group in field_grouping:
+            group_fields = [name for name in (field_grouping[group] or []) if name]
+            if not group_fields:
+                continue
             new_screen = self.questions.appendObject()
             new_screen.is_informational_screen = False
             new_screen.has_mandatory_field = True
             new_screen.type = "question"
             new_screen.needs_continue_button_field = False
-            new_screen.question_text = (
-                next(iter(field_grouping[group]), "").capitalize().replace("_", " ")
-            )
+            new_screen.question_text = group_fields[0].capitalize().replace("_", " ")
             new_screen.subquestion_text = ""
             new_screen.field_list.clear()
             for field in self.all_fields:
-                if field.variable in field_grouping[group]:
+                if field.variable in group_fields:
                     new_screen.field_list.append(field)
             new_screen.field_list.gathered = True
             if not new_screen.field_list:
@@ -4455,7 +4456,10 @@ def _as_field_definition(value: Mapping[str, Any]) -> Field:
 
 
 def _get_continue_button_field(screen: Screen) -> Optional[str]:
-    return screen.get("continue_button_field") or screen.get("continue button field")
+    raw = (
+        screen.get("continue_button_field") or screen.get("continue button field") or ""
+    )
+    return raw.strip() or None
 
 
 def _merge_field_definitions_into_screens(

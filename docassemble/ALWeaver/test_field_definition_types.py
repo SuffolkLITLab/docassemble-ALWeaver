@@ -1,10 +1,14 @@
 # do not pre-load
 import unittest
+from unittest.mock import patch
 
+from . import interview_generator as interview_generator_module
 from .interview_generator import (
+    DAFieldGroup,
     DADataType,
     DAInterview,
     _field_type_from_definition,
+    _get_continue_button_field,
     _merge_field_definitions_into_screens,
     get_question_file_variables,
 )
@@ -56,6 +60,18 @@ class test_field_definition_types(unittest.TestCase):
         fields = get_question_file_variables(screens)
         self.assertEqual(fields, ["agree_one", "agree_two"])
 
+    def test_get_continue_button_field_strips_and_ignores_blank(self):
+        self.assertEqual(
+            _get_continue_button_field({"continue_button_field": "  keep_going  "}),
+            "keep_going",
+        )
+        self.assertEqual(
+            _get_continue_button_field({"continue button field": "  next_step  "}),
+            "next_step",
+        )
+        self.assertIsNone(_get_continue_button_field({"continue_button_field": "   "}))
+        self.assertIsNone(_get_continue_button_field({"continue button field": "\n\t"}))
+
     def test_create_questions_from_screen_list_accepts_snake_case_continue(self):
         interview = DAInterview()
         interview.create_questions_from_screen_list(
@@ -69,6 +85,41 @@ class test_field_definition_types(unittest.TestCase):
         )
         self.assertEqual(interview.questions[0].continue_button_field, "intro_continue")
         self.assertTrue(interview.questions[0].needs_continue_button_field)
+
+    def test_create_questions_from_screen_list_skips_empty_screen(self):
+        interview = DAInterview()
+        interview.create_questions_from_screen_list(
+            [
+                {
+                    "question": "   ",
+                    "subquestion": "",
+                    "continue_button_field": "   ",
+                    "fields": [],
+                }
+            ]
+        )
+        self.assertEqual(len(interview.questions), 0)
+
+    def test_auto_group_fields_skips_empty_groups(self):
+        interview = DAInterview()
+        field = interview.all_fields.appendObject()
+        field.group = DAFieldGroup.CUSTOM
+        field.variable = "petitioner_name"
+        field.label = "Petitioner name"
+        field.field_type = "text"
+        field.final_display_var = "petitioner_name"
+        field.has_label = True
+        interview.all_fields.gathered = True
+
+        with patch.object(
+            interview_generator_module.formfyxer,
+            "cluster_screens",
+            return_value={"Empty screen": [], "Names": ["petitioner_name"]},
+        ):
+            interview.auto_group_fields()
+
+        self.assertEqual(len(interview.questions), 1)
+        self.assertEqual(interview.questions[0].question_text, "Petitioner name")
 
 
 if __name__ == "__main__":

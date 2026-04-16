@@ -36,6 +36,9 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
+  if not get_config("enable weaver for unauthenticated users", True):
+    if not (user_logged_in() and user_has_privilege(["developer", "admin"])):
+      not_authorized
   multi_user = True
   nav.hide()
   process_url_args
@@ -148,6 +151,12 @@ code: |
   # Display output download screen
   nav.set_section("nav_package")
   show_interview
+---
+event: not_authorized
+question: |
+  You must be logged in as a developer to access the Weaver.
+subquestion: |
+  Contact an administrator for help or log in with an account that has developer access.
 ---
 code: |
   rename_current_session(interview.uploaded_templates[0].filename)
@@ -283,7 +292,7 @@ content: |
      to take advantage of built-in questions.
   1. Upload your template and answer all the questions on the screens.
      Smart defaults save you time along the way.
-  2. Download your completed interview and get started [customizing](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview) it. 
+  2. Download your completed interview and get started [customizing](https://assemblyline.suffolklitlab.org/docs/authoring/customizing_interview) it. 
 ---
 event: choose_first_action
 code: |
@@ -1779,7 +1788,7 @@ subquestion: |
   ###### Post-download instructions         
   ${ collapse_template(start_your_project) }  
   ${ collapse_template(customize_your_interview) }   
-  See detailed instructions _[here.](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/customizing_interview)_  
+  See detailed instructions _[here.](https://assemblyline.suffolklitlab.org/docs/authoring/customizing_interview)_  
   </div>
     
   <div class="panel_lavender" markdown="1">
