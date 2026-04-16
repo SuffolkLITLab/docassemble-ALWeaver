@@ -371,7 +371,8 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
             url,
             headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
         )
-        with urlopen(req, timeout=10) as response:
+        # URL safety is validated above before fetching.
+        with urlopen(req, timeout=10) as response:  # nosec B310
             content_type = str(response.headers.get("Content-Type", "") or "").lower()
             if content_type and (
                 "text/html" not in content_type
@@ -5109,7 +5110,10 @@ def _render_interview_yaml(
         output_mako_text = mako_handle.read()
 
     template_text = output_defs_text + "\n" + output_mako_text
-    template = mako.template.Template(template_text, input_encoding="utf-8")
+    # This template renders docassemble YAML, not HTML output.
+    template = mako.template.Template(
+        template_text, input_encoding="utf-8"
+    )  # nosec B702
 
     if screen_reordered is None:
         # The interview order block needs both the authored question screens and any
@@ -5267,6 +5271,10 @@ def generate_interview_artifacts(
 
     package_file = None
     if create_package_archive:
+        include_next_steps = getattr(interview, "include_next_steps", True)
+        if include_next_steps and not hasattr(interview, "instructions"):
+            _assign_next_steps_template(interview)
+
         folders_and_files = {
             "questions": [yaml_file],
             "modules": [],
@@ -5274,7 +5282,6 @@ def generate_interview_artifacts(
             "sources": [],
             "templates": [],
         }
-        include_next_steps = getattr(interview, "include_next_steps", True)
         if include_download_screen:
             if include_next_steps and hasattr(interview, "instructions"):
                 folders_and_files["templates"] = [interview.instructions] + list(
