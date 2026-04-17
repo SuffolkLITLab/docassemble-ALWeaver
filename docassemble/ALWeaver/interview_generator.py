@@ -5353,6 +5353,17 @@ def generate_interview_from_path(
     interview.include_next_steps = include_next_steps
 
     if interview_overrides:
+        if isinstance(interview_overrides, str):
+            try:
+                interview_overrides = json.loads(interview_overrides)
+            except (json.JSONDecodeError, TypeError):
+                raise ValueError(
+                    "interview_overrides must be a dict, not a string"
+                )
+        if not isinstance(interview_overrides, dict):
+            raise TypeError(
+                f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
+            )
         for key, value in interview_overrides.items():
             setattr(interview, key, value)
 

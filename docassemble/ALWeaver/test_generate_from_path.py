@@ -292,6 +292,53 @@ question: |
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
             self.assertNotIn('nav.set_section("', yaml_text)
 
+    def test_interview_overrides_string_coerced(self):
+        """Regression: interview_overrides passed as a JSON string should be
+        auto-parsed rather than raising 'str has no attribute items'."""
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(docx_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides='{"enable_navigation": false}',
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertNotIn('nav.set_section("', yaml_text)
+
+    def test_interview_overrides_bad_string_raises(self):
+        """A non-JSON string for interview_overrides should raise ValueError."""
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(ValueError):
+                generate_interview_from_path(
+                    str(docx_path),
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    interview_overrides="not valid json",
+                )
+
+    def test_upload_flow_end_to_end(self):
+        """Simulate the editor upload flow: generate_interview_from_bytes with
+        a DOCX file, matching what _new_project_from_uploads does."""
+        from .api_utils import generate_interview_from_bytes
+
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        content = docx_path.read_bytes()
+
+        result = generate_interview_from_bytes(
+            filename=docx_path.name,
+            content_bytes=content,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            generation_options={"title": "Test Demand Letter"},
+            include_yaml_text=True,
+        )
+        self.assertIn("yaml_text", result)
+        self.assertTrue(len(result["yaml_text"]) > 100)
+        self.assertEqual(result["input_filename"], docx_path.name)
+
 
 if __name__ == "__main__":
     unittest.main()
