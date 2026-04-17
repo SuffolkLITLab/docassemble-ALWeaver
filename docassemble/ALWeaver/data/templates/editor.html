@@ -71,9 +71,15 @@
           <div class="dropdown">
             <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
+              <li><button type="button" class="dropdown-item" id="btn-new-interview-file"><i class="fa-solid fa-plus me-2" aria-hidden="true"></i>New file</button></li>
+              <li><button type="button" class="dropdown-item" id="btn-upload-interview-file"><i class="fa-solid fa-upload me-2" aria-hidden="true"></i>Upload file</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" id="btn-rename-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>
+              <li><button type="button" class="dropdown-item" id="btn-download-file"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download file</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item text-danger" id="btn-delete-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>
             </ul>
+            <input type="file" id="interview-upload-input" style="display:none" accept=".yml,.yaml">
           </div>
         </div>
       </div>

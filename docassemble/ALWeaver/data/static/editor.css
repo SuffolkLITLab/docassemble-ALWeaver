@@ -1075,6 +1075,36 @@ html, body {
   gap: 4px;
   margin-bottom: 6px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.editor-md-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 3px 7px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  border-radius: var(--editor-radius-sm);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.editor-md-btn:hover,
+.editor-md-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #f4f6fa;
+  color: var(--editor-fg);
+}
+
+.editor-md-dropdown-toggle::after {
+  font-size: 8px;
+  vertical-align: 1px;
+  margin-left: 2px;
 }
 
 .editor-md-toolbar .btn {
@@ -2161,17 +2191,6 @@ code.md-mako-expr {
   min-width: 26px;
   padding: 0;
   width: 26px;
-  height: 32px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--editor-muted);
-}
-
-.editor-md-kebab:hover,
-.editor-md-kebab:focus-visible {
-  border-color: var(--editor-border);
-  background: #f4f6fa;
-  color: var(--editor-fg);
 }
 
 .editor-md-kebab::after {
@@ -2543,6 +2562,32 @@ code.md-mako-expr {
 }
 
 /* ===== Project card kebab — no border ===== */
+
+/* ===== Section file inline actions (bottom of outline) ===== */
+
+.editor-section-file-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--editor-border);
+  flex-wrap: wrap;
+}
+
+.editor-section-file-actions .btn {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.editor-section-file-kebab {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.editor-section-file-kebab .editor-file-actions-kebab {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
 
 .editor-project-card-menu-btn {
   border: 1px solid transparent;

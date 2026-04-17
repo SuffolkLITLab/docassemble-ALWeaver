@@ -1049,16 +1049,36 @@
   function renderMarkdownToolbar(targetId, compact) {
     var cls = compact ? ' editor-md-toolbar-compact' : '';
     var html = '<div class="editor-md-toolbar' + cls + '" data-md-toolbar-for="' + esc(targetId) + '">';
-    // Primary actions — always visible
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="bold" data-target-id="' + esc(targetId) + '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="italic" data-target-id="' + esc(targetId) + '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="heading" data-target-id="' + esc(targetId) + '" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="link" data-target-id="' + esc(targetId) + '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-md-insert="mako" data-target-id="' + esc(targetId) + '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
-    // Kebab overflow menu for less common actions
+    // Primary actions — always visible, light ghost style
+    html += '<button type="button" class="editor-md-btn" data-md-insert="bold" data-target-id="' + esc(targetId) + '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-md-btn" data-md-insert="italic" data-target-id="' + esc(targetId) + '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-md-btn" data-md-insert="link" data-target-id="' + esc(targetId) + '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-md-btn" data-md-insert="mako" data-target-id="' + esc(targetId) + '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+    // Heading dropdown
     html += '<div class="dropdown d-inline-block">';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' + esc(targetId) + '">Heading 1</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading2" data-target-id="' + esc(targetId) + '">Heading 2</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading3" data-target-id="' + esc(targetId) + '">Heading 3</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading4" data-target-id="' + esc(targetId) + '">Heading 4</button></li>';
+    html += '</ul></div>';
+    // List dropdown
+    html += '<div class="dropdown d-inline-block">';
+    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List"><i class="fa-solid fa-list" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="list-bullet" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-list-ul me-2" aria-hidden="true"></i>Bulleted list</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="list-numbered" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-list-ol me-2" aria-hidden="true"></i>Numbered list</button></li>';
+    html += '</ul></div>';
+    // Kebab overflow menu — mako items first, then media/layout
+    html += '<div class="dropdown d-inline-block">';
+    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-at me-2" aria-hidden="true"></i>Insert variable name</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Mako conditional</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-repeat me-2" aria-hidden="true"></i>Mako loop</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
+    html += '<li><hr class="dropdown-divider"></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="image" data-target-id="' + esc(targetId) + '"><i class="fa-regular fa-image me-2" aria-hidden="true"></i>Image</button></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="table" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table me-2" aria-hidden="true"></i>Table</button></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="file" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-file-lines me-2" aria-hidden="true"></i>FILE markup</button></li>';
@@ -1067,11 +1087,6 @@
     html += '<li><button type="button" class="dropdown-item" data-md-insert="field" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-i-cursor me-2" aria-hidden="true"></i>Embed field</button></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="target" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-bullseye me-2" aria-hidden="true"></i>Embed target</button></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="twocol" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table-columns me-2" aria-hidden="true"></i>Two-column layout</button></li>';
-    html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-at me-2" aria-hidden="true"></i>Insert variable name</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Mako conditional</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-repeat me-2" aria-hidden="true"></i>Mako loop</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
     html += '<li><hr class="dropdown-divider"></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-markup" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book me-2" aria-hidden="true"></i>Markup docs</button></li>';
     html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-mako" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book-open me-2" aria-hidden="true"></i>Mako docs</button></li>';
@@ -1327,8 +1342,18 @@
       insertTextAtCursor(targetEl, '', { wrapSelectionPrefix: '**', wrapSelectionSuffix: '**', defaultSelection: 'bold text' });
     } else if (action === 'italic') {
       insertTextAtCursor(targetEl, '', { wrapSelectionPrefix: '*', wrapSelectionSuffix: '*', defaultSelection: 'italic text' });
-    } else if (action === 'heading') {
+    } else if (action === 'heading' || action === 'heading2') {
       insertTextAtCursor(targetEl, '## ');
+    } else if (action === 'heading1') {
+      insertTextAtCursor(targetEl, '# ');
+    } else if (action === 'heading3') {
+      insertTextAtCursor(targetEl, '### ');
+    } else if (action === 'heading4') {
+      insertTextAtCursor(targetEl, '#### ');
+    } else if (action === 'list-bullet') {
+      insertTextAtCursor(targetEl, '* Item 1\n* Item 2\n* Item 3');
+    } else if (action === 'list-numbered') {
+      insertTextAtCursor(targetEl, '1. Item 1\n2. Item 2\n3. Item 3');
     } else if (action === 'link') {
       openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'link' });
     } else if (action === 'image') {
@@ -3051,13 +3076,28 @@
     filtered.forEach(function (file) {
       var active = selected === file.filename;
       var tag = (file.preview_kind || file.mimetype || 'file').toUpperCase();
+      var rawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(view)) + '&filename=' + encodeURIComponent(file.filename);
       html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-section-filename="' + esc(file.filename) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
-      html += '<div style="min-width:0"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
+      html += '<div style="min-width:0;flex:1"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
       html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag.slice(0, 4)) + '</div>';
+      html += '<div class="dropdown editor-section-file-kebab" data-stop-propagation>';
+      html += '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+      html += '<ul class="dropdown-menu dropdown-menu-end">';
+      html += '<li><button type="button" class="dropdown-item js-section-file-rename" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename</button></li>';
+      html += '<li><a class="dropdown-item" href="' + esc(rawUrl) + '" download="' + esc(file.filename) + '"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download</a></li>';
+      html += '<li><hr class="dropdown-divider"></li>';
+      html += '<li><button type="button" class="dropdown-item text-danger js-section-file-delete" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete</button></li>';
+      html += '</ul></div>';
       html += '</div></div>';
     });
+    // Bottom action buttons
+    html += '<div class="editor-section-file-actions">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-edit-dashboard-inline"><i class="fa-solid fa-pen-to-square me-1" aria-hidden="true"></i>Edit</button>';
+    html += '</div>';
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -4656,9 +4696,9 @@
 
     // Progress
     html += '<div class="editor-card d-none" id="upload-progress-card"><div class="editor-card-body">';
-    html += '<div class="editor-tiny">Generating&hellip;</div>';
+    html += '<div class="editor-tiny">Creating project&hellip;</div>';
     html += '<div class="progress mt-2"><div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:100%"></div></div>';
-    html += '<div class="text-muted small mt-2" id="upload-progress-msg">Analyzing templates. This may take a moment.</div>';
+    html += '<div class="text-muted small mt-2" id="upload-progress-msg">This may take a minute or two. Please wait.</div>';
     html += '</div></div>';
 
     html += '</div>';
@@ -4715,6 +4755,15 @@
     }
     var btn = document.getElementById('create-project-btn');
     if (btn) btn.disabled = false;
+  }
+
+  function _showSuccessBanner(message) {
+    var banner = document.createElement('div');
+    banner.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    banner.style.cssText = 'top:1rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:500px;';
+    banner.innerHTML = '<span>' + message + '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    document.body.appendChild(banner);
+    setTimeout(function () { if (banner.parentNode) banner.parentNode.removeChild(banner); }, 5000);
   }
 
   // -------------------------------------------------------------------------
@@ -4784,16 +4833,12 @@
     var html = '';
     html += '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">' + esc(sectionTitle(view)) + '</h2></div>';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">' + esc(sectionTitle(view)) + (fileMeta ? ' — ' + esc(fileMeta.filename) : '') + '</h2></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
-    html += '<div class="dropdown d-inline-block">';
-    html += '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
-    html += '<ul class="dropdown-menu dropdown-menu-end">';
-    html += '<li><button type="button" class="dropdown-item" id="btn-rename-section-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>';
-    html += '<li><button type="button" class="dropdown-item text-danger" id="btn-delete-section-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>';
-    html += '</ul></div>';
+    if (fileMeta) {
+      var sectionRawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename);
+      html += '<a class="btn btn-sm btn-outline-secondary" href="' + esc(sectionRawUrl) + '" download="' + esc(fileMeta.filename) + '"><i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download</a>';
+    }
     if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
     }
@@ -5133,7 +5178,7 @@
 
     // Outline block selection
     var outlineItem = target.closest('.editor-outline-item');
-    if (outlineItem) {
+    if (outlineItem && !target.closest('[data-stop-propagation]') && !target.closest('.editor-file-actions-kebab') && !target.closest('.dropdown-menu')) {
       if (!isInterviewView()) {
         var viewForFile = state.currentView;
         state.sectionSelectedFile[viewForFile] = outlineItem.getAttribute('data-section-filename');
@@ -5324,9 +5369,137 @@
       return;
     }
 
-    if (target.id === 'btn-upload-section-file') {
+    if (target.id === 'btn-upload-section-file' || target.id === 'btn-upload-section-file-inline') {
       var uploadInput = document.getElementById('section-upload-input');
       if (uploadInput) uploadInput.click();
+      return;
+    }
+
+    if (target.id === 'btn-new-section-file-inline') {
+      if (!state.project || isInterviewView()) return;
+      var inlineNewName = window.prompt('New filename', defaultNewFilename(state.currentView));
+      if (!inlineNewName) return;
+      var inlineSection = getSectionFromView(state.currentView);
+      apiPost('/api/section-file/new', {
+        project: state.project,
+        section: inlineSection,
+        filename: inlineNewName,
+        content: '',
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to create file.');
+          return;
+        }
+        state.sectionSelectedFile[state.currentView] = inlineNewName;
+        state.sectionDirty = false;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'btn-edit-dashboard-inline') {
+      if (!state.project || isInterviewView()) return;
+      var dashSection = getSectionFromView(state.currentView);
+      var dashMeta = getSelectedSectionFileMeta(state.currentView);
+      if (!dashMeta) return;
+      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashSection) + '&filename=' + encodeURIComponent(dashMeta.filename))
+        .then(function (res) {
+          if (res.success && res.data && res.data.url) {
+            window.open(res.data.url, '_blank');
+          } else {
+            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
+          }
+        });
+      return;
+    }
+
+    // Inline section file kebab actions (rename/delete)
+    var sectionFileRename = target.closest('.js-section-file-rename');
+    if (sectionFileRename) {
+      var sfName = sectionFileRename.getAttribute('data-filename');
+      if (!sfName || !state.project || isInterviewView()) return;
+      var sfSection = getSectionFromView(state.currentView);
+      var sfNewName = window.prompt('Rename file to', sfName);
+      if (!sfNewName) return;
+      apiPost('/api/section-file/rename', {
+        project: state.project,
+        section: sfSection,
+        filename: sfName,
+        new_filename: sfNewName,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          return;
+        }
+        state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : sfNewName;
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    var sectionFileDelete = target.closest('.js-section-file-delete');
+    if (sectionFileDelete) {
+      var delName = sectionFileDelete.getAttribute('data-filename');
+      if (!delName || !state.project || isInterviewView()) return;
+      if (!window.confirm('Delete ' + delName + '?')) return;
+      var delSection = getSectionFromView(state.currentView);
+      apiPost('/api/section-file/delete', {
+        project: state.project,
+        section: delSection,
+        filename: delName,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          return;
+        }
+        if (state.sectionSelectedFile[state.currentView] === delName) {
+          state.sectionSelectedFile[state.currentView] = null;
+        }
+        loadSectionFiles(state.currentView);
+      });
+      return;
+    }
+
+    if (target.id === 'btn-new-interview-file') {
+      if (!state.project) return;
+      var newInterviewName = window.prompt('New YAML filename', 'new_interview.yml');
+      if (!newInterviewName) return;
+      apiPost('/api/file/new', {
+        project: state.project,
+        filename: newInterviewName,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to create file.');
+          return;
+        }
+        state.filename = res.data && res.data.filename ? res.data.filename : newInterviewName;
+        loadFiles();
+      });
+      return;
+    }
+
+    if (target.id === 'btn-upload-interview-file') {
+      var interviewUploadInput = document.getElementById('interview-upload-input');
+      if (interviewUploadInput) interviewUploadInput.click();
+      return;
+    }
+
+    if (target.id === 'btn-download-file') {
+      if (!state.project || !state.filename) return;
+      apiGet('/api/file?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+        .then(function (res) {
+          if (!res.success || !res.data) return;
+          var content = res.data.content || '';
+          var blob = new Blob([content], { type: 'text/yaml' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = state.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        });
       return;
     }
 
@@ -5986,6 +6159,7 @@
               state.filename = res.data.filename;
               state.canvasMode = 'question';
               _uploadedFiles = [];
+              _showSuccessBanner('Project "' + esc(res.data.project) + '" created successfully.');
               apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
           })
@@ -5998,9 +6172,11 @@
               state.project = res.data.project;
               state.filename = res.data.filename;
               state.canvasMode = 'question';
+              _showSuccessBanner('Project "' + esc(res.data.project) + '" created successfully.');
               apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
-          });
+          })
+          .catch(function (err) { if (progressCard) progressCard.classList.add('d-none'); _showUploadError(err.message || 'Network error'); });
       }
       return;
     }
@@ -6069,6 +6245,30 @@
         .finally(function () {
           target.value = '';
         });
+      return;
+    }
+    if (target.id === 'interview-upload-input') {
+      if (!target.files || !target.files.length || !state.project) return;
+      var file = target.files[0];
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        var content = ev.target.result || '';
+        var uploadName = file.name;
+        apiPost('/api/file/new', {
+          project: state.project,
+          filename: uploadName,
+          content: content,
+        }).then(function (res) {
+          if (!res.success) {
+            window.alert((res.error && res.error.message) || 'Unable to upload file.');
+            return;
+          }
+          state.filename = res.data && res.data.filename ? res.data.filename : uploadName;
+          loadFiles();
+        });
+      };
+      reader.readAsText(file);
+      target.value = '';
       return;
     }
     if (target.matches('[data-field-prop="type"]')) {
