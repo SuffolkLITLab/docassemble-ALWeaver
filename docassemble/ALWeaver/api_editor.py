@@ -2964,5 +2964,27 @@ def _new_project_from_uploads(
                 "uploaded_count": len(temp_paths),
             },
         })
+    except (ValueError, FileNotFoundError) as exc:
+        log(f"ALWeaver editor: new-project from upload validation error: {exc!r}", "warning")
+        status = 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: new-project from upload error: {exc!r}", "error")
+        status = 500
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            status,
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
