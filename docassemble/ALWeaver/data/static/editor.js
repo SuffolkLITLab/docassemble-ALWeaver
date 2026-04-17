@@ -2795,15 +2795,15 @@
     var enableAction = block.type === 'commented' ? 'enable' : 'comment';
     var html = '';
     html += '<div class="dropdown editor-outline-item-actions">';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-outline-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Block actions" title="Block actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-outline-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Block actions" title="Block actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu dropdown-menu-end editor-outline-item-action-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-top" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '>Move to top</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-up" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '>Move up</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-down" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '>Move down</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-bottom" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '>Move to bottom</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-top" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '><i class="fa-solid fa-angles-up me-2" aria-hidden="true"></i>Move to top</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-up" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up me-2" aria-hidden="true"></i>Move up</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-down" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down me-2" aria-hidden="true"></i>Move down</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="move-bottom" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '><i class="fa-solid fa-angles-down me-2" aria-hidden="true"></i>Move to bottom</button></li>';
     html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="' + enableAction + '" data-block-id="' + blockId + '">' + enableLabel + '</button></li>';
-    html += '<li><button type="button" class="dropdown-item text-danger" data-block-action="delete" data-block-id="' + blockId + '">Delete block</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-block-action="' + enableAction + '" data-block-id="' + blockId + '"><i class="fa-solid ' + (block.type === 'commented' ? 'fa-toggle-on' : 'fa-toggle-off') + ' me-2" aria-hidden="true"></i>' + enableLabel + '</button></li>';
+    html += '<li><button type="button" class="dropdown-item text-danger" data-block-action="delete" data-block-id="' + blockId + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete block</button></li>';
     html += '</ul></div>';
     return html;
   }
@@ -2812,10 +2812,10 @@
     var projectId = esc(projectName);
     var html = '';
     html += '<div class="dropdown editor-project-card-actions">';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<button type="button" class="editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu dropdown-menu-end editor-project-card-action-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' + projectId + '">Rename project</button></li>';
-    html += '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' + projectId + '">Delete project</button></li>';
+    html += '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' + projectId + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
+    html += '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' + projectId + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
     html += '</ul></div>';
     return html;
   }
@@ -3615,9 +3615,9 @@
               }
             }
             html += '<div class="editor-field-kebab-wrapper">';
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
             html += '</div>';
-            html += '<button type="button" class="btn btn-outline-danger btn-sm" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
+            html += '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
             html += '</div>';
             html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
             FIELD_TYPES.forEach(function (t) {
@@ -3788,7 +3788,7 @@
           html += '<div class="editor-obj-row" data-obj-idx="' + oi + '">';
           html += '<input class="editor-obj-input" data-obj-prop="name" data-symbol-role="top-level" value="' + esc(name) + '" placeholder="variable_name">';
           html += '<input class="editor-obj-input" data-obj-prop="class" data-symbol-role="object-class" value="' + esc(cls) + '" placeholder="ClassName.using(...)">';
-          html += '<div><button type="button" class="btn btn-sm btn-outline-danger" data-remove-obj="' + oi + '" title="Remove object"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
+          html += '<div><button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-obj="' + oi + '" title="Remove object"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
           html += '</div>';
         });
       } else {
@@ -4162,7 +4162,7 @@
     var html = '';
     html += '<div class="editor-card" style="margin-top:12px">';
     if (!forceOpen) {
-      html += '<button class="editor-advanced-toggle" id="toggle-advanced">Advanced options ' + (state.advancedOpen ? '&#8722;' : '+') + '</button>';
+      html += '<button class="editor-advanced-toggle" id="toggle-advanced"><i class="fa-solid fa-chevron-down editor-collapse-icon' + (state.advancedOpen ? '' : ' collapsed') + '" aria-hidden="true"></i> Advanced options</button>';
     }
     if (forceOpen || state.advancedOpen) {
       html += '<div class="editor-advanced-body">';
@@ -4199,7 +4199,7 @@
       html += '<input class="form-control editor-form-control font-monospace" id="adv-sets" data-sets-key="' + (data['only sets'] ? 'only sets' : 'sets') + '" value="' + esc(String(setsVal)) + '"></div>';
 
       // Show more toggle
-      html += '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px">' + (showMore ? '&#8722; Show fewer options' : '+ Show more options') + '</button>';
+      html += '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px"><i class="fa-solid ' + (showMore ? 'fa-chevron-up' : 'fa-chevron-down') + ' me-1" aria-hidden="true" style="font-size:10px"></i>' + (showMore ? 'Show fewer options' : 'Show more options') + '</button>';
 
       if (showMore) {
         // Need
@@ -4497,7 +4497,7 @@
       html += '<div class="editor-order-step-actions">';
       // Kebab menu consolidating all actions
       html += '<div class="dropdown">';
-      html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 dropdown-toggle-split" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
+      html += '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
       html += '<ul class="dropdown-menu dropdown-menu-end">';
       html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
       if (step.kind === 'condition' && !hasElse) {
@@ -4514,7 +4514,7 @@
         }
       }
       html += '<li><hr class="dropdown-divider"></li>';
-      html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash me-2" aria-hidden="true"></i>Remove</button></li>';
+      html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove</button></li>';
       html += '</ul></div>';
       html += '</div>';
       html += '</div>';
@@ -4786,10 +4786,14 @@
     html += '<div class="editor-full-yaml-header">';
     html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">' + esc(sectionTitle(view)) + '</h2></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file">Upload</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file">+ New</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary editor-icon-btn" id="btn-rename-section-file" title="Rename file" aria-label="Rename file"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>';
-    html += '<button class="btn btn-sm btn-outline-danger editor-icon-btn" id="btn-delete-section-file" title="Delete file" aria-label="Delete file"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-section-file"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
+    html += '<div class="dropdown d-inline-block">';
+    html += '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html += '<ul class="dropdown-menu dropdown-menu-end">';
+    html += '<li><button type="button" class="dropdown-item" id="btn-rename-section-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>';
+    html += '<li><button type="button" class="dropdown-item text-danger" id="btn-delete-section-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>';
+    html += '</ul></div>';
     if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
     }

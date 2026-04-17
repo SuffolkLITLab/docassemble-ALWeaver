@@ -136,6 +136,13 @@ html, body {
   align-items: center;
   justify-content: center;
   line-height: 1;
+  font-size: 14px;
+}
+
+.editor-icon-btn > i,
+.editor-icon-btn > .fa-solid,
+.editor-icon-btn > .fa-regular {
+  font-size: 14px;
 }
 
 .editor-section-hidden {
@@ -288,11 +295,20 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 300;
   color: var(--editor-muted);
   border: 1px solid #d0d9e7;
   transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.editor-outline-insert-icon > i {
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .editor-outline-insert-btn:hover .editor-outline-insert-line,
@@ -401,12 +417,35 @@ html, body {
 }
 
 .editor-outline-menu-btn {
-  width: 24px;
+  width: 22px;
   height: 24px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  border-radius: 4px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.editor-outline-menu-btn:hover,
+.editor-outline-menu-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #f0f4fa;
+  color: var(--editor-primary);
+}
+
+.editor-outline-item.active .editor-outline-menu-btn {
+  color: rgba(255,255,255,0.7);
+  border-color: transparent;
+}
+
+.editor-outline-item.active .editor-outline-menu-btn:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border-color: rgba(255,255,255,0.2);
 }
 
 .editor-outline-menu-btn::after {
@@ -765,22 +804,20 @@ html, body {
   appearance: auto;
 }
 
-.editor-field-actions .btn {
-  padding: 4px 7px;
-  font-size: 11px;
-  line-height: 1;
-}
+/* field action btn sizing moved to bottom of file for specificity */
 
 .editor-question-tabs .nav-link {
   font-size: 13px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-bottom-color: transparent;
+  border-top-left-radius: var(--editor-radius-sm);
+  border-top-right-radius: var(--editor-radius-sm);
 }
 
 /* active tab merges into card below */
 .editor-question-tabs .nav-link.active {
   background-color: #fff;
-  border-bottom-color: #fff;
+  border-color: var(--editor-border) var(--editor-border) #fff;
   position: relative;
   z-index: 2;
 }
@@ -915,27 +952,33 @@ html, body {
   font-size: 11px;
   line-height: 1.2;
   border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  overflow: hidden;
 }
+
 .editor-preview-toggle-btn {
   background: #fff;
   border: none;
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 5px 10px;
+  font-size: 13px;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   cursor: pointer;
-  font-size: 9px;
-  align-items: center;
-  gap: 4px;
   transition: background 0.12s, color 0.12s;
 }
-  font-size: 8px;
+
+.editor-preview-toggle-btn + .editor-preview-toggle-btn {
   border-left: 1px solid var(--editor-border);
 }
+
 .editor-preview-toggle-btn.active {
-  padding: 1px 4px;
+  background: var(--editor-primary);
   color: #fff;
 }
+
 .editor-preview-toggle-btn:hover:not(.active) {
   background: #f0f4fa;
   color: var(--editor-primary);
@@ -1629,6 +1672,9 @@ html, body {
   font-weight: 500;
   color: var(--editor-muted);
   transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .editor-advanced-toggle:hover { background: #f0f2f5; }
@@ -2079,11 +2125,53 @@ code.md-mako-expr {
   color: var(--editor-muted);
 }
 
+/* ===== Kebab / overflow menu buttons — global styles ===== */
+
+.editor-kebab-btn {
+  width: 26px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  border-radius: var(--editor-radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.editor-kebab-btn:hover,
+.editor-kebab-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #f4f6fa;
+  color: var(--editor-fg);
+  outline: none;
+}
+
+.editor-kebab-btn::after {
+  display: none;
+}
+
 /* ===== Kebab overflow menu (markdown toolbar) ===== */
 
 .editor-md-kebab {
-  min-width: 28px;
-  padding: 3px 6px;
+  min-width: 26px;
+  padding: 0;
+  width: 26px;
+  height: 32px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+}
+
+.editor-md-kebab:hover,
+.editor-md-kebab:focus-visible {
+  border-color: var(--editor-border);
+  background: #f4f6fa;
+  color: var(--editor-fg);
 }
 
 .editor-md-kebab::after {
@@ -2316,6 +2404,172 @@ code.md-mako-expr {
   padding: 1px 4px;
   border-radius: 3px;
   margin-left: 4px;
+}
+
+/* ===== Ghost button styles — no border until hover ===== */
+
+.btn-ghost-danger {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.btn-ghost-danger:hover,
+.btn-ghost-danger:focus-visible {
+  color: #dc3545;
+  background: #fff5f5;
+  border-color: #fecdd3;
+}
+
+.btn-ghost-secondary {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.btn-ghost-secondary:hover,
+.btn-ghost-secondary:focus-visible {
+  color: var(--editor-fg);
+  background: #f4f6fa;
+  border-color: var(--editor-border);
+}
+
+/* ===== Collapsible toggle animations ===== */
+
+.editor-collapse-icon {
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.editor-collapse-icon.collapsed {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-collapse-icon {
+    transition: none;
+  }
+  .editor-validation-chevron {
+    transition: none;
+  }
+}
+
+/* ===== Consistent field action button sizing ===== */
+
+.editor-field-actions .btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.editor-field-actions .editor-field-kebab-btn {
+  width: 26px;
+}
+
+/* ===== File actions kebab (YAML file rename/delete) ===== */
+
+.editor-file-actions-kebab {
+  width: 28px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  border-radius: var(--editor-radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.editor-file-actions-kebab:hover,
+.editor-file-actions-kebab:focus-visible {
+  border-color: var(--editor-border);
+  background: #f4f6fa;
+  color: var(--editor-fg);
+}
+
+.editor-file-actions-kebab::after {
+  display: none;
+}
+
+/* ===== Order step action kebab — no border ===== */
+
+.editor-order-step-actions .dropdown .btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.editor-order-step-actions .dropdown .btn:hover,
+.editor-order-step-actions .dropdown .btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #f4f6fa;
+  color: var(--editor-fg);
+}
+
+/* ===== Consistent whitespace ===== */
+
+.editor-outline-header {
+  padding: 10px 12px 6px;
+}
+
+.editor-canvas {
+  padding: 20px 24px;
+}
+
+.editor-card + .editor-card {
+  margin-top: 12px;
+}
+
+.editor-center-bar {
+  margin: 0 auto 12px;
+}
+
+/* ===== Project card kebab — no border ===== */
+
+.editor-project-card-menu-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+}
+
+.editor-project-card-menu-btn:hover,
+.editor-project-card-menu-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: rgba(255,255,255,0.9);
+  color: var(--editor-fg);
+}
+
+/* ===== Validation menu kebab ===== */
+
+.editor-validation-menu-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-muted);
+}
+
+.editor-validation-menu-btn:hover,
+.editor-validation-menu-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #eef1f5;
+  color: var(--editor-fg);
 }
 
 /* ===== Responsive: layout tweak for drawer ===== */

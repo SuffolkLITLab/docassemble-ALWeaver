@@ -68,8 +68,13 @@
         <label class="editor-tiny" for="file-select">File</label>
         <div class="d-flex gap-2 align-items-center mt-1">
           <select class="form-select form-select-sm" id="file-select"></select>
-          <button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn flex-shrink-0" id="btn-rename-file" title="Rename file" aria-label="Rename file"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
-          <button type="button" class="btn btn-sm btn-outline-danger editor-icon-btn flex-shrink-0" id="btn-delete-file" title="Delete file" aria-label="Delete file"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+          <div class="dropdown">
+            <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><button type="button" class="dropdown-item" id="btn-rename-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>
+              <li><button type="button" class="dropdown-item text-danger" id="btn-delete-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>
+            </ul>
+          </div>
         </div>
       </div>
       <div class="editor-section editor-section-search">
@@ -117,7 +122,7 @@
         <i class="fa-solid fa-chevron-up ms-auto editor-validation-chevron" aria-hidden="true"></i>
       </button>
       <div class="dropdown editor-validation-actions">
-        <button type="button" class="btn btn-sm btn-outline-secondary editor-validation-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Validation actions" title="Validation actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
+        <button type="button" class="editor-validation-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Validation actions" title="Validation actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
         <ul class="dropdown-menu dropdown-menu-end editor-validation-menu">
           <li><button type="button" class="dropdown-item" id="btn-run-validation"><i class="fa-solid fa-triangle-exclamation me-2" aria-hidden="true"></i>Errors &amp; warnings</button></li>
           <li><button type="button" class="dropdown-item" id="btn-style-check"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>Style check</button></li>
