@@ -1224,20 +1224,38 @@ html, body {
 }
 
 .editor-order-step-shell {
-  margin-left: calc(var(--order-depth, 0) * 16px);
+  margin-left: calc(var(--order-depth, 0) * 20px);
 }
 
 .editor-order-step {
   background: #fff;
-  border: 1px solid var(--editor-border);
-  border-radius: var(--editor-radius-sm);
-  padding: 3px 8px;
+  border: 1px solid #e8ecf1;
+  border-radius: 8px;
+  padding: 4px 8px;
   overflow: visible;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.editor-order-step:hover {
+  border-color: #cdd5df;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .editor-order-step-condition {
-  background: linear-gradient(90deg, #fbfcff 0%, #ffffff 28%);
-  border-color: #cfd8e6;
+  background: #fafaff;
+  border-color: #e0e4f0;
+}
+
+.editor-order-step-condition:hover {
+  border-color: #c5cbe0;
+}
+
+/* Nested children use dashed border */
+.editor-order-step-shell[style*="--order-depth: 1"] .editor-order-step,
+.editor-order-step-shell[style*="--order-depth: 2"] .editor-order-step,
+.editor-order-step-shell[style*="--order-depth: 3"] .editor-order-step {
+  border-style: dashed;
+  background: #fafbfc;
 }
 
 .editor-order-step-top {
@@ -1245,7 +1263,7 @@ html, body {
   justify-content: space-between;
   gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .editor-order-step-main {
@@ -1253,7 +1271,7 @@ html, body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: nowrap;
 }
 
@@ -1263,6 +1281,18 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: default;
+}
+
+.editor-order-title[data-editable] {
+  cursor: text;
+  border-radius: 3px;
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+
+.editor-order-title[data-editable]:hover {
+  background: #f0f4fa;
 }
 
 .editor-order-detail {
@@ -1276,9 +1306,15 @@ html, body {
 .editor-order-step-actions {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   flex: 0 0 auto;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.editor-order-step:hover .editor-order-step-actions {
+  opacity: 1;
 }
 
 .editor-order-select {
@@ -1328,10 +1364,11 @@ html, body {
 .editor-order-branch-label {
   margin-left: 34px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--editor-muted);
+  display: none; /* hide THEN/ELSE labels — children are visually nested */
 }
 
 .editor-order-empty {
@@ -1347,17 +1384,28 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  min-width: 28px;
   height: 18px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid #cdd8ea;
   background: #f4f7fc;
   font-size: 10px;
   letter-spacing: 0.03em;
   color: var(--editor-primary);
   font-weight: 600;
+  flex-shrink: 0;
 }
+
+/* Color-coded badges by step kind */
+.editor-order-badge-screen   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.editor-order-badge-gather   { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.editor-order-badge-if       { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+.editor-order-badge-sec      { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.editor-order-badge-progress { background: #fdf2f8; color: #be185d; border-color: #fbcfe8; }
+.editor-order-badge-func     { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+.editor-order-badge-raw      { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.editor-order-badge-var      { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
 
 .editor-order-actions {
   display: flex;
@@ -1378,83 +1426,57 @@ html, body {
 
 .editor-order-insert {
   display: flex;
-  justify-content: center;
-  padding: 1px 0;
+  justify-content: flex-start;
+  padding: 0;
+  height: 14px;
+  align-items: center;
+  padding-left: 4px;
 }
 
 .editor-order-insert-controls {
   display: none; /* wrapper no longer used */
 }
 
-/* Centered circle-plus insert — mirrors .editor-outline-insert-btn */
+/* Compact dashed "+ Add" insert button */
 .editor-order-insert-btn {
   position: relative;
-  width: 100%;
-  min-height: 20px;
-  padding: 2px 0;
-  border: none;
-  background: transparent;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px dashed #d0d9e7;
+  border-radius: 4px;
+  background: transparent;
   color: var(--editor-muted);
   cursor: pointer;
+  font-size: 11px;
+  gap: 4px;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .editor-order-insert-line {
-  position: absolute;
-  left: 45%;
-  right: 45%;
-  top: 50%;
-  border-top: 1px dashed transparent;
-  transition: left 0.2s ease, right 0.2s ease, border-color 0.2s ease;
+  display: none;
 }
 
 .editor-order-insert-icon {
-  position: relative;
-  z-index: 1;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 300;
-  color: var(--editor-muted);
-  border: 1px solid #d0d9e7;
-  transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  color: inherit;
 }
 
-.editor-order-insert-btn:hover .editor-order-insert-line,
-.editor-order-insert-btn:focus-visible .editor-order-insert-line {
-  left: 10%;
-  right: 10%;
-  border-top-color: rgba(13, 57, 112, 0.3);
-}
-
-.editor-order-insert-btn:hover .editor-order-insert-icon,
-.editor-order-insert-btn:focus-visible .editor-order-insert-icon {
-  color: var(--editor-primary);
-  background: #eef4ff;
-  border-color: rgba(13, 57, 112, 0.4);
-  box-shadow: 0 0 0 3px rgba(13, 57, 112, 0.07);
-}
-
+.editor-order-insert-btn:hover,
 .editor-order-insert-btn:focus-visible {
+  border-color: #9aa8bc;
+  color: var(--editor-primary);
   outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .editor-order-insert-line,
-  .editor-order-insert-icon {
+  .editor-order-insert-btn {
     transition: none;
-  }
-  .editor-order-insert-btn:hover .editor-order-insert-line,
-  .editor-order-insert-btn:focus-visible .editor-order-insert-line {
-    left: 10%;
-    right: 10%;
   }
 }
 

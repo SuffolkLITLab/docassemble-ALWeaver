@@ -1508,13 +1508,26 @@
 
   function getOrderStepBadge(step) {
     if (!step) return '';
-    if (step.kind === 'gather') return 'g';
+    if (step.kind === 'gather') return 'gather';
     if (step.kind === 'condition') return 'if';
     if (step.kind === 'section') return 'sec';
     if (step.kind === 'progress') return '%';
     if (step.kind === 'function') return 'f';
-    if (step.kind === 'raw') return 'p';
+    if (step.kind === 'raw') return 'py';
+    if (step.kind === 'screen') return 'screen';
     return '';
+  }
+
+  function getOrderBadgeCssClass(step) {
+    if (!step) return '';
+    if (step.kind === 'screen') return 'editor-order-badge-screen';
+    if (step.kind === 'gather') return 'editor-order-badge-gather';
+    if (step.kind === 'condition') return 'editor-order-badge-if';
+    if (step.kind === 'section') return 'editor-order-badge-sec';
+    if (step.kind === 'progress') return 'editor-order-badge-progress';
+    if (step.kind === 'function') return 'editor-order-badge-func';
+    if (step.kind === 'raw') return 'editor-order-badge-raw';
+    return 'editor-order-badge-var';
   }
 
   function getOrderStepPresentation(step) {
@@ -4424,11 +4437,11 @@
   // Order builder
   // -------------------------------------------------------------------------
   function renderOrderInsertRow(parentStepId, branch, index, depth) {
-    var indentPx = depth * 24;
+    var indentPx = depth * 20;
     var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '; padding-left:' + indentPx + 'px">';
     html += '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '" title="Add step">';
-    html += '<span class="editor-order-insert-line" aria-hidden="true"></span>';
     html += '<span class="editor-order-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span>';
+    html += '<span>Add</span>';
     html += '</button>';
     html += '</div>';
     return html;
@@ -4458,6 +4471,7 @@
       var hasChildren = Array.isArray(step.children) && step.children.length > 0;
       var hasElse = Boolean(step.has_else);
       var kindBadge = getOrderStepBadge(step);
+      var badgeCss = getOrderBadgeCssClass(step);
       html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
       html += '<div class="editor-order-step' + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '">';
       html += '<div class="editor-order-step-top">';
@@ -4473,27 +4487,24 @@
         html += '<span class="editor-order-collapse-spacer" aria-hidden="true"></span>';
       }
       if (kindBadge) {
-        html += '<span class="editor-order-badge" title="' + esc(step.label || step.kind) + '">' + esc(kindBadge) + '</span>';
+        html += '<span class="editor-order-badge ' + badgeCss + '" title="' + esc(step.label || step.kind) + '">' + esc(kindBadge) + '</span>';
       }
-      html += '<span class="editor-order-title"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
+      html += '<span class="editor-order-title" data-editable="true" data-step-id="' + esc(step.id) + '"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
       if (presentation.detail) {
         html += '<span class="editor-order-detail">' + esc(presentation.detail) + '</span>';
       }
       html += '</div>';
       html += '<div class="editor-order-step-actions">';
-      if (step.kind === 'condition') {
-        if (!hasElse) {
-          html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="add-else" data-step-id="' + esc(step.id) + '" title="Add else branch">Else</button>';
-        }
+      // Kebab menu consolidating all actions
+      html += '<div class="dropdown">';
+      html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 dropdown-toggle-split" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
+      html += '<ul class="dropdown-menu dropdown-menu-end">';
+      html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
+      if (step.kind === 'condition' && !hasElse) {
+        html += '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
       }
-      html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" data-step-action="edit" data-step-id="' + esc(step.id) + '" title="Edit"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span class="visually-hidden">Edit step</span></button>';
-      html += '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-step-action="remove" data-step-id="' + esc(step.id) + '" title="Remove"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="visually-hidden">Remove step</span></button>';
-      // Kebab menu for secondary actions — only for screen/gather steps with a block ref
       var hasBlockRef = (step.kind === 'screen' || step.kind === 'gather') && !!step.invoke;
       if (hasBlockRef) {
-        html += '<div class="dropdown">';
-        html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" title="More actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">More</span></button>';
-        html += '<ul class="dropdown-menu dropdown-menu-end">';
         var blockRef = findBlockByInvoke(step);
         if (blockRef) {
           html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block</button></li>';
@@ -4501,8 +4512,10 @@
           var inCatalog = step.invoke && state.symbolCatalog && state.symbolCatalog.all.indexOf(step.invoke) !== -1;
           html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '">' + (inCatalog ? '<i class="fa-solid fa-file-import me-2"></i>Defined in included file' : '<i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block') + '</button></li>';
         }
-        html += '</ul></div>';
       }
+      html += '<li><hr class="dropdown-divider"></li>';
+      html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash me-2" aria-hidden="true"></i>Remove</button></li>';
+      html += '</ul></div>';
       html += '</div>';
       html += '</div>';
       // Inline edit row shown when this step is being edited
@@ -4845,6 +4858,42 @@
     if (target.closest('.editor-symbol-typeahead-item')) {
       e.preventDefault();
     }
+    // Slow-click-to-edit: on mousedown on an editable title, start a timer.
+    // If mouseup happens >300ms later without drag, trigger inline edit.
+    var editableTitle = target.closest('.editor-order-title[data-editable]');
+    if (editableTitle) {
+      var stepId = editableTitle.getAttribute('data-step-id');
+      if (_slowClickTimer) { clearTimeout(_slowClickTimer); _slowClickTimer = null; }
+      _slowClickStepId = stepId;
+    } else {
+      _slowClickStepId = null;
+    }
+  });
+
+  document.addEventListener('mouseup', function (e) {
+    if (!_slowClickStepId) return;
+    var target = e.target;
+    var editableTitle = target.closest('.editor-order-title[data-editable]');
+    if (!editableTitle || editableTitle.getAttribute('data-step-id') !== _slowClickStepId) {
+      _slowClickStepId = null;
+      return;
+    }
+    var capturedId = _slowClickStepId;
+    _slowClickStepId = null;
+    // Use a short delay to distinguish slow click from fast click (which may toggle selection)
+    if (_slowClickTimer) clearTimeout(_slowClickTimer);
+    _slowClickTimer = setTimeout(function () {
+      _slowClickTimer = null;
+      var stepRecord = findStepRecord(state.orderSteps, capturedId, null);
+      if (stepRecord) {
+        showOrderEdit(stepRecord.step, capturedId);
+      }
+    }, 350);
+  });
+
+  // Cancel slow-click on double-click (select text behavior)
+  document.addEventListener('dblclick', function (e) {
+    if (_slowClickTimer) { clearTimeout(_slowClickTimer); _slowClickTimer = null; }
   });
 
   document.addEventListener('click', function (e) {
@@ -6083,6 +6132,8 @@
 
   var _editStepId = null;
   var _inlineEditStepId = null;
+  var _slowClickTimer = null;
+  var _slowClickStepId = null;
 
   function showOrderEdit(step, stepId) {
     if (!step) return;
