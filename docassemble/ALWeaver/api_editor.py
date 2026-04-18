@@ -30,6 +30,7 @@ import mimetypes
 import os
 import re
 import shutil
+import traceback
 import textwrap
 import tempfile
 import uuid
@@ -2903,8 +2904,21 @@ def _new_project_from_uploads(
     temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
     temp_paths: List[str] = []
     first_result: Optional[Dict[str, Any]] = None
+    stage = "start"
+    debug_requested = str(request.args.get("debug", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     try:
+        log(
+            "ALWeaver editor: new-project upload start "
+            f"request_id={request_id} user_id={uid} project={project_name} "
+            f"files={len(uploaded_files)} notes_provided={bool(generation_notes)}",
+            "info",
+        )
         for file_storage in uploaded_files:
             filename = file_storage.filename or ""
             content_bytes = file_storage.read()
@@ -2925,9 +2939,19 @@ def _new_project_from_uploads(
 
             # Generate from the first file only
             if first_result is None:
-                generation_options: Dict[str, Any] = {}
+                generation_options: Dict[str, Any] = {
+                    "create_package_zip": False,
+                    "include_next_steps": False,
+                }
                 if generation_notes:
                     generation_options["title"] = generation_notes
+                log(
+                    "ALWeaver editor: generating interview from upload "
+                    f"request_id={request_id} filename={safe_name} "
+                    f"mimetype={mimetype!r} generation_options={sorted(generation_options.keys())}",
+                    "info",
+                )
+                stage = "generate_interview"
                 first_result = generate_interview_from_bytes(
                     filename=safe_name,
                     content_bytes=content_bytes,
@@ -2943,10 +2967,20 @@ def _new_project_from_uploads(
         if not yaml_text:
             raise ValueError("Weaver did not produce any YAML output for the uploaded file.")
 
+        log(
+            "ALWeaver editor: upload generation complete "
+            f"request_id={request_id} project={project_name} "
+            f"yaml_filename={first_result.get('yaml_filename')!r} "
+            f"yaml_length={len(yaml_text)}",
+            "info",
+        )
+
         # Write generated YAML
+        stage = "write_yaml"
         playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
 
         # Copy uploaded template originals into the playground templates section
+        stage = "copy_templates"
         _copy_files_to_section(
             user_id=uid,
             project_name=project_name,
@@ -2965,7 +2999,11 @@ def _new_project_from_uploads(
             },
         })
     except (ValueError, FileNotFoundError) as exc:
-        log(f"ALWeaver editor: new-project from upload validation error: {exc!r}", "warning")
+        log(
+            "ALWeaver editor: new-project from upload validation error "
+            f"request_id={request_id} project={project_name}: {exc!r}",
+            "warning",
+        )
         status = 400
         return jsonify_with_status(
             {
@@ -2976,13 +3014,26 @@ def _new_project_from_uploads(
             status,
         )
     except Exception as exc:
-        log(f"ALWeaver editor: new-project from upload error: {exc!r}", "error")
+        tb = traceback.format_exc()
+        log(
+            "ALWeaver editor: new-project from upload error "
+            f"request_id={request_id} project={project_name} stage={stage}: {exc!r}\n"
+            f"{tb}",
+            "error",
+        )
         status = 500
+        error_payload: Dict[str, Any] = {
+            "type": "server_error",
+            "message": "ALWeaver generation failed.",
+        }
+        if debug_requested:
+            error_payload["stage"] = stage
+            error_payload["traceback"] = tb
         return jsonify_with_status(
             {
                 "success": False,
                 "request_id": request_id,
-                "error": {"type": "server_error", "message": str(exc)},
+                "error": error_payload,
             },
             status,
         )
