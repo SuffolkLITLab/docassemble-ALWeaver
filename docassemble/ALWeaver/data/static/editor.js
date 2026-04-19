@@ -31,6 +31,7 @@
     orderSteps: [],
     orderStepMap: {},
     activeOrderBlockId: null,
+    orderBuilderLoading: false,
     orderCollapsed: {},
     selectedOrderStepIds: {},
     symbolCatalog: {
@@ -79,6 +80,7 @@
   var _pendingOrderInsert = null;
   var _lastInsertedOrderStepId = null;
   var _lastInsertedOrderStepTimer = null;
+  var _orderBuilderLoadSeq = 0;
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
   var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
@@ -1531,10 +1533,23 @@
     return blocks;
   }
 
+  function isOrderBlockId(blockId) {
+    if (!blockId) return false;
+    for (var i = 0; i < state.orderIndices.length; i++) {
+      var idx = state.orderIndices[i];
+      var block = state.blocks[idx];
+      if (block && block.id === blockId) return true;
+    }
+    return false;
+  }
+
   function getDefaultOrderBlockId() {
-    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId)) return state.activeOrderBlockId;
+    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId) && isOrderBlockId(state.activeOrderBlockId)) {
+      return state.activeOrderBlockId;
+    }
     var orderBlocks = getOrderBlocks();
     if (orderBlocks.length > 0) return orderBlocks[0].id;
+    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId)) return state.activeOrderBlockId;
     var selected = getSelectedBlock();
     if (selected && selected.type === 'code') return selected.id;
     return null;
@@ -1544,6 +1559,7 @@
     state.activeOrderBlockId = blockId || null;
     state.orderSteps = cloneData(steps || (blockId ? state.orderStepMap[blockId] : []) || []) || [];
     state.selectedOrderStepIds = {};
+    state.orderBuilderLoading = false;
   }
 
   function syncActiveOrderStepMap() {
@@ -1565,6 +1581,109 @@
       setActiveOrderBlock(blockId, steps);
       return steps;
     });
+  }
+
+  function logOrderTransition(stage, details) {
+    details = details || {};
+    var mainCanvas = document.getElementById('main-canvas');
+    var payload = {
+      stage: stage,
+      source: details.source || '',
+      requestedBlockId: details.requestedBlockId || null,
+      activeOrderBlockId: state.activeOrderBlockId,
+      selectedBlockId: state.selectedBlockId,
+      jumpTarget: state.jumpTarget,
+      canvasMode: state.canvasMode,
+      currentView: state.currentView,
+      loading: state.orderBuilderLoading,
+      filename: state.filename,
+      blocks: state.blocks.length,
+      orderIndices: state.orderIndices.slice(),
+      mainScrollTop: mainCanvas ? mainCanvas.scrollTop : null,
+    };
+    if (details.error) {
+      payload.error = String((details.error && details.error.message) || details.error);
+    }
+    console.info('[Order]', payload);
+  }
+
+  function enterOrderBuilder(requestedBlockId, source) {
+    syncActiveOrderStepMap();
+    var nextOrderBlockId = requestedBlockId || getDefaultOrderBlockId();
+    if (nextOrderBlockId) {
+      state.activeOrderBlockId = nextOrderBlockId;
+    }
+    state.currentView = 'interview';
+    state.canvasMode = 'order-builder';
+    state.orderBuilderLoading = Boolean(nextOrderBlockId);
+    state.orderSteps = nextOrderBlockId && state.orderStepMap[nextOrderBlockId]
+      ? cloneData(state.orderStepMap[nextOrderBlockId]) || []
+      : [];
+    state.selectedOrderStepIds = {};
+
+    var loadSeq = ++_orderBuilderLoadSeq;
+    logOrderTransition('enter', {
+      source: source || 'unknown',
+      requestedBlockId: nextOrderBlockId,
+    });
+
+    var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+    if (interviewTab) setActiveTopTab(interviewTab);
+    renderOutline();
+    renderCanvas();
+    scrollOrderBuilderIntoView();
+
+    if (!nextOrderBlockId) {
+      logOrderTransition('missing-order-block', {
+        source: source || 'unknown',
+      });
+      return Promise.resolve([]);
+    }
+
+    return loadOrderStepsForBlock(nextOrderBlockId).then(function (steps) {
+      if (loadSeq !== _orderBuilderLoadSeq) return steps;
+      state.orderBuilderLoading = false;
+      logOrderTransition('loaded', {
+        source: source || 'unknown',
+        requestedBlockId: nextOrderBlockId,
+      });
+      renderOutline();
+      renderCanvas();
+      scrollOrderBuilderIntoView();
+      return steps;
+    }).catch(function (err) {
+      if (loadSeq !== _orderBuilderLoadSeq) return [];
+      state.orderBuilderLoading = false;
+      console.warn('[Order] failed to load steps', {
+        source: source || 'unknown',
+        requestedBlockId: nextOrderBlockId,
+        error: String((err && err.message) || err || 'Unknown error'),
+      });
+      logOrderTransition('load-failed', {
+        source: source || 'unknown',
+        requestedBlockId: nextOrderBlockId,
+        error: err,
+      });
+      renderOutline();
+      renderCanvas();
+      scrollOrderBuilderIntoView();
+      return [];
+    });
+  }
+
+  function scrollOrderBuilderIntoView() {
+    var mainCanvas = document.getElementById('main-canvas');
+    if (mainCanvas && typeof mainCanvas.scrollTo === 'function') {
+      mainCanvas.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      return;
+    }
+    if (mainCanvas) {
+      mainCanvas.scrollTop = 0;
+      mainCanvas.scrollLeft = 0;
+    }
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo(0, 0);
+    }
   }
 
   function cleanOrderText(text) {
@@ -4652,8 +4771,11 @@
     html += '</div></div>';
 
     html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
+    if (state.orderBuilderLoading) {
+      html += '<div class="editor-info-box mb-2"><div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div><div>Loading interview order...</div></div></div>';
+    }
     html += renderOrderStepTree(state.orderSteps, 0, '', 'then');
-    if (state.orderSteps.length === 0) {
+    if (state.orderSteps.length === 0 && !state.orderBuilderLoading) {
       if (!activeOrderBlock) {
         html += '<div class="editor-info-box mb-2">';
         html += '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
@@ -5102,6 +5224,7 @@
     var stepActionBtn = target.closest('[data-step-action]');
     var openAddStepBtn = target.closest('[data-open-add-step]');
     var orderBlockBtn = target.closest('[data-order-block-id]');
+    var orderBuilderBtn = target.closest('#btn-order-builder');
     var stepSelectInput = target.closest('[data-step-select]');
     var blockActionBtn = target.closest('[data-block-action]');
     var projectActionBtn = target.closest('[data-project-action]');
@@ -5289,24 +5412,7 @@
       state.jumpTarget = jump;
       // The "Order" filter button goes straight into the order builder canvas
       if (jump === 'order') {
-        syncActiveOrderStepMap();
-        if (!state.activeOrderBlockId) state.activeOrderBlockId = getDefaultOrderBlockId();
-        state.currentView = 'interview';
-        var interviewTabOrder = document.querySelector('.editor-top-tab[data-view="interview"]');
-        if (interviewTabOrder) setActiveTopTab(interviewTabOrder);
-        if (!state.activeOrderBlockId) {
-          console.warn('[Order] No order block found — orderIndices=' + JSON.stringify(state.orderIndices) + ', blocks=' + state.blocks.length + ', file=' + state.filename);
-          state.canvasMode = 'order-builder';
-          renderCanvas();
-          renderOutline();
-          return;
-        }
-        var _jumpOrderBlockId = state.activeOrderBlockId;
-        loadOrderStepsForBlock(_jumpOrderBlockId).then(function () {
-          state.canvasMode = 'order-builder';
-          renderCanvas();
-          renderOutline();
-        });
+        enterOrderBuilder(state.activeOrderBlockId || getDefaultOrderBlockId(), 'outline-jump');
         return;
       } else {
         state.canvasMode = 'question';
@@ -5496,10 +5602,7 @@
     if (orderBlockBtn) {
       var nextOrderBlockId = orderBlockBtn.getAttribute('data-order-block-id');
       if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId) return;
-      syncActiveOrderStepMap();
-      loadOrderStepsForBlock(nextOrderBlockId).then(function () {
-        renderCanvas();
-      });
+      enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
     }
 
@@ -5813,23 +5916,8 @@
       renderCanvas();
       return;
     }
-    if (target.id === 'btn-order-builder') {
-      syncActiveOrderStepMap();
-      if (!state.activeOrderBlockId) state.activeOrderBlockId = getDefaultOrderBlockId();
-      state.currentView = 'interview';
-      var interviewTab3 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab3) setActiveTopTab(interviewTab3);
-      if (!state.activeOrderBlockId) {
-        console.warn('[Order] btn-order-builder: no order block found — orderIndices=' + JSON.stringify(state.orderIndices) + ', blocks=' + state.blocks.length + ', file=' + state.filename);
-        state.canvasMode = 'order-builder';
-        renderCanvas();
-        return;
-      }
-      var _btnOrderBlockId = state.activeOrderBlockId;
-      loadOrderStepsForBlock(_btnOrderBlockId).then(function () {
-        state.canvasMode = 'order-builder';
-        renderCanvas();
-      });
+    if (orderBuilderBtn) {
+      enterOrderBuilder(state.activeOrderBlockId || getDefaultOrderBlockId(), 'topbar-order-button');
       return;
     }
     if (target.id === 'btn-save-file') {
