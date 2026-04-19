@@ -3635,20 +3635,20 @@
     html += '<div class="editor-shell">';
 
     // Unified tab row: Screen | Question options | Preview | YAML
+    html += '<div class="editor-question-tabs-row">';
+    html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && !isMdPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && !isMdPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && isMdPreview ? 'active' : '') + '" id="question-preview-tab" data-question-mode="preview" data-question-preview="true"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+    html += '</ul>';
     if (isPreview) {
-      html += '<div class="editor-question-tabs-row">';
-      html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isMdPreview ? 'active' : '') + '" id="question-preview-tab" data-question-mode="preview" data-question-preview="true"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button></li>';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
-      html += '</ul>';
       html += '<div class="form-check form-switch editor-question-mandatory-switch">';
       html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
       html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
       html += '</div>';
-      html += '</div>';
     }
+    html += '</div>';
 
     if (isPreview) {
       if (isMdPreview || state.questionBlockTab === 'screen') {
@@ -6047,10 +6047,11 @@
     }
 
     // Question tab with optional mode switching (Screen/Options tabs set preview mode, Preview tab enables markdown preview, YAML tab sets yaml mode)
-    if (target.matches('[data-question-mode]')) {
-      var qMode = target.getAttribute('data-question-mode');
-      var qTab = target.getAttribute('data-question-tab');
-      var isPreviewTab = target.getAttribute('data-question-preview') === 'true';
+    var questionModeButton = target.closest('[data-question-mode]');
+    if (questionModeButton) {
+      var qMode = questionModeButton.getAttribute('data-question-mode');
+      var qTab = questionModeButton.getAttribute('data-question-tab');
+      var isPreviewTab = questionModeButton.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
         var block = getSelectedBlock();
         if (block) {
