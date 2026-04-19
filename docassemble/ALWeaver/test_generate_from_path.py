@@ -162,6 +162,90 @@ question: |
             self.assertRegex(yaml_text, r'(?m)^  nav\.set_section\("[-a-z_]+"\)$')
             self._run_dayamlchecker(result.yaml_path)
 
+    def test_generate_from_docx_uses_exact_name_for_temp_paths(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        temp_input_path = None
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_handle:
+            temp_handle.write(docx_path.read_bytes())
+            temp_input_path = temp_handle.name
+        try:
+            with tempfile.TemporaryDirectory() as outdir:
+                result = generate_interview_from_path(
+                    temp_input_path,
+                    output_dir=outdir,
+                    exact_name=docx_path.name,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                )
+                self.assertEqual(
+                    os.path.basename(result.yaml_path),
+                    "test_docx_no_pdf_field_names.yml",
+                )
+                yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+                self.assertIn("test_docx_no_pdf_field_names_attachment", yaml_text)
+                self.assertNotIn(Path(temp_input_path).stem, yaml_text)
+        finally:
+            if temp_input_path and os.path.exists(temp_input_path):
+                os.remove(temp_input_path)
+
+    def test_generate_from_docx_with_llm_assist_calls_llm_hooks(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        temp_input_path = None
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_handle:
+            temp_handle.write(docx_path.read_bytes())
+            temp_input_path = temp_handle.name
+        try:
+            with tempfile.TemporaryDirectory() as outdir:
+                with (
+                    patch.object(
+                        interview_generator_module.DAInterview,
+                        "_prefetch_reference_site",
+                        autospec=True,
+                        return_value=None,
+                    ) as prefetch_patch,
+                    patch.object(
+                        interview_generator_module.DAInterview,
+                        "llm_predict_state",
+                        autospec=True,
+                        return_value=True,
+                    ) as predict_patch,
+                    patch.object(
+                        interview_generator_module.DAInterview,
+                        "llm_refine_field_labels",
+                        autospec=True,
+                        return_value=1,
+                    ) as refine_patch,
+                    patch.object(
+                        interview_generator_module.DAInterview,
+                        "llm_group_fields",
+                        autospec=True,
+                        return_value=True,
+                    ) as group_patch,
+                ):
+                    result = generate_interview_from_path(
+                        temp_input_path,
+                        output_dir=outdir,
+                        exact_name=docx_path.name,
+                        use_llm_assist=True,
+                        help_page_url="https://example.com/reference",
+                        help_source_text="Additional drafting context",
+                        create_package_zip=False,
+                        include_next_steps=False,
+                    )
+
+                self.assertTrue(os.path.exists(result.yaml_path))
+                self.assertEqual(
+                    os.path.basename(result.yaml_path),
+                    "test_docx_no_pdf_field_names.yml",
+                )
+                prefetch_patch.assert_called_once()
+                predict_patch.assert_called_once()
+                refine_patch.assert_called_once()
+                group_patch.assert_called_once()
+        finally:
+            if temp_input_path and os.path.exists(temp_input_path):
+                os.remove(temp_input_path)
+
     def test_deterministic_package_contains_expected_files_including_next_steps(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         with tempfile.TemporaryDirectory() as tmpdir:

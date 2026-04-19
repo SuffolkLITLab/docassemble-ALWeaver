@@ -33,6 +33,8 @@ import shutil
 import traceback
 import textwrap
 import tempfile
+import time
+import threading
 import uuid
 from copy import deepcopy
 from html import escape
@@ -46,9 +48,10 @@ from flask_login import current_user
 
 from docassemble.base.util import log
 from docassemble.webapp.app_object import app, csrf
-from docassemble.webapp.server import jsonify_with_status
+from docassemble.webapp.server import jsonify_with_status, r
+from docassemble.webapp.worker_common import bg_context
 
-from .api_utils import generate_interview_from_bytes, validate_upload_metadata
+from .api_utils import generate_interview_from_bytes, parse_bool, validate_upload_metadata
 try:
     from .editor_utils import (
         canonical_block_yaml,
@@ -2332,7 +2335,20 @@ def editor_api_variables() -> Response:
         uid = _current_user_id()
         project = _normalize_project(request.args.get("project"))
         filename = _normalize_filename(request.args.get("filename"))
-        data = playground_get_variables(uid, project, filename)
+        data = None
+        last_exc: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                data = playground_get_variables(uid, project, filename)
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+        if data is None:
+            raise last_exc or RuntimeError("Unable to extract variables.")
         return jsonify({
             "success": True,
             "request_id": request_id,
@@ -2781,6 +2797,245 @@ def editor_api_preview_url() -> Response:
         )
 
 
+NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
+NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+
+
+def _new_project_job_key(job_id: str) -> str:
+    return NEW_PROJECT_JOB_KEY_PREFIX + job_id
+
+
+def _load_new_project_job_state(job_id: str) -> Optional[Dict[str, Any]]:
+    raw = r.get(_new_project_job_key(job_id))
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def _store_new_project_job_state(job_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(state)
+    payload["job_id"] = job_id
+    payload.setdefault("created_at", payload.get("updated_at", time.time()))
+    payload["updated_at"] = time.time()
+    pipe = r.pipeline()
+    pipe.set(_new_project_job_key(job_id), json.dumps(payload))
+    pipe.expire(_new_project_job_key(job_id), NEW_PROJECT_JOB_EXPIRE_SECONDS)
+    pipe.execute()
+    return payload
+
+
+def _update_new_project_job_state(job_id: str, **updates: Any) -> Dict[str, Any]:
+    state = _load_new_project_job_state(job_id) or {}
+    state.update(updates)
+    return _store_new_project_job_state(job_id, state)
+
+
+def _complete_new_project_upload_job(
+    *,
+    job_id: str,
+    uid: int,
+    project_name: str,
+    request_id: str,
+    uploaded_files: List[Dict[str, Any]],
+    generation_options: Dict[str, Any],
+    debug_requested: bool,
+) -> Dict[str, Any]:
+    stage = "start"
+    temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
+    try:
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=stage,
+            message="Starting background Weaver generation.",
+            project=project_name,
+            request_id=request_id,
+        )
+        temp_paths: List[str] = []
+        first_result: Optional[Dict[str, Any]] = None
+
+        for payload in uploaded_files:
+            filename = str(payload.get("filename") or "").strip()
+            content_bytes = payload.get("content_bytes") or b""
+            mimetype = payload.get("mimetype")
+            if not filename:
+                raise ValueError("Uploaded file is missing a filename.")
+            if not isinstance(content_bytes, (bytes, bytearray)):
+                raise ValueError("Uploaded file bytes are invalid.")
+
+            dest = os.path.join(temp_dir, filename)
+            with open(dest, "wb") as fh:
+                fh.write(bytes(content_bytes))
+            temp_paths.append(dest)
+
+            if first_result is None:
+                stage = "generate_interview"
+                _update_new_project_job_state(
+                    job_id,
+                    status="running",
+                    stage=stage,
+                    message="Generating interview from the uploaded document.",
+                )
+                first_result = generate_interview_from_bytes(
+                    filename=filename,
+                    content_bytes=bytes(content_bytes),
+                    mimetype=str(mimetype) if mimetype else None,
+                    generation_options=generation_options,
+                    include_yaml_text=True,
+                )
+
+        if first_result is None:
+            raise ValueError("No valid files were uploaded.")
+
+        yaml_text = str(first_result.get("yaml_text", "") or "")
+        if not yaml_text:
+            raise ValueError(
+                "Weaver did not produce any YAML output for the uploaded file."
+            )
+
+        stage = "write_yaml"
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=stage,
+            message="Writing generated interview YAML.",
+        )
+        playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
+
+        stage = "copy_templates"
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=stage,
+            message="Copying uploaded files into the project.",
+        )
+        _copy_files_to_section(
+            user_id=uid,
+            project_name=project_name,
+            storage_section=SECTION_TO_STORAGE["templates"],
+            files=temp_paths,
+        )
+
+        result = {
+            "project": project_name,
+            "filename": "interview.yml",
+            "generated_from": first_result.get("input_filename"),
+            "uploaded_count": len(temp_paths),
+        }
+        _update_new_project_job_state(
+            job_id,
+            status="succeeded",
+            stage="done",
+            message="Project created successfully.",
+            project=result["project"],
+            filename=result["filename"],
+            generated_from=result["generated_from"],
+            uploaded_count=result["uploaded_count"],
+            result=result,
+        )
+        return result
+    except Exception as exc:
+        tb = traceback.format_exc()
+        error_payload: Dict[str, Any] = {
+            "type": "server_error",
+            "message": "ALWeaver generation failed.",
+        }
+        if debug_requested:
+            error_payload["stage"] = stage
+            error_payload["traceback"] = tb
+        _update_new_project_job_state(
+            job_id,
+            status="failed",
+            stage=stage,
+            message=error_payload["message"],
+            error=error_payload,
+        )
+        log(
+            "ALWeaver editor: background new-project upload failed "
+            f"job_id={job_id} project={project_name} stage={stage}: {exc!r}\n{tb}",
+            "error",
+        )
+        raise
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _run_new_project_upload_job(
+    *,
+    job_id: str,
+    uid: int,
+    project_name: str,
+    request_id: str,
+    uploaded_files: List[Dict[str, Any]],
+    generation_options: Dict[str, Any],
+    debug_requested: bool,
+    ) -> None:
+    try:
+        with bg_context():
+            _complete_new_project_upload_job(
+                job_id=job_id,
+                uid=uid,
+                project_name=project_name,
+                request_id=request_id,
+                uploaded_files=uploaded_files,
+                generation_options=generation_options,
+                debug_requested=debug_requested,
+            )
+    except Exception:
+        return
+
+
+def _start_new_project_upload_job(
+    *,
+    uid: int,
+    request_id: str,
+    project_name: str,
+    uploaded_files: List[Dict[str, Any]],
+    generation_options: Dict[str, Any],
+    debug_requested: bool,
+) -> Dict[str, Any]:
+    job_id = str(uuid.uuid4())
+    initial_state: Dict[str, Any] = {
+        "status": "queued",
+        "stage": "queued",
+        "message": "Queued for background Weaver generation.",
+        "project": project_name,
+        "request_id": request_id,
+        "generated_from": uploaded_files[0].get("filename") if uploaded_files else None,
+        "uploaded_count": len(uploaded_files),
+    }
+    _store_new_project_job_state(job_id, initial_state)
+
+    worker = threading.Thread(
+        target=_run_new_project_upload_job,
+        kwargs={
+            "job_id": job_id,
+            "uid": uid,
+            "project_name": project_name,
+            "request_id": request_id,
+            "uploaded_files": uploaded_files,
+            "generation_options": generation_options,
+            "debug_requested": debug_requested,
+        },
+        daemon=True,
+        name=f"alweaver-new-project-{job_id}",
+    )
+    worker.start()
+    return {
+        "job_id": job_id,
+        "job_url": f"{EDITOR_BASE_PATH}/api/new-project/jobs/{job_id}",
+        "state": initial_state,
+    }
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project", methods=["POST"])
 @csrf.exempt
 @cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
@@ -2798,7 +3053,6 @@ def editor_api_new_project() -> Response:
     try:
         uid = _current_user_id()
 
-        # Detect whether this is a file-upload request
         uploaded_files = request.files.getlist("files")
         if uploaded_files and uploaded_files[0].filename:
             return _new_project_from_uploads(uid, request_id, uploaded_files)
@@ -2893,18 +3147,18 @@ def _new_project_from_uploads(
     """
     raw_name = request.form.get("project_name", "NewProject")
     generation_notes = request.form.get("generation_notes", "").strip()
+    help_page_url = request.form.get("help_page_url", "").strip()
+    help_page_title = request.form.get("help_page_title", "").strip()
+    help_source_text = request.form.get("help_source_text", "").strip()
+    if not help_source_text:
+        help_source_text = generation_notes
+    use_llm_assist = parse_bool(request.form.get("use_llm_assist"), default=False)
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
     project_name = next_available_project_name(base_name, [*existing, "default"])
     create_project(uid, project_name)
 
-    # Validate & read every uploaded file; save to temp dir so we can
-    # pass the paths to _copy_files_to_section afterwards.
-    temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
-    temp_paths: List[str] = []
-    first_result: Optional[Dict[str, Any]] = None
-    stage = "start"
     debug_requested = str(request.args.get("debug", "")).strip().lower() in {
         "1",
         "true",
@@ -2913,10 +3167,13 @@ def _new_project_from_uploads(
     }
 
     try:
+        uploaded_payloads: List[Dict[str, Any]] = []
         log(
             "ALWeaver editor: new-project upload start "
             f"request_id={request_id} user_id={uid} project={project_name} "
-            f"files={len(uploaded_files)} notes_provided={bool(generation_notes)}",
+            f"files={len(uploaded_files)} notes_provided={bool(generation_notes)} "
+            f"help_page_url={help_page_url!r} help_source_chars={len(help_source_text or '')} "
+            f"use_llm_assist={use_llm_assist}",
             "info",
         )
         for file_storage in uploaded_files:
@@ -2930,74 +3187,56 @@ def _new_project_from_uploads(
                 content_bytes=content_bytes,
                 mimetype=mimetype,
             )
-
-            # Persist to temp so _copy_files_to_section can copy it
-            dest = os.path.join(temp_dir, safe_name)
-            with open(dest, "wb") as fh:
-                fh.write(content_bytes)
-            temp_paths.append(dest)
-
-            # Generate from the first file only
-            if first_result is None:
-                generation_options: Dict[str, Any] = {
-                    "create_package_zip": False,
-                    "include_next_steps": False,
+            uploaded_payloads.append(
+                {
+                    "filename": safe_name,
+                    "content_bytes": content_bytes,
+                    "mimetype": mimetype,
                 }
-                if generation_notes:
-                    generation_options["title"] = generation_notes
-                log(
-                    "ALWeaver editor: generating interview from upload "
-                    f"request_id={request_id} filename={safe_name} "
-                    f"mimetype={mimetype!r} generation_options={sorted(generation_options.keys())}",
-                    "info",
-                )
-                stage = "generate_interview"
-                first_result = generate_interview_from_bytes(
-                    filename=safe_name,
-                    content_bytes=content_bytes,
-                    mimetype=mimetype,
-                    generation_options=generation_options,
-                    include_yaml_text=True,
-                )
+            )
 
-        if first_result is None:
+        if not uploaded_payloads:
             raise ValueError("No valid files were uploaded.")
 
-        yaml_text = first_result.get("yaml_text", "")
-        if not yaml_text:
-            raise ValueError("Weaver did not produce any YAML output for the uploaded file.")
-
+        generation_options: Dict[str, Any] = {
+            "create_package_zip": False,
+            "include_next_steps": False,
+            "exact_name": uploaded_payloads[0]["filename"],
+            "use_llm_assist": use_llm_assist,
+        }
+        if help_page_url:
+            generation_options["help_page_url"] = help_page_url
+        if help_page_title:
+            generation_options["help_page_title"] = help_page_title
+        if help_source_text:
+            generation_options["help_source_text"] = help_source_text
         log(
-            "ALWeaver editor: upload generation complete "
+            "ALWeaver editor: queueing background project generation "
             f"request_id={request_id} project={project_name} "
-            f"yaml_filename={first_result.get('yaml_filename')!r} "
-            f"yaml_length={len(yaml_text)}",
+            f"generation_options={sorted(generation_options.keys())} "
+            f"exact_name={uploaded_payloads[0]['filename']!r}",
             "info",
         )
-
-        # Write generated YAML
-        stage = "write_yaml"
-        playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
-
-        # Copy uploaded template originals into the playground templates section
-        stage = "copy_templates"
-        _copy_files_to_section(
-            user_id=uid,
+        job_info = _start_new_project_upload_job(
+            uid=uid,
+            request_id=request_id,
             project_name=project_name,
-            storage_section=SECTION_TO_STORAGE["templates"],
-            files=temp_paths,
+            uploaded_files=uploaded_payloads,
+            generation_options=generation_options,
+            debug_requested=debug_requested,
         )
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project_name,
-                "filename": "interview.yml",
-                "generated_from": first_result.get("input_filename"),
-                "uploaded_count": len(temp_paths),
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "status": "queued",
+                "job_id": job_info["job_id"],
+                "job_url": job_info["job_url"],
+                "data": job_info["state"],
             },
-        })
+            202,
+        )
     except (ValueError, FileNotFoundError) as exc:
         log(
             "ALWeaver editor: new-project from upload validation error "
@@ -3017,7 +3256,7 @@ def _new_project_from_uploads(
         tb = traceback.format_exc()
         log(
             "ALWeaver editor: new-project from upload error "
-            f"request_id={request_id} project={project_name} stage={stage}: {exc!r}\n"
+            f"request_id={request_id} project={project_name}: {exc!r}\n"
             f"{tb}",
             "error",
         )
@@ -3027,7 +3266,6 @@ def _new_project_from_uploads(
             "message": "ALWeaver generation failed.",
         }
         if debug_requested:
-            error_payload["stage"] = stage
             error_payload["traceback"] = tb
         return jsonify_with_status(
             {
@@ -3037,5 +3275,44 @@ def _new_project_from_uploads(
             },
             status,
         )
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/new-project/jobs/<job_id>", methods=["GET"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
+def editor_api_new_project_job(job_id: str) -> Response:
+    """Get the status of a queued upload-based project creation job."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        state = _load_new_project_job_state(job_id)
+        if not state:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {"type": "not_found", "message": "Job not found."},
+                },
+                404,
+            )
+        status = str(state.get("status") or "queued")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "job_id": job_id,
+                "status": status,
+                "data": state,
+            }
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: new-project job status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )

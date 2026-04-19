@@ -2817,7 +2817,7 @@ Rules:
         if url:
             draft_title = url
         elif input_file:
-            draft_title = input_file.path()
+            draft_title = getattr(input_file, "filename", None) or input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
         return (
@@ -4241,8 +4241,25 @@ class _LocalDAStaticFile(DAStaticFile):
         return self.full_path
 
 
-def _make_static_file_from_path(path: str) -> DAStaticFile:
+def _make_static_file_from_path(
+    path: str, filename: Optional[str] = None
+) -> DAStaticFile:
+    if filename:
+        return _LocalDAStaticFile(full_path=path, filename=os.path.basename(filename))
     return _LocalDAStaticFile(full_path=path)
+
+
+def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> None:
+    exact_base = os.path.splitext(
+        os.path.basename(str(exact_name or "").strip())
+    )[0].strip()
+    if not exact_base:
+        return
+    exact_title = exact_base.replace("_", " ").capitalize()
+    interview.title = exact_title
+    interview.short_title = exact_title[:25]
+    interview.short_filename_with_spaces = exact_title
+    interview.short_filename = space_to_underscore(varname(exact_title))
 
 
 def _resolve_template_path(template_ref: str) -> str:
@@ -5317,6 +5334,7 @@ def generate_interview_from_path(
     *,
     output_dir: Optional[str] = None,
     title: Optional[str] = None,
+    exact_name: Optional[str] = None,
     jurisdiction: Optional[str] = None,
     categories: Optional[str] = None,
     default_country_code: str = "US",
@@ -5324,6 +5342,10 @@ def generate_interview_from_path(
     create_package_zip: bool = True,
     include_next_steps: bool = True,
     include_download_screen: bool = True,
+    use_llm_assist: bool = False,
+    help_page_url: Optional[str] = None,
+    help_page_title: Optional[str] = None,
+    help_source_text: Optional[str] = None,
     interview_overrides: Optional[Dict[str, Any]] = None,
     field_definitions: Optional[List[FieldDefinition]] = None,
     screen_definitions: Optional[List[Screen]] = None,
@@ -5331,7 +5353,10 @@ def generate_interview_from_path(
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
     _ensure_current_question_package()
-    da_file = _make_static_file_from_path(input_path)
+    resolved_exact_name = os.path.basename(
+        str(exact_name or os.path.basename(input_path) or input_path).strip()
+    )
+    da_file = _make_static_file_from_path(input_path, filename=resolved_exact_name)
 
     merged_screens = None
     if screen_definitions:
@@ -5351,7 +5376,15 @@ def generate_interview_from_path(
 
     interview.output_mako_choice = output_mako_choice
     interview.include_next_steps = include_next_steps
+    interview.use_llm_assist = bool(use_llm_assist)
+    if help_page_url is not None:
+        interview.help_page_url = str(help_page_url).strip()
+    if help_page_title is not None:
+        interview.help_page_title = str(help_page_title).strip()
+    if help_source_text is not None:
+        interview.help_source_text = str(help_source_text)
 
+    override_title_requested = False
     if interview_overrides:
         if isinstance(interview_overrides, str):
             try:
@@ -5364,6 +5397,9 @@ def generate_interview_from_path(
             raise TypeError(
                 f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
             )
+        override_title_requested = bool(
+            str(interview_overrides.get("title", "") or "").strip()
+        )
         for key, value in interview_overrides.items():
             setattr(interview, key, value)
 
@@ -5379,6 +5415,10 @@ def generate_interview_from_path(
         interview.help_page_url = ""
     if not hasattr(interview, "help_page_title"):
         interview.help_page_title = ""
+    if not hasattr(interview, "help_source_text"):
+        interview.help_source_text = ""
+    if not hasattr(interview, "use_llm_assist"):
+        interview.use_llm_assist = bool(use_llm_assist)
     if not hasattr(interview, "state"):
         interview.state = ""
     if not hasattr(interview, "landing_page_url"):
@@ -5397,6 +5437,16 @@ def generate_interview_from_path(
         interview.footer = ""
     if not hasattr(interview, "when_you_are_finished"):
         interview.when_you_are_finished = ""
+    if hasattr(interview, "help_page_url") and str(interview.help_page_url).strip():
+        interview.help_page_url = str(interview.help_page_url).strip()
+        if not is_url(interview.help_page_url):
+            raise ValueError("help_page_url must be a valid URL.")
+    else:
+        interview.help_page_url = ""
+    if hasattr(interview, "help_page_title"):
+        interview.help_page_title = str(interview.help_page_title or "").strip()
+    if hasattr(interview, "help_source_text"):
+        interview.help_source_text = str(interview.help_source_text or "")
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
     for field in interview.all_fields:
@@ -5425,10 +5475,34 @@ def generate_interview_from_path(
     elif added_fields:
         interview.auto_group_fields()
 
+    llm_enabled = bool(getattr(interview, "use_llm_assist", False))
+    if llm_enabled:
+        log(
+            "ALWeaver generate_interview_from_path: AI assist enabled "
+            f"exact_name={resolved_exact_name!r} "
+            f"help_page_url={getattr(interview, 'help_page_url', '')!r} "
+            f"help_source_chars={len(str(getattr(interview, 'help_source_text', '') or ''))}",
+            "info",
+        )
+        interview._prefetch_reference_site()
+        interview.llm_predict_state(apply=True)
+        interview.llm_refine_field_labels(apply=True)
+        if not screen_definitions:
+            interview.llm_group_fields(apply=True)
+
+    if exact_name and not str(title or "").strip() and not override_title_requested:
+        _apply_exact_name_to_interview(interview, exact_name)
+
     interview_label = varname(interview.title)
     if not interview_label:
         interview_label = varname("ending_variable_" + interview.title)
     interview.interview_label = interview_label.lower()
+    log(
+        "ALWeaver generate_interview_from_path: final naming "
+        f"title={interview.title!r} interview_label={interview.interview_label!r} "
+        f"package_title={interview.package_title!r}",
+        "info",
+    )
 
     if include_next_steps:
         _assign_next_steps_template(interview)

@@ -1636,6 +1636,65 @@ html, body {
   gap: 16px;
 }
 
+.editor-upload-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.editor-upload-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 57, 112, 0.48);
+  backdrop-filter: blur(2px);
+}
+
+.editor-upload-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(680px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(13, 57, 112, 0.12);
+  box-shadow: 0 28px 80px rgba(13, 57, 112, 0.28);
+  padding: 24px;
+}
+
+.editor-upload-modal-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #0d2c54;
+}
+
+.editor-upload-modal-body {
+  margin-top: 18px;
+}
+
+.editor-upload-modal-running {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.editor-upload-modal-running .spinner-border {
+  flex: 0 0 auto;
+}
+
+.editor-upload-modal-error {
+  border: 1px solid #f5c2c7;
+  background: #f8d7da;
+  color: #842029;
+  border-radius: 12px;
+  padding: 14px 16px;
+  white-space: pre-wrap;
+}
+
 /* ===== Secondary placeholder ===== */
 
 .editor-secondary-center {

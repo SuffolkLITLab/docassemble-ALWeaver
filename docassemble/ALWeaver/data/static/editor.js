@@ -81,6 +81,8 @@
   var _lastInsertedOrderStepTimer = null;
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
+  var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
+  var UPLOAD_JOB_MAX_ATTEMPTS = 480;
 
   function isInterviewView() {
     return state.currentView === 'interview';
@@ -728,6 +730,44 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+  }
+
+  function fetchResponsePayload(url, opts) {
+    opts = opts || {};
+    return fetch(url, opts).then(function (res) {
+      var contentType = res.headers.get('content-type') || '';
+      return res.text().then(function (text) {
+        var body = null;
+        if (contentType.indexOf('json') !== -1) {
+          try {
+            body = text ? JSON.parse(text) : null;
+          } catch (err) {
+            body = null;
+          }
+        }
+        return {
+          ok: res.ok,
+          status: res.status,
+          contentType: contentType,
+          text: text,
+          body: body,
+        };
+      });
+    });
+  }
+
+  function _fetchErrorMessage(response) {
+    if (!response) return 'Unknown error';
+    var body = response.body || {};
+    if (body.error && body.error.message) return String(body.error.message);
+    if (body.message) return String(body.message);
+    var text = String(response.text || '').trim();
+    if (!text) return 'Request failed with status ' + response.status;
+    if (response.contentType && response.contentType.indexOf('json') === -1) {
+      return 'Server returned HTTP ' + response.status + ' (' + response.contentType + ').';
+    }
+    if (text.length > 240) return text.slice(0, 240) + '...';
+    return text;
   }
 
   // -------------------------------------------------------------------------
@@ -4653,9 +4693,6 @@
 
   }
 
-  // -------------------------------------------------------------------------
-  // New project (with file upload / "I'm feeling lucky")
-  // -------------------------------------------------------------------------
   var _uploadedFiles = [];
 
   function renderNewProject() {
@@ -4690,16 +4727,34 @@
     html += '<div class="editor-card"><div class="editor-card-header">Project settings</div><div class="editor-card-body">';
     html += '<div class="d-grid gap-3">';
     html += '<div><label class="editor-tiny" for="new-project-name">Project name</label><input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject"></div>';
-    html += '<div><label class="editor-tiny" for="new-project-notes">Notes for Weaver (optional)</label>';
-    html += '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="3" placeholder="E.g. desired title, jurisdiction, special instructions"></textarea></div>';
+    html += '<div class="form-check form-switch m-0">';
+    html += '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>';
+    html += '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>';
+    html += '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping.</div>';
+    html += '</div>';
+    html += '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>';
+    html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>';
+    html += '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>';
+    html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-title" placeholder="Page title shown to users"></div>';
+    html += '<div><label class="editor-tiny" for="new-project-notes">Extra context for Weaver (optional)</label>';
+    html += '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="4" placeholder="E.g. desired title, jurisdiction, special instructions, local context"></textarea>';
+    html += '<div class="text-muted small mt-1">This text is passed through as drafting context and works whether or not AI is enabled.</div></div>';
     html += '</div></div></div>';
 
-    // Progress
-    html += '<div class="editor-card d-none" id="upload-progress-card"><div class="editor-card-body">';
-    html += '<div class="editor-tiny">Creating project&hellip;</div>';
-    html += '<div class="progress mt-2"><div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:100%"></div></div>';
-    html += '<div class="text-muted small mt-2" id="upload-progress-msg">This may take a minute or two. Please wait.</div>';
-    html += '</div></div>';
+    html += '<div class="editor-upload-modal d-none" id="upload-progress-modal" role="dialog" aria-modal="true" aria-labelledby="upload-progress-title">';
+    html += '<div class="editor-upload-modal-backdrop"></div>';
+    html += '<div class="editor-upload-modal-panel">';
+    html += '<div class="d-flex justify-content-between align-items-start gap-3">';
+    html += '<div><div class="editor-tiny">Creating project</div><h3 class="editor-upload-modal-title" id="upload-progress-title">Generating from uploaded document</h3></div>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary d-none" id="upload-progress-close">Close</button>';
+    html += '</div>';
+    html += '<div class="editor-upload-modal-body">';
+    html += '<div class="editor-upload-modal-running" id="upload-progress-running">';
+    html += '<div class="spinner-border text-primary" role="status" aria-hidden="true"></div>';
+    html += '<div><div class="fw-semibold">Creating project...</div><div class="text-muted small mt-1" id="upload-progress-msg">This may take a minute or two. Please wait.</div></div>';
+    html += '</div>';
+    html += '<div class="editor-upload-modal-error d-none" id="upload-progress-error"></div>';
+    html += '</div></div></div>';
 
     html += '</div>';
     canvasContent.innerHTML = html;
@@ -4747,14 +4802,103 @@
     container.innerHTML = html;
   }
 
-  function _showUploadError(message) {
-    var progressCard = document.getElementById('upload-progress-card');
-    if (progressCard) {
-      progressCard.classList.remove('d-none');
-      progressCard.innerHTML = '<div class="editor-card-body"><div class="text-danger small fw-bold">Error</div><div class="mt-1">' + esc(message) + '</div></div>';
+  function _getUploadProgressModalNodes() {
+    return {
+      modal: document.getElementById('upload-progress-modal'),
+      running: document.getElementById('upload-progress-running'),
+      error: document.getElementById('upload-progress-error'),
+      message: document.getElementById('upload-progress-msg'),
+      title: document.getElementById('upload-progress-title'),
+      closeButton: document.getElementById('upload-progress-close'),
+      createButton: document.getElementById('create-project-btn'),
+    };
+  }
+
+  function _showUploadProgressModal(message) {
+    var nodes = _getUploadProgressModalNodes();
+    if (!nodes.modal) return;
+    if (nodes.title) nodes.title.textContent = 'Generating from uploaded document';
+    if (nodes.running) nodes.running.classList.remove('d-none');
+    if (nodes.error) {
+      nodes.error.classList.add('d-none');
+      nodes.error.textContent = '';
     }
-    var btn = document.getElementById('create-project-btn');
-    if (btn) btn.disabled = false;
+    if (nodes.closeButton) nodes.closeButton.classList.add('d-none');
+    if (nodes.message) nodes.message.textContent = message || 'This may take a minute or two. Please wait.';
+    if (nodes.createButton) nodes.createButton.disabled = true;
+    nodes.modal.classList.remove('d-none');
+  }
+
+  function _setUploadProgressMessage(message) {
+    var nodes = _getUploadProgressModalNodes();
+    if (nodes.message) nodes.message.textContent = message || 'This may take a minute or two. Please wait.';
+  }
+
+  function _hideUploadProgressModal() {
+    var nodes = _getUploadProgressModalNodes();
+    if (!nodes.modal) return;
+    nodes.modal.classList.add('d-none');
+    if (nodes.running) nodes.running.classList.remove('d-none');
+    if (nodes.error) {
+      nodes.error.classList.add('d-none');
+      nodes.error.textContent = '';
+    }
+    if (nodes.closeButton) nodes.closeButton.classList.add('d-none');
+    if (nodes.message) nodes.message.textContent = 'This may take a minute or two. Please wait.';
+    if (nodes.createButton) nodes.createButton.disabled = false;
+  }
+
+  function _showUploadError(message) {
+    var nodes = _getUploadProgressModalNodes();
+    if (!nodes.modal) return;
+    nodes.modal.classList.remove('d-none');
+    if (nodes.running) nodes.running.classList.add('d-none');
+    if (nodes.error) {
+      nodes.error.textContent = message || 'Unknown error';
+      nodes.error.classList.remove('d-none');
+    }
+    if (nodes.title) nodes.title.textContent = 'Unable to create project';
+    if (nodes.closeButton) nodes.closeButton.classList.remove('d-none');
+    if (nodes.createButton) nodes.createButton.disabled = false;
+  }
+
+  function _pollNewProjectJob(jobUrl, projectName) {
+    var attempts = 0;
+
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        attempts += 1;
+        fetchResponsePayload(jobUrl, { credentials: 'same-origin' })
+          .then(function (response) {
+            var payload = response.body || {};
+            if (!response.ok) {
+              reject(new Error(_fetchErrorMessage(response)));
+              return;
+            }
+            var jobData = payload.data || {};
+            var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
+            if (jobStatus === 'failed') {
+              reject(new Error(_fetchErrorMessage(response)));
+              return;
+            }
+            if (jobStatus === 'succeeded') {
+              resolve(payload);
+              return;
+            }
+            _setUploadProgressMessage(jobData.message || ('Creating project "' + (projectName || 'new project') + '"...'));
+            if (attempts >= UPLOAD_JOB_MAX_ATTEMPTS) {
+              reject(new Error('Timed out waiting for the background job to finish.'));
+              return;
+            }
+            setTimeout(tick, UPLOAD_JOB_POLL_INTERVAL_MS);
+          })
+          .catch(function (err) {
+            reject(err);
+          });
+      }
+
+      tick();
+    });
   }
 
   function _showSuccessBanner(message) {
@@ -6123,10 +6267,13 @@
       return;
     }
 
-    // New project
-    if (target.id === 'cancel-new-project') { state.canvasMode = 'project-selector'; _uploadedFiles = []; renderCanvas(); return; }
+    if (target.id === 'cancel-new-project') { _hideUploadProgressModal(); state.canvasMode = 'project-selector'; _uploadedFiles = []; renderCanvas(); return; }
 
-    // Remove upload chip
+    if (target.id === 'upload-progress-close' || target.closest('#upload-progress-close')) {
+      _hideUploadProgressModal();
+      return;
+    }
+
     if (removeUploadBtn) {
       var removeBtn = removeUploadBtn;
       var removeIdx = parseInt(removeBtn.getAttribute('data-remove-upload'), 10);
@@ -6135,40 +6282,85 @@
       return;
     }
 
-    // Create project
     if (target.id === 'create-project-btn') {
       var nameInput = document.getElementById('new-project-name');
       var notesInput = document.getElementById('new-project-notes');
+      var helpPageUrlInput = document.getElementById('new-project-help-page-url');
+      var helpPageTitleInput = document.getElementById('new-project-help-page-title');
+      var useLlmAssistInput = document.getElementById('new-project-use-llm-assist');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
-      var progressCard = document.getElementById('upload-progress-card');
-      if (progressCard) progressCard.classList.remove('d-none');
-      target.disabled = true;
+      var helpPageUrl = helpPageUrlInput ? helpPageUrlInput.value : '';
+      var helpPageTitle = helpPageTitleInput ? helpPageTitleInput.value : '';
+      var useLlmAssist = useLlmAssistInput ? useLlmAssistInput.checked : false;
+      _showUploadProgressModal('This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
         var formData = new FormData();
         formData.append('project_name', projectName);
         formData.append('generation_notes', notes);
+        formData.append('help_source_text', notes);
+        formData.append('help_page_url', helpPageUrl);
+        formData.append('help_page_title', helpPageTitle);
+        formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
-        fetch(API + '/api/new-project', { method: 'POST', credentials: 'same-origin', body: formData })
-          .then(function (res) { return res.json(); })
-          .then(function (res) {
-            if (progressCard) progressCard.classList.add('d-none');
-            if (res.success) {
-              state.project = res.data.project;
-              state.filename = res.data.filename;
+        fetchResponsePayload(API + '/api/new-project', { method: 'POST', credentials: 'same-origin', body: formData })
+          .then(function (response) {
+            var payload = response.body || {};
+            if (!response.ok) {
+              throw new Error(_fetchErrorMessage(response));
+            }
+            if (String(payload.status || '').toLowerCase() === 'queued' || response.status === 202) {
+              var queuedData = payload.data || {};
+              var queuedProject = queuedData.project || projectName;
+              var jobUrl = payload.job_url || queuedData.job_url;
+              if (!jobUrl) {
+                throw new Error('Queued job response did not include a status URL.');
+              }
+              _setUploadProgressMessage('Queued project "' + queuedProject + '". Starting Weaver generation.');
+              return _pollNewProjectJob(jobUrl, queuedProject).then(function (jobPayload) {
+                var jobData = jobPayload.data || {};
+                _hideUploadProgressModal();
+                state.project = jobData.project || queuedProject;
+                state.filename = jobData.filename || 'interview.yml';
+                state.canvasMode = 'question';
+                _uploadedFiles = [];
+                _showSuccessBanner('Project "' + esc(state.project) + '" created successfully.');
+                return apiGet('/api/projects').then(function (r) {
+                  if (r.success) state.projects = r.data.projects;
+                  populateProjects();
+                  loadFiles();
+                });
+              });
+            }
+            if (payload.success) {
+              _hideUploadProgressModal();
+              state.project = payload.data.project;
+              state.filename = payload.data.filename;
               state.canvasMode = 'question';
               _uploadedFiles = [];
-              _showSuccessBanner('Project "' + esc(res.data.project) + '" created successfully.');
-              apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
-            } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
+              _showSuccessBanner('Project "' + esc(payload.data.project) + '" created successfully.');
+              return apiGet('/api/projects').then(function (r) {
+                if (r.success) state.projects = r.data.projects;
+                populateProjects();
+                loadFiles();
+              });
+            }
+            throw new Error(_fetchErrorMessage(response));
           })
-          .catch(function (err) { if (progressCard) progressCard.classList.add('d-none'); _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
       } else {
-        apiPost('/api/new-project', { project_name: projectName, generation_notes: notes })
+        apiPost('/api/new-project', {
+          project_name: projectName,
+          generation_notes: notes,
+          help_source_text: notes,
+          help_page_url: helpPageUrl,
+          help_page_title: helpPageTitle,
+          use_llm_assist: useLlmAssist,
+        })
           .then(function (res) {
-            if (progressCard) progressCard.classList.add('d-none');
             if (res.success) {
+              _hideUploadProgressModal();
               state.project = res.data.project;
               state.filename = res.data.filename;
               state.canvasMode = 'question';
@@ -6176,7 +6368,7 @@
               apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
           })
-          .catch(function (err) { if (progressCard) progressCard.classList.add('d-none'); _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
       }
       return;
     }
