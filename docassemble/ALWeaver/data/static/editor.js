@@ -124,16 +124,14 @@
 
   function updateLeftSearchPlaceholder() {
     if (!searchInput) return;
-    searchInput.placeholder = isInterviewView() ? 'Search blocks...' : 'Search files...';
-    var searchTitle = document.getElementById('search-section-title');
-    if (searchTitle) searchTitle.textContent = isInterviewView() ? 'Search blocks' : 'Search files';
+    searchInput.placeholder = isInterviewView() ? 'Type to filter...' : 'Search files...';
   }
 
   function updateLeftRailMode() {
     var fileSection = document.getElementById('editor-file-section');
-    var quickJumpSection = document.getElementById('editor-quick-jump-section');
+    var jumpTargets = document.getElementById('jump-targets');
     if (fileSection) fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
-    if (quickJumpSection) quickJumpSection.classList.toggle('editor-section-hidden', !isInterviewView());
+    if (jumpTargets) jumpTargets.classList.toggle('d-none', !isInterviewView());
     updateOutlineHeader();
   }
 
@@ -145,6 +143,17 @@
     }
     if (orderButton) {
       orderButton.classList.toggle('d-none', !isInterviewView());
+    }
+  }
+
+  function updateTopbarSaveState() {
+    var btn = document.getElementById('btn-save-file');
+    if (!btn) return;
+    var isDirty = state.dirty || state.sectionDirty;
+    btn.disabled = !isDirty;
+    var badge = btn.querySelector('.js-save-badge');
+    if (badge) {
+      badge.classList.toggle('d-none', !isDirty);
     }
   }
 
@@ -162,6 +171,29 @@
       return String(block.data._commented_type || 'commented');
     }
     return String(block.type || '');
+  }
+
+  function isPlaceholderSectionFile(filename) {
+    return String(filename || '').toLowerCase() === '.placeholder';
+  }
+
+  function sectionTypeTag(fileMeta) {
+    var filename = String((fileMeta && fileMeta.filename) || '');
+    if (isPlaceholderSectionFile(filename)) return '';
+    var size = Number((fileMeta && fileMeta.size) || 0);
+    if (Number.isFinite(size) && size === 0) return 'empty file';
+    var tag = String((fileMeta && (fileMeta.preview_kind || fileMeta.mimetype || 'file')) || 'file').toUpperCase();
+    return tag.slice(0, 4);
+  }
+
+  function supportsDashboardEditor(fileMeta) {
+    return Boolean(fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx'));
+  }
+
+  function blockUnsavedSectionNavigation() {
+    if (!state.sectionDirty || isInterviewView()) return false;
+    window.alert('You have unsaved changes in this file. Save your changes before leaving this file.');
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -2799,6 +2831,7 @@
       state.orderStepMap = d.order_step_map || {};
       state.rawYaml = d.raw_yaml || '';
       state.dirty = false;
+      state.fullYamlStash = {};
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
       loadAvailableSymbols();
@@ -3003,7 +3036,25 @@
         return Boolean((b.tags || []).indexOf('attachment') !== -1 || (b.data && (b.data.attachment || b.data.attachments)));
       }
       if (state.jumpTarget === 'meta') {
-        return blockType === 'metadata' || blockType === 'includes' || blockType === 'default_screen_parts' || blockType === 'other';
+        return blockType === 'metadata' || blockType === 'includes' || blockType === 'default_screen_parts' || blockType === 'features' || blockType === 'other';
+      }
+      if (state.jumpTarget === 'templates') {
+        return blockType === 'template';
+      }
+      if (state.jumpTarget === 'tables') {
+        return blockType === 'table';
+      }
+      if (state.jumpTarget === 'events') {
+        return Boolean((b.tags || []).indexOf('event') !== -1 || (b.data && b.data.event));
+      }
+      if (state.jumpTarget === 'modules') {
+        return blockType === 'modules' || blockType === 'imports';
+      }
+      if (state.jumpTarget === 'sections') {
+        return blockType === 'sections';
+      }
+      if (state.jumpTarget === 'commented') {
+        return blockType === 'commented' || b.type === 'commented';
       }
       return true;
     });
@@ -3191,18 +3242,23 @@
     }
     filtered.forEach(function (file) {
       var active = selected === file.filename;
-      var tag = (file.preview_kind || file.mimetype || 'file').toUpperCase();
+      var tag = sectionTypeTag(file);
       var rawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(view)) + '&filename=' + encodeURIComponent(file.filename);
       html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-section-filename="' + esc(file.filename) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       html += '<div style="min-width:0;flex:1"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
-      html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag.slice(0, 4)) + '</div>';
+      if (tag) {
+        html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag) + '</div>';
+      }
       html += '<div class="dropdown editor-section-file-kebab" data-stop-propagation>';
       html += '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
       html += '<ul class="dropdown-menu dropdown-menu-end">';
       html += '<li><button type="button" class="dropdown-item js-section-file-rename" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename</button></li>';
       html += '<li><a class="dropdown-item" href="' + esc(rawUrl) + '" download="' + esc(file.filename) + '"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download</a></li>';
+      if (supportsDashboardEditor(file)) {
+        html += '<li><button type="button" class="dropdown-item js-section-file-dashboard" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Open in Dashboard editor</button></li>';
+      }
       html += '<li><hr class="dropdown-divider"></li>';
       html += '<li><button type="button" class="dropdown-item text-danger js-section-file-delete" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete</button></li>';
       html += '</ul></div>';
@@ -3212,7 +3268,6 @@
     html += '<div class="editor-section-file-actions">';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-edit-dashboard-inline"><i class="fa-solid fa-pen-to-square me-1" aria-hidden="true"></i>Edit</button>';
     html += '</div>';
     outlineList.innerHTML = html;
     initOutlineSortable();
@@ -3379,6 +3434,11 @@
       btn.classList.toggle('editor-validation-has-info', !hasProblems && summary.info > 0);
     });
 
+    // Show/hide the alert icon — only visible when there are actual errors
+    Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-icon'), function (icon) {
+      icon.classList.toggle('d-none', count === 0);
+    });
+
     drawer.classList.toggle('editor-validation-has-issues', hasProblems);
     drawer.classList.remove('validation-error', 'validation-warning', 'validation-info');
     if (count > 0) drawer.classList.add(levelClass);
@@ -3434,6 +3494,7 @@
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
+    updateTopbarSaveState();
     if (state.currentView !== 'interview') {
       renderSecondaryView();
       renderValidationDrawer();
@@ -3562,40 +3623,43 @@
     var isMdPreview = isPreview && state.markdownPreviewMode;
     var html = '';
 
-    // Header bar
+    // Header bar — matches Code / Objects pattern
     html += '<div class="editor-center-bar">';
-    html += '<div></div>';
-    html += '<div class="d-flex gap-2 align-items-center">';
-    if (isPreview) {
+    html += '<div>';
+    html += '<span class="editor-pill">Question</span>';
+    if (data.mandatory) html += ' <span class="editor-pill">mandatory</span>';
+    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    html += '</div>';
+    if (isPreview && !isMdPreview) {
+      html += '<div class="d-flex gap-2 align-items-center">';
       html += '<div class="editor-preview-toggle" role="group" aria-label="Edit or preview mode">';
       html += '<button type="button" class="editor-preview-toggle-btn' + (!isMdPreview ? ' active' : '') + '" id="md-preview-off" title="Edit fields"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>';
       html += '<button type="button" class="editor-preview-toggle-btn' + (isMdPreview ? ' active' : '') + '" id="md-preview-on" title="Preview rendered text"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>';
       html += '</div>';
-      html += '<button class="btn btn-sm btn-outline-secondary editor-icon-btn" id="toggle-edit-mode" title="Edit raw YAML"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
-    } else {
-      html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode"><i class="fa-solid fa-table-cells me-1" aria-hidden="true"></i>Visual editor</button>';
+      html += '</div>';
     }
-    if (!isMdPreview) {
-      html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save</button>';
-    }
-    html += '</div></div>';
+    html += '</div>';
 
     html += '<div class="editor-shell">';
 
-    if (isPreview) {
-      if (!isMdPreview) {
-        html += '<div class="editor-question-tabs-row">';
-        html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-        html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen">Screen</button></li>';
-        html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options">Question options</button></li>';
-        html += '</ul>';
+    // Unified tab row: Screen | Question options | YAML
+    if (!isMdPreview) {
+      html += '<div class="editor-question-tabs-row">';
+      html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (!isPreview ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+      html += '</ul>';
+      if (isPreview) {
         html += '<div class="form-check form-switch editor-question-mandatory-switch">';
         html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
         html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
         html += '</div>';
-        html += '</div>';
       }
+      html += '</div>';
+    }
 
+    if (isPreview) {
       if (isMdPreview || state.questionBlockTab === 'screen') {
       html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
 
@@ -3827,7 +3891,7 @@
     if (!isPreview) {
       initMonaco(function () {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
         });
       });
     } else if (!isMdPreview) {
@@ -3867,7 +3931,6 @@
     html += '<div class="d-flex gap-2">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit full YAML</button>';
-    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
@@ -3893,11 +3956,11 @@
     initMonaco(function () {
       if (state.questionEditMode === 'preview') {
         createMonacoEditor('code-monaco', codeText, 'python', {
-          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
         });
       } else {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
         });
       }
     });
@@ -3916,7 +3979,6 @@
     html += '</div>';
     html += '<div class="d-flex gap-2">';
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (state.questionEditMode === 'preview' ? 'Edit YAML' : 'Structured view') + '</button>';
-    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
@@ -3967,7 +4029,7 @@
     if (state.questionEditMode !== 'preview') {
       initMonaco(function () {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
         });
       });
     }
@@ -3982,9 +4044,7 @@
     html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
     html += '</div>';
-    html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-primary" id="save-block-btn"' + (!state.dirty ? ' disabled' : '') + '>Save</button>';
-    html += '</div></div>';
+    html += '</div>';
 
     html += '<div class="editor-shell">';
     html += '<div class="editor-card"><div class="editor-card-body">';
@@ -3996,7 +4056,7 @@
 
     initMonaco(function () {
       createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-        onChange: function () { state.dirty = true; var b = document.getElementById('save-block-btn'); if (b) b.disabled = false; }
+        onChange: function () { state.dirty = true; updateTopbarSaveState(); }
       });
     });
   }
@@ -5062,9 +5122,6 @@
       var sectionRawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename);
       html += '<a class="btn btn-sm btn-outline-secondary" href="' + esc(sectionRawUrl) + '" download="' + esc(fileMeta.filename) + '"><i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download</a>';
     }
-    if (fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx')) {
-      html += '<button class="btn btn-sm btn-outline-secondary" id="open-dashboard-editor">Open in Dashboard editor</button>';
-    }
     html += '</div></div>';
     html += '<input type="file" id="section-upload-input" style="display:none" multiple>';
 
@@ -5171,7 +5228,7 @@
   document.addEventListener('click', function (e) {
     var target = e.target;
     var topTab = target.closest('.editor-top-tab');
-    var jumpItem = target.closest('.editor-jump-item');
+    var jumpItem = target.closest('.editor-jump-item') || target.closest('.editor-jump-more-menu [data-jump]');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
@@ -5340,6 +5397,7 @@
 
     // View tabs
     if (topTab) {
+      if (topTab.getAttribute('data-view') !== state.currentView && blockUnsavedSectionNavigation()) return;
       state.currentView = topTab.getAttribute('data-view');
       setActiveTopTab(topTab);
       if (state.currentView === 'interview') {
@@ -5359,6 +5417,7 @@
 
     // Project selector cards
     if (projectCardBtn) {
+      if (blockUnsavedSectionNavigation()) return;
       openProject(projectCardBtn.getAttribute('data-project-card'));
       return;
     }
@@ -5370,18 +5429,16 @@
 
     // Jump targets
     if (jumpItem) {
+      if (blockUnsavedSectionNavigation()) return;
       var jump = jumpItem.getAttribute('data-jump');
       $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
-      jumpItem.classList.add('active');
-      state.jumpTarget = jump;
-      // The "Order" filter button goes straight into the order builder canvas
-      if (jump === 'order') {
-        enterOrderBuilder(state.activeOrderBlockId || getDefaultOrderBlockId(), 'outline-jump');
-        return;
-      } else {
-        state.canvasMode = 'question';
-        state.selectedBlockId = getDefaultVisibleBlockId();
+      // Only visually activate direct jump buttons, not dropdown items
+      if (jumpItem.classList.contains('editor-jump-item')) {
+        jumpItem.classList.add('active');
       }
+      state.jumpTarget = jump;
+      state.canvasMode = 'question';
+      state.selectedBlockId = getDefaultVisibleBlockId();
       state.currentView = 'interview';
       var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
       if (interviewTab) setActiveTopTab(interviewTab);
@@ -5395,7 +5452,9 @@
     if (outlineItem && !target.closest('[data-stop-propagation]') && !target.closest('.editor-file-actions-kebab') && !target.closest('.dropdown-menu')) {
       if (!isInterviewView()) {
         var viewForFile = state.currentView;
-        state.sectionSelectedFile[viewForFile] = outlineItem.getAttribute('data-section-filename');
+        var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
+        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && blockUnsavedSectionNavigation()) return;
+        state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
       } else {
         state.selectedBlockId = outlineItem.getAttribute('data-block-id');
         state.canvasMode = 'question';
@@ -5572,6 +5631,7 @@
 
     // Top action buttons
     if (target.id === 'btn-project-selector') {
+      if (blockUnsavedSectionNavigation()) return;
       state.canvasMode = 'project-selector';
       state.currentView = 'interview';
       var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
@@ -5608,22 +5668,6 @@
       return;
     }
 
-    if (target.id === 'btn-edit-dashboard-inline') {
-      if (!state.project || isInterviewView()) return;
-      var dashSection = getSectionFromView(state.currentView);
-      var dashMeta = getSelectedSectionFileMeta(state.currentView);
-      if (!dashMeta) return;
-      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashSection) + '&filename=' + encodeURIComponent(dashMeta.filename))
-        .then(function (res) {
-          if (res.success && res.data && res.data.url) {
-            window.open(res.data.url, '_blank');
-          } else {
-            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
-          }
-        });
-      return;
-    }
-
     // Inline section file kebab actions (rename/delete)
     var sectionFileRename = target.closest('.js-section-file-rename');
     if (sectionFileRename) {
@@ -5645,6 +5689,22 @@
         state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : sfNewName;
         loadSectionFiles(state.currentView);
       });
+      return;
+    }
+
+    var sectionFileDashboard = target.closest('.js-section-file-dashboard');
+    if (sectionFileDashboard) {
+      var dashboardFilename = sectionFileDashboard.getAttribute('data-filename');
+      if (!dashboardFilename || !state.project || isInterviewView()) return;
+      var dashboardSection = getSectionFromView(state.currentView);
+      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashboardSection) + '&filename=' + encodeURIComponent(dashboardFilename))
+        .then(function (res) {
+          if (res.success && res.data && res.data.url) {
+            window.open(res.data.url, '_blank');
+          } else {
+            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
+          }
+        });
       return;
     }
 
@@ -5848,22 +5908,8 @@
       return;
     }
 
-    if (target.id === 'open-dashboard-editor') {
-      if (!state.project || isInterviewView()) return;
-      var sectionForEditor = getSectionFromView(state.currentView);
-      var templateMeta = getSelectedSectionFileMeta(state.currentView);
-      if (!templateMeta) return;
-      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(sectionForEditor) + '&filename=' + encodeURIComponent(templateMeta.filename))
-        .then(function (res) {
-          if (res.success && res.data && res.data.url) {
-            window.open(res.data.url, '_blank');
-          } else {
-            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
-          }
-        });
-      return;
-    }
     if (target.id === 'btn-new-project') {
+      if (blockUnsavedSectionNavigation()) return;
       state.canvasMode = 'new-project';
       state.currentView = 'interview';
       var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
@@ -5872,6 +5918,7 @@
       return;
     }
     if (target.id === 'btn-full-yaml') {
+      if (blockUnsavedSectionNavigation()) return;
       _stashFullYamlContent();
       state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
       state.currentView = 'interview';
@@ -6024,6 +6071,33 @@
       }
       state.questionEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
       state.markdownPreviewMode = false;
+      renderCanvas();
+      return;
+    }
+
+    // Question tab with optional mode switching (Screen/Options tabs set preview mode, YAML tab sets yaml mode)
+    if (target.matches('[data-question-mode]')) {
+      var qMode = target.getAttribute('data-question-mode');
+      var qTab = target.getAttribute('data-question-tab');
+      if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
+        var block = getSelectedBlock();
+        if (block) {
+          if (block.type === 'question') {
+            syncFieldsToData(block);
+            block.yaml = serializeQuestionToYaml(block);
+          } else if (block.type === 'code') {
+            block.yaml = serializeCodeToYaml(block);
+          } else if (block.type === 'objects') {
+            block.yaml = serializeObjectsToYaml(block);
+          }
+        }
+        state.questionEditMode = 'yaml';
+        state.markdownPreviewMode = false;
+      } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
+        state.questionEditMode = 'preview';
+        state.markdownPreviewMode = false;
+      }
+      if (qTab) state.questionBlockTab = qTab;
       renderCanvas();
       return;
     }
@@ -6449,8 +6523,7 @@
         target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
         target.matches('.editor-field-showif-key')) {
       state.dirty = true;
-      var saveBtn = document.getElementById('save-block-btn');
-      if (saveBtn) saveBtn.disabled = false;
+      updateTopbarSaveState();
     }
   });
 
@@ -6458,8 +6531,7 @@
     var target = e.target;
     if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch') {
       state.dirty = true;
-      var saveBtnSwitch = document.getElementById('save-block-btn');
-      if (saveBtnSwitch) saveBtnSwitch.disabled = false;
+      updateTopbarSaveState();
       return;
     }
     if (target.id === 'section-upload-input') {
@@ -6736,6 +6808,10 @@
   // -------------------------------------------------------------------------
   projectSelect.addEventListener('change', function () {
     var nextProject = projectSelect.value;
+    if (nextProject !== state.project && blockUnsavedSectionNavigation()) {
+      projectSelect.value = state.project || '';
+      return;
+    }
     state.project = nextProject || null;
     state.selectedBlockId = null;
     if (!state.project) {
@@ -6783,6 +6859,11 @@
 
   window.addEventListener('resize', hideTypeaheadMenu);
   document.addEventListener('scroll', hideTypeaheadMenu, true);
+  window.addEventListener('beforeunload', function (e) {
+    if (!state.dirty && !state.sectionDirty) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 
   init();
 })();

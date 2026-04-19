@@ -86,21 +86,33 @@ html, body {
 
 .editor-top-tabs {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   margin-left: 12px;
+  align-items: stretch;
 }
 
 .editor-top-tab {
-  border-radius: 6px;
+  border-radius: 6px 6px 3px 3px;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
+  padding: 4px 12px;
+  border-bottom: 2px solid transparent;
 }
 
 .editor-top-tab.active {
   background: #fff;
   color: #212529;
   font-weight: 600;
+  border-bottom-color: transparent;
+}
+
+.editor-top-tab:not(.active) {
+  border-bottom-color: transparent;
+}
+
+.editor-top-tab:not(.active):hover {
+  border-bottom-color: rgba(255, 255, 255, 0.5);
 }
 
 .editor-top-tabs .editor-top-tab.btn-outline-light:hover,
@@ -215,6 +227,25 @@ html, body {
   border-color: var(--editor-primary);
   background: var(--editor-primary);
   color: #fff;
+}
+
+/* More button in jump list */
+.editor-jump-more-btn {
+  padding: 2px 6px;
+}
+
+.editor-jump-more-btn::after {
+  display: none;
+}
+
+.editor-jump-more-menu {
+  min-width: 180px;
+  font-size: 13px;
+}
+
+.editor-jump-more-menu .dropdown-item {
+  padding: 5px 14px;
+  font-size: 13px;
 }
 
 .editor-outline-header {
@@ -345,7 +376,7 @@ html, body {
 .editor-outline-item {
   border: 1px solid transparent;
   border-radius: var(--editor-radius-sm);
-  padding: 6px 8px;
+  padding: 7px 8px;
   background: #fff;
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
@@ -464,8 +495,8 @@ html, body {
 
 .editor-outline-title {
   font-weight: 500;
-  font-size: 12px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -549,7 +580,7 @@ html, body {
   align-items: center;
   gap: 6px;
   margin-top: 1px;
-  font-size: 10px;
+  font-size: 11px;
   color: #94a3b8;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -2680,4 +2711,37 @@ code.md-mako-expr {
 
 .editor-layout {
   min-height: 0;
+}
+
+/* ===== Save badge (unsaved indicator) ===== */
+
+.editor-save-badge {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #fbbf24;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+#btn-save-file:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ===== Top tab icon spacing ===== */
+
+.editor-top-tab i {
+  font-size: 12px;
+}
+
+/* ===== Errors button icon spacing ===== */
+
+.js-check-errors-btn .js-check-errors-icon {
+  margin-right: 4px;
+}
+
+.js-check-errors-btn .js-check-errors-label {
+  /* Only shown when there is no icon visible */
 }
