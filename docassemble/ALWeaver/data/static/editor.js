@@ -1583,30 +1583,6 @@
     });
   }
 
-  function logOrderTransition(stage, details) {
-    details = details || {};
-    var mainCanvas = document.getElementById('main-canvas');
-    var payload = {
-      stage: stage,
-      source: details.source || '',
-      requestedBlockId: details.requestedBlockId || null,
-      activeOrderBlockId: state.activeOrderBlockId,
-      selectedBlockId: state.selectedBlockId,
-      jumpTarget: state.jumpTarget,
-      canvasMode: state.canvasMode,
-      currentView: state.currentView,
-      loading: state.orderBuilderLoading,
-      filename: state.filename,
-      blocks: state.blocks.length,
-      orderIndices: state.orderIndices.slice(),
-      mainScrollTop: mainCanvas ? mainCanvas.scrollTop : null,
-    };
-    if (details.error) {
-      payload.error = String((details.error && details.error.message) || details.error);
-    }
-    console.info('[Order]', payload);
-  }
-
   function enterOrderBuilder(requestedBlockId, source) {
     syncActiveOrderStepMap();
     var nextOrderBlockId = requestedBlockId || getDefaultOrderBlockId();
@@ -1622,10 +1598,6 @@
     state.selectedOrderStepIds = {};
 
     var loadSeq = ++_orderBuilderLoadSeq;
-    logOrderTransition('enter', {
-      source: source || 'unknown',
-      requestedBlockId: nextOrderBlockId,
-    });
 
     var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
     if (interviewTab) setActiveTopTab(interviewTab);
@@ -1634,19 +1606,13 @@
     scrollOrderBuilderIntoView();
 
     if (!nextOrderBlockId) {
-      logOrderTransition('missing-order-block', {
-        source: source || 'unknown',
-      });
+      console.warn('[Order] No interview-order block found for order builder.');
       return Promise.resolve([]);
     }
 
     return loadOrderStepsForBlock(nextOrderBlockId).then(function (steps) {
       if (loadSeq !== _orderBuilderLoadSeq) return steps;
       state.orderBuilderLoading = false;
-      logOrderTransition('loaded', {
-        source: source || 'unknown',
-        requestedBlockId: nextOrderBlockId,
-      });
       renderOutline();
       renderCanvas();
       scrollOrderBuilderIntoView();
@@ -1654,16 +1620,7 @@
     }).catch(function (err) {
       if (loadSeq !== _orderBuilderLoadSeq) return [];
       state.orderBuilderLoading = false;
-      console.warn('[Order] failed to load steps', {
-        source: source || 'unknown',
-        requestedBlockId: nextOrderBlockId,
-        error: String((err && err.message) || err || 'Unknown error'),
-      });
-      logOrderTransition('load-failed', {
-        source: source || 'unknown',
-        requestedBlockId: nextOrderBlockId,
-        error: err,
-      });
+      console.warn('[Order] Failed to load interview order steps: ' + String((err && err.message) || err || 'Unknown error'));
       renderOutline();
       renderCanvas();
       scrollOrderBuilderIntoView();
