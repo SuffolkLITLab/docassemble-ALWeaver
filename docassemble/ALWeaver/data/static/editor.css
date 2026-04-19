@@ -264,15 +264,27 @@ html, body {
   gap: 0.35rem;
   width: auto;
   height: auto;
-  padding: 2px 8px;
-  line-height: 1.1;
+  padding: 4px 10px;
+  line-height: 1.15;
   white-space: nowrap;
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--editor-primary);
 }
 
 .editor-order-builder-btn i {
   flex: 0 0 auto;
+}
+
+.editor-order-builder-btn:hover,
+.editor-order-builder-btn:focus-visible {
+  border-color: #9db4d1;
+  background: var(--editor-primary-bg);
+  color: var(--editor-primary);
+  box-shadow: 0 0 0 2px rgba(13, 57, 112, 0.08);
+  outline: none;
 }
 
 /* Outline list scrolls independently */
@@ -975,44 +987,6 @@ html, body {
   background: rgba(255,255,255,0.15);
   color: #fff;
   outline: none;
-}
-
-/* Preview/edit inline toggle */
-.editor-preview-toggle {
-  display: inline-flex;
-  font-size: 11px;
-  line-height: 1.2;
-  border: 1px solid var(--editor-border);
-  border-radius: var(--editor-radius-sm);
-  overflow: hidden;
-}
-
-.editor-preview-toggle-btn {
-  background: #fff;
-  border: none;
-  padding: 5px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.editor-preview-toggle-btn + .editor-preview-toggle-btn {
-  border-left: 1px solid var(--editor-border);
-}
-
-.editor-preview-toggle-btn.active {
-  background: var(--editor-primary);
-  color: #fff;
-}
-
-.editor-preview-toggle-btn:hover:not(.active) {
-  background: #f0f4fa;
-  color: var(--editor-primary);
 }
 
 /* Block ID field inline in question header */

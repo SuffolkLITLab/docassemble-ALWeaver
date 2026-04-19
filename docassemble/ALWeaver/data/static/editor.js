@@ -3630,32 +3630,23 @@
     if (data.mandatory) html += ' <span class="editor-pill">mandatory</span>';
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
     html += '</div>';
-    if (isPreview && !isMdPreview) {
-      html += '<div class="d-flex gap-2 align-items-center">';
-      html += '<div class="editor-preview-toggle" role="group" aria-label="Edit or preview mode">';
-      html += '<button type="button" class="editor-preview-toggle-btn' + (!isMdPreview ? ' active' : '') + '" id="md-preview-off" title="Edit fields"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>';
-      html += '<button type="button" class="editor-preview-toggle-btn' + (isMdPreview ? ' active' : '') + '" id="md-preview-on" title="Preview rendered text"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>';
-      html += '</div>';
-      html += '</div>';
-    }
     html += '</div>';
 
     html += '<div class="editor-shell">';
 
-    // Unified tab row: Screen | Question options | YAML
-    if (!isMdPreview) {
+    // Unified tab row: Screen | Question options | Preview | YAML
+    if (isPreview) {
       html += '<div class="editor-question-tabs-row">';
       html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (!isPreview ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isMdPreview ? 'active' : '') + '" id="question-preview-tab" data-question-mode="preview" data-question-preview="true"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button></li>';
+      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
       html += '</ul>';
-      if (isPreview) {
-        html += '<div class="form-check form-switch editor-question-mandatory-switch">';
-        html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
-        html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
-        html += '</div>';
-      }
+      html += '<div class="form-check form-switch editor-question-mandatory-switch">';
+      html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
+      html += '</div>';
       html += '</div>';
     }
 
@@ -6033,26 +6024,6 @@
       return;
     }
 
-    // Markdown preview toggle
-    if (target.id === 'md-preview-on') {
-      var selectedForPreview = getSelectedBlock();
-      if (selectedForPreview && selectedForPreview.type === 'question' && state.questionEditMode === 'preview') {
-        syncFieldsToData(selectedForPreview);
-      }
-      state.markdownPreviewMode = true;
-      renderCanvas();
-      return;
-    }
-    if (target.id === 'md-preview-off') {
-      var selectedForEdit = getSelectedBlock();
-      if (selectedForEdit && selectedForEdit.type === 'question' && state.questionEditMode === 'preview') {
-        syncFieldsToData(selectedForEdit);
-      }
-      state.markdownPreviewMode = false;
-      renderCanvas();
-      return;
-    }
-
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
       if (state.questionEditMode === 'preview') {
@@ -6075,10 +6046,11 @@
       return;
     }
 
-    // Question tab with optional mode switching (Screen/Options tabs set preview mode, YAML tab sets yaml mode)
+    // Question tab with optional mode switching (Screen/Options tabs set preview mode, Preview tab enables markdown preview, YAML tab sets yaml mode)
     if (target.matches('[data-question-mode]')) {
       var qMode = target.getAttribute('data-question-mode');
       var qTab = target.getAttribute('data-question-tab');
+      var isPreviewTab = target.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
         var block = getSelectedBlock();
         if (block) {
@@ -6095,15 +6067,19 @@
         state.markdownPreviewMode = false;
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
         state.questionEditMode = 'preview';
-        state.markdownPreviewMode = false;
       }
-      if (qTab) state.questionBlockTab = qTab;
-      renderCanvas();
-      return;
-    }
-
-    if (target.matches('[data-question-tab]')) {
-      state.questionBlockTab = target.getAttribute('data-question-tab') || 'screen';
+      if (qMode === 'preview') {
+        if (qTab === 'screen' || qTab === 'options') {
+          state.questionBlockTab = qTab;
+          state.markdownPreviewMode = false;
+        } else if (isPreviewTab) {
+          var selectedForPreview = getSelectedBlock();
+          if (selectedForPreview && selectedForPreview.type === 'question') {
+            syncFieldsToData(selectedForPreview);
+          }
+          state.markdownPreviewMode = true;
+        }
+      }
       renderCanvas();
       return;
     }
