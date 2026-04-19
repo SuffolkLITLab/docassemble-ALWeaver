@@ -18,6 +18,8 @@ class TestEditorOutlineHeader(unittest.TestCase):
         self.assertIn("function enterOrderBuilder(requestedBlockId, source)", editor_js)
         self.assertIn("function scrollOrderBuilderIntoView()", editor_js)
         self.assertIn("console.warn('[Order] No interview-order block found for order builder.')", editor_js)
+        self.assertIn("if (validationBlock && !isBlockVisibleInOutline(validationBlock))", editor_js)
+        self.assertIn("state.jumpTarget = 'all';", editor_js)
         self.assertIn("data-block-action=\"move-up\"", editor_js)
         self.assertIn("enableAction = block.type === 'commented' ? 'enable' : 'comment'", editor_js)
         self.assertIn("Disable (comment out)", editor_js)

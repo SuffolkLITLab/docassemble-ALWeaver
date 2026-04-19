@@ -5312,6 +5312,13 @@
     if (validationItem) {
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
+        var validationBlock = getBlockById(validationBlockId);
+        if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
+          state.jumpTarget = 'all';
+          $$('.editor-jump-item').forEach(function (j) {
+            j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
+          });
+        }
         state.currentView = 'interview';
         state.validationOpen = true;
         state.selectedBlockId = validationBlockId;
