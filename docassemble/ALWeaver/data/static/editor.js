@@ -2081,52 +2081,237 @@
     return yaml;
   }
 
+  function _appendQuestionAdvancedYaml(yaml, block) {
+    var data = (block && block.data) || {};
+
+    function _rawValue(domId, dataKeys) {
+      var el = document.getElementById(domId);
+      if (el && typeof el.value !== 'undefined') return el.value;
+      var keys = Array.isArray(dataKeys) ? dataKeys : [dataKeys];
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+          return data[key];
+        }
+      }
+      return undefined;
+    }
+
+    function _textValue(domId, dataKeys) {
+      var raw = _rawValue(domId, dataKeys);
+      if (raw === undefined || raw === null) return '';
+      if (Array.isArray(raw)) return raw.join(', ');
+      return String(raw);
+    }
+
+    function _boolValue(domId, dataKeys) {
+      var el = document.getElementById(domId);
+      if (el) return Boolean(el.checked);
+      var raw = _rawValue(domId, dataKeys);
+      return Boolean(raw);
+    }
+
+    var condEnabled = _boolValue('adv-enable-if', ['_editor_if_enabled', 'if']);
+    var condValue = _textValue('adv-if', 'if');
+    if (condEnabled && condValue.trim()) {
+      yaml = appendYamlValue(yaml, 'if', condValue.trim());
+    }
+
+    var mandatoryEnabled = _boolValue('adv-mandatory-switch', 'mandatory');
+    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
+    if (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true') {
+      mandatoryEnabled = true;
+    }
+    if (mandatoryEnabled) {
+      yaml += 'mandatory: True\n';
+    }
+
+    var setsKey = document.getElementById('adv-sets')
+      ? (document.getElementById('adv-sets').getAttribute('data-sets-key') || 'sets')
+      : (Object.prototype.hasOwnProperty.call(data, 'only sets') ? 'only sets' : 'sets');
+    var setsValue = _textValue('adv-sets', setsKey);
+    if (setsValue.trim()) {
+      yaml = appendYamlListValue(yaml, setsKey, setsValue);
+    }
+
+    var needValue = _textValue('adv-need', 'need');
+    if (needValue.trim()) {
+      yaml = appendYamlListValue(yaml, 'need', needValue);
+    }
+
+    var eventValue = _textValue('adv-event', 'event');
+    if (eventValue.trim()) {
+      yaml = appendYamlValue(yaml, 'event', eventValue.trim());
+    }
+
+    var genericObjectValue = _textValue('adv-generic-object', 'generic object');
+    if (genericObjectValue.trim()) {
+      yaml = appendYamlValue(yaml, 'generic object', genericObjectValue.trim());
+    }
+
+    var continueFieldValue = _textValue('adv-continue-field', 'continue button field');
+    if (continueFieldValue.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button field', continueFieldValue.trim());
+    }
+
+    var continueLabelValue = _textValue('adv-continue-label', 'continue button label');
+    if (continueLabelValue.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button label', continueLabelValue.trim());
+    }
+
+    var continueColorValue = _textValue('adv-continue-color', 'continue button color');
+    if (continueColorValue.trim()) {
+      yaml = appendYamlValue(yaml, 'continue button color', continueColorValue.trim());
+    }
+
+    var hideContinueValue = _textValue('adv-hide-continue', 'hide continue button');
+    if (hideContinueValue.trim() && hideContinueValue.toLowerCase() === 'true') {
+      yaml = appendYamlValue(yaml, 'hide continue button', 'True');
+    }
+
+    var disableContinueValue = _textValue('adv-disable-continue', 'disable continue button');
+    if (disableContinueValue.trim() && disableContinueValue.toLowerCase() === 'true') {
+      yaml = appendYamlValue(yaml, 'disable continue button', 'True');
+    }
+
+    var preventBackValue = _textValue('adv-prevent-back', 'prevent going back');
+    if (preventBackValue.trim()) {
+      yaml = appendYamlValue(yaml, 'prevent going back', preventBackValue.trim());
+    }
+
+    var backButtonValue = _textValue('adv-back-button', 'back button');
+    if (backButtonValue.trim()) {
+      yaml = appendYamlValue(yaml, 'back button', backButtonValue.trim());
+    }
+
+    var backButtonLabelValue = _textValue('adv-back-button-label', 'back button label');
+    if (backButtonLabelValue.trim()) {
+      yaml = appendYamlValue(yaml, 'back button label', backButtonLabelValue.trim());
+    }
+
+    var progressValue = _textValue('adv-progress', 'progress');
+    if (progressValue.trim()) {
+      yaml = appendYamlValue(yaml, 'progress', progressValue.trim());
+    }
+
+    var sectionValue = _textValue('adv-section', 'section');
+    if (sectionValue.trim()) {
+      yaml = appendYamlValue(yaml, 'section', sectionValue.trim());
+    }
+
+    var helpValue = _textValue('adv-help', 'help');
+    if (helpValue.trim()) {
+      yaml = appendYamlValue(yaml, 'help', helpValue);
+    }
+
+    var audioValue = _textValue('adv-audio', 'audio');
+    if (audioValue.trim()) {
+      yaml = appendYamlValue(yaml, 'audio', audioValue.trim());
+    }
+
+    var videoValue = _textValue('adv-video', 'video');
+    if (videoValue.trim()) {
+      yaml = appendYamlValue(yaml, 'video', videoValue.trim());
+    }
+
+    var decorationValue = _textValue('adv-decoration', 'decoration');
+    if (decorationValue.trim()) {
+      yaml = appendYamlValue(yaml, 'decoration', decorationValue.trim());
+    }
+
+    var scriptValue = _textValue('adv-script', 'script');
+    if (scriptValue.trim()) {
+      yaml = appendYamlValue(yaml, 'script', scriptValue);
+    }
+
+    var cssValue = _textValue('adv-css', 'css');
+    if (cssValue.trim()) {
+      yaml = appendYamlValue(yaml, 'css', cssValue);
+    }
+
+    var languageValue = _textValue('adv-language', 'language');
+    if (languageValue.trim()) {
+      yaml = appendYamlValue(yaml, 'language', languageValue.trim());
+    }
+
+    var reloadValue = _textValue('adv-reload', 'reload');
+    if (reloadValue.trim()) {
+      yaml = appendYamlValue(yaml, 'reload', reloadValue.trim());
+    }
+
+    var roleValue = _textValue('adv-role', 'role');
+    if (roleValue.trim()) {
+      yaml = appendYamlValue(yaml, 'role', roleValue.trim());
+    }
+
+    var gaIdValue = _textValue('adv-ga-id', 'ga id');
+    if (gaIdValue.trim()) {
+      yaml = appendYamlValue(yaml, 'ga id', gaIdValue.trim());
+    }
+
+    var segmentIdValue = _textValue('adv-segment-id', 'segment id');
+    if (segmentIdValue.trim()) {
+      yaml = appendYamlValue(yaml, 'segment id', segmentIdValue.trim());
+    }
+
+    var scanVarsValue = _textValue('adv-scan-vars', 'scan for variables');
+    if (scanVarsValue.trim()) {
+      yaml = appendYamlValue(yaml, 'scan for variables', scanVarsValue.trim());
+    }
+
+    var resumeLabelValue = _textValue('adv-resume-button-label', 'resume button label');
+    if (resumeLabelValue.trim()) {
+      yaml = appendYamlValue(yaml, 'resume button label', resumeLabelValue.trim());
+    }
+
+    var allowedToSetValue = _textValue('adv-allowed-to-set', 'allowed to set');
+    if (allowedToSetValue.trim()) {
+      yaml = appendYamlListValue(yaml, 'allowed to set', allowedToSetValue);
+    }
+
+    var dependsOnValue = _textValue('adv-depends-on', 'depends on');
+    if (dependsOnValue.trim()) {
+      yaml = appendYamlListValue(yaml, 'depends on', dependsOnValue);
+    }
+
+    var undefineValue = _textValue('adv-undefine', 'undefine');
+    if (undefineValue.trim()) {
+      yaml = appendYamlListValue(yaml, 'undefine', undefineValue);
+    }
+
+    var reconsiderValue = _textValue('adv-reconsider', 'reconsider');
+    if (reconsiderValue.trim()) {
+      yaml = appendYamlListValue(yaml, 'reconsider', reconsiderValue);
+    }
+
+    var validationCodeValue = _textValue('adv-validation-code', 'validation code');
+    if (validationCodeValue.trim()) {
+      yaml = appendYamlValue(yaml, 'validation code', validationCodeValue);
+    }
+
+    var commentValue = _textValue('adv-comment', 'comment');
+    if (commentValue.trim()) {
+      yaml = appendYamlValue(yaml, 'comment', commentValue);
+    }
+
+    return yaml;
+  }
+
   function serializeQuestionToYaml(block) {
     var yaml = '';
+    var data = (block && block.data) || {};
 
     var idInput = document.getElementById('adv-id');
     var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'question_block');
     yaml = appendYamlValue(yaml, 'id', blockId);
 
-    // Special modifiers immediately after id.
-    var condToggle = document.getElementById('adv-enable-if');
-    var condInput = document.getElementById('adv-if');
-    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
-    }
-
-    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
-    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
-      yaml += 'mandatory: True\n';
-    }
-
-    var setsInput = document.getElementById('adv-sets');
-    if (setsInput && setsInput.value.trim()) {
-      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
-      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
-    }
-
-    var needInput = document.getElementById('adv-need');
-    if (needInput && needInput.value.trim()) {
-      yaml = appendYamlListValue(yaml, 'need', needInput.value);
-    }
-
-    var eventInput = document.getElementById('adv-event');
-    if (eventInput && eventInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'event', eventInput.value);
-    }
-
-    var genericObjectInput = document.getElementById('adv-generic-object');
-    if (genericObjectInput && genericObjectInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
-    }
-
     var qTitle = document.getElementById('q-title');
-    if (qTitle && qTitle.value) yaml = appendYamlValue(yaml, 'question', qTitle.value);
+    var questionText = qTitle && qTitle.value ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
+    if (questionText) yaml = appendYamlValue(yaml, 'question', questionText);
 
     var qSub = document.getElementById('q-subquestion');
-    if (qSub && qSub.value) yaml = appendYamlValue(yaml, 'subquestion', qSub.value);
+    var subquestionText = qSub && qSub.value ? qSub.value : (block && block.data && block.data.subquestion ? String(block.data.subquestion) : '');
+    if (subquestionText) yaml = appendYamlValue(yaml, 'subquestion', subquestionText);
 
     var rows = document.querySelectorAll('.editor-field-row');
     if (rows.length > 0) {
@@ -2201,52 +2386,122 @@
         if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
         Object.keys(sfmods).forEach(function (k) { yaml += '    ' + k + ': ' + escapeYamlStr(sfmods[k]) + '\n'; });
       }
+    } else if ((state.markdownPreviewMode || state.questionBlockTab !== 'screen') && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
+      yaml += 'fields:\n';
+      block.data.fields.forEach(function (field) {
+        yaml += _serializeQuestionFieldFromData(field);
+      });
     }
 
-    // Continue button keys are kept near the end in common docassemble style.
-    var contField = document.getElementById('adv-continue-field');
-    if (contField && contField.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
+    return _appendQuestionAdvancedYaml(yaml, block);
+  }
+
+  function _serializeQuestionFieldFromData(field) {
+    var yaml = '';
+    if (field === null || field === undefined) return yaml;
+    if (typeof field === 'string' || typeof field === 'number' || typeof field === 'boolean') {
+      return '  - ' + escapeYamlStr(String(field)) + '\n';
     }
-    var contLabel = document.getElementById('adv-continue-label');
-    if (contLabel && contLabel.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
+    if (typeof field !== 'object') return yaml;
+
+    var reserved = {
+      label: true,
+      question: true,
+      field: true,
+      variable: true,
+      datatype: true,
+      type: true,
+      choices: true,
+      code: true,
+      required: true,
+    };
+    var keys = Object.keys(field);
+    var standaloneType = null;
+    if (!field.label && !field.question && !field.field && !field.variable) {
+      for (var i = 0; i < keys.length; i++) {
+        if (!Object.prototype.hasOwnProperty.call(field, keys[i])) continue;
+        if (reserved[keys[i]]) continue;
+        if (_fieldTypeSupportsStandaloneContent(keys[i])) {
+          standaloneType = keys[i];
+          break;
+        }
+      }
     }
 
-    // Extended advanced fields
-    var _simpleAdvKeys = [
-      ['adv-continue-color', 'continue button color'],
-      ['adv-hide-continue', 'hide continue button'],
-      ['adv-disable-continue', 'disable continue button'],
-      ['adv-prevent-back', 'prevent going back'],
-      ['adv-back-button', 'back button'],
-      ['adv-back-button-label', 'back button label'],
-      ['adv-progress', 'progress'],
-      ['adv-section', 'section'],
-      ['adv-audio', 'audio'],
-      ['adv-video', 'video'],
-      ['adv-decoration', 'decoration'],
-      ['adv-language', 'language'],
-      ['adv-reload', 'reload'],
-      ['adv-role', 'role'],
-      ['adv-ga-id', 'ga id'],
-      ['adv-segment-id', 'segment id'],
-      ['adv-scan-vars', 'scan for variables'],
-      ['adv-resume-button-label', 'resume button label'],
-    ];
-    _simpleAdvKeys.forEach(function (pair) {
-      var el = document.getElementById(pair[0]);
-      if (el && String(el.value || '').trim()) yaml = appendYamlValue(yaml, pair[1], el.value);
+    if (standaloneType) {
+      yaml += '  - ' + standaloneType + ': ' + escapeYamlStr(String(field[standaloneType] || '')) + '\n';
+      if (Array.isArray(field.choices) && field.choices.length) {
+        yaml += '    choices:\n';
+        field.choices.forEach(function (choice) {
+          var choiceText = String(choice || '').trim();
+          if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+        });
+      }
+      if (field.code) {
+        var standaloneCode = String(field.code);
+        if (standaloneCode.indexOf('\n') !== -1) {
+          yaml += '    code: |\n';
+          standaloneCode.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+        } else {
+          yaml += '    code: ' + standaloneCode + '\n';
+        }
+      }
+      if (field.required === false || field.required === 'False') yaml += '    required: False\n';
+      keys.forEach(function (key) {
+        if (reserved[key] || key === standaloneType) return;
+        var value = field[key];
+        if (value === undefined || value === null || String(value).trim() === '') return;
+        yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
+      });
+      return yaml;
+    }
+
+    var label = String(field.label || field.question || 'Field').trim() || 'Field';
+    var variable = String(field.field || field.variable || '').trim();
+    var datatype = String(field.datatype || field.type || 'text').trim() || 'text';
+    var hasChoices = Array.isArray(field.choices) && field.choices.length > 0;
+    var hasCode = Boolean(field.code && String(field.code).trim());
+    var isRequired = !(field.required === false || field.required === 'False');
+    var extraMods = [];
+    keys.forEach(function (key) {
+      if (reserved[key] || key === 'label' || key === 'question' || key === 'field' || key === 'variable' || key === 'datatype' || key === 'type') return;
+      var value = field[key];
+      if (value === undefined || value === null || String(value).trim() === '') return;
+      extraMods.push(key);
     });
-    ['adv-help', 'adv-script', 'adv-css', 'adv-validation-code', 'adv-comment'].forEach(function (id) {
-      var el = document.getElementById(id);
-      var keyMap = { 'adv-help': 'help', 'adv-script': 'script', 'adv-css': 'css', 'adv-validation-code': 'validation code', 'adv-comment': 'comment' };
-      if (el && String(el.value || '').trim()) yaml = appendYamlValue(yaml, keyMap[id], el.value);
-    });
-    ['adv-allowed-to-set', 'adv-depends-on', 'adv-undefine', 'adv-reconsider'].forEach(function (id) {
-      var el = document.getElementById(id);
-      var keyMap = { 'adv-allowed-to-set': 'allowed to set', 'adv-depends-on': 'depends on', 'adv-undefine': 'undefine', 'adv-reconsider': 'reconsider' };
-      if (el && String(el.value || '').trim()) yaml = appendYamlListValue(yaml, keyMap[id], el.value);
+
+    if (label.indexOf('\n') !== -1 || datatype !== 'text' || hasChoices || hasCode || !isRequired || extraMods.length > 0) {
+      yaml += '  - label: ' + escapeYamlStr(label) + '\n';
+      if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
+    } else {
+      yaml += '  - ' + escapeYamlStr(label) + ':';
+      if (variable) yaml += ' ' + escapeYamlStr(variable) + '\n';
+      else yaml += '\n';
+    }
+
+    if (datatype && datatype !== 'text') yaml += '    datatype: ' + datatype + '\n';
+    if (hasChoices) {
+      yaml += '    choices:\n';
+      field.choices.forEach(function (choice) {
+        var choiceText = String(choice || '').trim();
+        if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+      });
+    }
+    if (hasCode) {
+      var codeText = String(field.code);
+      if (codeText.indexOf('\n') !== -1) {
+        yaml += '    code: |\n';
+        codeText.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+      } else {
+        yaml += '    code: ' + codeText + '\n';
+      }
+    }
+    if (!isRequired) yaml += '    required: False\n';
+
+    extraMods.forEach(function (key) {
+      var value = field[key];
+      if (value === undefined || value === null || String(value).trim() === '') return;
+      yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
     });
 
     return yaml;
@@ -2254,52 +2509,10 @@
 
   function serializeCodeToYaml(block) {
     var yaml = '';
+    var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
     var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'code_block');
     yaml = appendYamlValue(yaml, 'id', blockId);
-
-    var condToggle = document.getElementById('adv-enable-if');
-    var condInput = document.getElementById('adv-if');
-    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
-    }
-
-    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
-    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
-      yaml += 'mandatory: True\n';
-    }
-
-    var setsInput = document.getElementById('adv-sets');
-    if (setsInput && setsInput.value.trim()) {
-      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
-      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
-    }
-
-    var needInput = document.getElementById('adv-need');
-    if (needInput && needInput.value.trim()) {
-      yaml = appendYamlListValue(yaml, 'need', needInput.value);
-    }
-
-    var eventInput = document.getElementById('adv-event');
-    if (eventInput && eventInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'event', eventInput.value);
-    }
-
-    var genericObjectInput = document.getElementById('adv-generic-object');
-    if (genericObjectInput && genericObjectInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
-    }
-
-    var contField = document.getElementById('adv-continue-field');
-    if (contField && contField.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
-    }
-
-    var contLabel = document.getElementById('adv-continue-label');
-    if (contLabel && contLabel.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
-    }
 
     var codeText = getMonacoValue('code-monaco');
     if (!codeText && block && block.data && block.data.code) {
@@ -2310,57 +2523,15 @@
       yaml += '  ' + line + '\n';
     });
 
-    return yaml;
+    return _appendQuestionAdvancedYaml(yaml, block);
   }
 
   function serializeObjectsToYaml(block) {
     var yaml = '';
+    var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
     var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'objects_block');
     yaml = appendYamlValue(yaml, 'id', blockId);
-
-    var condToggle = document.getElementById('adv-enable-if');
-    var condInput = document.getElementById('adv-if');
-    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'if', condInput.value.trim());
-    }
-
-    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
-    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) {
-      yaml += 'mandatory: True\n';
-    }
-
-    var setsInput = document.getElementById('adv-sets');
-    if (setsInput && setsInput.value.trim()) {
-      var setsKey = setsInput.getAttribute('data-sets-key') || 'sets';
-      yaml = appendYamlListValue(yaml, setsKey, setsInput.value);
-    }
-
-    var needInput = document.getElementById('adv-need');
-    if (needInput && needInput.value.trim()) {
-      yaml = appendYamlListValue(yaml, 'need', needInput.value);
-    }
-
-    var eventInput = document.getElementById('adv-event');
-    if (eventInput && eventInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'event', eventInput.value);
-    }
-
-    var genericObjectInput = document.getElementById('adv-generic-object');
-    if (genericObjectInput && genericObjectInput.value.trim()) {
-      yaml = appendYamlValue(yaml, 'generic object', genericObjectInput.value);
-    }
-
-    var contField = document.getElementById('adv-continue-field');
-    if (contField && contField.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button field', contField.value);
-    }
-
-    var contLabel = document.getElementById('adv-continue-label');
-    if (contLabel && contLabel.value.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button label', contLabel.value);
-    }
 
     yaml += 'objects:\n';
     var rows = document.querySelectorAll('.editor-obj-row');
@@ -2375,7 +2546,7 @@
       });
     }
 
-    return yaml;
+    return _appendQuestionAdvancedYaml(yaml, block);
   }
 
   function syncQuestionMetaToData(blk) {
@@ -2520,7 +2691,7 @@
     var rows = document.querySelectorAll('.editor-field-row');
     syncQuestionMetaToData(blk);
     if (rows.length === 0) {
-      blk.data.fields = [];
+      if (state.questionBlockTab === 'screen' && !state.markdownPreviewMode) blk.data.fields = [];
       return;
     }
     blk.data.fields = [];
@@ -3322,7 +3493,10 @@
       block_id: block.id,
       block_yaml: yamlVal,
     }).then(function (res) {
-      if (!res.success || !res.data) return false;
+      if (!res.success || !res.data) {
+        window.alert((res.error && res.error.message) || 'Unable to save block.');
+        return false;
+      }
       var keepBlockId = res.data.saved_block_id || block.id;
       refreshFromFileResponse(res.data);
       state.selectedBlockId = keepBlockId;
@@ -3684,6 +3858,17 @@
         html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' + esc(String(data.subquestion || '')) + '</textarea>';
       }
       html += '</div>';
+
+      if (!isMdPreview && (data['continue button field'] || data['continue button label'])) {
+        html += '<div class="editor-info-box mt-2">';
+        if (data['continue button field']) {
+          html += '<div><strong>Continue button field:</strong> ' + esc(String(data['continue button field'])) + '</div>';
+        }
+        if (data['continue button label']) {
+          html += '<div><strong>Continue button label:</strong> ' + esc(String(data['continue button label'])) + '</div>';
+        }
+        html += '</div>';
+      }
 
       // Fields section — merged into same card
       if (fields.length > 0) {
@@ -5941,7 +6126,8 @@
     }
     if (target.id === 'btn-preview-interview') {
       if (!state.filename) return;
-      saveCurrentBlockIfDirty().then(function () {
+      saveCurrentBlockIfDirty().then(function (saved) {
+        if (!saved) return;
         apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
           .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
       });
@@ -6026,23 +6212,13 @@
 
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
-      if (state.questionEditMode === 'preview') {
-        // Switching from preview to yaml: sync current edits to block.yaml
-        var block = getSelectedBlock();
-        if (block) {
-          if (block.type === 'question') {
-            syncFieldsToData(block);
-            block.yaml = serializeQuestionToYaml(block);
-          } else if (block.type === 'code') {
-            block.yaml = serializeCodeToYaml(block);
-          } else if (block.type === 'objects') {
-            block.yaml = serializeObjectsToYaml(block);
-          }
-        }
-      }
-      state.questionEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
-      state.markdownPreviewMode = false;
-      renderCanvas();
+      var nextEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
+      saveCurrentBlockIfDirty().then(function (saved) {
+        if (!saved) return;
+        state.questionEditMode = nextEditMode;
+        state.markdownPreviewMode = false;
+        renderCanvas();
+      });
       return;
     }
 
@@ -6053,21 +6229,30 @@
       var qTab = questionModeButton.getAttribute('data-question-tab');
       var isPreviewTab = questionModeButton.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
-        var block = getSelectedBlock();
-        if (block) {
-          if (block.type === 'question') {
-            syncFieldsToData(block);
-            block.yaml = serializeQuestionToYaml(block);
-          } else if (block.type === 'code') {
-            block.yaml = serializeCodeToYaml(block);
-          } else if (block.type === 'objects') {
-            block.yaml = serializeObjectsToYaml(block);
-          }
-        }
-        state.questionEditMode = 'yaml';
-        state.markdownPreviewMode = false;
+        saveCurrentBlockIfDirty().then(function (saved) {
+          if (!saved) return;
+          state.questionEditMode = 'yaml';
+          state.markdownPreviewMode = false;
+          renderCanvas();
+        });
+        return;
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
-        state.questionEditMode = 'preview';
+        saveCurrentBlockIfDirty().then(function (saved) {
+          if (!saved) return;
+          state.questionEditMode = 'preview';
+          if (qTab === 'screen' || qTab === 'options') {
+            state.questionBlockTab = qTab;
+            state.markdownPreviewMode = false;
+          } else if (isPreviewTab) {
+            var selectedForPreview = getSelectedBlock();
+            if (selectedForPreview && selectedForPreview.type === 'question') {
+              syncFieldsToData(selectedForPreview);
+            }
+            state.markdownPreviewMode = true;
+          }
+          renderCanvas();
+        });
+        return;
       }
       if (qMode === 'preview') {
         if (qTab === 'screen' || qTab === 'options') {
@@ -6080,8 +6265,8 @@
           }
           state.markdownPreviewMode = true;
         }
+        renderCanvas();
       }
-      renderCanvas();
       return;
     }
 

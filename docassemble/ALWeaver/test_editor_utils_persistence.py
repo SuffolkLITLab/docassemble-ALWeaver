@@ -49,6 +49,71 @@ class TestEditorUtilsPersistence(unittest.TestCase):
             "Next question",
         )
 
+    def test_update_block_in_yaml_preserves_question_fields_and_choices(self):
+        source_yaml = (
+            "id: intro\n"
+            "question: Original question\n"
+            "fields:\n"
+            "  - name: Name\n"
+            "---\n"
+            "id: next\n"
+            "question: Next question\n"
+        )
+
+        model = parse_interview_yaml(source_yaml)
+        intro_id = model["blocks"][0]["id"]
+
+        updated_block_yaml = (
+            "id: intro\n"
+            "question: Edited question\n"
+            "fields:\n"
+            "  - label: Favorite color\n"
+            "    field: favorite_color\n"
+            "    datatype: radio\n"
+            "    choices:\n"
+            "      - 1\n"
+            "      - 2\n"
+            "      - 3\n"
+        )
+
+        updated_yaml = update_block_in_yaml(source_yaml, intro_id, updated_block_yaml)
+        reparsed = parse_interview_yaml(updated_yaml)
+
+        first_block = reparsed["blocks"][0]["data"]
+        self.assertEqual(first_block["question"].strip(), "Edited question")
+        self.assertEqual(first_block["fields"][0]["field"], "favorite_color")
+        self.assertEqual(first_block["fields"][0]["datatype"], "radio")
+        self.assertEqual(first_block["fields"][0]["choices"], [1, 2, 3])
+
+    def test_update_block_in_yaml_preserves_continue_button_metadata(self):
+        source_yaml = (
+            "id: intro\n"
+            "question: Original question\n"
+            "continue button field: intro_continue\n"
+            "continue button label: Next\n"
+            "---\n"
+            "id: next\n"
+            "question: Next question\n"
+        )
+
+        model = parse_interview_yaml(source_yaml)
+        intro_id = model["blocks"][0]["id"]
+
+        updated_block_yaml = (
+            "id: intro\n"
+            "question: Updated question\n"
+            "continue button field: intro_continue\n"
+            "continue button label: Continue\n"
+        )
+
+        updated_yaml = update_block_in_yaml(source_yaml, intro_id, updated_block_yaml)
+        reparsed = parse_interview_yaml(updated_yaml)
+
+        first_block = reparsed["blocks"][0]["data"]
+        self.assertEqual(first_block["continue button field"], "intro_continue")
+        self.assertEqual(first_block["continue button label"], "Continue")
+        self.assertTrue(updated_yaml.endswith("\n"))
+
     def test_update_block_in_yaml_rejects_missing_block(self):
         source_yaml = "id: only\nquestion: One\n"
         with self.assertRaises(ValueError):
