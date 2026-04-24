@@ -2192,11 +2192,78 @@
 
   function stashReviewItemSnippets(block) {
     if (!block || !block.data) return;
-    var editors = document.querySelectorAll('.editor-review-item-yaml');
-    if (!editors.length) return;
-    block.data.review = Array.prototype.map.call(editors, function (el) {
-      return serializeReviewItemSnippetForBlock(el.value).trim();
+    var controls = document.querySelectorAll('.editor-review-item[data-review-item-idx]');
+    if (!controls.length) return;
+    block.data.review = Array.prototype.map.call(controls, function (el) {
+      return _serializeReviewItemFromControls(el.getAttribute('data-review-item-idx')).trim();
     });
+  }
+
+  function _reviewItemActionKey(item) {
+    if (!item || typeof item !== 'object') return '';
+    var reserved = {
+      button: true,
+      help: true,
+      'show if': true,
+      'hide if': true,
+      'css class': true,
+      fields: true,
+      note: true,
+      html: true,
+    };
+    var keys = Object.keys(item);
+    for (var i = 0; i < keys.length; i++) {
+      if (!reserved[keys[i]]) return keys[i];
+    }
+    return '';
+  }
+
+  function _reviewFieldsValueToText(value) {
+    if (Array.isArray(value)) {
+      return value.map(function (item) {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') return Object.keys(item)[0] || '';
+        return String(item || '');
+      }).filter(Boolean).join('\n');
+    }
+    if (value === undefined || value === null) return '';
+    if (typeof value === 'object') return JSON.stringify(value, null, 2);
+    return String(value);
+  }
+
+  function _reviewFieldsTextToValue(text) {
+    var parts = String(text || '').split(/[\n,]/).map(function (part) {
+      return part.trim();
+    }).filter(Boolean);
+    if (parts.length > 1) return parts;
+    return parts[0] || '';
+  }
+
+  function _serializeReviewItemFromControls(idx) {
+    var kindEl = document.querySelector('[data-review-kind="' + idx + '"]');
+    if (!kindEl) return '';
+    var kind = kindEl.value || 'edit';
+    if (kind === 'raw') {
+      var rawEl = document.getElementById('review-item-yaml-' + idx);
+      return serializeReviewItemSnippetForBlock(rawEl ? rawEl.value : '');
+    }
+    var item = {};
+    if (kind === 'note' || kind === 'html') {
+      var contentEl = document.getElementById('review-item-content-' + idx);
+      item[kind] = contentEl ? contentEl.value : '';
+    } else {
+      var labelEl = document.getElementById('review-item-label-' + idx);
+      var fieldsEl = document.getElementById('review-item-fields-' + idx);
+      var buttonEl = document.getElementById('review-item-button-' + idx);
+      var actionKey = labelEl && labelEl.value.trim() ? labelEl.value.trim() : 'Edit';
+      item[actionKey] = _reviewFieldsTextToValue(fieldsEl ? fieldsEl.value : '');
+      if (buttonEl && buttonEl.value.trim()) item.button = buttonEl.value;
+    }
+    var showIfEl = document.getElementById('review-item-show-if-' + idx);
+    if (showIfEl && showIfEl.value.trim()) item['show if'] = showIfEl.value.trim();
+    var helpEl = document.getElementById('review-item-help-' + idx);
+    if (helpEl && helpEl.value.trim()) item.help = helpEl.value;
+    return serializeReviewItemData(item);
   }
 
   function _appendQuestionAdvancedYaml(yaml, block) {
@@ -2570,10 +2637,11 @@
     });
 
     yaml += 'review:\n';
-    var itemEditors = document.querySelectorAll('.editor-review-item-yaml');
-    if (itemEditors.length) {
-      itemEditors.forEach(function (el) {
-        serializeReviewItemSnippetForBlock(el.value).split('\n').forEach(function (line) {
+    var itemControls = document.querySelectorAll('.editor-review-item[data-review-item-idx]');
+    if (itemControls.length) {
+      itemControls.forEach(function (el) {
+        var idx = el.getAttribute('data-review-item-idx');
+        _serializeReviewItemFromControls(idx).split('\n').forEach(function (line) {
           if (line.trim()) yaml += '  ' + line + '\n';
         });
       });
@@ -4296,7 +4364,7 @@
   function _reviewItemSummary(item, index) {
     if (typeof item === 'string') {
       var firstLine = item.trim().split('\n')[0] || 'Review item ' + (index + 1);
-      return { kind: firstLine.indexOf('html:') !== -1 ? 'HTML' : (firstLine.indexOf('note:') !== -1 ? 'Note' : 'YAML'), title: firstLine.replace(/^- /, ''), meta: 'custom YAML' };
+      return { kind: firstLine.indexOf('html:') !== -1 ? 'HTML' : (firstLine.indexOf('note:') !== -1 ? 'Note' : 'Field'), title: firstLine.replace(/^- /, ''), meta: '' };
     }
     if (!item || typeof item !== 'object') return { kind: 'Item', title: 'Review item ' + (index + 1), meta: '' };
     if (Object.prototype.hasOwnProperty.call(item, 'note')) {
@@ -4324,7 +4392,7 @@
     }).filter(Boolean).join(', ');
     else if (actionVal !== undefined && actionVal !== null && typeof actionVal !== 'object') meta = String(actionVal);
     if (item['show if']) meta = meta ? meta + ' - show if' : 'show if';
-    return { kind: 'Edit', title: String(label || 'Edit'), meta: meta };
+    return { kind: 'Field', title: String(label || 'Edit'), meta: meta };
   }
 
   function renderReviewBlock(block) {
@@ -4367,13 +4435,13 @@
     html += '</div>';
 
     html += '<div class="editor-review-route-grid mt-2">';
-    html += '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '" placeholder="review_form"></div>';
-    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '" placeholder="answers_reviewed"></div>';
+    html += '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '"></div>';
+    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '"></div>';
     html += '</div>';
 
     var hasMeta = Boolean(data.need || data.tabular || Object.prototype.hasOwnProperty.call(data, 'skip undefined'));
-    html += '<button type="button" class="editor-advanced-toggle editor-review-meta-toggle mt-2" id="toggle-review-meta"><i class="fa-solid fa-chevron-down editor-collapse-icon' + ((state.reviewMetaOpen || hasMeta) ? '' : ' collapsed') + '" aria-hidden="true"></i>Review options' + (hasMeta ? ' <span class="editor-active-dot" aria-hidden="true"></span>' : '') + '</button>';
-    if (state.reviewMetaOpen || hasMeta) {
+    html += '<button type="button" class="editor-advanced-toggle editor-review-meta-toggle mt-2" id="toggle-review-meta"><i class="fa-solid fa-chevron-down editor-collapse-icon' + (state.reviewMetaOpen ? '' : ' collapsed') + '" aria-hidden="true"></i>Review options' + (hasMeta ? ' <span class="editor-active-dot" aria-hidden="true"></span>' : '') + '</button>';
+    if (state.reviewMetaOpen) {
       var needVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
       html += '<div class="editor-advanced-body editor-review-meta-body">';
       html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need <span class="text-muted">(comma-separated)</span></label><input class="form-control editor-form-control font-monospace" id="review-need" value="' + esc(needVal) + '"></div>';
@@ -4389,29 +4457,68 @@
     html += '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea></div>';
     html += '</div></div>';
 
-    html += '<div class="editor-card"><div class="editor-card-header d-flex align-items-center justify-content-between"><span>Review items</span><div class="d-flex gap-2 flex-wrap">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
-    html += '</div></div><div class="editor-card-body editor-review-list">';
+    html += '<div class="editor-card"><div class="editor-card-header"><span>Review items</span></div><div class="editor-card-body editor-review-list">';
     if (!reviewItems.length) {
       html += '<div class="text-muted small mb-2">No review items yet.</div>';
     }
     reviewItems.forEach(function (item, idx) {
       var summary = _reviewItemSummary(item, idx);
       var isOpen = state.openReviewItemIndex === idx;
+      var isStringRaw = typeof item === 'string';
+      var isNote = !isStringRaw && item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'note');
+      var isHtml = !isStringRaw && item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'html');
+      var actionKey = isStringRaw || isNote || isHtml ? '' : _reviewItemActionKey(item);
+      var supportedReviewItemKeys = {};
+      if (actionKey) supportedReviewItemKeys[actionKey] = true;
+      ['button', 'show if', 'help', 'fields', 'note', 'html'].forEach(function (key) { supportedReviewItemKeys[key] = true; });
+      var hasUnsupportedKeys = !isStringRaw && item && typeof item === 'object' && Object.keys(item).some(function (key) { return !supportedReviewItemKeys[key]; });
+      var isRaw = isStringRaw || hasUnsupportedKeys;
+      var actionValue = actionKey ? item[actionKey] : item.fields;
       html += '<div class="editor-review-item" data-review-item-idx="' + idx + '">';
+      html += '<input type="hidden" data-review-kind="' + idx + '" value="' + (isRaw ? 'raw' : (isNote ? 'note' : (isHtml ? 'html' : 'edit'))) + '">';
       html += '<button type="button" class="editor-review-item-summary" data-review-item-toggle="' + idx + '">';
       html += '<span class="editor-review-kind">' + esc(summary.kind) + '</span>';
       html += '<span class="editor-review-title">' + esc(summary.title) + '</span>';
       if (summary.meta) html += '<span class="editor-review-meta">' + esc(summary.meta) + '</span>';
-      html += '<span class="editor-review-edit-hint">Double-click to edit</span>';
       html += '</button>';
       html += '<div class="editor-review-item-editor' + (isOpen ? '' : ' d-none') + '">';
-      html += '<textarea class="form-control editor-form-control font-monospace editor-review-item-yaml" rows="8">' + esc(serializeReviewItemData(item).trim()) + '</textarea>';
+      if (isRaw) {
+        html += '<textarea class="form-control editor-form-control font-monospace editor-review-item-yaml" id="review-item-yaml-' + idx + '" rows="8">' + esc(serializeReviewItemData(item).trim()) + '</textarea>';
+      } else if (isNote || isHtml) {
+        html += '<label class="editor-tiny" for="review-item-content-' + idx + '">' + (isHtml ? 'HTML' : 'Note') + '</label>';
+        html += '<textarea class="form-control editor-form-control ' + (isHtml ? 'font-monospace' : '') + '" id="review-item-content-' + idx + '" rows="5">' + esc(String(item[isHtml ? 'html' : 'note'] || '')) + '</textarea>';
+        html += '<label class="editor-tiny mt-2" for="review-item-show-if-' + idx + '">Show if</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' + idx + '" value="' + esc(String(item['show if'] || '')) + '">';
+        if (item.help) {
+          html += '<label class="editor-tiny mt-2" for="review-item-help-' + idx + '">Help</label>';
+          html += '<textarea class="form-control editor-form-control" id="review-item-help-' + idx + '" rows="2">' + esc(String(item.help || '')) + '</textarea>';
+        }
+      } else {
+        html += '<div class="editor-review-edit-grid">';
+        html += '<div><label class="editor-tiny" for="review-item-label-' + idx + '">Button label</label><input class="form-control editor-form-control" id="review-item-label-' + idx + '" value="' + esc(actionKey || 'Edit') + '"></div>';
+        html += '<div><label class="editor-tiny" for="review-item-fields-' + idx + '">Field</label><textarea class="form-control editor-form-control font-monospace" id="review-item-fields-' + idx + '" data-symbol-role="all" rows="2">' + esc(_reviewFieldsValueToText(actionValue)) + '</textarea></div>';
+        html += '</div>';
+        html += '<div class="editor-form-group mt-2"><label class="editor-tiny" for="review-item-button-' + idx + '">Button</label>';
+        html += renderMarkdownToolbar('review-item-button-' + idx, false);
+        html += '<textarea class="form-control editor-form-control" id="review-item-button-' + idx + '" rows="5">' + esc(String(item.button || '')) + '</textarea></div>';
+        html += '<label class="editor-tiny" for="review-item-show-if-' + idx + '">Show if</label>';
+        html += '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' + idx + '" value="' + esc(String(item['show if'] || '')) + '">';
+        if (item.help) {
+          html += '<label class="editor-tiny mt-2" for="review-item-help-' + idx + '">Help</label>';
+          html += '<textarea class="form-control editor-form-control" id="review-item-help-' + idx + '" rows="2">' + esc(String(item.help || '')) + '</textarea>';
+        }
+      }
       html += '<div class="d-flex justify-content-end mt-2"><button type="button" class="btn btn-sm btn-ghost-danger" data-remove-review-item="' + idx + '"><i class="fa-solid fa-trash-can me-1" aria-hidden="true"></i>Remove</button></div>';
       html += '</div></div>';
     });
+    html += '<div class="editor-review-add-row">';
+    html += '<label class="editor-tiny" for="review-new-field">Field</label>';
+    html += '<div class="editor-review-add-controls">';
+    html += '<input class="form-control editor-form-control font-monospace" id="review-new-field" data-symbol-role="all">';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
+    html += '</div></div>';
     html += '</div></div>';
     html += '</div>';
     canvasContent.innerHTML = html;
@@ -4420,7 +4527,7 @@
       var el = document.getElementById(id);
       if (el) _initAutoResize(el, 80);
     });
-    document.querySelectorAll('.editor-review-item-yaml').forEach(function (el) {
+    document.querySelectorAll('.editor-review-item-yaml, [id^="review-item-button-"], [id^="review-item-fields-"], #review-new-field').forEach(function (el) {
       _initAutoResize(el, 120);
     });
   }
@@ -6674,7 +6781,13 @@
         } else if (kindToAdd === 'html') {
           reviewBlock.data.review.push({ html: '<div class="collapse">Add accordion HTML here.</div>' });
         } else {
-          reviewBlock.data.review.push({ Edit: 'new_variable', button: 'New answer: ${ showifdef("new_variable") }' });
+          var fieldEl = document.getElementById('review-new-field');
+          var fieldName = fieldEl && fieldEl.value.trim() ? fieldEl.value.trim() : '';
+          if (!fieldName) {
+            if (fieldEl) fieldEl.focus();
+            return;
+          }
+          reviewBlock.data.review.push({ Edit: fieldName, button: '${ showifdef("' + fieldName.replace(/"/g, '\\"') + '") }' });
         }
         state.openReviewItemIndex = reviewBlock.data.review.length - 1;
         state.dirty = true;
@@ -7102,6 +7215,7 @@
         target.id === 'review-subquestion' || target.id === 'review-event' ||
         target.id === 'review-continue-field' || target.id === 'review-need' ||
         target.id === 'review-tabular' || target.matches('.editor-review-item-yaml') ||
+        target.closest('.editor-review-item') || target.id === 'review-new-field' ||
         target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
         target.matches('.editor-field-showif-key')) {
       state.dirty = true;

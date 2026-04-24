@@ -1824,7 +1824,7 @@ html, body {
   background: transparent;
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   text-align: left;
@@ -1866,9 +1866,33 @@ html, body {
   background: #fbfcfd;
 }
 
+.editor-review-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.6fr) minmax(0, 1.4fr);
+  gap: 10px;
+}
+
+.editor-review-add-row {
+  border-top: 1px solid var(--editor-border);
+  margin-top: 2px;
+  padding-top: 12px;
+}
+
+.editor-review-add-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 900px) {
   .editor-review-route-grid,
+  .editor-review-edit-grid,
   .editor-review-item-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-review-add-controls {
     grid-template-columns: 1fr;
   }
 
