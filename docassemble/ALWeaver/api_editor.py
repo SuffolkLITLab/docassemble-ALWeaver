@@ -18,6 +18,7 @@ Provides:
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
+    POST /al/editor/api/draft-review-screen — generate draft review YAML
     GET  /al/editor/api/preview-url — get the interview preview URL
     GET  /al/editor/api/weaver/validate — validate a YAML file with Weaver checks
 """
@@ -2747,6 +2748,55 @@ def editor_api_draft_order() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: draft-order error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/draft-review-screen", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_draft_review_screen() -> Response:
+    """Generate draft review-screen YAML using ALDashboard when available."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+
+        raw_yaml = playground_read_yaml(uid, project, filename)
+        from docassemble.ALDashboard.review_screen_generator import (
+            generate_review_screen_yaml,
+        )
+
+        review_yaml = generate_review_screen_yaml([raw_yaml])
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"review_yaml": review_yaml},
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: draft-review-screen error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

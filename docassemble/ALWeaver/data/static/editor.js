@@ -48,6 +48,8 @@
     questionBlockTab: 'screen',
     advancedOpen: false,
     advancedShowMore: false,
+    reviewMetaOpen: false,
+    openReviewItemIndex: null,
     jumpTarget: 'questions',
     fullYamlTab: 'full',
     searchQuery: '',
@@ -490,6 +492,17 @@
         '  - name: Draft document\n' +
         '    filename: draft_document\n' +
         '    docx template file: draft_template.docx\n'
+      );
+    }
+    if (kind === 'review') {
+      return (
+        'id: review_screen_' + stamp + '\n' +
+        'event: review_form\n' +
+        'question: Review your answers\n' +
+        'review:\n' +
+        '  - Edit: new_field_' + stamp + '\n' +
+        '    button: |\n' +
+        '      New answer: ${ showifdef("new_field_' + stamp + '") }\n'
       );
     }
     return (
@@ -2081,6 +2094,111 @@
     return yaml;
   }
 
+  function _yamlScalar(value) {
+    if (value === true) return 'True';
+    if (value === false) return 'False';
+    if (value === null || value === undefined) return '';
+    return escapeYamlStr(String(value));
+  }
+
+  function _yamlValueLines(value, indent) {
+    var pad = ' '.repeat(indent || 0);
+    var lines = [];
+    if (Array.isArray(value)) {
+      if (value.length === 0) return ['[]'];
+      value.forEach(function (item) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          var keys = Object.keys(item);
+          if (keys.length === 0) {
+            lines.push(pad + '- {}');
+          } else {
+            var first = keys[0];
+            var firstVal = item[first];
+            if (firstVal && typeof firstVal === 'object') {
+              lines.push(pad + '- ' + first + ':');
+              lines = lines.concat(_yamlValueLines(firstVal, indent + 4));
+            } else {
+              lines.push(pad + '- ' + first + ': ' + _yamlScalar(firstVal));
+            }
+            keys.slice(1).forEach(function (key) {
+              lines = lines.concat(_yamlKeyValueLines(key, item[key], indent + 2));
+            });
+          }
+        } else {
+          lines.push(pad + '- ' + _yamlScalar(item));
+        }
+      });
+      return lines;
+    }
+    if (value && typeof value === 'object') {
+      Object.keys(value).forEach(function (key) {
+        lines = lines.concat(_yamlKeyValueLines(key, value[key], indent));
+      });
+      return lines.length ? lines : ['{}'];
+    }
+    return [_yamlScalar(value)];
+  }
+
+  function _yamlKeyValueLines(key, value, indent) {
+    var pad = ' '.repeat(indent || 0);
+    if (Array.isArray(value) || (value && typeof value === 'object')) {
+      return [pad + key + ':'].concat(_yamlValueLines(value, (indent || 0) + 2));
+    }
+    if (typeof value === 'string' && value.indexOf('\n') !== -1) {
+      var out = [pad + key + ': |'];
+      value.replace(/\n$/, '').split('\n').forEach(function (line) {
+        out.push(pad + '  ' + line);
+      });
+      return out;
+    }
+    return [pad + key + ': ' + _yamlScalar(value)];
+  }
+
+  function serializeReviewItemData(item) {
+    if (typeof item === 'string') {
+      var raw = item.trim();
+      if (raw.indexOf('- ') === 0) return raw + '\n';
+      return '- ' + _yamlScalar(item) + '\n';
+    }
+    if (!item || typeof item !== 'object') return '- note: ""\n';
+    var keys = Object.keys(item);
+    if (!keys.length) return '- note: ""\n';
+    var first = keys[0];
+    var lines = [];
+    var firstValue = item[first];
+    if (Array.isArray(firstValue) || (firstValue && typeof firstValue === 'object')) {
+      lines.push('- ' + first + ':');
+      lines = lines.concat(_yamlValueLines(firstValue, 2));
+    } else if (typeof firstValue === 'string' && firstValue.indexOf('\n') !== -1) {
+      lines.push('- ' + first + ': |');
+      firstValue.replace(/\n$/, '').split('\n').forEach(function (line) {
+        lines.push('  ' + line);
+      });
+    } else {
+      lines.push('- ' + first + ': ' + _yamlScalar(firstValue));
+    }
+    keys.slice(1).forEach(function (key) {
+      lines = lines.concat(_yamlKeyValueLines(key, item[key], 2));
+    });
+    return lines.join('\n') + '\n';
+  }
+
+  function serializeReviewItemSnippetForBlock(snippet) {
+    var text = String(snippet || '').trim();
+    if (!text) return '';
+    if (text.indexOf('- ') === 0) return text + '\n';
+    return '- ' + text + '\n';
+  }
+
+  function stashReviewItemSnippets(block) {
+    if (!block || !block.data) return;
+    var editors = document.querySelectorAll('.editor-review-item-yaml');
+    if (!editors.length) return;
+    block.data.review = Array.prototype.map.call(editors, function (el) {
+      return serializeReviewItemSnippetForBlock(el.value).trim();
+    });
+  }
+
   function _appendQuestionAdvancedYaml(yaml, block) {
     var data = (block && block.data) || {};
 
@@ -2394,6 +2512,81 @@
     }
 
     return _appendQuestionAdvancedYaml(yaml, block);
+  }
+
+  function serializeReviewToYaml(block) {
+    var data = (block && block.data) || {};
+    var yaml = '';
+    var blockIdEl = document.getElementById('review-block-id');
+    var blockId = blockIdEl ? blockIdEl.value.trim() : String(data.id || (block && block.id) || 'review_screen');
+    yaml = appendYamlValue(yaml, 'id', blockId || 'review_screen');
+
+    var eventEl = document.getElementById('review-event');
+    var eventText = eventEl ? eventEl.value.trim() : String(data.event || '').trim();
+    if (eventText) yaml = appendYamlValue(yaml, 'event', eventText);
+
+    var questionEl = document.getElementById('review-question');
+    var questionText = questionEl ? questionEl.value : String(data.question || 'Review your answers');
+    yaml = appendYamlValue(yaml, 'question', questionText || 'Review your answers');
+
+    var subEl = document.getElementById('review-subquestion');
+    var subText = subEl ? subEl.value : String(data.subquestion || '');
+    if (subText.trim()) yaml = appendYamlValue(yaml, 'subquestion', subText);
+
+    var continueEl = document.getElementById('review-continue-field');
+    var continueText = continueEl ? continueEl.value.trim() : String(data['continue button field'] || data.field || '').trim();
+    var continueKey = continueEl ? (continueEl.getAttribute('data-continue-key') || 'continue button field') : (data.field && !data['continue button field'] ? 'field' : 'continue button field');
+    if (continueText) yaml = appendYamlValue(yaml, continueKey, continueText);
+
+    var needEl = document.getElementById('review-need');
+    var needText = needEl ? needEl.value.trim() : (Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '').trim());
+    if (needText) yaml = appendYamlListValue(yaml, 'need', needText);
+
+    var tabularEl = document.getElementById('review-tabular');
+    var tabularText = tabularEl ? tabularEl.value.trim() : String(data.tabular || '').trim();
+    if (tabularText) yaml = appendYamlValue(yaml, 'tabular', tabularText);
+
+    var skipUndefinedEl = document.getElementById('review-skip-undefined');
+    var skipUndefinedText = skipUndefinedEl ? skipUndefinedEl.value.trim() : (data['skip undefined'] === false ? 'False' : '');
+    if (skipUndefinedText) yaml = appendYamlValue(yaml, 'skip undefined', skipUndefinedText);
+
+    var managedReviewKeys = {
+      id: true,
+      event: true,
+      question: true,
+      subquestion: true,
+      field: true,
+      'continue button field': true,
+      need: true,
+      tabular: true,
+      'skip undefined': true,
+      review: true,
+    };
+    Object.keys(data).forEach(function (key) {
+      if (managedReviewKeys[key] || key.charAt(0) === '_') return;
+      _yamlKeyValueLines(key, data[key], 0).forEach(function (line) {
+        yaml += line + '\n';
+      });
+    });
+
+    yaml += 'review:\n';
+    var itemEditors = document.querySelectorAll('.editor-review-item-yaml');
+    if (itemEditors.length) {
+      itemEditors.forEach(function (el) {
+        serializeReviewItemSnippetForBlock(el.value).split('\n').forEach(function (line) {
+          if (line.trim()) yaml += '  ' + line + '\n';
+        });
+      });
+    } else if (Array.isArray(data.review)) {
+      data.review.forEach(function (item) {
+        serializeReviewItemData(item).split('\n').forEach(function (line) {
+          if (line.trim()) yaml += '  ' + line + '\n';
+        });
+      });
+    } else {
+      yaml += '  - note: Add review items here.\n';
+    }
+    return yaml;
   }
 
   function _serializeQuestionFieldFromData(field) {
@@ -3199,7 +3392,8 @@
     var filtered = state.blocks.filter(function (b) {
       var blockType = getBlockDisplayType(b);
       if (state.jumpTarget === 'all') return true;
-      if (state.jumpTarget === 'questions') return blockType === 'question';
+      if (state.jumpTarget === 'questions') return blockType === 'question' || blockType === 'review';
+      if (state.jumpTarget === 'reviews') return blockType === 'review';
       if (state.jumpTarget === 'order') return Boolean(orderById[b.id]);
       if (state.jumpTarget === 'code') return blockType === 'code';
       if (state.jumpTarget === 'objects') return blockType === 'objects';
@@ -3253,6 +3447,7 @@
 
   function typeClass(type) {
     if (type === 'question') return 'editor-outline-type-q';
+    if (type === 'review') return 'editor-outline-type-review';
     if (type === 'code') return 'editor-outline-type-py';
     if (type === 'objects') return 'editor-outline-type-obj';
     if (type === 'metadata') return 'editor-outline-type-meta';
@@ -3264,6 +3459,7 @@
   function typeLabel(type) {
     if (type === 'commented') return 'Off';
     if (type === 'question') return 'Q';
+    if (type === 'review') return 'Rev';
     if (type === 'code') return 'Py';
     if (type === 'objects') return 'Obj';
     if (type === 'metadata') return 'Meta';
@@ -3475,6 +3671,9 @@
     }
     if (state.questionEditMode === 'preview' && block.type === 'objects') {
       return serializeObjectsToYaml(block);
+    }
+    if (state.questionEditMode === 'preview' && block.type === 'review') {
+      return serializeReviewToYaml(block);
     }
     var yamlVal = getMonacoValue('block-yaml-monaco');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
@@ -3705,6 +3904,8 @@
 
     if (block.type === 'question') {
       renderQuestionBlock(block);
+    } else if (block.type === 'review') {
+      renderReviewBlock(block);
     } else if (block.type === 'commented') {
       renderCommentedBlock(block);
     } else if (block.type === 'code') {
@@ -4090,6 +4291,138 @@
         });
       }
     }
+  }
+
+  function _reviewItemSummary(item, index) {
+    if (typeof item === 'string') {
+      var firstLine = item.trim().split('\n')[0] || 'Review item ' + (index + 1);
+      return { kind: firstLine.indexOf('html:') !== -1 ? 'HTML' : (firstLine.indexOf('note:') !== -1 ? 'Note' : 'YAML'), title: firstLine.replace(/^- /, ''), meta: 'custom YAML' };
+    }
+    if (!item || typeof item !== 'object') return { kind: 'Item', title: 'Review item ' + (index + 1), meta: '' };
+    if (Object.prototype.hasOwnProperty.call(item, 'note')) {
+      return { kind: 'Note', title: String(item.note || '').split('\n')[0] || 'Note', meta: item['show if'] ? 'show if' : '' };
+    }
+    if (Object.prototype.hasOwnProperty.call(item, 'html')) {
+      return { kind: 'HTML', title: String(item.html || '').split('\n')[0] || 'Raw HTML', meta: item['show if'] ? 'show if' : '' };
+    }
+    var label = item.label || '';
+    var keys = Object.keys(item);
+    var actionKey = '';
+    for (var i = 0; i < keys.length; i++) {
+      if (['button', 'help', 'show if', 'css class', 'fields'].indexOf(keys[i]) === -1) {
+        actionKey = keys[i];
+        break;
+      }
+    }
+    if (!label && actionKey) label = actionKey;
+    var actionVal = actionKey ? item[actionKey] : item.fields;
+    var meta = '';
+    if (Array.isArray(actionVal)) meta = actionVal.map(function (v) {
+      if (typeof v === 'string') return v;
+      if (v && typeof v === 'object') return Object.keys(v)[0];
+      return '';
+    }).filter(Boolean).join(', ');
+    else if (actionVal !== undefined && actionVal !== null && typeof actionVal !== 'object') meta = String(actionVal);
+    if (item['show if']) meta = meta ? meta + ' - show if' : 'show if';
+    return { kind: 'Edit', title: String(label || 'Edit'), meta: meta };
+  }
+
+  function renderReviewBlock(block) {
+    var data = block.data || {};
+    var reviewItems = Array.isArray(data.review) ? data.review : [];
+    var isYaml = state.questionEditMode === 'yaml';
+    var html = '';
+
+    html += '<div class="editor-center-bar">';
+    html += '<div>';
+    html += '<span class="editor-pill editor-pill-review">Review</span>';
+    if (data.event) html += ' <span class="editor-pill">event</span>';
+    if (data['continue button field'] || data.field) html += ' <span class="editor-pill">continue field</span>';
+    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title || 'Review') + '</div>';
+    html += '</div>';
+    html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Draft review</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isYaml ? 'Structured view' : 'Edit full YAML') + '</button>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="editor-shell">';
+    if (isYaml) {
+      html += '<div class="editor-card"><div class="editor-card-body">';
+      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '</div></div></div>';
+      canvasContent.innerHTML = html;
+      initMonaco(function () {
+        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+        });
+      });
+      return;
+    }
+
+    html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
+    html += '<div class="editor-block-id-row">';
+    html += '<span class="editor-block-id-label">ID</span>';
+    html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' + esc(data.id || block.id || '') + '" autocomplete="off">';
+    html += '</div>';
+
+    html += '<div class="editor-review-route-grid mt-2">';
+    html += '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '" placeholder="review_form"></div>';
+    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '" placeholder="answers_reviewed"></div>';
+    html += '</div>';
+
+    var hasMeta = Boolean(data.need || data.tabular || Object.prototype.hasOwnProperty.call(data, 'skip undefined'));
+    html += '<button type="button" class="editor-advanced-toggle editor-review-meta-toggle mt-2" id="toggle-review-meta"><i class="fa-solid fa-chevron-down editor-collapse-icon' + ((state.reviewMetaOpen || hasMeta) ? '' : ' collapsed') + '" aria-hidden="true"></i>Review options' + (hasMeta ? ' <span class="editor-active-dot" aria-hidden="true"></span>' : '') + '</button>';
+    if (state.reviewMetaOpen || hasMeta) {
+      var needVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
+      html += '<div class="editor-advanced-body editor-review-meta-body">';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need <span class="text-muted">(comma-separated)</span></label><input class="form-control editor-form-control font-monospace" id="review-need" value="' + esc(needVal) + '"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-tabular">Tabular</label><input class="form-control editor-form-control" id="review-tabular" value="' + esc(String(data.tabular || '')) + '" placeholder="True or table table-striped"></div>';
+      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-skip-undefined">Skip undefined</label><select class="form-select editor-form-control" id="review-skip-undefined">';
+      html += '<option value=""' + (data['skip undefined'] !== false ? ' selected' : '') + '>(default)</option>';
+      html += '<option value="False"' + (data['skip undefined'] === false ? ' selected' : '') + '>False</option>';
+      html += '</select></div>';
+      html += '</div>';
+    }
+
+    html += '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' + esc(String(data.question || 'Review your answers')) + '"></div>';
+    html += '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea></div>';
+    html += '</div></div>';
+
+    html += '<div class="editor-card"><div class="editor-card-header d-flex align-items-center justify-content-between"><span>Review items</span><div class="d-flex gap-2 flex-wrap">';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
+    html += '</div></div><div class="editor-card-body editor-review-list">';
+    if (!reviewItems.length) {
+      html += '<div class="text-muted small mb-2">No review items yet.</div>';
+    }
+    reviewItems.forEach(function (item, idx) {
+      var summary = _reviewItemSummary(item, idx);
+      var isOpen = state.openReviewItemIndex === idx;
+      html += '<div class="editor-review-item" data-review-item-idx="' + idx + '">';
+      html += '<button type="button" class="editor-review-item-summary" data-review-item-toggle="' + idx + '">';
+      html += '<span class="editor-review-kind">' + esc(summary.kind) + '</span>';
+      html += '<span class="editor-review-title">' + esc(summary.title) + '</span>';
+      if (summary.meta) html += '<span class="editor-review-meta">' + esc(summary.meta) + '</span>';
+      html += '<span class="editor-review-edit-hint">Double-click to edit</span>';
+      html += '</button>';
+      html += '<div class="editor-review-item-editor' + (isOpen ? '' : ' d-none') + '">';
+      html += '<textarea class="form-control editor-form-control font-monospace editor-review-item-yaml" rows="8">' + esc(serializeReviewItemData(item).trim()) + '</textarea>';
+      html += '<div class="d-flex justify-content-end mt-2"><button type="button" class="btn btn-sm btn-ghost-danger" data-remove-review-item="' + idx + '"><i class="fa-solid fa-trash-can me-1" aria-hidden="true"></i>Remove</button></div>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+    html += '</div>';
+    canvasContent.innerHTML = html;
+
+    ['review-subquestion'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) _initAutoResize(el, 80);
+    });
+    document.querySelectorAll('.editor-review-item-yaml').forEach(function (el) {
+      _initAutoResize(el, 120);
+    });
   }
 
   // --- Code block: Monaco + advanced panel ---
@@ -5419,6 +5752,9 @@
     var blockActionBtn = target.closest('[data-block-action]');
     var projectActionBtn = target.closest('[data-project-action]');
     var removeFieldBtn = target.closest('[data-remove-field]');
+    var addReviewItemBtn = target.closest('[data-add-review-item]');
+    var removeReviewItemBtn = target.closest('[data-remove-review-item]');
+    var reviewItemToggle = target.closest('[data-review-item-toggle]');
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
     var projectCardBtn = target.closest('[data-project-card]');
@@ -5660,7 +5996,12 @@
       var isAiScreen = kind === 'ai-screen';
       var insertKind = isAiScreen ? 'question' : kind;
       var newYaml = makeNewBlockYaml(insertKind);
-      if (insertKind !== 'question' && state.jumpTarget === 'questions') {
+      if (insertKind === 'review') {
+        state.jumpTarget = 'reviews';
+        $$('.editor-jump-item').forEach(function (j) {
+          j.classList.toggle('active', j.getAttribute('data-jump') === 'reviews');
+        });
+      } else if (insertKind !== 'question' && state.jumpTarget === 'questions') {
         state.jumpTarget = 'all';
         $$('.editor-jump-item').forEach(function (j) {
           j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
@@ -6309,6 +6650,71 @@
       return;
     }
 
+    if (target.id === 'toggle-review-meta') {
+      state.reviewMetaOpen = !state.reviewMetaOpen;
+      renderCanvas();
+      return;
+    }
+
+    if (reviewItemToggle) {
+      var ri = parseInt(reviewItemToggle.getAttribute('data-review-item-toggle'), 10);
+      state.openReviewItemIndex = state.openReviewItemIndex === ri ? null : ri;
+      renderCanvas();
+      return;
+    }
+
+    if (addReviewItemBtn) {
+      var reviewBlock = getSelectedBlock();
+      if (reviewBlock && reviewBlock.type === 'review') {
+        stashReviewItemSnippets(reviewBlock);
+        reviewBlock.data.review = Array.isArray(reviewBlock.data.review) ? reviewBlock.data.review : [];
+        var kindToAdd = addReviewItemBtn.getAttribute('data-add-review-item') || 'edit';
+        if (kindToAdd === 'note') {
+          reviewBlock.data.review.push({ note: 'Add a note for the review screen.' });
+        } else if (kindToAdd === 'html') {
+          reviewBlock.data.review.push({ html: '<div class="collapse">Add accordion HTML here.</div>' });
+        } else {
+          reviewBlock.data.review.push({ Edit: 'new_variable', button: 'New answer: ${ showifdef("new_variable") }' });
+        }
+        state.openReviewItemIndex = reviewBlock.data.review.length - 1;
+        state.dirty = true;
+        updateTopbarSaveState();
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (removeReviewItemBtn) {
+      var removeReviewBlock = getSelectedBlock();
+      var removeRi = parseInt(removeReviewItemBtn.getAttribute('data-remove-review-item'), 10);
+      if (removeReviewBlock && removeReviewBlock.type === 'review' && Array.isArray(removeReviewBlock.data.review)) {
+        if (!window.confirm('Remove this review item?')) return;
+        stashReviewItemSnippets(removeReviewBlock);
+        removeReviewBlock.data.review.splice(removeRi, 1);
+        state.openReviewItemIndex = null;
+        state.dirty = true;
+        updateTopbarSaveState();
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.id === 'draft-review-screen') {
+      if (!state.project || !state.filename) return;
+      apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename })
+        .then(function (res) {
+          if (res.success && res.data && res.data.review_yaml) {
+            state.canvasMode = 'full-yaml';
+            state.fullYamlTab = 'full';
+            state.fullYamlStash.full = (state.rawYaml || '').replace(/\s*$/, '\n---\n') + res.data.review_yaml.trim() + '\n';
+            renderCanvas();
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
+        });
+      return;
+    }
+
     // Kebab field options toggle
     var kebabBtn = target.closest ? target.closest('.editor-field-kebab-btn') : null;
     if (!kebabBtn && target.classList.contains('editor-field-kebab-btn')) kebabBtn = target;
@@ -6662,6 +7068,16 @@
     }
   });
 
+  document.addEventListener('dblclick', function (e) {
+    var target = e.target;
+    var reviewSummary = target.closest ? target.closest('[data-review-item-toggle]') : null;
+    if (reviewSummary) {
+      var ri = parseInt(reviewSummary.getAttribute('data-review-item-toggle'), 10);
+      state.openReviewItemIndex = ri;
+      renderCanvas();
+    }
+  });
+
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
@@ -6682,6 +7098,10 @@
         target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
         target.id === 'adv-continue-label' || target.id === 'adv-sets' || target.id === 'adv-need' ||
         target.id === 'adv-event' || target.id === 'adv-generic-object' ||
+        target.id === 'review-block-id' || target.id === 'review-question' ||
+        target.id === 'review-subquestion' || target.id === 'review-event' ||
+        target.id === 'review-continue-field' || target.id === 'review-need' ||
+        target.id === 'review-tabular' || target.matches('.editor-review-item-yaml') ||
         target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
         target.matches('.editor-field-showif-key')) {
       state.dirty = true;
@@ -6691,7 +7111,7 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
-    if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch') {
+    if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
       state.dirty = true;
       updateTopbarSaveState();
       return;
