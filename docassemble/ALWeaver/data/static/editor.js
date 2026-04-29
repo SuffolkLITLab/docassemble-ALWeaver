@@ -3880,6 +3880,42 @@
     });
   }
 
+  function saveCurrentSectionFileIfDirty() {
+    if (!state.sectionDirty) return Promise.resolve(true);
+    var sectionForSave = getSectionFromView(state.currentView);
+    var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
+    if (!state.project || !sectionForSave || !sectionFileMeta) return Promise.resolve(false);
+    var contentVal = getMonacoValue('section-file-monaco');
+    return apiPost('/api/section-file', {
+      project: state.project,
+      section: sectionForSave,
+      filename: sectionFileMeta.filename,
+      content: contentVal,
+    }).then(function (res) {
+      if (!res.success) {
+        window.alert((res.error && res.error.message) || 'Unable to save file.');
+        return false;
+      }
+      state.sectionDirty = false;
+      updateTopbarSaveState();
+      var saveSectionBtn = document.getElementById('save-section-file');
+      if (saveSectionBtn) saveSectionBtn.disabled = true;
+      return true;
+    });
+  }
+
+  function promptAndSaveUnsavedChanges(actionLabel) {
+    stashCurrentEditorState();
+    if (!state.dirty && !state.sectionDirty) return Promise.resolve(true);
+    var label = actionLabel || 'continue';
+    var shouldSave = window.confirm('You have unsaved changes. Save before you ' + label + '?');
+    if (!shouldSave) return Promise.resolve(false);
+    return saveCurrentSectionFileIfDirty().then(function (sectionSaved) {
+      if (!sectionSaved) return false;
+      return saveCurrentBlockIfDirty();
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Validation / Error drawer
   // -------------------------------------------------------------------------
@@ -6447,14 +6483,17 @@
       var dashboardFilename = sectionFileDashboard.getAttribute('data-filename');
       if (!dashboardFilename || !state.project || isInterviewView()) return;
       var dashboardSection = getSectionFromView(state.currentView);
-      apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashboardSection) + '&filename=' + encodeURIComponent(dashboardFilename))
-        .then(function (res) {
-          if (res.success && res.data && res.data.url) {
-            window.open(res.data.url, '_blank');
-          } else {
-            window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
-          }
-        });
+      promptAndSaveUnsavedChanges('open the dashboard editor').then(function (saved) {
+        if (!saved) return;
+        apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashboardSection) + '&filename=' + encodeURIComponent(dashboardFilename))
+          .then(function (res) {
+            if (res.success && res.data && res.data.url) {
+              window.open(res.data.url, '_blank');
+            } else {
+              window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
+            }
+          });
+      });
       return;
     }
 
@@ -6563,7 +6602,9 @@
     if (target.id === 'btn-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
-        window.open(standardPlaygroundUrl, '_blank');
+        promptAndSaveUnsavedChanges('open the playground').then(function (saved) {
+          if (saved) window.open(standardPlaygroundUrl, '_blank');
+        });
       }
       return;
     }
@@ -6636,24 +6677,8 @@
 
     if (target.id === 'save-section-file') {
       if (!state.project || isInterviewView()) return;
-      var sectionForSave = getSectionFromView(state.currentView);
-      var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
-      if (!sectionForSave || !sectionFileMeta) return;
-      var contentVal = getMonacoValue('section-file-monaco');
-      apiPost('/api/section-file', {
-        project: state.project,
-        section: sectionForSave,
-        filename: sectionFileMeta.filename,
-        content: contentVal,
-      }).then(function (res) {
-        if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to save file.');
-          return;
-        }
-        state.sectionDirty = false;
-        var saveSectionBtn = document.getElementById('save-section-file');
-        if (saveSectionBtn) saveSectionBtn.disabled = true;
-        loadSectionFiles(state.currentView);
+      saveCurrentSectionFileIfDirty().then(function (saved) {
+        if (saved) loadSectionFiles(state.currentView);
       });
       return;
     }
@@ -6728,7 +6753,7 @@
     }
     if (target.id === 'btn-preview-interview') {
       if (!state.filename) return;
-      saveCurrentBlockIfDirty().then(function (saved) {
+      promptAndSaveUnsavedChanges('run the interview').then(function (saved) {
         if (!saved) return;
         apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
           .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
@@ -7733,6 +7758,7 @@
   window.addEventListener('resize', hideTypeaheadMenu);
   document.addEventListener('scroll', hideTypeaheadMenu, true);
   window.addEventListener('beforeunload', function (e) {
+    stashCurrentEditorState();
     if (!state.dirty && !state.sectionDirty) return;
     e.preventDefault();
     e.returnValue = '';
