@@ -4450,6 +4450,7 @@
         if (!isMdPreview) {
           html += '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
           html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+          html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
           html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
           html += '</div>';
         }
@@ -4458,6 +4459,7 @@
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
         html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
         html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
         html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
         html += '</div>';
       }
@@ -6305,7 +6307,7 @@
                 throw new Error((aiRes.error && aiRes.error.message) || 'AI screen generation failed');
               }
               applyAIGeneratedScreenToBlock(newBlock, aiRes.data.screen);
-              state.dirty = true;
+              markInterviewDirty();
               renderCanvas();
             }).catch(function (err) {
               window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
@@ -6783,7 +6785,7 @@
           throw new Error((res.error && res.error.message) || 'AI screen generation failed');
         }
         applyAIGeneratedScreenToBlock(questionBlock, res.data.screen);
-        state.dirty = true;
+        markInterviewDirty();
         renderCanvas();
       }).catch(function (err) {
         window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
