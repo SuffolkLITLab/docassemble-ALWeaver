@@ -2,6 +2,10 @@
 import unittest
 from .interview_generator import (
     DAInterview,
+    DAFieldList,
+    _PersonObjectSpec,
+    _PERSON_DEFAULT_PARAMS,
+    _normalize_objects,
 )
 from docassemble.base.util import DAStaticFile
 import docassemble.base.functions
@@ -156,6 +160,116 @@ class test_feeling_lucky(unittest.TestCase):
         self.assertIn(
             "petition to enforce sanitary code", interview.getting_started.lower()
         )
+
+    # ---- objects block tests ----
+
+    def test_guess_people_quantities_single(self):
+        """Fields with only index [0] → quantity 'one'."""
+        fields = DAFieldList.using(auto_gather=False)
+        fields.gathered = True
+        for var in ["users[0].name.first", "users[0].name.last", "users[0].signature"]:
+            f = type("_F", (), {"final_display_var": var})()
+            fields.append(f)
+        quantities = fields._guess_people_quantities()
+        self.assertEqual(quantities.get("users"), "one")
+
+    def test_guess_people_quantities_multiple(self):
+        """Fields with index [1] or higher → quantity 'more'."""
+        fields = DAFieldList.using(auto_gather=False)
+        fields.gathered = True
+        for var in ["children[0].name.first", "children[1].name.last"]:
+            f = type("_F", (), {"final_display_var": var})()
+            fields.append(f)
+        quantities = fields._guess_people_quantities()
+        self.assertEqual(quantities.get("children"), "more")
+
+    def test_guess_people_quantities_unknown_person_ignored(self):
+        """Unrecognized person prefix like 'docket_numbers[0]' must not appear."""
+        fields = DAFieldList.using(auto_gather=False)
+        fields.gathered = True
+        f = type("_F", (), {"final_display_var": "docket_numbers[0]"})()
+        fields.append(f)
+        quantities = fields._guess_people_quantities()
+        # docket_numbers is not in RESERVED_PERSON_PLURALIZERS_MAP values
+        self.assertNotIn("docket_numbers", quantities)
+
+    def test_guess_objects_list_always_includes_users(self):
+        """_guess_objects_list() always includes users even on empty field lists."""
+        interview = DAInterview()
+        interview.all_fields.gathered = True
+        objects = interview._guess_objects_list()
+        names = [o.name for o in objects]
+        self.assertIn("users", names)
+
+    def test_guess_objects_list_applies_default_params(self):
+        """When quantity is unknown, defaults matching ql_baseline are applied."""
+        interview = DAInterview()
+        interview.all_fields.gathered = True
+        # Manually insert a children field with no index signal
+        f = type("_F", (), {"final_display_var": "children"})()
+        f.variable = "children"
+        f.source_document_type = "docx"
+        interview.all_fields.append(f)
+        objects = interview._guess_objects_list()
+        by_name = {o.name: o for o in objects}
+        self.assertIn("children", by_name)
+        # Default for children is ask_number=True (matching ql_baseline.yml)
+        self.assertEqual(by_name["children"].params, {"ask_number": True})
+
+    def test_normalize_objects_fills_defaults(self):
+        """_normalize_objects applies ql_baseline defaults for empty-param objects."""
+        raw = [
+            type("_O", (), {"name": "users", "type": "ALPeopleList", "params": {}})(),
+            type("_O", (), {"name": "children", "type": "ALPeopleList", "params": {}})(),
+        ]
+        result = _normalize_objects(raw)
+        by_name = {o.name: o for o in result}
+        self.assertEqual(by_name["users"].params, _PERSON_DEFAULT_PARAMS["users"])
+        self.assertEqual(by_name["children"].params, _PERSON_DEFAULT_PARAMS["children"])
+
+    def test_normalize_objects_respects_explicit_params(self):
+        """_normalize_objects should not override explicitly-set params."""
+        raw = [
+            type(
+                "_O",
+                (),
+                {
+                    "name": "users",
+                    "type": "ALPeopleList",
+                    "params": {"ask_number": True, "target_number": 1},
+                },
+            )()
+        ]
+        result = _normalize_objects(raw)
+        self.assertEqual(result[0].params, {"ask_number": True, "target_number": 1})
+
+    def test_lucky_mode_objects_block_generated(self):
+        """Full lucky-mode flow: generated YAML must contain an objects: block with users."""
+        test_lucky_pdf = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        da_pdf = MockDAStaticFile(
+            full_path=str(test_lucky_pdf), extension="pdf", mimetype="application/pdf"
+        )
+        interview = DAInterview()
+        interview.auto_assign_attributes_fast(input_file=da_pdf)
+
+        from .interview_generator import generate_interview_artifacts, _LocalDAFileAdapter
+        import tempfile, os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yaml_out = _LocalDAFileAdapter(os.path.join(tmpdir, "interview.yml"))
+            result = generate_interview_artifacts(
+                interview=interview,
+                include_download_screen=False,
+                create_package_archive=False,
+                yaml_output_file=yaml_out,
+            )
+        yaml_text = result.yaml_text
+        self.assertIn("objects:", yaml_text)
+        self.assertIn("users:", yaml_text)
 
 
 if __name__ == "__main__":

@@ -93,6 +93,26 @@ class WeaverInterviewArtifacts:
     package_file: Optional[Any] = None
 
 
+@dataclass
+class _PersonObjectSpec:
+    """Represents one entry in the generated interview's ``objects:`` block."""
+
+    name: str
+    type: str = "ALPeopleList"
+    params: dict = field(default_factory=dict)
+
+
+# Per-person default params that match AssemblyLine's ql_baseline.yml.
+# Applied when no explicit quantity was specified (e.g., in "I'm feeling lucky" mode).
+_PERSON_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
+    "users": {"there_are_any": True},
+    "children": {"ask_number": True},
+    "witnesses": {"ask_number": True},
+    "decedents": {"ask_number": True, "target_number": 1},
+    "guardians_ad_litem": {"ask_number": True},
+}
+
+
 __all__ = [
     "attachment_download_html",
     "base_name",
@@ -1308,6 +1328,40 @@ class DAFieldList(DAList):
         else:
             return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
+    def _guess_people_quantities(
+        self,
+        reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
+    ) -> Dict[str, str]:
+        """Estimate the quantity of each person type by scanning field index values.
+
+        Examines each field's ``final_display_var`` for patterns like
+        ``users[0].name.first`` or ``children[1].name.last``.  The maximum
+        0-based index found per person type determines the quantity:
+        index == 0 → ``"one"``, index >= 1 → ``"more"``.
+
+        Returns:
+            A dict mapping canonical person name → ``"one"`` or ``"more"``.
+            Person types with no indexed fields are omitted.
+        """
+        known_plurals = set(reserved_person_pluralizers_map.values())
+        max_indices: Dict[str, int] = {}
+        for field_item in self:
+            display_var = getattr(field_item, "final_display_var", None) or ""
+            match = re.match(r"^([A-Za-z_]\w*)\[(\d+)\]", display_var)
+            if not match:
+                continue
+            prefix = match.group(1)
+            index = int(match.group(2))
+            canonical = reserved_person_pluralizers_map.get(prefix, prefix)
+            if canonical not in known_plurals:
+                continue
+            if canonical not in max_indices or index > max_indices[canonical]:
+                max_indices[canonical] = index
+        return {
+            person: ("one" if max_idx == 0 else "more")
+            for person, max_idx in max_indices.items()
+        }
+
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
@@ -1734,6 +1788,41 @@ class DAInterview(DAObject):
         return len(
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
+
+    def _guess_objects_list(self) -> List[_PersonObjectSpec]:
+        """Build an objects list for the generated interview using field analysis heuristics.
+
+        Mirrors the person candidate consolidation logic in assembly_line.yml and
+        adds quantity guessing from field index numbers.  Always includes ``users``.
+        """
+        person_candidates: Set[str] = set(self.all_fields.get_person_candidates())
+        person_candidates.add("users")
+
+        # Mirror defendants/plaintiffs → other_parties consolidation (assembly_line.yml:1910-1922)
+        if (
+            "defendants" in person_candidates and "plaintiffs" in person_candidates
+        ) or (
+            "respondents" in person_candidates and "petitioners" in person_candidates
+        ):
+            person_candidates.add("other_parties")
+        person_candidates.discard("petitioners")
+        person_candidates.discard("respondents")
+        person_candidates.discard("plaintiffs")
+        person_candidates.discard("defendants")
+
+        quantities = self.all_fields._guess_people_quantities()
+
+        result: List[_PersonObjectSpec] = []
+        for person in sorted(person_candidates):
+            quantity = quantities.get(person)
+            if quantity == "one":
+                params: Dict[str, Any] = {"ask_number": True, "target_number": 1}
+            elif quantity == "more":
+                params = {"there_are_any": True}
+            else:
+                params = dict(_PERSON_DEFAULT_PARAMS.get(person, {}))
+            result.append(_PersonObjectSpec(name=person, params=params))
+        return result
 
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
         """
@@ -5330,6 +5419,35 @@ class _LocalDAFileAdapter:
         return None
 
 
+def _normalize_objects(
+    objects: List[Any], interview: Optional[Any] = None
+) -> List[_PersonObjectSpec]:
+    """Convert a list of objects (DAObject or _PersonObjectSpec) to _PersonObjectSpec.
+
+    For objects with empty params, uses field index heuristics from the interview
+    when available, then falls back to per-person defaults matching ql_baseline.yml.
+    """
+    quantities: Dict[str, str] = {}
+    if interview is not None and hasattr(interview, "all_fields"):
+        quantities = interview.all_fields._guess_people_quantities()
+
+    result = []
+    for obj in objects:
+        name = str(getattr(obj, "name", "") or "")
+        obj_type = str(getattr(obj, "type", "ALPeopleList") or "ALPeopleList")
+        params = dict(getattr(obj, "params", None) or {})
+        if not params:
+            quantity = quantities.get(name)
+            if quantity == "one":
+                params = {"ask_number": True, "target_number": 1}
+            elif quantity == "more":
+                params = {"there_are_any": True}
+            else:
+                params = dict(_PERSON_DEFAULT_PARAMS.get(name, {}))
+        result.append(_PersonObjectSpec(name=name, type=obj_type, params=params))
+    return result
+
+
 def generate_interview_artifacts(
     interview: DAInterview,
     *,
@@ -5338,6 +5456,7 @@ def generate_interview_artifacts(
     output_mako_choice: Optional[str] = None,
     yaml_output_file: Optional[Any] = None,
     package_output_file: Optional[Any] = None,
+    objects: Optional[List[Any]] = None,
 ) -> WeaverInterviewArtifacts:
     yaml_filename = f"{interview.interview_label}.yml"
     chosen_output_mako_raw = output_mako_choice
@@ -5352,11 +5471,19 @@ def generate_interview_artifacts(
         if isinstance(chosen_output_mako_raw, str)
         else "Default configuration:standard AssemblyLine"
     )
+    if objects is None:
+        resolved_objects: List[_PersonObjectSpec] = (
+            interview._guess_objects_list()
+            if hasattr(interview, "_guess_objects_list")
+            else []
+        )
+    else:
+        resolved_objects = _normalize_objects(objects, interview=interview)
     yaml_text = _render_interview_yaml(
         interview=interview,
         include_download_screen=include_download_screen,
         output_mako_choice=chosen_output_mako,
-        objects=[],
+        objects=resolved_objects,
         screen_reordered=None,
     )
 

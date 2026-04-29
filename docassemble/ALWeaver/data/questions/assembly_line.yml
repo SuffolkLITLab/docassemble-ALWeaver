@@ -2298,6 +2298,7 @@ code: |
     create_package_archive=True,
     output_mako_choice=interview.output_mako_choice,
     package_output_file=interview_package_download,
+    objects=list(objects),
   )
   temp_interview = generation_result.yaml_file
 

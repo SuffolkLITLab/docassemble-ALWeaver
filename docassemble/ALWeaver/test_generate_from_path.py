@@ -475,5 +475,81 @@ question: |
         self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
 
 
+    def test_objects_block_always_generated(self):
+        """Regression: objects: block must always appear in generated YAML, with at
+        least ``users``, even when generate_interview_artifacts is called with no
+        explicit objects list."""
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(docx_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn("objects:", yaml_text)
+        self.assertIn("users:", yaml_text)
+
+    def test_objects_block_explicit_passed_objects(self):
+        """When objects are explicitly passed to generate_interview_artifacts,
+        they appear in the generated YAML with correct .using() params."""
+
+        class MinimalInterview:
+            def __init__(self):
+                self.interview_label = "my_interview"
+                self.package_title = "MyInterview"
+                self.include_next_steps = False
+                self.uploaded_templates = []
+                self.author = ""
+
+            def package_info(self):
+                return {}
+
+        interview = MinimalInterview()
+        explicit_objects = [
+            type(
+                "_O",
+                (),
+                {
+                    "name": "users",
+                    "type": "ALPeopleList",
+                    "params": {"ask_number": True, "target_number": 1},
+                },
+            )(),
+        ]
+        captured: dict = {}
+
+        original_render = interview_generator_module._render_interview_yaml
+
+        def capture_render(*args, **kwargs):
+            captured["objects"] = kwargs.get("objects", args[3] if len(args) > 3 else [])
+            return original_render(*args, **kwargs)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(
+                interview_generator_module, "_render_interview_yaml", side_effect=capture_render
+            ),
+        ):
+            yaml_out = _LocalDAFileAdapter(
+                os.path.join(tmpdir, "my_interview.yml")
+            )
+            generate_interview_artifacts(
+                interview=interview,
+                include_download_screen=False,
+                create_package_archive=False,
+                yaml_output_file=yaml_out,
+                objects=explicit_objects,
+            )
+
+        self.assertEqual(len(captured["objects"]), 1)
+        self.assertEqual(captured["objects"][0].name, "users")
+        self.assertEqual(
+            captured["objects"][0].params, {"ask_number": True, "target_number": 1}
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
