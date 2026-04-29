@@ -1003,7 +1003,7 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
                 for raw_line in str(code).splitlines() or [""]:
                     lines.append(f"{prefix}{raw_line}")
 
-    _append_steps(steps, 2)
+    _append_steps(steps, 0)
     return "\n".join(lines)
 
 

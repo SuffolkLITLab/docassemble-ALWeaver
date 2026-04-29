@@ -2421,7 +2421,8 @@ def editor_api_save_order() -> Response:
             updated = update_block_in_yaml(current_content, target_block["id"], order_yaml)
         else:
             # Append a new mandatory code block
-            order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{code_body}"
+            indented_body = "\n".join(f"  {line}" for line in code_body.splitlines())
+            order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{indented_body}\n"
             updated = current_content.rstrip() + "\n---\n" + order_yaml + "\n"
 
         playground_write_yaml(uid, project, filename, updated)

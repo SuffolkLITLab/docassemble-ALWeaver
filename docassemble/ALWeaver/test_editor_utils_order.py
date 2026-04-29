@@ -61,10 +61,10 @@ class TestEditorUtilsOrder(unittest.TestCase):
 
         self.assertEqual(
             serialized,
-            "  user_intro\n"
-            "  if needs_extra_help:\n"
-            "    help_screen\n"
-            "    set_progress(50)",
+            "user_intro\n"
+            "if needs_extra_help:\n"
+            "  help_screen\n"
+            "  set_progress(50)",
         )
 
     def test_serialize_order_steps_supports_else_branches(self):
@@ -88,11 +88,11 @@ class TestEditorUtilsOrder(unittest.TestCase):
 
         self.assertEqual(
             serialized,
-            "  user_intro\n"
-            "  if needs_extra_help:\n"
-            "    help_screen\n"
-            "  else:\n"
-            "    standard_screen",
+            "user_intro\n"
+            "if needs_extra_help:\n"
+            "  help_screen\n"
+            "else:\n"
+            "  standard_screen",
         )
 
 
