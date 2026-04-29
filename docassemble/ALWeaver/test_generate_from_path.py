@@ -423,6 +423,57 @@ question: |
         self.assertTrue(len(result["yaml_text"]) > 100)
         self.assertEqual(result["input_filename"], docx_path.name)
 
+    def test_interview_short_title_always_generated(self):
+        """Regression: interview_short_title code block must always appear in
+        the generated YAML, even when no LLM is used.  The block was previously
+        gated on a Mako ``defined()`` check that always evaluated to False in
+        the Python rendering path, so the block was silently omitted."""
+        pdf_path = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(pdf_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        # The block must be present and contain a non-empty Python string literal.
+        self.assertIn("interview_short_title =", yaml_text)
+        match = re.search(
+            r"interview_short_title\s*=\s*(.+)", yaml_text
+        )
+        self.assertIsNotNone(match, "interview_short_title assignment not found")
+        rhs = match.group(1).strip()
+        # repr() produces a quoted string — must not be an empty string literal.
+        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
+
+    def test_interview_short_title_via_upload_flow(self):
+        """interview_short_title must also appear when using generate_interview_from_bytes
+        (the I'm-feeling-lucky editor upload path)."""
+        from .api_utils import generate_interview_from_bytes
+
+        pdf_path = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        content = pdf_path.read_bytes()
+
+        result = generate_interview_from_bytes(
+            filename=pdf_path.name,
+            content_bytes=content,
+            mimetype="application/pdf",
+            generation_options={},
+            include_yaml_text=True,
+        )
+        yaml_text = result["yaml_text"]
+        self.assertIn("interview_short_title =", yaml_text)
+        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
+        self.assertIsNotNone(match, "interview_short_title assignment not found")
+        rhs = match.group(1).strip()
+        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
+
 
 if __name__ == "__main__":
     unittest.main()

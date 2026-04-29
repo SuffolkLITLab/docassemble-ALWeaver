@@ -105,7 +105,7 @@ ${ indent(landing_page_url_value, by=4) }
   % else:
   original_form: []
   % endif
-  % if defined("interview.original_form_published_on"):
+  % if hasattr(interview, 'original_form_published_on'):
   original_form_published_on: ${ interview.original_form_published_on.format("yyyy-MM-dd") or '""'}
   % else:
   original_form_published_on: ""
@@ -157,11 +157,9 @@ code: |
 ---
 code: |
   github_repo_name =  'docassemble-${ interview.package_title }'
-% if defined('interview.intro_prompt'):
 ---
 code: |
-  interview_short_title = "${ escape_quotes(interview.intro_prompt) }"
-% endif
+  interview_short_title = ${ repr(str(getattr(interview, 'intro_prompt', '') or '')) }
 % if generate_download_screen:
 ---
 code: |
@@ -254,11 +252,11 @@ question: |
 subquestion: |
 ${ indent(interview.getting_started, 2) }
 
-% if defined("interview.can_I_use_this_form"):
+% if hasattr(interview, 'can_I_use_this_form'):
 ${ indent(interview.can_I_use_this_form, by=2)}
 % endif
 
-% if defined("interview.estimated_completion_minutes"):
+% if hasattr(interview, 'estimated_completion_minutes'):
   Most people take about ${ interview.estimated_completion_minutes or "_______________"} minutes to complete this interview.
 % endif
 <%doc>
