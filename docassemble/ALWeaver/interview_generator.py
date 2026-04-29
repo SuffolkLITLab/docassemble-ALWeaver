@@ -2798,6 +2798,26 @@ Rules:
             landing_page_url = str(self.llm_draft_landing_page_url or "").strip()
             if landing_page_url and is_url(landing_page_url):
                 self.landing_page_url = landing_page_url
+        if hasattr(self, "llm_draft_typical_role"):
+            role = str(self.llm_draft_typical_role)
+            if role in {"plaintiff", "defendant"}:
+                self.typical_role = role
+        if hasattr(self, "llm_draft_form_type"):
+            form_type = str(self.llm_draft_form_type)
+            if form_type in {
+                "starts_case",
+                "existing_case",
+                "appeal",
+                "letter",
+                "other_form",
+                "other",
+            }:
+                self.form_type = form_type
+                self.court_related = form_type in {
+                    "starts_case",
+                    "existing_case",
+                    "appeal",
+                }
 
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):

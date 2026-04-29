@@ -99,6 +99,43 @@ class test_feeling_lucky(unittest.TestCase):
             interview.when_you_are_finished, "File the petition with the court."
         )
 
+    def test_lucky_payload_applies_typical_role(self):
+        """LLM-predicted role should override the heuristic role."""
+        interview = DAInterview()
+        interview.typical_role = "unknown"  # heuristic fallback
+        interview.apply_llm_draft_payload({"llm_draft_typical_role": "plaintiff"})
+        self.assertEqual(interview.typical_role, "plaintiff")
+
+    def test_lucky_payload_does_not_override_heuristic_with_unknown_role(self):
+        """An LLM 'unknown' prediction should not downgrade a confident heuristic role."""
+        interview = DAInterview()
+        interview.typical_role = "plaintiff"  # heuristic matched keyword
+        interview.apply_llm_draft_payload({"llm_draft_typical_role": "unknown"})
+        self.assertEqual(interview.typical_role, "plaintiff")
+
+    def test_lucky_payload_applies_form_type_and_court_related(self):
+        """LLM-predicted form_type should update both form_type and court_related."""
+        interview = DAInterview()
+        interview.form_type = "other"
+        interview.court_related = False
+        interview.apply_llm_draft_payload(
+            {
+                "llm_draft_form_type": "starts_case",
+                "llm_draft_court_related": True,
+            }
+        )
+        self.assertEqual(interview.form_type, "starts_case")
+        self.assertTrue(interview.court_related)
+
+    def test_lucky_payload_letter_form_type_not_court_related(self):
+        """A 'letter' form_type predicted by LLM should set court_related to False."""
+        interview = DAInterview()
+        interview.form_type = "starts_case"
+        interview.court_related = True
+        interview.apply_llm_draft_payload({"llm_draft_form_type": "letter"})
+        self.assertEqual(interview.form_type, "letter")
+        self.assertFalse(interview.court_related)
+
     def test_fast_lucky_intro_fallback_is_form_specific(self):
         test_lucky_pdf = (
             Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
