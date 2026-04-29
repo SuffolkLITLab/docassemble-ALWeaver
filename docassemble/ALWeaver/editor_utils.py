@@ -1334,5 +1334,5 @@ def playground_interview_url(user_id: int, project: str, filename: str) -> str:
     project_suffix = "" if project == "default" else project
     package = f"docassemble.playground{user_id}{project_suffix}"
     return docassemble.base.functions.url_of(
-        "interview", i=f"{package}:{filename}"
+        "interview", i=f"{package}:{filename}", reset=1, cache=0
     )

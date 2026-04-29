@@ -1,9 +1,41 @@
 import unittest
+import types
+from unittest.mock import Mock, patch
 
-from .editor_utils import canonical_block_yaml, parse_interview_yaml, update_block_in_yaml
+import docassemble
+
+from .editor_utils import (
+    canonical_block_yaml,
+    parse_interview_yaml,
+    playground_interview_url,
+    update_block_in_yaml,
+)
 
 
 class TestEditorUtilsPersistence(unittest.TestCase):
+    def test_playground_interview_url_requests_fresh_session(self):
+        base_mod = types.ModuleType("docassemble.base")
+        functions_mod = types.ModuleType("docassemble.base.functions")
+        functions_mod.url_of = Mock(return_value="/interview")
+        base_mod.functions = functions_mod
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "docassemble.base": base_mod,
+                "docassemble.base.functions": functions_mod,
+            },
+        ), patch.object(docassemble, "base", base_mod, create=True):
+            result = playground_interview_url(7, "ProjectA", "interview.yml")
+
+        self.assertEqual(result, "/interview")
+        functions_mod.url_of.assert_called_once_with(
+            "interview",
+            i="docassemble.playground7ProjectA:interview.yml",
+            reset=1,
+            cache=0,
+        )
+
     def test_canonical_block_yaml_forces_literal_style_for_single_line_code(self):
         rendered = canonical_block_yaml(
             {

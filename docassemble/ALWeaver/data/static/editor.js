@@ -641,7 +641,7 @@
     state.markdownPreviewMode = false;
     state.dirty = false;
     state.fullYamlStash = {};
-    loadAvailableSymbols();
+    loadAvailableSymbols(true);
     renderOutline();
     renderCanvas();
     runCurrentValidationCheck();
@@ -882,7 +882,7 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
+    if (role === 'variable' || role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
       return role;
     }
     return 'all';
@@ -925,6 +925,9 @@
     var topLevel = state.symbolCatalog.topLevel || [];
     var all = state.symbolCatalog.all || [];
 
+    if (role === 'variable') {
+      return all.map(function (name) { return { name: name, group: 'variables' }; });
+    }
     if (role === 'top-level') {
       return topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; });
     }
@@ -1035,15 +1038,39 @@
     return getSymbolMatchResult(query, role, limit).matches;
   }
 
-  function loadAvailableSymbols() {
-    if (!state.project || !state.filename) return Promise.resolve();
+  function resetSymbolCatalog() {
+    state.symbolCatalog = {
+      loadedFor: null,
+      all: [],
+      topLevel: [],
+      groups: {},
+    };
+  }
+
+  function refreshActiveSymbolPickers() {
+    if (_symbolInsertContext) {
+      var search = document.getElementById('symbol-insert-search');
+      refreshSymbolInsertModalList(search ? search.value || '' : '');
+    }
+    var activeEl = document.activeElement;
+    if (activeEl && activeEl.matches && activeEl.matches('[data-symbol-role]')) {
+      showTypeaheadForInput(activeEl);
+    }
+  }
+
+  function loadAvailableSymbols(forceRefresh) {
+    if (!state.project || !state.filename) {
+      resetSymbolCatalog();
+      return Promise.resolve();
+    }
     var key = state.project + '::' + state.filename;
-    if (state.symbolCatalog.loadedFor === key && state.symbolCatalog.all.length) {
+    if (!forceRefresh && state.symbolCatalog.loadedFor === key && state.symbolCatalog.all.length) {
       return Promise.resolve();
     }
     return apiGet('/api/variables?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
       .then(function (res) {
         if (!res.success || !res.data) return;
+        if (key !== state.project + '::' + state.filename) return;
         var data = res.data;
         state.symbolCatalog = {
           loadedFor: key,
@@ -1051,14 +1078,10 @@
           topLevel: uniqueList(data.top_level_names || []),
           groups: data.symbol_groups || {},
         };
+        refreshActiveSymbolPickers();
       })
       .catch(function () {
-        state.symbolCatalog = {
-          loadedFor: key,
-          all: [],
-          topLevel: [],
-          groups: {},
-        };
+        resetSymbolCatalog();
       });
   }
 
@@ -1256,10 +1279,10 @@
       html += '<input class="form-control form-control-sm mt-1" id="insert-youtube-id" placeholder="RpgYyuLt7Dx">';
     } else if (action === 'field') {
       html += '<label class="editor-tiny" for="insert-field-name">Field variable</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-field-name" data-symbol-role="all" placeholder="user.name.first">';
+      html += '<input class="form-control form-control-sm mt-1" id="insert-field-name" data-symbol-role="variable" placeholder="user.name.first">';
     } else if (action === 'target') {
       html += '<label class="editor-tiny" for="insert-target-name">Target name</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-target-name" data-symbol-role="all" placeholder="interim_status">';
+      html += '<input class="form-control form-control-sm mt-1" id="insert-target-name" data-symbol-role="variable" placeholder="interim_status">';
     } else if (action === 'twocol') {
       html += '<label class="editor-tiny" for="insert-twocol-left">Left column text</label>';
       html += '<textarea class="form-control form-control-sm mt-1" id="insert-twocol-left" rows="2"></textarea>';
@@ -1877,7 +1900,7 @@
     var html = '';
     if (kind === 'screen') {
       html += '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="all" value="" placeholder="users[0].name.first"></div>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="variable" value="" placeholder="users[0].name.first"></div>';
     } else if (kind === 'gather') {
       var gatherChoices = getGatherListCandidates();
       html += '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
@@ -1895,7 +1918,7 @@
       if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
     } else if (kind === 'condition') {
       html += '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="all" value="condition_here"></div>';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="variable" value="condition_here"></div>';
     } else if (kind === 'section') {
       html += '<div class="mb-2"><label class="editor-tiny">Section to activate</label>';
       html += '<input class="form-control form-control-sm mt-1" id="order-add-value" data-symbol-role="section" value="New section"></div>';
@@ -3266,7 +3289,7 @@
       state.fullYamlStash = {};
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
-      loadAvailableSymbols();
+      loadAvailableSymbols(true);
       renderOutline();
       renderCanvas();
       runValidation();
@@ -4265,7 +4288,7 @@
               html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
             }
             html += _renderFieldTypeDropdown(fi, dtype);
-            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" value="' + esc(varName) + '" placeholder="variable_name">';
+            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="variable" value="' + esc(varName) + '" placeholder="variable_name">';
             html += '<div class="editor-field-actions">';
             if (!isStandaloneType) {
               html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
@@ -4436,7 +4459,7 @@
 
     html += '<div class="editor-review-route-grid mt-2">';
     html += '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '"></div>';
-    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '"></div>';
+    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-symbol-role="variable" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '"></div>';
     html += '</div>';
 
     var hasMeta = Boolean(data.need || data.tabular || Object.prototype.hasOwnProperty.call(data, 'skip undefined'));
@@ -4496,7 +4519,7 @@
       } else {
         html += '<div class="editor-review-edit-grid">';
         html += '<div><label class="editor-tiny" for="review-item-label-' + idx + '">Button label</label><input class="form-control editor-form-control" id="review-item-label-' + idx + '" value="' + esc(actionKey || 'Edit') + '"></div>';
-        html += '<div><label class="editor-tiny" for="review-item-fields-' + idx + '">Field</label><textarea class="form-control editor-form-control font-monospace" id="review-item-fields-' + idx + '" data-symbol-role="all" rows="2">' + esc(_reviewFieldsValueToText(actionValue)) + '</textarea></div>';
+        html += '<div><label class="editor-tiny" for="review-item-fields-' + idx + '">Field</label><textarea class="form-control editor-form-control font-monospace" id="review-item-fields-' + idx + '" data-symbol-role="variable" rows="2">' + esc(_reviewFieldsValueToText(actionValue)) + '</textarea></div>';
         html += '</div>';
         html += '<div class="editor-form-group mt-2"><label class="editor-tiny" for="review-item-button-' + idx + '">Button</label>';
         html += renderMarkdownToolbar('review-item-button-' + idx, false);
@@ -4514,7 +4537,7 @@
     html += '<div class="editor-review-add-row">';
     html += '<label class="editor-tiny" for="review-new-field">Field</label>';
     html += '<div class="editor-review-add-controls">';
-    html += '<input class="form-control editor-form-control font-monospace" id="review-new-field" data-symbol-role="all">';
+    html += '<input class="form-control editor-form-control font-monospace" id="review-new-field" data-symbol-role="variable">';
     html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
@@ -5019,7 +5042,7 @@
 
       // Continue button field/label — always visible
       html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-field">Continue button field</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
+      html += '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" data-symbol-role="variable" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
 
       html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-label">Continue button label</label>';
       html += '<input class="form-control editor-form-control" id="adv-continue-label" value="' + esc(String(data['continue button label'] || '')) + '"></div>';
@@ -5796,10 +5819,8 @@
   // -------------------------------------------------------------------------
   document.addEventListener('mousedown', function (e) {
     var target = e.target;
-    // Prevent input blur when clicking anywhere inside the typeahead (including scrollbar)
-    if (target.closest('#editor-symbol-typeahead') || target.id === 'editor-symbol-typeahead') {
-      e.preventDefault();
-    }
+    // Keep the input focused when choosing an item, while still allowing
+    // native scrolling and scrollbar dragging inside the suggestion list.
     if (target.closest('.editor-symbol-typeahead-item')) {
       e.preventDefault();
     }
@@ -7377,12 +7398,12 @@
   function renderInlineEditRow(step) {
     var html = '<div class="editor-order-inline-edit">';
     if (step.kind === 'screen' || step.kind === 'gather' || step.kind === 'function') {
-      var invokeRole = step.kind === 'function' ? 'function-call' : 'all';
+      var invokeRole = step.kind === 'function' ? 'function-call' : 'variable';
       html += '<label class="editor-tiny">Variable / expression</label>';
       html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-inline-edit-invoke" value="' + esc(step.invoke || '') + '">';
     } else if (step.kind === 'condition') {
       html += '<label class="editor-tiny">Condition</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="all" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="variable" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
     } else if (step.kind === 'section') {
       // Build list of section names from sections blocks
       var sectionNames = [];
