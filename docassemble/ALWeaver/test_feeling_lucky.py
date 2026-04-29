@@ -61,6 +61,65 @@ class test_feeling_lucky(unittest.TestCase):
         )
         self.assertIn("rent_amount", custom)
 
+    def test_lucky_payload_applies_intro_metadata(self):
+        interview = DAInterview()
+        interview.title = "Old placeholder title"
+        interview.short_title = interview.title
+        interview.short_filename_with_spaces = interview.title
+        interview.short_filename = "old_placeholder_title"
+        interview.getting_started = "Before you get started, you need to..."
+        interview.apply_llm_draft_payload(
+            {
+                "llm_draft_title": "Sanitary Code Petition",
+                "llm_draft_intro_prompt": "Ask the court to enforce the sanitary code",
+                "llm_draft_description": "Helps tenants ask a court to order repairs.",
+                "llm_draft_can_i_use_this_form": (
+                    "Use this if your landlord has not made repairs."
+                ),
+                "llm_draft_getting_started": (
+                    "Gather your lease, repair requests, and inspection reports."
+                ),
+                "llm_draft_when_you_are_finished": "File the petition with the court.",
+            }
+        )
+
+        self.assertEqual(interview.title, "Sanitary Code Petition")
+        self.assertEqual(
+            interview.intro_prompt, "Ask the court to enforce the sanitary code"
+        )
+        self.assertEqual(
+            interview.getting_started,
+            "Gather your lease, repair requests, and inspection reports.",
+        )
+        self.assertEqual(
+            interview.can_I_use_this_form,
+            "Use this if your landlord has not made repairs.",
+        )
+        self.assertEqual(
+            interview.when_you_are_finished, "File the petition with the court."
+        )
+
+    def test_fast_lucky_intro_fallback_is_form_specific(self):
+        test_lucky_pdf = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        da_pdf = MockDAStaticFile(
+            full_path=str(test_lucky_pdf), extension="pdf", mimetype="application/pdf"
+        )
+
+        interview = DAInterview()
+        interview.auto_assign_attributes_fast(input_file=da_pdf)
+
+        self.assertNotEqual(
+            interview.getting_started, "Before you get started, you need to..."
+        )
+        self.assertIn("This interview will help you", interview.getting_started)
+        self.assertIn(
+            "petition to enforce sanitary code", interview.getting_started.lower()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

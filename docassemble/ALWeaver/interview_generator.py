@@ -1919,9 +1919,9 @@ class DAInterview(DAObject):
         self.form_type = self._guess_posture(self.title)
         self.jurisdiction_choices = get_matching_deps("jurisdiction", jurisdiction)
         self.org_choices = get_matching_deps("organization", jurisdiction)
-        self.getting_started = "Before you get started, you need to..."
         self.intro_prompt = self._guess_intro_prompt(self.title)
         self.court_related = not (self.form_type == "letter")
+        self.getting_started = self._guess_getting_started(self.title)
         self.landing_page_url = ""
         self.efiling_enabled = False
         self.integrated_efiling = False
@@ -2765,6 +2765,40 @@ Rules:
                 self.llm_draft_next_steps_what_happens_if_i_win
             )
 
+        # Lucky mode skips the step-by-step metadata screens, so copy drafted
+        # intro metadata onto the live interview fields before rendering output.
+        if hasattr(self, "llm_draft_title"):
+            drafted_title = _safe_short_label(str(self.llm_draft_title), 100)
+            if drafted_title:
+                self.title = drafted_title
+                self.short_title = drafted_title[:25]
+                self.short_filename_with_spaces = drafted_title
+                self.short_filename = space_to_underscore(varname(drafted_title))
+        if hasattr(self, "llm_draft_intro_prompt"):
+            intro_prompt = _safe_short_label(str(self.llm_draft_intro_prompt), 60)
+            if intro_prompt:
+                self.intro_prompt = intro_prompt
+        if hasattr(self, "llm_draft_description"):
+            description = str(self.llm_draft_description or "").strip()
+            if description:
+                self.description = description
+        if hasattr(self, "llm_draft_can_i_use_this_form"):
+            can_use = str(self.llm_draft_can_i_use_this_form or "").strip()
+            if can_use:
+                self.can_I_use_this_form = can_use
+        if hasattr(self, "llm_draft_getting_started"):
+            getting_started = str(self.llm_draft_getting_started or "").strip()
+            if getting_started:
+                self.getting_started = getting_started
+        if hasattr(self, "llm_draft_when_you_are_finished"):
+            when_finished = str(self.llm_draft_when_you_are_finished or "").strip()
+            if when_finished:
+                self.when_you_are_finished = when_finished
+        if hasattr(self, "llm_draft_landing_page_url"):
+            landing_page_url = str(self.llm_draft_landing_page_url or "").strip()
+            if landing_page_url and is_url(landing_page_url):
+                self.landing_page_url = landing_page_url
+
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):
             self.apply_llm_field_updates(field_updates)
@@ -2911,6 +2945,32 @@ Rules:
         elif self.form_type == "letter":
             return "Write a " + title
         return "Get a " + title
+
+    def _guess_getting_started(self, title: str) -> str:
+        """Create a form-specific non-LLM intro instead of a placeholder."""
+
+        intro_prompt = getattr(self, "intro_prompt", "") or self._guess_intro_prompt(
+            title
+        )
+        action = (
+            intro_prompt[0:1].lower() + intro_prompt[1:]
+            if intro_prompt
+            else "complete this form"
+        )
+        title_text = str(title or "this form").strip() or "this form"
+        role_text = (
+            "your court case"
+            if getattr(self, "court_related", True)
+            else "your request"
+        )
+        return (
+            f"This interview will help you {action}.\n\n"
+            "Before you get started, gather any information you have about:\n\n"
+            f"1. The people or organizations named in the {title_text}.\n"
+            f"1. Important dates, addresses, and contact information for {role_text}.\n"
+            "1. Any papers, notices, or records that you may need to refer to.\n\n"
+            "When you are finished, you can review your answers and download your completed form."
+        )
 
     def _guess_role(self, title: str):
         """Guess role from the form's title, using some simple heuristics.
@@ -5485,6 +5545,7 @@ def generate_interview_from_path(
             "info",
         )
         interview._prefetch_reference_site()
+        interview.llm_prefill_metadata(apply=True)
         interview.llm_predict_state(apply=True)
         interview.llm_refine_field_labels(apply=True)
         if not screen_definitions:
