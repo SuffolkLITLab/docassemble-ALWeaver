@@ -32,6 +32,7 @@
     orderStepMap: {},
     activeOrderBlockId: null,
     orderBuilderLoading: false,
+    orderDirty: false,
     orderCollapsed: {},
     selectedOrderStepIds: {},
     symbolCatalog: {
@@ -83,6 +84,7 @@
   var _lastInsertedOrderStepId = null;
   var _lastInsertedOrderStepTimer = null;
   var _orderBuilderLoadSeq = 0;
+  var _questionEventFieldOpen = {};
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
   var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
@@ -1038,6 +1040,21 @@
     return getSymbolMatchResult(query, role, limit).matches;
   }
 
+  function renderSymbolDatalist(id, role, limit) {
+    var matches = getSymbolMatches('', role || 'variable', limit || 120);
+    if (!matches.length) return '';
+    var seen = {};
+    var html = '<datalist id="' + esc(id) + '">';
+    matches.forEach(function (entry) {
+      var name = String(entry.name || '').trim();
+      if (!name || seen[name]) return;
+      seen[name] = true;
+      html += '<option value="' + esc(name) + '">';
+    });
+    html += '</datalist>';
+    return html;
+  }
+
   function resetSymbolCatalog() {
     state.symbolCatalog = {
       loadedFor: null,
@@ -1635,6 +1652,54 @@
     state.orderStepMap[state.activeOrderBlockId] = cloneData(state.orderSteps) || [];
   }
 
+  function syncInlineOrderEdit() {
+    if (!_inlineEditStepId) return false;
+    var stepRecord = findStepRecord(state.orderSteps, _inlineEditStepId, null);
+    if (!stepRecord) return false;
+    var inlineInvoke = document.getElementById('order-inline-edit-invoke');
+    var inlineCondition = document.getElementById('order-inline-edit-condition');
+    var inlineValue = document.getElementById('order-inline-edit-value');
+    if (inlineInvoke) {
+      stepRecord.step.invoke = inlineInvoke.value;
+      stepRecord.step.summary = inlineInvoke.value;
+    }
+    if (inlineCondition) {
+      stepRecord.step.condition = inlineCondition.value;
+      stepRecord.step.summary = inlineCondition.value;
+    }
+    if (inlineValue) {
+      stepRecord.step.value = inlineValue.value;
+      if (stepRecord.step.kind === 'section') stepRecord.step.summary = 'Section: ' + inlineValue.value;
+      if (stepRecord.step.kind === 'progress') stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
+    }
+    return Boolean(inlineInvoke || inlineCondition || inlineValue);
+  }
+
+  function markInterviewDirty() {
+    state.dirty = true;
+    updateTopbarSaveState();
+  }
+
+  function markOrderDirty() {
+    state.orderDirty = true;
+    markInterviewDirty();
+  }
+
+  function stashCurrentEditorState() {
+    _stashFullYamlContent();
+    if (!isInterviewView()) return;
+    if (state.canvasMode === 'order-builder') {
+      if (syncInlineOrderEdit()) markOrderDirty();
+      syncActiveOrderStepMap();
+      return;
+    }
+    var block = getSelectedBlock();
+    if (!block || state.questionEditMode !== 'preview') return;
+    if (block.type === 'question') {
+      syncFieldsToData(block);
+    }
+  }
+
   function loadOrderStepsForBlock(blockId) {
     var block = getBlockById(blockId);
     if (!block || block.type !== 'code') return Promise.resolve([]);
@@ -1918,7 +1983,8 @@
       if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
     } else if (kind === 'condition') {
       html += '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="variable" value="condition_here"></div>';
+      html += renderSymbolDatalist('order-add-condition-list', 'variable', 120);
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="variable" list="order-add-condition-list" value="condition_here"></div>';
     } else if (kind === 'section') {
       html += '<div class="mb-2"><label class="editor-tiny">Section to activate</label>';
       html += '<input class="form-control form-control-sm mt-1" id="order-add-value" data-symbol-role="section" value="New section"></div>';
@@ -3773,6 +3839,24 @@
 
   function saveCurrentBlockIfDirty() {
     if (!state.dirty || !state.filename) return Promise.resolve(true);
+    if (state.orderDirty) {
+      syncActiveOrderStepMap();
+      return apiPost('/api/order', {
+        project: state.project,
+        filename: state.filename,
+        order_block_id: state.activeOrderBlockId,
+        steps: state.orderSteps,
+      }).then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to save interview order.');
+          return false;
+        }
+        state.orderDirty = false;
+        state.dirty = false;
+        updateTopbarSaveState();
+        return true;
+      });
+    }
     var block = getSelectedBlock();
     if (!block) return Promise.resolve(true);
     var yamlVal = getBlockYamlForSave(block);
@@ -4094,6 +4178,7 @@
     html += '<div>';
     html += '<span class="editor-pill">Question</span>';
     if (data.mandatory) html += ' <span class="editor-pill">mandatory</span>';
+    if (data.event) html += ' <span class="editor-pill">event: ' + esc(String(data.event)) + '</span>';
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
     html += '</div>';
     html += '</div>';
@@ -4127,6 +4212,16 @@
         html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' + esc(block.id) + '" placeholder="block_id" autocomplete="off">';
         html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
         html += '</div>';
+        var eventFieldOpen = Boolean(data.event || _questionEventFieldOpen[block.id]);
+        if (eventFieldOpen) {
+          html += '<div class="editor-block-id-row editor-question-event-row">';
+          html += '<span class="editor-block-id-label">Event</span>';
+          html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '" placeholder="event_name" autocomplete="off">';
+          html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="remove-question-event" title="Remove event" aria-label="Remove event"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
+          html += '</div>';
+        } else {
+          html += '<button type="button" class="btn btn-sm btn-link editor-add-event-btn" id="add-question-event"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add event</button>';
+        }
       }
 
       // Question
@@ -4882,7 +4977,8 @@
       out += '<option value="show if"' + (showIfKey === 'show if' ? ' selected' : '') + '>show if</option>';
       out += '<option value="hide if"' + (showIfKey === 'hide if' ? ' selected' : '') + '>hide if</option>';
       out += '</select>';
-      out += '<input class="form-control editor-form-control font-monospace editor-field-showif-input" data-field-prop="showif" data-field-idx="' + fi + '" id="field-showif-' + fi + '" value="' + esc(String(showIfVal || '')) + '" placeholder="variable_name or object condition">';
+      out += renderSymbolDatalist('field-showif-list-' + fi, 'variable', 120);
+      out += '<input class="form-control editor-form-control font-monospace editor-field-showif-input" data-symbol-role="variable" list="field-showif-list-' + fi + '" data-field-prop="showif" data-field-idx="' + fi + '" id="field-showif-' + fi + '" value="' + esc(String(showIfVal || '')) + '" placeholder="variable_name or object condition">';
       out += '</div>';
       out += row('fmod-enableif-' + fi, 'enable if', '<input class="form-control editor-form-control font-monospace" id="fmod-enableif-' + fi + '" data-fmod="enable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['enable if'] || '')) + '">');
       out += row('fmod-disableif-' + fi, 'disable if', '<input class="form-control editor-form-control font-monospace" id="fmod-disableif-' + fi + '" data-fmod="disable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['disable if'] || '')) + '">');
@@ -5036,7 +5132,8 @@
       html += '<label class="form-check-label" for="adv-enable-if">Condition (if)</label>';
       html += '</div>';
       if (ifEnabled) {
-        html += '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" value="' + esc(String(ifVal)) + '" placeholder="Python expression">';
+        html += renderSymbolDatalist('adv-if-variable-list', 'variable', 120);
+        html += '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" data-symbol-role="variable" list="adv-if-variable-list" value="' + esc(String(ifVal)) + '" placeholder="Python expression">';
       }
       html += '</div>';
 
@@ -5464,6 +5561,8 @@
           if (fromIdx < 0 || fromIdx >= state.orderSteps.length) return;
           var moved = state.orderSteps.splice(fromIdx, 1)[0];
           state.orderSteps.splice(toIdx, 0, moved);
+          syncActiveOrderStepMap();
+          markOrderDirty();
           renderOrderBuilder();
         }
       });
@@ -6038,6 +6137,7 @@
     // View tabs
     if (topTab) {
       if (topTab.getAttribute('data-view') !== state.currentView && blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       state.currentView = topTab.getAttribute('data-view');
       setActiveTopTab(topTab);
       if (state.currentView === 'interview') {
@@ -6058,6 +6158,7 @@
     // Project selector cards
     if (projectCardBtn) {
       if (blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       openProject(projectCardBtn.getAttribute('data-project-card'));
       return;
     }
@@ -6070,6 +6171,7 @@
     // Jump targets
     if (jumpItem) {
       if (blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       var jump = jumpItem.getAttribute('data-jump');
       $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
       // Only visually activate direct jump buttons, not dropdown items
@@ -6096,6 +6198,7 @@
         if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && blockUnsavedSectionNavigation()) return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
       } else {
+        stashCurrentEditorState();
         state.selectedBlockId = outlineItem.getAttribute('data-block-id');
         state.canvasMode = 'question';
         state.questionEditMode = 'preview';
@@ -6270,6 +6373,7 @@
     if (orderBlockBtn) {
       var nextOrderBlockId = orderBlockBtn.getAttribute('data-order-block-id');
       if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId) return;
+      stashCurrentEditorState();
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
     }
@@ -6277,6 +6381,7 @@
     // Top action buttons
     if (target.id === 'btn-project-selector') {
       if (blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       state.canvasMode = 'project-selector';
       state.currentView = 'interview';
       var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
@@ -6555,6 +6660,7 @@
 
     if (target.id === 'btn-new-project') {
       if (blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       state.canvasMode = 'new-project';
       state.currentView = 'interview';
       var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
@@ -6564,6 +6670,7 @@
     }
     if (target.id === 'btn-full-yaml') {
       if (blockUnsavedSectionNavigation()) return;
+      stashCurrentEditorState();
       _stashFullYamlContent();
       state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
       state.currentView = 'interview';
@@ -6591,6 +6698,32 @@
       var newId = generateBlockId(questionText, allBlocks, currentBlock ? currentBlock.id : null);
       idEl.value = newId;
       idEl.dispatchEvent(new Event('input'));
+      return;
+    }
+    if (target.id === 'add-question-event') {
+      var eventBlock = getSelectedBlock();
+      if (eventBlock && eventBlock.type === 'question') {
+        syncFieldsToData(eventBlock);
+        _questionEventFieldOpen[eventBlock.id] = true;
+        markInterviewDirty();
+        renderCanvas();
+        window.setTimeout(function () {
+          var eventEl = document.getElementById('adv-event');
+          if (eventEl) eventEl.focus();
+        }, 50);
+      }
+      return;
+    }
+    if (target.id === 'remove-question-event') {
+      var removeEventBlock = getSelectedBlock();
+      if (removeEventBlock && removeEventBlock.type === 'question') {
+        var eventInput = document.getElementById('adv-event');
+        if (eventInput) eventInput.value = '';
+        syncFieldsToData(removeEventBlock);
+        delete _questionEventFieldOpen[removeEventBlock.id];
+        markInterviewDirty();
+        renderCanvas();
+      }
       return;
     }
     if (target.id === 'btn-preview-interview') {
@@ -6724,6 +6857,7 @@
         return;
       }
       if (qMode === 'preview') {
+        stashCurrentEditorState();
         if (qTab === 'screen' || qTab === 'options') {
           state.questionBlockTab = qTab;
           state.markdownPreviewMode = false;
@@ -6741,6 +6875,11 @@
 
     if (target.matches('[data-field-settings-tab]')) {
       var tabFi = parseInt(target.getAttribute('data-field-idx'), 10);
+      var tabBlock = getSelectedBlock();
+      if (tabBlock && tabBlock.type === 'question') {
+        syncFieldsToData(tabBlock);
+        markInterviewDirty();
+      }
       _fieldSettingsTabs[tabFi] = target.getAttribute('data-field-settings-tab') || 'basic';
       renderCanvas();
       return;
@@ -6766,6 +6905,7 @@
     }
 
     if (target.id === 'toggle-advanced') {
+      stashCurrentEditorState();
       state.advancedOpen = !state.advancedOpen;
       renderCanvas();
       return;
@@ -6773,6 +6913,7 @@
 
     // Advanced show more toggle
     if (target.id === 'adv-show-more') {
+      stashCurrentEditorState();
       state.advancedShowMore = !state.advancedShowMore;
       renderCanvas();
       return;
@@ -6942,14 +7083,15 @@
     // Order builder
     if (target.id === 'generate-draft-order') {
       apiPost('/api/draft-order', { project: state.project, filename: state.filename })
-        .then(function (res) { if (res.success) { state.orderSteps = res.data.steps; syncActiveOrderStepMap(); renderCanvas(); } });
+        .then(function (res) { if (res.success) { state.orderSteps = res.data.steps; syncActiveOrderStepMap(); markOrderDirty(); renderCanvas(); } });
       return;
     }
     if (target.id === 'wrap-selected-order-steps') {
-      if (wrapSelectedOrderSteps()) renderCanvas();
+      if (wrapSelectedOrderSteps()) { markOrderDirty(); renderCanvas(); }
       return;
     }
     if (target.id === 'order-to-raw') {
+      stashCurrentEditorState();
       state._prevCanvasMode = 'order-builder';
       state.canvasMode = 'full-yaml';
       state.fullYamlTab = 'order';
@@ -6957,6 +7099,7 @@
       return;
     }
     if (target.id === 'order-back-to-code') {
+      stashCurrentEditorState();
       if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
       state.canvasMode = 'question';
       state.questionEditMode = 'preview';
@@ -6967,7 +7110,7 @@
     if (target.id === 'save-order-steps') {
       syncActiveOrderStepMap();
       apiPost('/api/order', { project: state.project, filename: state.filename, order_block_id: state.activeOrderBlockId, steps: state.orderSteps })
-        .then(function (res) { if (res.success) loadFile(); });
+        .then(function (res) { if (res.success) { state.orderDirty = false; state.dirty = false; loadFile(); } });
       return;
     }
 
@@ -6987,6 +7130,7 @@
         stepRecord.list.splice(stepRecord.index, 1);
         delete state.selectedOrderStepIds[targetStepId];
         syncActiveOrderStepMap();
+        markOrderDirty();
         renderCanvas();
       } else if (action === 'preview') {
         showOrderPreview(stepRecord.step);
@@ -7000,6 +7144,7 @@
         if (!Array.isArray(stepRecord.step.else_children)) stepRecord.step.else_children = [];
         state.orderCollapsed[targetStepId] = false;
         syncActiveOrderStepMap();
+        markOrderDirty();
         renderCanvas();
       } else if (action === 'inline-save') {
         var inlineInvoke = document.getElementById('order-inline-edit-invoke');
@@ -7014,6 +7159,7 @@
         }
         _inlineEditStepId = null;
         syncActiveOrderStepMap();
+        markOrderDirty();
         renderCanvas();
       } else if (action === 'go-to-block') {
         var targetBlock = findBlockByInvoke(stepRecord.step);
@@ -7238,8 +7384,13 @@
         target.id === 'review-tabular' || target.matches('.editor-review-item-yaml') ||
         target.closest('.editor-review-item') || target.id === 'review-new-field' ||
         target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
-        target.matches('.editor-field-showif-key')) {
+        target.matches('.editor-field-showif-key') ||
+        target.id === 'order-inline-edit-invoke' || target.id === 'order-inline-edit-condition' ||
+        target.id === 'order-inline-edit-value' || target.id === 'order-add-invoke' ||
+        target.id === 'order-add-condition' || target.id === 'order-add-value' ||
+        target.id === 'order-add-code') {
       state.dirty = true;
+      if (target.id && target.id.indexOf('order-') === 0) state.orderDirty = true;
       updateTopbarSaveState();
     }
   });
@@ -7403,7 +7554,8 @@
       html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-inline-edit-invoke" value="' + esc(step.invoke || '') + '">';
     } else if (step.kind === 'condition') {
       html += '<label class="editor-tiny">Condition</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="variable" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
+      html += renderSymbolDatalist('order-inline-condition-list', 'variable', 120);
+      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="variable" list="order-inline-condition-list" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
     } else if (step.kind === 'section') {
       // Build list of section names from sections blocks
       var sectionNames = [];
@@ -7454,6 +7606,7 @@
     if (valueEl) { step.value = valueEl.value; if (step.kind === 'section') step.summary = 'Section: ' + valueEl.value; if (step.kind === 'progress') step.summary = 'Progress: ' + valueEl.value + '%'; }
     if (codeEl) { step.code = codeEl.value; step.summary = codeEl.value.split('\n')[0].slice(0, 60); }
     syncActiveOrderStepMap();
+    markOrderDirty();
     closeBootstrapModal('order-edit-modal');
     renderCanvas();
   });
@@ -7515,6 +7668,7 @@
     _lastInsertedOrderStepId = newStep.id;
     _pendingOrderInsert = null;
     syncActiveOrderStepMap();
+    markOrderDirty();
     closeBootstrapModal('order-add-modal');
     renderCanvas();
     clearInsertedStepHighlightSoon(newStep.id);
@@ -7529,6 +7683,7 @@
       projectSelect.value = state.project || '';
       return;
     }
+    stashCurrentEditorState();
     state.project = nextProject || null;
     state.selectedBlockId = null;
     if (!state.project) {
@@ -7541,6 +7696,7 @@
   });
 
   fileSelect.addEventListener('change', function () {
+    stashCurrentEditorState();
     state.filename = fileSelect.value;
     state.selectedBlockId = null;
     loadFile();

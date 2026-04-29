@@ -1012,6 +1012,14 @@ html, body {
   min-width: 0;
   max-width: 300px;
 }
+.editor-question-event-row {
+  margin-top: 6px;
+}
+.editor-add-event-btn {
+  margin-top: 6px;
+  font-size: 12px;
+  text-decoration: none;
+}
 .editor-block-id-hint {
   font-size: 11px;
   color: var(--editor-muted);
