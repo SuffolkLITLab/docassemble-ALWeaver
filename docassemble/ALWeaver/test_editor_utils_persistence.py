@@ -169,6 +169,62 @@ class TestEditorUtilsPersistence(unittest.TestCase):
         self.assertIn("code: |", updated)
         self.assertIn("  some_var = 1", updated)
 
+    def test_parse_interview_yaml_builds_editor_metadata_for_multiline_objects(self):
+        source_yaml = (
+            "id: bundles\n"
+            "objects:\n"
+            "  - al_user_bundle: ALDocumentBundle.using(\n"
+            "      elements=[instructions, attachment_one] + [item for item in extras],\n"
+            "      filename=\"bundle\",\n"
+            "      title=\"All forms to download\",\n"
+            "      enabled=True\n"
+            "      )\n"
+        )
+
+        model = parse_interview_yaml(source_yaml)
+        block = model["blocks"][0]
+
+        self.assertEqual(block["type"], "objects")
+        self.assertEqual(block["yaml"], source_yaml.strip())
+        self.assertIn("editor_objects", block)
+        self.assertEqual(block["editor_objects"][0]["mode"], "using")
+        self.assertEqual(block["editor_objects"][0]["class_name"], "ALDocumentBundle")
+        self.assertIn('filename="bundle"', block["editor_objects"][0]["using_args"])
+        self.assertTrue(block["editor_objects"][0]["is_document_bundle"])
+
+    def test_update_block_in_yaml_preserves_multiline_objects_expression(self):
+        source_yaml = (
+            "id: bundles\n"
+            "objects:\n"
+            "  - al_user_bundle: ALDocumentBundle.using(elements=[attachment_one])\n"
+            "---\n"
+            "id: next\n"
+            "question: Next question\n"
+        )
+
+        model = parse_interview_yaml(source_yaml)
+        block_id = model["blocks"][0]["id"]
+        updated_block_yaml = (
+            "id: bundles\n"
+            "objects:\n"
+            "  - al_user_bundle: ALDocumentBundle.using(\n"
+            "      elements=[instructions, attachment_one] + [item for item in extras],\n"
+            "      filename=\"bundle\",\n"
+            "      title=\"All forms to download\",\n"
+            "      enabled=True\n"
+            "      )\n"
+        )
+
+        updated_yaml = update_block_in_yaml(source_yaml, block_id, updated_block_yaml)
+        reparsed = parse_interview_yaml(updated_yaml)
+
+        self.assertIn("  - al_user_bundle: ALDocumentBundle.using(", updated_yaml)
+        self.assertIn("      filename=\"bundle\",", updated_yaml)
+        self.assertIn("      enabled=True", updated_yaml)
+        self.assertIn("      )", updated_yaml)
+        self.assertEqual(reparsed["blocks"][0]["yaml"], updated_block_yaml.strip())
+        self.assertEqual(reparsed["blocks"][1]["data"]["question"], "Next question")
+
 
 if __name__ == "__main__":
     unittest.main()

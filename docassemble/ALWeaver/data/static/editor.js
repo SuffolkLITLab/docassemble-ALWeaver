@@ -2876,6 +2876,89 @@
     return _appendQuestionAdvancedYaml(yaml, block);
   }
 
+  function _parseObjectEditorExpression(expression) {
+    var text = String(expression || '').trim();
+    var usingMatch = text.match(/^([A-Za-z_][A-Za-z0-9_.]*)\.using\(([\s\S]*)\)$/);
+    if (usingMatch) {
+      return {
+        mode: 'using',
+        expression: text,
+        raw_expression: text,
+        class_name: usingMatch[1],
+        using_args: String(usingMatch[2] || '').trim(),
+        is_document_bundle: usingMatch[1] === 'ALDocumentBundle',
+      };
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(text)) {
+      return {
+        mode: 'using',
+        expression: text,
+        raw_expression: text,
+        class_name: text,
+        using_args: '',
+        is_document_bundle: text === 'ALDocumentBundle',
+      };
+    }
+    return {
+      mode: 'raw',
+      expression: text,
+      raw_expression: text,
+      class_name: '',
+      using_args: '',
+      is_document_bundle: false,
+    };
+  }
+
+  function _getObjectEditorRows(block) {
+    var objects = (block && block.data && Array.isArray(block.data.objects)) ? block.data.objects : [];
+    if (Array.isArray(block && block.editor_objects) && block.editor_objects.length === objects.length) {
+      return block.editor_objects;
+    }
+    return objects.map(function (obj) {
+      var name = '';
+      var expr = '';
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        var keys = Object.keys(obj);
+        if (keys.length > 0) {
+          name = keys[0];
+          expr = String(obj[keys[0]] || '');
+        }
+      } else if (typeof obj === 'string') {
+        name = obj;
+      }
+      var parsed = _parseObjectEditorExpression(expr);
+      parsed.name = String(name || '').trim();
+      return parsed;
+    });
+  }
+
+  function _composeObjectExpression(className, usingArgs) {
+    var cleanClass = String(className || '').trim();
+    var cleanArgs = String(usingArgs || '').trim();
+    if (!cleanClass) return '';
+    if (!cleanArgs) return cleanClass;
+    if (cleanArgs.indexOf('\n') === -1) return cleanClass + '.using(' + cleanArgs + ')';
+    var indentedArgs = cleanArgs.split('\n').map(function (line) {
+      return line ? '  ' + line : '';
+    }).join('\n');
+    return cleanClass + '.using(\n' + indentedArgs + '\n)';
+  }
+
+  function _appendObjectYamlEntry(yaml, name, expression) {
+    var cleanName = String(name || '').trim();
+    var cleanExpression = String(expression || '').trim();
+    if (!cleanName) return yaml;
+    if (cleanExpression.indexOf('\n') === -1) {
+      return yaml + '  - ' + escapeYamlStr(cleanName) + ': ' + escapeYamlStr(cleanExpression || 'DAObject') + '\n';
+    }
+    var exprLines = cleanExpression.split('\n');
+    yaml += '  - ' + escapeYamlStr(cleanName) + ': ' + exprLines[0] + '\n';
+    exprLines.slice(1).forEach(function (line) {
+      yaml += '      ' + line + '\n';
+    });
+    return yaml;
+  }
+
   function serializeObjectsToYaml(block) {
     var yaml = '';
     var data = (block && block.data) || {};
@@ -2888,11 +2971,22 @@
     if (rows.length > 0) {
       rows.forEach(function (row) {
         var nameEl = row.querySelector('[data-obj-prop="name"]');
+        var modeEl = row.querySelector('[data-obj-prop="mode"]');
         var classEl = row.querySelector('[data-obj-prop="class"]');
+        var usingArgsEl = row.querySelector('[data-obj-prop="using-args"]');
+        var rawExprEl = row.querySelector('[data-obj-prop="expression"]');
         var name = nameEl ? String(nameEl.value || '').trim() : '';
-        var cls = classEl ? String(classEl.value || '').trim() : '';
+        var mode = modeEl ? String(modeEl.value || 'raw') : 'raw';
+        var expression = '';
         if (!name) return;
-        yaml += '  - ' + escapeYamlStr(name) + ': ' + escapeYamlStr(cls || 'DAObject') + '\n';
+        if (mode === 'using') {
+          var className = classEl ? String(classEl.value || '').trim() : '';
+          var usingArgs = usingArgsEl ? String(usingArgsEl.value || '').trim() : '';
+          expression = _composeObjectExpression(className || 'DAObject', usingArgs);
+        } else {
+          expression = rawExprEl ? String(rawExprEl.value || '').trim() : '';
+        }
+        yaml = _appendObjectYamlEntry(yaml, name, expression || 'DAObject');
       });
     }
 
@@ -4741,7 +4835,7 @@
   // --- Objects block: structured editor ---
   function renderObjectsBlock(block) {
     var data = block.data || {};
-    var objects = data.objects || [];
+    var editorObjects = _getObjectEditorRows(block);
     var html = '';
 
     html += '<div class="editor-center-bar">';
@@ -4758,26 +4852,48 @@
     if (state.questionEditMode === 'preview') {
       html += '<div class="editor-card"><div class="editor-card-header">Object declarations</div><div class="editor-card-body">';
 
-      if (Array.isArray(objects) && objects.length > 0) {
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;font-size:11px;letter-spacing:0.02em;color:var(--editor-muted);font-weight:600;padding:0 0 4px">';
-        html += '<div>Variable name</div><div>Class (with .using())</div><div></div>';
-        html += '</div>';
-
-        objects.forEach(function (obj, oi) {
-          var name = '', cls = '';
-          if (typeof obj === 'object' && obj !== null) {
-            var k = Object.keys(obj);
-            if (k.length > 0) {
-              name = k[0];
-              cls = String(obj[k[0]] || '');
-            }
-          } else if (typeof obj === 'string') {
-            // "- varname: ClassName" parsed as string shouldn't happen, but handle
-            name = obj;
-          }
+      if (Array.isArray(editorObjects) && editorObjects.length > 0) {
+        editorObjects.forEach(function (obj, oi) {
+          var name = String(obj.name || '').trim();
+          var mode = obj.mode === 'using' ? 'using' : 'raw';
+          var className = String(obj.class_name || '');
+          var usingArgs = String(obj.using_args || '');
+          var rawExpression = String(obj.raw_expression || obj.expression || '');
           html += '<div class="editor-obj-row" data-obj-idx="' + oi + '">';
-          html += '<input class="editor-obj-input" data-obj-prop="name" data-symbol-role="top-level" value="' + esc(name) + '" placeholder="variable_name">';
-          html += '<input class="editor-obj-input" data-obj-prop="class" data-symbol-role="object-class" value="' + esc(cls) + '" placeholder="ClassName.using(...)">';
+          html += '<input type="hidden" data-obj-prop="mode" value="' + esc(mode) + '">';
+          html += '<div class="editor-obj-fields">';
+          html += '<div class="editor-obj-topline">';
+          html += '<div class="editor-form-group editor-form-group-compact">';
+          html += '<label class="editor-tiny" for="editor-obj-name-' + oi + '">Variable name</label>';
+          html += '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-name-' + oi + '" data-obj-prop="name" data-symbol-role="top-level" value="' + esc(name) + '" placeholder="variable_name">';
+          html += '</div>';
+          if (mode === 'using') {
+            html += '<div class="editor-form-group editor-form-group-compact">';
+            html += '<label class="editor-tiny" for="editor-obj-class-' + oi + '">Class</label>';
+            html += '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-class-' + oi + '" data-obj-prop="class" data-symbol-role="object-class" value="' + esc(className) + '" placeholder="ClassName">';
+            html += '</div>';
+          } else {
+            html += '<div class="editor-form-group editor-form-group-compact">';
+            html += '<label class="editor-tiny">Editor mode</label>';
+            html += '<div class="editor-obj-hint mt-0">Raw expression fallback</div>';
+            html += '</div>';
+          }
+          html += '</div>';
+          if (mode === 'using') {
+            html += '<div class="editor-form-group editor-form-group-compact">';
+            html += '<label class="editor-tiny" for="editor-obj-using-' + oi + '">.using() parameters</label>';
+            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="4" placeholder="elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;">' + esc(usingArgs) + '</textarea>';
+            if (obj.is_document_bundle) {
+              html += '<div class="editor-obj-hint">Common <code>ALDocumentBundle</code> params: <code>elements=[...]</code>, <code>filename=...</code>, <code>title=...</code>, <code>enabled=True</code>.</div>';
+            }
+            html += '</div>';
+          } else {
+            html += '<div class="editor-form-group editor-form-group-compact">';
+            html += '<label class="editor-tiny" for="editor-obj-raw-' + oi + '">Raw object expression</label>';
+            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-raw-' + oi + '" data-obj-prop="expression" rows="4" placeholder="ClassName.using(...)">' + esc(rawExpression) + '</textarea>';
+            html += '</div>';
+          }
+          html += '</div>';
           html += '<div><button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-obj="' + oi + '" title="Remove object"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
           html += '</div>';
         });
@@ -4804,7 +4920,12 @@
           onChange: function () { state.dirty = true; updateTopbarSaveState(); }
         });
       });
+      return;
     }
+
+    $$('.editor-obj-textarea').forEach(function (el) {
+      _initAutoResize(el, 96);
+    });
   }
 
   // --- Generic block (metadata, includes, event, attachment, etc.) ---
@@ -7250,6 +7371,16 @@
       if (blk3 && blk3.data) {
         if (!blk3.data.objects) blk3.data.objects = [];
         blk3.data.objects.push({ 'new_object': 'DAObject' });
+        if (!Array.isArray(blk3.editor_objects)) blk3.editor_objects = [];
+        blk3.editor_objects.push({
+          name: 'new_object',
+          mode: 'using',
+          expression: 'DAObject',
+          raw_expression: 'DAObject',
+          class_name: 'DAObject',
+          using_args: '',
+          is_document_bundle: false,
+        });
         state.dirty = true;
         renderCanvas();
       }
@@ -7262,6 +7393,7 @@
       var blk4 = getSelectedBlock();
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
+        if (Array.isArray(blk4.editor_objects)) blk4.editor_objects.splice(oi, 1);
         state.dirty = true;
         renderCanvas();
       }

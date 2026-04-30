@@ -187,10 +187,179 @@ def _canonicalize_value(value: Any, key: Optional[str] = None) -> Any:
     return value
 
 
-def canonical_block_yaml(block: Dict[str, Any]) -> str:
-    ordered_block = _ordered_block_dict(block)
+def _split_top_level_commas(text: str) -> List[str]:
+    parts: List[str] = []
+    current: List[str] = []
+    depth = 0
+    quote: Optional[str] = None
+    escaped = False
+
+    for char in str(text):
+        current.append(char)
+        if quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == quote:
+                quote = None
+            continue
+
+        if char in {'"', "'"}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            segment = "".join(current[:-1]).strip()
+            if segment:
+                parts.append(segment)
+            current = []
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _split_object_using_expression(expression: str) -> Optional[Tuple[str, str]]:
+    match = re.match(
+        r"^(?P<class_name>[A-Za-z_][A-Za-z0-9_\.]*)\.using\((?P<args>[\s\S]*)\)$",
+        str(expression or "").strip(),
+    )
+    if not match:
+        return None
+    return match.group("class_name").strip(), match.group("args").strip()
+
+
+def _is_object_class_name(expression: str) -> bool:
+    return bool(
+        re.match(r"^[A-Za-z_][A-Za-z0-9_\.]*$", str(expression or "").strip())
+    )
+
+
+def _should_multiline_object_args(raw_expression: str, args: Sequence[str]) -> bool:
+    if "\n" in raw_expression:
+        return True
+    if len(args) > 1:
+        return True
+    compact = ", ".join(part.strip() for part in args if part.strip())
+    return len(compact) > 88
+
+
+def _format_object_using_args(args_text: str, raw_expression: str = "") -> str:
+    args = _split_top_level_commas(args_text)
+    if not args:
+        return ""
+    if _should_multiline_object_args(raw_expression, args):
+        return "\n".join(part.strip() for part in args)
+    return ", ".join(part.strip() for part in args)
+
+
+def _compose_object_using_expression(class_name: str, using_args: str) -> str:
+    cleaned_class_name = str(class_name or "").strip()
+    cleaned_args = str(using_args or "").strip()
+    if not cleaned_class_name:
+        return ""
+    if not cleaned_args:
+        return cleaned_class_name
+    if "\n" not in cleaned_args:
+        return f"{cleaned_class_name}.using({cleaned_args})"
+    indented_args = "\n".join(f"  {line}" if line else "" for line in cleaned_args.splitlines())
+    return f"{cleaned_class_name}.using(\n{indented_args}\n)"
+
+
+def _serialize_inline_scalar(value: str) -> str:
+    text = str(value or "")
+    if text == "":
+        return '""'
+    if re.search(r"""[:#{}\[\],&*!>|'"%@`]""", text) or text.strip() != text:
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return text
+
+
+def _serialize_objects_value(objects: Any) -> Optional[str]:
+    if not isinstance(objects, list):
+        return None
+
+    lines: List[str] = ["objects:"]
+    for item in objects:
+        if not isinstance(item, dict) or len(item) != 1:
+            return None
+        name, expression = next(iter(item.items()))
+        rendered_name = _serialize_inline_scalar(str(name).strip())
+        expression_text = str(expression or "").strip()
+        if "\n" not in expression_text:
+            rendered_expression = _serialize_inline_scalar(expression_text)
+            lines.append(f"  - {rendered_name}: {rendered_expression}")
+            continue
+        expression_lines = expression_text.splitlines()
+        lines.append(f"  - {rendered_name}: {expression_lines[0].rstrip()}")
+        for line in expression_lines[1:]:
+            lines.append(f"      {line.rstrip()}" if line else "      ")
+    return "\n".join(lines)
+
+
+def _build_editor_objects(objects: Any) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not isinstance(objects, list):
+        return rows
+
+    for item in objects:
+        if not isinstance(item, dict) or not item:
+            continue
+        name, expression = next(iter(item.items()))
+        expression_text = str(expression or "").strip()
+        parsed = _split_object_using_expression(expression_text)
+        if parsed:
+            class_name, args_text = parsed
+            formatted_args = _format_object_using_args(args_text, raw_expression=expression_text)
+            rows.append(
+                {
+                    "name": str(name).strip(),
+                    "mode": "using",
+                    "expression": _compose_object_using_expression(class_name, formatted_args),
+                    "raw_expression": expression_text,
+                    "class_name": class_name,
+                    "using_args": formatted_args,
+                    "is_document_bundle": class_name == "ALDocumentBundle",
+                }
+            )
+            continue
+        if _is_object_class_name(expression_text):
+            rows.append(
+                {
+                    "name": str(name).strip(),
+                    "mode": "using",
+                    "expression": expression_text,
+                    "raw_expression": expression_text,
+                    "class_name": expression_text,
+                    "using_args": "",
+                    "is_document_bundle": expression_text == "ALDocumentBundle",
+                }
+            )
+            continue
+        rows.append(
+            {
+                "name": str(name).strip(),
+                "mode": "raw",
+                "expression": expression_text,
+                "raw_expression": expression_text,
+                "class_name": "",
+                "using_args": "",
+                "is_document_bundle": False,
+            }
+        )
+    return rows
+
+
+def _dump_canonical_fragment(key: str, value: Any) -> str:
     return yaml.dump(
-        ordered_block,
+        {key: value},
         Dumper=_CanonicalDumper,
         default_flow_style=False,
         allow_unicode=True,
@@ -199,12 +368,37 @@ def canonical_block_yaml(block: Dict[str, Any]) -> str:
     ).rstrip()
 
 
+def canonical_block_yaml(block: Dict[str, Any]) -> str:
+    ordered_block = _ordered_block_dict(block)
+    if "objects" not in ordered_block:
+        return yaml.dump(
+            ordered_block,
+            Dumper=_CanonicalDumper,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+            width=1000,
+        ).rstrip()
+
+    fragments: List[str] = []
+    for key, value in ordered_block.items():
+        if key == "objects":
+            serialized_objects = _serialize_objects_value(value)
+            if serialized_objects is not None:
+                fragments.append(serialized_objects)
+                continue
+        fragments.append(_dump_canonical_fragment(key, value))
+    return "\n".join(fragment for fragment in fragments if fragment).rstrip()
+
+
 def canonicalize_block_yaml(block_yaml: str) -> str:
     try:
         parsed = yaml.safe_load(block_yaml)
     except yaml.YAMLError:
         return block_yaml.strip()
     if not isinstance(parsed, dict):
+        return block_yaml.strip()
+    if "objects" in parsed:
         return block_yaml.strip()
     return canonical_block_yaml(parsed)
 
@@ -535,7 +729,8 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
         block_type = _detect_block_type(doc)
         block_id = _stable_block_id(i, doc)
-        block_yaml = canonical_block_yaml(doc)
+        editor_objects = _build_editor_objects(doc.get("objects")) if "objects" in doc else []
+        block_yaml = segment_text if block_type == BLOCK_TYPE_OBJECTS else canonical_block_yaml(doc)
 
         entry: Dict[str, Any] = {
             "id": block_id,
@@ -549,6 +744,8 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             "yaml": block_yaml,
             "data": doc,
         }
+        if editor_objects:
+            entry["editor_objects"] = editor_objects
 
         blocks.append(entry)
 

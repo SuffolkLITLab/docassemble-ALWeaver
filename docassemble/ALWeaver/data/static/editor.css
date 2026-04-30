@@ -1936,14 +1936,26 @@ html, body {
 
 .editor-obj-row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: center;
-  padding: 6px 0;
+  align-items: start;
+  padding: 10px 0;
   border-bottom: 1px solid #f0f2f5;
 }
 
 .editor-obj-row:last-child { border-bottom: none; }
+
+.editor-obj-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.editor-obj-topline {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1.1fr);
+  gap: 10px;
+}
 
 .editor-obj-input {
   font-size: 13px;
@@ -1959,6 +1971,27 @@ html, body {
   outline: none;
   border-color: #86b7fe;
   box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.editor-obj-textarea {
+  min-height: 96px;
+  white-space: pre-wrap;
+}
+
+.editor-obj-hint {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+
+.editor-obj-hint code {
+  font-size: 11px;
+}
+
+@media (max-width: 991.98px) {
+  .editor-obj-topline {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== Upload dropzone ===== */
