@@ -95,7 +95,11 @@ def normalize_generated_fields(
     preferred_count: int = 3,
     hard_max: int = 7,
 ) -> List[Dict[str, Any]]:
-    allowed = [d for d in (allowed_datatypes or DEFAULT_FIELD_TYPES) if isinstance(d, str) and d.strip()]
+    allowed = [
+        d
+        for d in (allowed_datatypes or DEFAULT_FIELD_TYPES)
+        if isinstance(d, str) and d.strip()
+    ]
     if not allowed:
         allowed = list(DEFAULT_FIELD_TYPES)
     allowed_set = {d.lower(): d for d in allowed}
@@ -112,9 +116,20 @@ def normalize_generated_fields(
         if not isinstance(item, dict):
             continue
 
-        label = _safe_text(item.get("label") or item.get("question") or item.get("name") or f"Field {idx + 1}")
-        variable = _safe_text(item.get("variable") or item.get("field") or _varname_like(label, f"field_{idx + 1}"))
-        datatype_raw = _safe_text(item.get("datatype") or item.get("type") or "text").lower()
+        label = _safe_text(
+            item.get("label")
+            or item.get("question")
+            or item.get("name")
+            or f"Field {idx + 1}"
+        )
+        variable = _safe_text(
+            item.get("variable")
+            or item.get("field")
+            or _varname_like(label, f"field_{idx + 1}")
+        )
+        datatype_raw = _safe_text(
+            item.get("datatype") or item.get("type") or "text"
+        ).lower()
         datatype = allowed_set.get(datatype_raw, "text")
 
         if not label:
@@ -156,11 +171,16 @@ def normalize_generated_screen(
     if not isinstance(raw_screen, dict):
         raw_screen = {}
 
-    fields = normalize_generated_fields(raw_screen.get("fields", []), allowed_datatypes=allowed_datatypes)
+    fields = normalize_generated_fields(
+        raw_screen.get("fields", []), allowed_datatypes=allowed_datatypes
+    )
     if len(fields) > 7:
         fields = fields[:7]
 
-    question = _safe_text(raw_screen.get("question")) or "Please answer the following questions."
+    question = (
+        _safe_text(raw_screen.get("question"))
+        or "Please answer the following questions."
+    )
     subquestion = _safe_text(raw_screen.get("subquestion"))
 
     continue_button_field = _safe_text(raw_screen.get("continue_button_field"))
@@ -194,7 +214,9 @@ def validate_yaml_with_dayamlchecker(
         )
         if result.returncode == 0:
             return True, (result.stdout or "").strip()
-        combined = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
+        combined = "\n".join(
+            part for part in [result.stdout, result.stderr] if part
+        ).strip()
         return False, combined or "DAYamlChecker validation failed"
     finally:
         if temp_path and temp_path.exists():

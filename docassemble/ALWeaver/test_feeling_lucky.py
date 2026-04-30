@@ -220,7 +220,9 @@ class test_feeling_lucky(unittest.TestCase):
         """_normalize_objects applies ql_baseline defaults for empty-param objects."""
         raw = [
             type("_O", (), {"name": "users", "type": "ALPeopleList", "params": {}})(),
-            type("_O", (), {"name": "children", "type": "ALPeopleList", "params": {}})(),
+            type(
+                "_O", (), {"name": "children", "type": "ALPeopleList", "params": {}}
+            )(),
         ]
         result = _normalize_objects(raw)
         by_name = {o.name: o for o in result}
@@ -256,7 +258,10 @@ class test_feeling_lucky(unittest.TestCase):
         interview = DAInterview()
         interview.auto_assign_attributes_fast(input_file=da_pdf)
 
-        from .interview_generator import generate_interview_artifacts, _LocalDAFileAdapter
+        from .interview_generator import (
+            generate_interview_artifacts,
+            _LocalDAFileAdapter,
+        )
         import tempfile, os
 
         with tempfile.TemporaryDirectory() as tmpdir:

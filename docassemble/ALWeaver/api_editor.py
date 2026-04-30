@@ -52,7 +52,12 @@ from docassemble.webapp.app_object import app, csrf
 from docassemble.webapp.server import jsonify_with_status, r
 from docassemble.webapp.worker_common import bg_context
 
-from .api_utils import generate_interview_from_bytes, parse_bool, validate_upload_metadata
+from .api_utils import (
+    generate_interview_from_bytes,
+    parse_bool,
+    validate_upload_metadata,
+)
+
 try:
     from .editor_utils import (
         canonical_block_yaml,
@@ -78,7 +83,12 @@ try:
     )
 except Exception as _editor_utils_import_err:
     import traceback as _traceback
-    log("ALWeaver api_editor: FAILED TO IMPORT editor_utils: " + _traceback.format_exc(), "error")
+
+    log(
+        "ALWeaver api_editor: FAILED TO IMPORT editor_utils: "
+        + _traceback.format_exc(),
+        "error",
+    )
     raise
 try:
     from .editor_ai_utils import (
@@ -90,7 +100,12 @@ try:
     )
 except Exception as _ai_utils_import_err:
     import traceback as _traceback
-    log("ALWeaver api_editor: FAILED TO IMPORT editor_ai_utils: " + _traceback.format_exc(), "error")
+
+    log(
+        "ALWeaver api_editor: FAILED TO IMPORT editor_ai_utils: "
+        + _traceback.format_exc(),
+        "error",
+    )
     raise
 from .playground_publish import (
     SECTION_TO_STORAGE,
@@ -178,6 +193,7 @@ DEFAULT_DASHBOARD_EDITOR_URLS = {
 # Auth helpers (mirror ALDashboard session-cookie pattern)
 # ---------------------------------------------------------------------------
 
+
 def _editor_auth_check() -> bool:
     """Return True when the browser session belongs to an authenticated user."""
     try:
@@ -236,6 +252,7 @@ def _editor_auth_urls() -> tuple[str, str]:
 # Input helpers
 # ---------------------------------------------------------------------------
 
+
 def _normalize_project(raw: Optional[str]) -> str:
     value = str(raw or "default").strip() or "default"
     if "/" in value or "\\" in value or value.startswith("."):
@@ -263,7 +280,9 @@ def _normalize_new_filename(raw: Optional[str]) -> str:
     return value
 
 
-def _normalize_renamed_storage_filename(raw: Optional[str], existing_filename: str) -> str:
+def _normalize_renamed_storage_filename(
+    raw: Optional[str], existing_filename: str
+) -> str:
     value = os.path.basename(str(raw or "").strip())
     if not value or value in {".", ".."}:
         raise ValueError("YAML filename is required")
@@ -305,11 +324,17 @@ def _normalize_storage_filename(raw: Optional[str]) -> str:
     return value
 
 
-def _editor_storage_directory(user_id: int, project: str, storage_section: str) -> tuple[Any, str]:
+def _editor_storage_directory(
+    user_id: int, project: str, storage_section: str
+) -> tuple[Any, str]:
     from docassemble.webapp.files import SavedFile
 
     area = SavedFile(user_id, fix=True, section=storage_section)
-    directory = area.directory if project == "default" else os.path.join(area.directory, project)
+    directory = (
+        area.directory
+        if project == "default"
+        else os.path.join(area.directory, project)
+    )
     os.makedirs(directory, exist_ok=True)
     return area, directory
 
@@ -318,7 +343,11 @@ def _editor_playground_directory(user_id: int, project: str) -> tuple[Any, str]:
     from docassemble.webapp.files import SavedFile
 
     area = SavedFile(user_id, fix=True, section="playground")
-    directory = area.directory if project == "default" else os.path.join(area.directory, project)
+    directory = (
+        area.directory
+        if project == "default"
+        else os.path.join(area.directory, project)
+    )
     os.makedirs(directory, exist_ok=True)
     return area, directory
 
@@ -403,7 +432,7 @@ def _resolve_lint_block_id(
 
     screen_link = str(finding.get("screen_link") or "").strip()
     if screen_link.startswith("#screen-"):
-        candidate = screen_link[len("#screen-"):].strip()
+        candidate = screen_link[len("#screen-") :].strip()
         if candidate and candidate in block_lookup:
             return candidate
 
@@ -469,7 +498,9 @@ def _annotate_lint_findings(
 def _lint_summary_for_findings(findings: List[Dict[str, Any]]) -> Dict[str, int]:
     summary = {"error": 0, "warning": 0, "info": 0}
     for finding in findings:
-        level = _lint_level_from_severity(finding.get("level") or finding.get("severity"))
+        level = _lint_level_from_severity(
+            finding.get("level") or finding.get("severity")
+        )
         if level not in summary:
             level = "error"
         summary[level] += 1
@@ -508,22 +539,30 @@ def _preview_kind_for_file(filename: str, editable: bool) -> str:
 
 def _dashboard_editor_url(kind: str, project: str, filename: str) -> str:
     pattern = DEFAULT_DASHBOARD_EDITOR_URLS[kind]
-    return pattern.format(project=quote(project, safe="/"), filename=quote(filename, safe=""))
+    return pattern.format(
+        project=quote(project, safe="/"), filename=quote(filename, safe="")
+    )
 
 
-def _list_editor_section_files(user_id: int, project: str, section: str) -> List[Dict[str, Any]]:
+def _list_editor_section_files(
+    user_id: int, project: str, section: str
+) -> List[Dict[str, Any]]:
     storage_section = EDITOR_SECTION_TO_STORAGE[section]
     _area, directory = _editor_storage_directory(user_id, project, storage_section)
     if not os.path.isdir(directory):
         return []
     items: List[Dict[str, Any]] = []
-    for name in sorted(os.listdir(directory), key=lambda v: (_is_placeholder_file(v), v.lower())):
+    for name in sorted(
+        os.listdir(directory), key=lambda v: (_is_placeholder_file(v), v.lower())
+    ):
         path = os.path.join(directory, name)
         if not os.path.isfile(path):
             continue
         guessed_mimetype, _enc = mimetypes.guess_type(name)
         mimetype_value = guessed_mimetype or "application/octet-stream"
-        editable = _is_text_editable(name, mimetype_value) and not _is_placeholder_file(name)
+        editable = _is_text_editable(name, mimetype_value) and not _is_placeholder_file(
+            name
+        )
         items.append(
             {
                 "filename": name,
@@ -540,6 +579,7 @@ def _list_editor_section_files(user_id: int, project: str, section: str) -> List
 # ---------------------------------------------------------------------------
 # Template helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_template_content(filename: str) -> str:
     """Read a file from data/templates/ inside the installed package."""
@@ -626,7 +666,9 @@ def _field_types_from_request(payload: Dict[str, Any]) -> List[str]:
     return cleaned or list(DEFAULT_FIELD_TYPES)
 
 
-def _question_block_by_id(blocks: List[Dict[str, Any]], block_id: str) -> Optional[Dict[str, Any]]:
+def _question_block_by_id(
+    blocks: List[Dict[str, Any]], block_id: str
+) -> Optional[Dict[str, Any]]:
     for block in blocks:
         if block.get("id") == block_id and block.get("type") == "question":
             return block
@@ -644,7 +686,9 @@ def _interview_outline_text(blocks: List[Dict[str, Any]], max_items: int = 80) -
     return "\n".join(lines)
 
 
-def _project_template_context_text(user_id: int, project: str, max_chars: int = 8000) -> str:
+def _project_template_context_text(
+    user_id: int, project: str, max_chars: int = 8000
+) -> str:
     """Extract lightweight context from uploaded templates in playgroundtemplate."""
     try:
         from docassemble.webapp.files import SavedFile
@@ -652,7 +696,11 @@ def _project_template_context_text(user_id: int, project: str, max_chars: int = 
         return ""
 
     area = SavedFile(user_id, fix=False, section=SECTION_TO_STORAGE["templates"])
-    project_dir = area.directory if project == "default" else os.path.join(area.directory, project)
+    project_dir = (
+        area.directory
+        if project == "default"
+        else os.path.join(area.directory, project)
+    )
     if not os.path.isdir(project_dir):
         return ""
 
@@ -704,9 +752,7 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
         raise ValueError("block_yaml must contain exactly one YAML mapping block")
 
     normalized_keys = {
-        str(key).strip().lower()
-        for key in parsed.keys()
-        if str(key).strip()
+        str(key).strip().lower() for key in parsed.keys() if str(key).strip()
     }
     if not normalized_keys:
         raise ValueError("Block must contain at least one key")
@@ -720,6 +766,7 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
 # Page route
 # ---------------------------------------------------------------------------
 
+
 @app.route(EDITOR_BASE_PATH, methods=["GET"])
 @csrf.exempt
 @cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
@@ -729,9 +776,7 @@ def editor_page() -> Response:
     html = _render_editor_page()
     if not html:
         log("ALWeaver: editor template not found", "error")
-        return Response(
-            "Editor template not found.", status=500, mimetype="text/plain"
-        )
+        return Response("Editor template not found.", status=500, mimetype="text/plain")
     return Response(html, mimetype="text/html")
 
 
@@ -760,6 +805,7 @@ def editor_static(filename: str) -> Response:
 # API routes
 # ---------------------------------------------------------------------------
 
+
 @app.route(f"{EDITOR_BASE_PATH}/api/projects", methods=["GET"])
 @csrf.exempt
 @cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
@@ -770,11 +816,13 @@ def editor_api_projects() -> Response:
         return _auth_fail(request_id)
     try:
         uid = _current_user_id()
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {"projects": playground_list_projects(uid)},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"projects": playground_list_projects(uid)},
+            }
+        )
     except Exception as exc:
         log(f"ALWeaver editor: projects error: {exc!r}", "error")
         return jsonify_with_status(
@@ -803,15 +851,17 @@ def editor_api_rename_project() -> Response:
         if old_project == new_project:
             raise ValueError("New project name must be different")
         rename_project(uid, old_project, new_project)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": new_project,
-                "old_project": old_project,
-                "projects": playground_list_projects(uid),
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": new_project,
+                    "old_project": old_project,
+                    "projects": playground_list_projects(uid),
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -847,14 +897,16 @@ def editor_api_delete_project() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         delete_project(uid, project)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "projects": playground_list_projects(uid),
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "projects": playground_list_projects(uid),
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -888,14 +940,16 @@ def editor_api_files() -> Response:
     try:
         uid = _current_user_id()
         project = _normalize_project(request.args.get("project"))
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "files": playground_list_yaml_files(uid, project),
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "files": playground_list_yaml_files(uid, project),
+                },
+            }
+        )
     except ValueError as exc:
         return jsonify_with_status(
             {
@@ -1387,7 +1441,9 @@ def editor_api_dashboard_editor_url() -> Response:
         elif extension == ".docx":
             url = _dashboard_editor_url("docx", project, filename)
         else:
-            raise ValueError("Dashboard editor is only available for PDF and DOCX templates")
+            raise ValueError(
+                "Dashboard editor is only available for PDF and DOCX templates"
+            )
         return jsonify(
             {
                 "success": True,
@@ -1447,22 +1503,24 @@ def editor_api_get_file() -> Response:
                 if not order_steps:
                     order_steps = parsed_steps
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "blocks": model["blocks"],
-                "metadata_blocks": model["metadata_blocks"],
-                "include_blocks": model["include_blocks"],
-                "default_screen_parts_blocks": model["default_screen_parts_blocks"],
-                "order_blocks": model["order_blocks"],
-                "order_steps": order_steps,
-                "order_step_map": order_step_map,
-                "raw_yaml": raw_yaml,
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+                    "order_blocks": model["order_blocks"],
+                    "order_steps": order_steps,
+                    "order_step_map": order_step_map,
+                    "raw_yaml": raw_yaml,
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -1563,7 +1621,11 @@ def editor_api_validate() -> Response:
         # Also include playground-style undefined variable and parse diagnostics.
         try:
             variable_info = playground_get_variables(uid, project, filename)
-            undefined_names = variable_info.get("undefined_names") if isinstance(variable_info, dict) else None
+            undefined_names = (
+                variable_info.get("undefined_names")
+                if isinstance(variable_info, dict)
+                else None
+            )
             if isinstance(undefined_names, (list, set, tuple)):
                 for var_name in sorted(
                     str(name).strip() for name in undefined_names if str(name).strip()
@@ -1604,23 +1666,31 @@ def editor_api_validate() -> Response:
                 continue
             seen.add(key)
             deduped.append(err)
-        errors = _annotate_lint_findings(deduped, model["blocks"], source_name="validation")
+        errors = _annotate_lint_findings(
+            deduped, model["blocks"], source_name="validation"
+        )
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "errors": errors,
-                "summary": {
-                    "count": len(errors),
-                    "errors": sum(1 for err in errors if err.get("level") == "error"),
-                    "warnings": sum(1 for err in errors if err.get("level") == "warning"),
-                    "infos": sum(1 for err in errors if err.get("level") == "info"),
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "errors": errors,
+                    "summary": {
+                        "count": len(errors),
+                        "errors": sum(
+                            1 for err in errors if err.get("level") == "error"
+                        ),
+                        "warnings": sum(
+                            1 for err in errors if err.get("level") == "warning"
+                        ),
+                        "infos": sum(1 for err in errors if err.get("level") == "info"),
+                    },
+                    "checker": "dayamlchecker",
+                    "structured": used_structured_checker,
                 },
-                "checker": "dayamlchecker",
-                "structured": used_structured_checker,
-            },
-        })
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -1655,36 +1725,54 @@ def editor_api_style_check() -> Response:
         uid = _current_user_id()
         project = _normalize_project(request.args.get("project"))
         filename = _normalize_filename(request.args.get("filename"))
-        include_llm = str(request.args.get("include_llm", "1")).strip().lower() not in {"0", "false", "no"}
+        include_llm = str(request.args.get("include_llm", "1")).strip().lower() not in {
+            "0",
+            "false",
+            "no",
+        }
         raw_yaml = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(raw_yaml)
         lint_result = _run_interview_linter(raw_yaml, include_llm=include_llm)
-        findings = lint_result.get("findings", []) if isinstance(lint_result, dict) else []
+        findings = (
+            lint_result.get("findings", []) if isinstance(lint_result, dict) else []
+        )
         if not isinstance(findings, list):
             findings = []
-        annotated_findings = _annotate_lint_findings(findings, model["blocks"], source_name="style-check")
+        annotated_findings = _annotate_lint_findings(
+            findings, model["blocks"], source_name="style-check"
+        )
         summary = _lint_summary_for_findings(annotated_findings)
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "errors": annotated_findings,
-                "summary": {
-                    "count": len(annotated_findings),
-                    "errors": summary["error"],
-                    "warnings": summary["warning"],
-                    "infos": summary["info"],
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "errors": annotated_findings,
+                    "summary": {
+                        "count": len(annotated_findings),
+                        "errors": summary["error"],
+                        "warnings": summary["warning"],
+                        "infos": summary["info"],
+                    },
+                    "checker": "ALDashboard.interview_linter",
+                    "structured": True,
+                    "include_llm": include_llm,
+                    "screen_catalog": (
+                        lint_result.get("screen_catalog", [])
+                        if isinstance(lint_result, dict)
+                        else []
+                    ),
+                    "lint_mode": (
+                        lint_result.get("lint_mode")
+                        if isinstance(lint_result, dict)
+                        else None
+                    ),
                 },
-                "checker": "ALDashboard.interview_linter",
-                "structured": True,
-                "include_llm": include_llm,
-                "screen_catalog": lint_result.get("screen_catalog", []) if isinstance(lint_result, dict) else [],
-                "lint_mode": lint_result.get("lint_mode") if isinstance(lint_result, dict) else None,
-            },
-        })
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -1724,15 +1812,17 @@ def editor_api_save_file() -> Response:
         if not isinstance(content, str):
             raise ValueError("content must be a YAML string")
         playground_write_yaml(uid, project, filename, content)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "size": len(content),
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "size": len(content),
+                },
+            }
+        )
     except ValueError as exc:
         return jsonify_with_status(
             {
@@ -1767,7 +1857,9 @@ def editor_api_rename_file() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         old_filename = _normalize_filename(post_data.get("filename"))
-        new_filename = _normalize_renamed_filename(post_data.get("new_filename"), old_filename)
+        new_filename = _normalize_renamed_filename(
+            post_data.get("new_filename"), old_filename
+        )
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
         area, directory = _editor_playground_directory(uid, project)
@@ -1866,7 +1958,9 @@ def editor_api_rename_section_file() -> Response:
         project = _normalize_project(post_data.get("project"))
         section = _normalize_section(post_data.get("section"))
         old_filename = _normalize_storage_filename(post_data.get("filename"))
-        new_filename = _normalize_renamed_storage_filename(post_data.get("new_filename"), old_filename)
+        new_filename = _normalize_renamed_storage_filename(
+            post_data.get("new_filename"), old_filename
+        )
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
@@ -1992,25 +2086,25 @@ def editor_api_save_block() -> Response:
                 order_step_map[block["id"]] = parsed_steps
                 if not order_steps:
                     order_steps = parsed_steps
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "blocks": model["blocks"],
-                "metadata_blocks": model["metadata_blocks"],
-                "include_blocks": model["include_blocks"],
-                "default_screen_parts_blocks": model[
-                    "default_screen_parts_blocks"
-                ],
-                "order_blocks": model["order_blocks"],
-                "order_steps": order_steps,
-                "order_step_map": order_step_map,
-                "raw_yaml": updated_content,
-                "saved_block_id": block_id,
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+                    "order_blocks": model["order_blocks"],
+                    "order_steps": order_steps,
+                    "order_step_map": order_step_map,
+                    "raw_yaml": updated_content,
+                    "saved_block_id": block_id,
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2054,11 +2148,13 @@ def editor_api_delete_block() -> Response:
         updated_content = delete_block_from_yaml(current_content, block_id)
         playground_write_yaml(uid, project, filename, updated_content)
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": _build_file_response_data(updated_content, project, filename),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _build_file_response_data(updated_content, project, filename),
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2102,11 +2198,13 @@ def editor_api_comment_block() -> Response:
         updated_content = comment_out_block_in_yaml(current_content, block_id)
         playground_write_yaml(uid, project, filename, updated_content)
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": _build_file_response_data(updated_content, project, filename),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _build_file_response_data(updated_content, project, filename),
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2140,11 +2238,13 @@ def editor_api_enable_block() -> Response:
         updated_content = enable_commented_block_in_yaml(current_content, block_id)
         playground_write_yaml(uid, project, filename, updated_content)
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": _build_file_response_data(updated_content, project, filename),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _build_file_response_data(updated_content, project, filename),
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2193,17 +2293,21 @@ def editor_api_reorder_blocks() -> Response:
         block_ids = post_data.get("block_ids")
         if not isinstance(block_ids, list):
             raise ValueError("block_ids must be a list")
-        normalized_block_ids = [str(block_id).strip() for block_id in block_ids if str(block_id).strip()]
+        normalized_block_ids = [
+            str(block_id).strip() for block_id in block_ids if str(block_id).strip()
+        ]
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = reorder_blocks_in_yaml(current_content, normalized_block_ids)
         playground_write_yaml(uid, project, filename, updated_content)
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": _build_file_response_data(updated_content, project, filename),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _build_file_response_data(updated_content, project, filename),
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2277,31 +2381,31 @@ def editor_api_insert_block() -> Response:
 
         updated_model = parse_interview_yaml(updated_content)
         inserted_block_id = None
-        id_match = re.search(
-            r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text
-        )
+        id_match = re.search(r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text)
         if id_match:
             inserted_block_id = id_match.group(1).strip()
         elif 0 <= insert_at < len(updated_model["blocks"]):
             inserted_block_id = updated_model["blocks"][insert_at].get("id")
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "blocks": updated_model["blocks"],
-                "metadata_blocks": updated_model["metadata_blocks"],
-                "include_blocks": updated_model["include_blocks"],
-                "default_screen_parts_blocks": updated_model[
-                    "default_screen_parts_blocks"
-                ],
-                "order_blocks": updated_model["order_blocks"],
-                "raw_yaml": updated_content,
-                "inserted_block_id": inserted_block_id,
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": updated_model["blocks"],
+                    "metadata_blocks": updated_model["metadata_blocks"],
+                    "include_blocks": updated_model["include_blocks"],
+                    "default_screen_parts_blocks": updated_model[
+                        "default_screen_parts_blocks"
+                    ],
+                    "order_blocks": updated_model["order_blocks"],
+                    "raw_yaml": updated_content,
+                    "inserted_block_id": inserted_block_id,
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2350,11 +2454,13 @@ def editor_api_variables() -> Response:
                 raise
         if data is None:
             raise last_exc or RuntimeError("Unable to extract variables.")
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": data,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": data,
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2414,28 +2520,38 @@ def editor_api_save_order() -> Response:
             block_data = deepcopy(target_block.get("data") or {})
             if not isinstance(block_data, dict):
                 block_data = {}
-            block_data["id"] = str(block_data.get("id") or target_block.get("id") or "interview_order")
+            block_data["id"] = str(
+                block_data.get("id") or target_block.get("id") or "interview_order"
+            )
             block_data["mandatory"] = True
             block_data["code"] = code_body
             order_yaml = canonical_block_yaml(block_data)
-            updated = update_block_in_yaml(current_content, target_block["id"], order_yaml)
+            updated = update_block_in_yaml(
+                current_content, target_block["id"], order_yaml
+            )
         else:
             # Append a new mandatory code block
             indented_body = "\n".join(f"  {line}" for line in code_body.splitlines())
-            order_yaml = f"id: interview_order\nmandatory: True\ncode: |\n{indented_body}\n"
+            order_yaml = (
+                f"id: interview_order\nmandatory: True\ncode: |\n{indented_body}\n"
+            )
             updated = current_content.rstrip() + "\n---\n" + order_yaml + "\n"
 
         playground_write_yaml(uid, project, filename, updated)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {
-                "project": project,
-                "filename": filename,
-                "order_block_id": target_block.get("id") if target_block else "interview_order",
-                "order_yaml": order_yaml,
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "order_block_id": (
+                        target_block.get("id") if target_block else "interview_order"
+                    ),
+                    "order_yaml": order_yaml,
+                },
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2489,8 +2605,7 @@ def editor_api_ai_generate_screen() -> Response:
         template_context = _project_template_context_text(uid, project)
         current_screen_payload = post_data.get("current_screen")
 
-        system_message = textwrap.dedent(
-            """
+        system_message = textwrap.dedent("""
             You are drafting ONE docassemble question screen.
             Return ONLY JSON with keys:
               question: string
@@ -2504,8 +2619,7 @@ def editor_api_ai_generate_screen() -> Response:
             - Choose datatypes from the provided allowed list.
             - Keep labels plain and user-friendly.
             - Keep variable names python-safe snake_case.
-            """
-        ).strip()
+            """).strip()
 
         user_message = (
             f"Allowed datatypes: {json.dumps(field_types)}\n\n"
@@ -2528,14 +2642,20 @@ def editor_api_ai_generate_screen() -> Response:
 
         screen = normalize_generated_screen(drafted, allowed_datatypes=field_types)
 
-        candidate_block = deepcopy(current_block_data if isinstance(current_block_data, dict) else {})
-        candidate_block["id"] = str(candidate_block.get("id") or block_id or "ai_generated_screen")
+        candidate_block = deepcopy(
+            current_block_data if isinstance(current_block_data, dict) else {}
+        )
+        candidate_block["id"] = str(
+            candidate_block.get("id") or block_id or "ai_generated_screen"
+        )
         candidate_block["question"] = screen.get("question")
         if screen.get("subquestion"):
             candidate_block["subquestion"] = screen.get("subquestion")
         candidate_block["fields"] = screen.get("fields") or []
         if screen.get("continue_button_field"):
-            candidate_block["continue button field"] = screen.get("continue_button_field")
+            candidate_block["continue button field"] = screen.get(
+                "continue_button_field"
+            )
 
         candidate_yaml = canonical_block_yaml(candidate_block)
         _ensure_dayamlchecker_valid(candidate_yaml)
@@ -2608,8 +2728,7 @@ def editor_api_ai_generate_fields() -> Response:
         if not isinstance(current_screen_payload, dict):
             current_screen_payload = deepcopy(block.get("data") or {})
 
-        system_message = textwrap.dedent(
-            """
+        system_message = textwrap.dedent("""
             You are generating fields for ONE docassemble question screen.
             Return ONLY JSON with key:
               fields: array of {label, field, datatype, choices?}
@@ -2620,8 +2739,7 @@ def editor_api_ai_generate_fields() -> Response:
             - Choose datatypes from the provided allowed list.
             - Keep labels plain and user-friendly.
             - Keep variable names python-safe snake_case.
-            """
-        ).strip()
+            """).strip()
 
         user_message = (
             f"Allowed datatypes: {json.dumps(field_types)}\n\n"
@@ -2698,11 +2816,13 @@ def editor_api_parse_order() -> Response:
     try:
         code = request.args.get("code", "")
         steps = parse_order_code(code)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {"steps": steps},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"steps": steps},
+            }
+        )
     except Exception as exc:
         return jsonify_with_status(
             {
@@ -2732,11 +2852,13 @@ def editor_api_draft_order() -> Response:
         model = parse_interview_yaml(raw_yaml)
         steps = generate_draft_order(model["blocks"])
 
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {"steps": steps},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"steps": steps},
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -2821,11 +2943,13 @@ def editor_api_preview_url() -> Response:
         project = _normalize_project(request.args.get("project"))
         filename = _normalize_filename(request.args.get("filename"))
         url = playground_interview_url(uid, project, filename)
-        return jsonify({
-            "success": True,
-            "request_id": request_id,
-            "data": {"url": url},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"url": url},
+            }
+        )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -3028,7 +3152,7 @@ def _run_new_project_upload_job(
     uploaded_files: List[Dict[str, Any]],
     generation_options: Dict[str, Any],
     debug_requested: bool,
-    ) -> None:
+) -> None:
     try:
         with bg_context():
             _complete_new_project_upload_job(
@@ -3176,15 +3300,17 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     # Write starter YAML
     playground_write_yaml(uid, project_name, "interview.yml", starter_yaml)
 
-    return jsonify({
-        "success": True,
-        "request_id": request_id,
-        "data": {
-            "project": project_name,
-            "filename": "interview.yml",
-            "template_id": template_id,
-        },
-    })
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "project": project_name,
+                "filename": "interview.yml",
+                "template_id": template_id,
+            },
+        }
+    )
 
 
 def _new_project_from_uploads(

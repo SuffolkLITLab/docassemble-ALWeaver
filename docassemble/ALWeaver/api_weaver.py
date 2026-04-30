@@ -29,7 +29,11 @@ try:
     )
 except Exception as _api_utils_import_err:
     import traceback as _traceback
-    log("ALWeaver api_weaver: FAILED TO IMPORT api_utils: " + _traceback.format_exc(), "error")
+
+    log(
+        "ALWeaver api_weaver: FAILED TO IMPORT api_utils: " + _traceback.format_exc(),
+        "error",
+    )
     raise
 
 __all__ = []

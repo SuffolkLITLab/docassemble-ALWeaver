@@ -34,7 +34,12 @@ class test_editor_ai_utils(unittest.TestCase):
         fields = normalize_generated_fields(
             [
                 {"label": "Name", "field": "name", "datatype": "text"},
-                {"label": "Color", "field": "color", "datatype": "dropdown", "choices": ["Red", "Blue"]},
+                {
+                    "label": "Color",
+                    "field": "color",
+                    "datatype": "dropdown",
+                    "choices": ["Red", "Blue"],
+                },
                 {"label": "Bad Type", "field": "bad", "datatype": "notatype"},
                 {"label": "Extra 1", "field": "e1", "datatype": "text"},
                 {"label": "Extra 2", "field": "e2", "datatype": "text"},

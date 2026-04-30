@@ -152,10 +152,7 @@ class TestEditorUtilsPersistence(unittest.TestCase):
             update_block_in_yaml(source_yaml, "missing", "id: missing\nquestion: No\n")
 
     def test_update_block_in_yaml_keeps_code_literal_scalar_style(self):
-        source_yaml = (
-            "id: block_1\n"
-            "code: old_value = 0\n"
-        )
+        source_yaml = "id: block_1\n" "code: old_value = 0\n"
 
         model = parse_interview_yaml(source_yaml)
         block_id = model["blocks"][0]["id"]
@@ -175,8 +172,8 @@ class TestEditorUtilsPersistence(unittest.TestCase):
             "objects:\n"
             "  - al_user_bundle: ALDocumentBundle.using(\n"
             "      elements=[instructions, attachment_one] + [item for item in extras],\n"
-            "      filename=\"bundle\",\n"
-            "      title=\"All forms to download\",\n"
+            '      filename="bundle",\n'
+            '      title="All forms to download",\n'
             "      enabled=True\n"
             "      )\n"
         )
@@ -209,8 +206,8 @@ class TestEditorUtilsPersistence(unittest.TestCase):
             "objects:\n"
             "  - al_user_bundle: ALDocumentBundle.using(\n"
             "      elements=[instructions, attachment_one] + [item for item in extras],\n"
-            "      filename=\"bundle\",\n"
-            "      title=\"All forms to download\",\n"
+            '      filename="bundle",\n'
+            '      title="All forms to download",\n'
             "      enabled=True\n"
             "      )\n"
         )
@@ -219,7 +216,7 @@ class TestEditorUtilsPersistence(unittest.TestCase):
         reparsed = parse_interview_yaml(updated_yaml)
 
         self.assertIn("  - al_user_bundle: ALDocumentBundle.using(", updated_yaml)
-        self.assertIn("      filename=\"bundle\",", updated_yaml)
+        self.assertIn('      filename="bundle",', updated_yaml)
         self.assertIn("      enabled=True", updated_yaml)
         self.assertIn("      )", updated_yaml)
         self.assertEqual(reparsed["blocks"][0]["yaml"], updated_block_yaml.strip())

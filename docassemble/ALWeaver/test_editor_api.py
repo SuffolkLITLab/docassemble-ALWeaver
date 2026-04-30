@@ -13,11 +13,12 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(api_editor._normalize_new_filename("draft.yaml"), "draft.yaml")
 
     def test_new_file_route_creates_default_yaml(self):
-        with patch.object(api_editor, "_editor_auth_check", return_value=True), patch.object(
-            api_editor, "_current_user_id", return_value=7
-        ), patch.object(api_editor, "playground_list_yaml_files", return_value=[]), patch.object(
-            api_editor, "playground_write_yaml"
-        ) as mock_write:
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_list_yaml_files", return_value=[]),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/file/new",
                 method="POST",
@@ -44,7 +45,9 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(api_editor, "get_list_of_projects", return_value=[]),
-            patch.object(api_editor, "next_available_project_name", return_value="DocxSmoke"),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="DocxSmoke"
+            ),
             patch.object(api_editor, "create_project") as mock_create_project,
             patch.object(api_editor, "_start_new_project_upload_job") as mock_start_job,
         ):
@@ -92,17 +95,30 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(start_kwargs["uid"], 7)
         self.assertEqual(start_kwargs["request_id"], payload["request_id"])
         self.assertEqual(start_kwargs["project_name"], "DocxSmoke")
-        self.assertEqual(start_kwargs["generation_options"]["exact_name"], docx_path.name)
-        self.assertEqual(start_kwargs["generation_options"]["help_source_text"], "Demand letter context")
-        self.assertEqual(start_kwargs["generation_options"]["help_page_url"], "https://example.com/help")
-        self.assertEqual(start_kwargs["generation_options"]["help_page_title"], "Help page title")
+        self.assertEqual(
+            start_kwargs["generation_options"]["exact_name"], docx_path.name
+        )
+        self.assertEqual(
+            start_kwargs["generation_options"]["help_source_text"],
+            "Demand letter context",
+        )
+        self.assertEqual(
+            start_kwargs["generation_options"]["help_page_url"],
+            "https://example.com/help",
+        )
+        self.assertEqual(
+            start_kwargs["generation_options"]["help_page_title"], "Help page title"
+        )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
         self.assertFalse(start_kwargs["generation_options"]["include_next_steps"])
         self.assertEqual(len(start_kwargs["uploaded_files"]), 1)
         self.assertEqual(start_kwargs["uploaded_files"][0]["filename"], docx_path.name)
         self.assertIsInstance(start_kwargs["uploaded_files"][0]["content_bytes"], bytes)
-        self.assertEqual(start_kwargs["uploaded_files"][0]["mimetype"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertEqual(
+            start_kwargs["uploaded_files"][0]["mimetype"],
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
 
     def test_complete_new_project_upload_job_writes_yaml(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
@@ -150,15 +166,27 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(result["uploaded_count"], 1)
         mock_generate.assert_called_once()
         generate_kwargs = mock_generate.call_args.kwargs
-        self.assertEqual(generate_kwargs["generation_options"]["exact_name"], docx_path.name)
-        self.assertEqual(generate_kwargs["generation_options"]["help_source_text"], "Demand letter context")
-        self.assertEqual(generate_kwargs["generation_options"]["help_page_url"], "https://example.com/help")
-        self.assertEqual(generate_kwargs["generation_options"]["help_page_title"], "Help page title")
+        self.assertEqual(
+            generate_kwargs["generation_options"]["exact_name"], docx_path.name
+        )
+        self.assertEqual(
+            generate_kwargs["generation_options"]["help_source_text"],
+            "Demand letter context",
+        )
+        self.assertEqual(
+            generate_kwargs["generation_options"]["help_page_url"],
+            "https://example.com/help",
+        )
+        self.assertEqual(
+            generate_kwargs["generation_options"]["help_page_title"], "Help page title"
+        )
         self.assertTrue(generate_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(generate_kwargs["generation_options"]["create_package_zip"])
         self.assertFalse(generate_kwargs["generation_options"]["include_next_steps"])
         self.assertTrue(generate_kwargs["include_yaml_text"])
-        mock_write.assert_called_once_with(7, "DocxSmoke", "interview.yml", generated_yaml)
+        mock_write.assert_called_once_with(
+            7, "DocxSmoke", "interview.yml", generated_yaml
+        )
         mock_copy_files.assert_called_once()
         self.assertTrue(mock_update.called)
 

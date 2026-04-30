@@ -1,6 +1,8 @@
 import re
 
-with open('/home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/data/static/editor.js') as f:
+with open(
+    "/home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/data/static/editor.js"
+) as f:
     text = f.read()
 
 replacement = """
@@ -20,7 +22,11 @@ replacement = """
       }
 """
 
-text = re.sub(r"    if \(target\.id === 'save-block-btn'\) \{\n      var block = getSelectedBlock\(\);\n      if \(!block\) return;\n      // Get YAML from Monaco if available, else from current block\n      var yamlVal = getMonacoValue\('block-yaml-monaco'\);\n      if \(!yamlVal && _monacoEditors\['code-monaco'\]\) \{\n        // Code blocks in structured mode: we'd need to reconstruct YAML\n        // For now, saving from code editor isn't full — user should use YAML mode\n        yamlVal = block\.yaml;\n      \}\n      if \(!yamlVal\) yamlVal = block\.yaml;", replacement, text)
+text = re.sub(
+    r"    if \(target\.id === 'save-block-btn'\) \{\n      var block = getSelectedBlock\(\);\n      if \(!block\) return;\n      // Get YAML from Monaco if available, else from current block\n      var yamlVal = getMonacoValue\('block-yaml-monaco'\);\n      if \(!yamlVal && _monacoEditors\['code-monaco'\]\) \{\n        // Code blocks in structured mode: we'd need to reconstruct YAML\n        // For now, saving from code editor isn't full — user should use YAML mode\n        yamlVal = block\.yaml;\n      \}\n      if \(!yamlVal\) yamlVal = block\.yaml;",
+    replacement,
+    text,
+)
 
 # add serialize logic
 func = """
@@ -81,8 +87,13 @@ func = """
   // -------------------------------------------------------------------------
 """
 
-text = text.replace("  // -------------------------------------------------------------------------", func, 1)
+text = text.replace(
+    "  // -------------------------------------------------------------------------",
+    func,
+    1,
+)
 
-with open('/home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/data/static/editor.js', 'w') as f:
+with open(
+    "/home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/data/static/editor.js", "w"
+) as f:
     f.write(text)
-

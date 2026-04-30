@@ -239,10 +239,7 @@ def get_matching_deps(
             if isinstance(item, str) and item
         ]
         return DADict(
-            elements={
-                item: True
-                for item in deduped_choices
-            },
+            elements={item: True for item in deduped_choices},
             auto_gather=False,
             gathered=True,
         )

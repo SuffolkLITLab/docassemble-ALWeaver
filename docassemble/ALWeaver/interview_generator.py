@@ -2934,7 +2934,9 @@ Rules:
                                 else None
                             )
                             if isinstance(update, Mapping):
-                                label = _safe_short_label(str(update.get("label", "")), 45)
+                                label = _safe_short_label(
+                                    str(update.get("label", "")), 45
+                                )
                                 datatype = _normalize_field_type(
                                     str(update.get("datatype", ""))
                                 )
@@ -2942,7 +2944,9 @@ Rules:
                                     rewritten_field["label"] = label
                                 if datatype:
                                     rewritten_field["datatype"] = datatype
-                            refreshed_fields.append(cast(FieldDefinition, rewritten_field))
+                            refreshed_fields.append(
+                                cast(FieldDefinition, rewritten_field)
+                            )
                         rewritten_screen["fields"] = refreshed_fields
                     refreshed_screens.append(cast(Screen, rewritten_screen))
                 screen_list = refreshed_screens
@@ -4419,9 +4423,9 @@ def _make_static_file_from_path(
 
 
 def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> None:
-    exact_base = os.path.splitext(
-        os.path.basename(str(exact_name or "").strip())
-    )[0].strip()
+    exact_base = os.path.splitext(os.path.basename(str(exact_name or "").strip()))[
+        0
+    ].strip()
     if not exact_base:
         return
     exact_title = exact_base.replace("_", " ").capitalize()
@@ -5597,9 +5601,7 @@ def generate_interview_from_path(
             try:
                 interview_overrides = json.loads(interview_overrides)
             except (json.JSONDecodeError, TypeError):
-                raise ValueError(
-                    "interview_overrides must be a dict, not a string"
-                )
+                raise ValueError("interview_overrides must be a dict, not a string")
         if not isinstance(interview_overrides, dict):
             raise TypeError(
                 f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"

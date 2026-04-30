@@ -442,9 +442,7 @@ question: |
 
         # The block must be present and contain a non-empty Python string literal.
         self.assertIn("interview_short_title =", yaml_text)
-        match = re.search(
-            r"interview_short_title\s*=\s*(.+)", yaml_text
-        )
+        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
         self.assertIsNotNone(match, "interview_short_title assignment not found")
         rhs = match.group(1).strip()
         # repr() produces a quoted string — must not be an empty string literal.
@@ -473,7 +471,6 @@ question: |
         self.assertIsNotNone(match, "interview_short_title assignment not found")
         rhs = match.group(1).strip()
         self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
-
 
     def test_objects_block_always_generated(self):
         """Regression: objects: block must always appear in generated YAML, with at
@@ -524,18 +521,20 @@ question: |
         original_render = interview_generator_module._render_interview_yaml
 
         def capture_render(*args, **kwargs):
-            captured["objects"] = kwargs.get("objects", args[3] if len(args) > 3 else [])
+            captured["objects"] = kwargs.get(
+                "objects", args[3] if len(args) > 3 else []
+            )
             return original_render(*args, **kwargs)
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch.object(
-                interview_generator_module, "_render_interview_yaml", side_effect=capture_render
+                interview_generator_module,
+                "_render_interview_yaml",
+                side_effect=capture_render,
             ),
         ):
-            yaml_out = _LocalDAFileAdapter(
-                os.path.join(tmpdir, "my_interview.yml")
-            )
+            yaml_out = _LocalDAFileAdapter(os.path.join(tmpdir, "my_interview.yml"))
             generate_interview_artifacts(
                 interview=interview,
                 include_download_screen=False,

@@ -121,9 +121,7 @@ class _CanonicalDumper(yaml.SafeDumper):
 def _represent_canonical_str(dumper: yaml.SafeDumper, data: str):
     normalized = data.rstrip("\n")
     if "\n" in normalized:
-        return dumper.represent_scalar(
-            "tag:yaml.org,2002:str", normalized, style="|"
-        )
+        return dumper.represent_scalar("tag:yaml.org,2002:str", normalized, style="|")
     return dumper.represent_scalar("tag:yaml.org,2002:str", normalized)
 
 
@@ -141,9 +139,7 @@ def _represent_literal_str(dumper: yaml.SafeDumper, data: str):
     text = str(data)
     if not text.endswith("\n"):
         text += "\n"
-    return dumper.represent_scalar(
-        "tag:yaml.org,2002:str", text, style="|"
-    )
+    return dumper.represent_scalar("tag:yaml.org,2002:str", text, style="|")
 
 
 _CanonicalDumper.add_representer(_LiteralStr, _represent_literal_str)
@@ -236,9 +232,7 @@ def _split_object_using_expression(expression: str) -> Optional[Tuple[str, str]]
 
 
 def _is_object_class_name(expression: str) -> bool:
-    return bool(
-        re.match(r"^[A-Za-z_][A-Za-z0-9_\.]*$", str(expression or "").strip())
-    )
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_\.]*$", str(expression or "").strip()))
 
 
 def _should_multiline_object_args(raw_expression: str, args: Sequence[str]) -> bool:
@@ -268,7 +262,9 @@ def _compose_object_using_expression(class_name: str, using_args: str) -> str:
         return cleaned_class_name
     if "\n" not in cleaned_args:
         return f"{cleaned_class_name}.using({cleaned_args})"
-    indented_args = "\n".join(f"  {line}" if line else "" for line in cleaned_args.splitlines())
+    indented_args = "\n".join(
+        f"  {line}" if line else "" for line in cleaned_args.splitlines()
+    )
     return f"{cleaned_class_name}.using(\n{indented_args}\n)"
 
 
@@ -317,12 +313,16 @@ def _build_editor_objects(objects: Any) -> List[Dict[str, Any]]:
         parsed = _split_object_using_expression(expression_text)
         if parsed:
             class_name, args_text = parsed
-            formatted_args = _format_object_using_args(args_text, raw_expression=expression_text)
+            formatted_args = _format_object_using_args(
+                args_text, raw_expression=expression_text
+            )
             rows.append(
                 {
                     "name": str(name).strip(),
                     "mode": "using",
-                    "expression": _compose_object_using_expression(class_name, formatted_args),
+                    "expression": _compose_object_using_expression(
+                        class_name, formatted_args
+                    ),
                     "raw_expression": expression_text,
                     "class_name": class_name,
                     "using_args": formatted_args,
@@ -403,7 +403,9 @@ def canonicalize_block_yaml(block_yaml: str) -> str:
     return canonical_block_yaml(parsed)
 
 
-def rename_saved_file(area: Any, directory: str, old_filename: str, new_filename: str) -> None:
+def rename_saved_file(
+    area: Any, directory: str, old_filename: str, new_filename: str
+) -> None:
     """Rename a playground-backed file and sync the backing SavedFile storage."""
 
     old_path = os.path.join(directory, old_filename)
@@ -438,7 +440,9 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
     explicit_id = block.get("id")
     if explicit_id:
         return str(explicit_id)
-    stable_block = {key: value for key, value in block.items() if not str(key).startswith("_")}
+    stable_block = {
+        key: value for key, value in block.items() if not str(key).startswith("_")
+    }
     raw = canonical_block_yaml(stable_block)
     digest = hashlib.sha1(raw.encode()).hexdigest()[:8]  # noqa: S324 — not security
     return f"block-{index}-{digest}"
@@ -535,16 +539,20 @@ def _extract_title(block: Dict[str, Any], block_type: str) -> str:
     if block_type == BLOCK_TYPE_CODE:
         code_str = str(block.get("code", ""))
         block_id_key = str(block.get("id", ""))
-        is_order = bool(block.get("mandatory")) or block_id_key.startswith(
-            "interview_order"
-        ) or block_id_key.startswith("interview order")
+        is_order = (
+            bool(block.get("mandatory"))
+            or block_id_key.startswith("interview_order")
+            or block_id_key.startswith("interview order")
+        )
         if is_order:
             return _extract_order_block_label(code_str, block)
         first_line = code_str.strip().split("\n", 1)[0][:60]
         return first_line or "Code block"
     if block_type == BLOCK_TYPE_METADATA:
         meta = block.get("metadata", {})
-        return str(meta.get("title", "Metadata")) if isinstance(meta, dict) else "Metadata"
+        return (
+            str(meta.get("title", "Metadata")) if isinstance(meta, dict) else "Metadata"
+        )
     if block_type == BLOCK_TYPE_INCLUDES:
         return "Includes"
     if block_type == BLOCK_TYPE_DEFAULT_SCREEN_PARTS:
@@ -707,18 +715,20 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         try:
             doc = yaml.safe_load(segment_text_raw)
         except yaml.YAMLError:
-            blocks.append({
-                "id": _stable_block_id(i, {"_raw": segment_text}),
-                "index": i,
-                "line_start": line_start,
-                "line_end": line_end,
-                "type": BLOCK_TYPE_OTHER,
-                "title": "Unparseable block",
-                "variable": None,
-                "tags": [BLOCK_TYPE_OTHER],
-                "yaml": segment_text,
-                "data": {"_unparseable": True, "_raw": segment_text},
-            })
+            blocks.append(
+                {
+                    "id": _stable_block_id(i, {"_raw": segment_text}),
+                    "index": i,
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "type": BLOCK_TYPE_OTHER,
+                    "title": "Unparseable block",
+                    "variable": None,
+                    "tags": [BLOCK_TYPE_OTHER],
+                    "yaml": segment_text,
+                    "data": {"_unparseable": True, "_raw": segment_text},
+                }
+            )
             continue
 
         if doc is None:
@@ -729,8 +739,14 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
         block_type = _detect_block_type(doc)
         block_id = _stable_block_id(i, doc)
-        editor_objects = _build_editor_objects(doc.get("objects")) if "objects" in doc else []
-        block_yaml = segment_text if block_type == BLOCK_TYPE_OBJECTS else canonical_block_yaml(doc)
+        editor_objects = (
+            _build_editor_objects(doc.get("objects")) if "objects" in doc else []
+        )
+        block_yaml = (
+            segment_text
+            if block_type == BLOCK_TYPE_OBJECTS
+            else canonical_block_yaml(doc)
+        )
 
         entry: Dict[str, Any] = {
             "id": block_id,
@@ -759,7 +775,9 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             order_indices.append(i)
         elif block_type == BLOCK_TYPE_CODE:
             block_id_str = str(doc.get("id", ""))
-            if block_id_str.startswith("interview_order") or block_id_str.startswith("interview order"):
+            if block_id_str.startswith("interview_order") or block_id_str.startswith(
+                "interview order"
+            ):
                 order_indices.append(i)
 
     return {
@@ -783,9 +801,7 @@ def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
     return "\n---\n".join(parts)
 
 
-def update_block_in_yaml(
-    full_yaml: str, block_id: str, new_block_yaml: str
-) -> str:
+def update_block_in_yaml(full_yaml: str, block_id: str, new_block_yaml: str) -> str:
     """Replace a single block in a full interview YAML by its id.
 
     Locates the block matching *block_id* in the parsed output, then
@@ -797,8 +813,10 @@ def update_block_in_yaml(
     found = False
     normalized_new_block_yaml = canonicalize_block_yaml(new_block_yaml)
     for block in blocks:
-        block_text = normalized_new_block_yaml if block["id"] == block_id else block["yaml"]
-        
+        block_text = (
+            normalized_new_block_yaml if block["id"] == block_id else block["yaml"]
+        )
+
         if block["id"] == block_id:
             found = True
 
@@ -849,7 +867,11 @@ def comment_out_block_in_yaml(full_yaml: str, block_id: str) -> str:
     updated: List[str] = []
     found = False
     for block in blocks:
-        block_text = _comment_yaml_block(block["yaml"]) if block["id"] == block_id else block["yaml"]
+        block_text = (
+            _comment_yaml_block(block["yaml"])
+            if block["id"] == block_id
+            else block["yaml"]
+        )
         if block["id"] == block_id:
             found = True
 
@@ -922,12 +944,8 @@ STEP_CONDITION = "condition"
 STEP_RAW = "raw"
 
 # Patterns for parsing order code lines
-_RE_SET_PARTS = re.compile(
-    r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)"""
-)
-_RE_NAV_SET_SECTION = re.compile(
-    r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)"""
-)
+_RE_SET_PARTS = re.compile(r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)""")
+_RE_NAV_SET_SECTION = re.compile(r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)""")
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
@@ -1126,9 +1144,8 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
                 has_else = False
                 if next_index < len(raw_lines):
                     next_line = raw_lines[next_index]
-                    if (
-                        _line_indent(next_line) == indent
-                        and _RE_ELSE.match(next_line.strip())
+                    if _line_indent(next_line) == indent and _RE_ELSE.match(
+                        next_line.strip()
                     ):
                         has_else = True
                         else_child_indent = _next_child_indent(next_index + 1, indent)
@@ -1215,7 +1232,8 @@ def generate_draft_order(blocks: Sequence[Dict[str, Any]]) -> List[Dict[str, Any
         - Place progress markers at intervals
     """
     question_blocks = [
-        b for b in blocks
+        b
+        for b in blocks
         if b["type"] in (BLOCK_TYPE_QUESTION, BLOCK_TYPE_CODE)
         and not b.get("data", {}).get("mandatory")
     ]
@@ -1237,54 +1255,64 @@ def generate_draft_order(blocks: Sequence[Dict[str, Any]]) -> List[Dict[str, Any
             if i == 0 or (i > 0 and round((i - 1) / total * 4) / 4 != nearest_quarter):
                 progress_val = int(nearest_quarter * 100)
                 if progress_val > 0:
-                    steps.append({
-                        "id": f"step-{step_counter}",
-                        "kind": STEP_PROGRESS,
-                        "label": "Progress",
-                        "summary": f"Set progress to {progress_val}%",
-                        "value": str(progress_val),
-                    })
+                    steps.append(
+                        {
+                            "id": f"step-{step_counter}",
+                            "kind": STEP_PROGRESS,
+                            "label": "Progress",
+                            "summary": f"Set progress to {progress_val}%",
+                            "value": str(progress_val),
+                        }
+                    )
                     step_counter += 1
 
         variable = block.get("variable")
         tags = block.get("tags", [])
 
         if "gather" in tags and variable:
-            steps.append({
-                "id": f"step-{step_counter}",
-                "kind": STEP_GATHER,
-                "label": "List gather",
-                "summary": f"Gather {variable.split('.')[0]} list",
-                "invoke": variable,
-            })
+            steps.append(
+                {
+                    "id": f"step-{step_counter}",
+                    "kind": STEP_GATHER,
+                    "label": "List gather",
+                    "summary": f"Gather {variable.split('.')[0]} list",
+                    "invoke": variable,
+                }
+            )
         elif variable:
-            steps.append({
-                "id": f"step-{step_counter}",
-                "kind": STEP_SCREEN,
-                "label": "Screen",
-                "summary": f"Ask {block['title']}",
-                "invoke": variable,
-                "blockId": block["id"],
-            })
+            steps.append(
+                {
+                    "id": f"step-{step_counter}",
+                    "kind": STEP_SCREEN,
+                    "label": "Screen",
+                    "summary": f"Ask {block['title']}",
+                    "invoke": variable,
+                    "blockId": block["id"],
+                }
+            )
         else:
-            steps.append({
-                "id": f"step-{step_counter}",
-                "kind": STEP_RAW,
-                "label": "Raw Python",
-                "summary": block["title"],
-                "code": f"# TODO: {block['title']}",
-            })
+            steps.append(
+                {
+                    "id": f"step-{step_counter}",
+                    "kind": STEP_RAW,
+                    "label": "Raw Python",
+                    "summary": block["title"],
+                    "code": f"# TODO: {block['title']}",
+                }
+            )
 
     # Final progress
     if steps:
         step_counter += 1
-        steps.append({
-            "id": f"step-{step_counter}",
-            "kind": STEP_PROGRESS,
-            "label": "Progress",
-            "summary": "Set progress to 100%",
-            "value": "100",
-        })
+        steps.append(
+            {
+                "id": f"step-{step_counter}",
+                "kind": STEP_PROGRESS,
+                "label": "Progress",
+                "summary": "Set progress to 100%",
+                "value": "100",
+            }
+        )
 
     return steps
 
@@ -1292,6 +1320,7 @@ def generate_draft_order(blocks: Sequence[Dict[str, Any]]) -> List[Dict[str, Any
 # ---------------------------------------------------------------------------
 # Playground helpers
 # ---------------------------------------------------------------------------
+
 
 def _playground_user_context(user_id: int):
     """Temporarily set the docassemble thread user context.
@@ -1483,7 +1512,17 @@ def playground_get_variables(
         symbol_groups["template_files"] = template_files
 
     # Include static file names from the project's static folder.
-    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff"}
+    image_exts = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    }
     static_files: List[str] = []
     static_images: List[str] = []
     try:
