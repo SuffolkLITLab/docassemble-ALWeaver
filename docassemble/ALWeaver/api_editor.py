@@ -232,8 +232,10 @@ def _editor_auth_return_target() -> str:
     next_arg = request.args.get("next")
     if isinstance(next_arg, str):
         next_target = next_arg.strip()
-        if next_target.startswith("/"):
+        if next_target.startswith("/") and not next_target.startswith("//"):
             return next_target
+        if next_target:
+            return EDITOR_BASE_PATH
     current = request.full_path or EDITOR_BASE_PATH
     if current.endswith("?"):
         current = current[:-1]
@@ -437,9 +439,15 @@ def _resolve_lint_block_id(
             return candidate
 
     line_number = finding.get("line_number")
-    try:
-        numeric_line = int(line_number)
-    except Exception:
+    numeric_line: Optional[int]
+    if isinstance(line_number, int):
+        numeric_line = line_number
+    elif isinstance(line_number, str):
+        try:
+            numeric_line = int(line_number.strip())
+        except ValueError:
+            numeric_line = None
+    else:
         numeric_line = None
     if numeric_line:
         for block in blocks:
@@ -593,8 +601,8 @@ def _get_template_content(filename: str) -> str:
         with importlib.resources.as_file(ref) as path:
             if path.exists():
                 return path.read_text(encoding="utf-8")
-    except Exception:
-        pass
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return ""
     return ""
 
 
@@ -610,8 +618,8 @@ def _get_static_content(filename: str) -> str:
         with importlib.resources.as_file(ref) as path:
             if path.exists():
                 return path.read_text(encoding="utf-8")
-    except Exception:
-        pass
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return ""
     return ""
 
 
@@ -1565,8 +1573,10 @@ def editor_api_validate() -> Response:
             from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
 
             checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-            for err in checker_errors:
-                msg = str(getattr(err, "err_str", "") or "").strip() or str(err)
+            for checker_error in checker_errors:
+                msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
+                    checker_error
+                )
                 lowered = msg.lower()
                 level = "error"
                 if lowered.startswith("warning:"):
@@ -1584,8 +1594,8 @@ def editor_api_validate() -> Response:
                         "level": level,
                         "message": msg,
                         "variable": variable,
-                        "line_number": getattr(err, "line_number", None),
-                        "file_name": getattr(err, "file_name", filename),
+                        "line_number": getattr(checker_error, "line_number", None),
+                        "file_name": getattr(checker_error, "file_name", filename),
                         "source": "dayamlchecker",
                     }
                 )
@@ -1655,17 +1665,17 @@ def editor_api_validate() -> Response:
         # Deduplicate identical diagnostics from multiple sources.
         deduped: List[Dict[str, Any]] = []
         seen: set = set()
-        for err in errors:
+        for diagnostic in errors:
             key = (
-                str(err.get("level") or ""),
-                str(err.get("message") or ""),
-                str(err.get("variable") or ""),
-                str(err.get("line_number") or ""),
+                str(diagnostic.get("level") or ""),
+                str(diagnostic.get("message") or ""),
+                str(diagnostic.get("variable") or ""),
+                str(diagnostic.get("line_number") or ""),
             )
             if key in seen:
                 continue
             seen.add(key)
-            deduped.append(err)
+            deduped.append(diagnostic)
         errors = _annotate_lint_findings(
             deduped, model["blocks"], source_name="validation"
         )
@@ -2215,6 +2225,16 @@ def editor_api_comment_block() -> Response:
             },
             status,
         )
+    except Exception as exc:
+        log(f"ALWeaver editor: comment block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/enable", methods=["POST"])
@@ -2257,16 +2277,6 @@ def editor_api_enable_block() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: enable block error: {exc!r}", "error")
-        return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "server_error", "message": str(exc)},
-            },
-            500,
-        )
-    except Exception as exc:
-        log(f"ALWeaver editor: comment block error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -2364,28 +2374,32 @@ def editor_api_insert_block() -> Response:
             if b.get("yaml", "").strip() and b.get("yaml", "").strip() != "{}"
         ]
 
+        insert_at: int
         if not insert_after_id:
             insert_at = 0
         else:
-            insert_at = None
+            found_insert_at: Optional[int] = None
             for idx, block in enumerate(blocks):
                 if block.get("id") == insert_after_id:
-                    insert_at = idx + 1
+                    found_insert_at = idx + 1
                     break
-            if insert_at is None:
+            if found_insert_at is None:
                 raise ValueError(f"Block with id {insert_after_id!r} not found")
+            insert_at = found_insert_at
 
         existing_parts.insert(insert_at, block_text)
         updated_content = "\n---\n".join(existing_parts) + "\n"
         playground_write_yaml(uid, project, filename, updated_content)
 
         updated_model = parse_interview_yaml(updated_content)
-        inserted_block_id = None
+        inserted_block_id: Optional[str] = None
         id_match = re.search(r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text)
         if id_match:
             inserted_block_id = id_match.group(1).strip()
         elif 0 <= insert_at < len(updated_model["blocks"]):
-            inserted_block_id = updated_model["blocks"][insert_at].get("id")
+            inserted_block_id = (
+                str(updated_model["blocks"][insert_at].get("id") or "").strip() or None
+            )
 
         return jsonify(
             {
@@ -3280,8 +3294,8 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             with importlib.resources.as_file(ref) as p:
                 if p.exists():
                     starter_yaml = p.read_text(encoding="utf-8")
-        except Exception:
-            pass
+        except (FileNotFoundError, ModuleNotFoundError, OSError):
+            starter_yaml = ""
 
     if not starter_yaml:
         # Create a minimal starter interview

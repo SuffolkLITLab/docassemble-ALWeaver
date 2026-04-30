@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+
+# Controlled CLI invocation without shell.
+import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
@@ -42,23 +44,23 @@ def pick_small_model_name(llms_module: Any) -> str:
     if llms_module is None:
         return "gpt-5-nano"
 
-    try:
-        getter = getattr(llms_module, "get_default_model", None)
-        if callable(getter):
+    getter = getattr(llms_module, "get_default_model", None)
+    if callable(getter):
+        try:
             model = getter("small")
-            if isinstance(model, str) and model.strip():
-                return model.strip()
-    except Exception:
-        pass
+        except Exception:
+            model = None
+        if isinstance(model, str) and model.strip():
+            return model.strip()
 
-    try:
-        getter = getattr(llms_module, "get_first_small_model", None)
-        if callable(getter):
+    getter = getattr(llms_module, "get_first_small_model", None)
+    if callable(getter):
+        try:
             model = getter()
-            if isinstance(model, str) and model.strip():
-                return model.strip()
-    except Exception:
-        pass
+        except Exception:
+            model = None
+        if isinstance(model, str) and model.strip():
+            return model.strip()
 
     return "gpt-5-nano"
 
@@ -206,7 +208,8 @@ def validate_yaml_with_dayamlchecker(
         temp_path = Path(raw_path)
         with open(fd, "w", encoding="utf-8", closefd=False) as handle:
             handle.write(yaml_text)
-        result = subprocess.run(
+        # Invoke a fixed module via sys.executable without shell expansion.
+        result = subprocess.run(  # nosec B603
             [sys.executable, "-m", checker_module, str(temp_path)],
             capture_output=True,
             text=True,

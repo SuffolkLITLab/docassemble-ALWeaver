@@ -1,10 +1,147 @@
 from io import BytesIO
 from contextlib import nullcontext
 from pathlib import Path
+import importlib.util
+import sys
+import types
 import unittest
 from unittest.mock import patch
 
-from . import api_editor
+from flask import Flask, jsonify
+
+
+def _load_api_editor_for_tests():
+    module_path = Path(__file__).with_name("api_editor.py")
+    app = Flask("alweaver-api-editor-tests")
+
+    class _CSRF:
+        def exempt(self, fn):
+            return fn
+
+    current_user = types.SimpleNamespace(is_authenticated=False, id=None)
+
+    app_object = types.ModuleType("docassemble.webapp.app_object")
+    app_object.app = app
+    app_object.csrf = _CSRF()
+
+    server_mod = types.ModuleType("docassemble.webapp.server")
+
+    def jsonify_with_status(payload, status):
+        response = jsonify(payload)
+        response.status_code = status
+        return response
+
+    server_mod.jsonify_with_status = jsonify_with_status
+    server_mod.r = object()
+
+    worker_common = types.ModuleType("docassemble.webapp.worker_common")
+    worker_common.bg_context = nullcontext
+
+    flask_cors = types.ModuleType("flask_cors")
+    flask_cors.cross_origin = lambda *args, **kwargs: (lambda fn: fn)
+
+    flask_login = types.ModuleType("flask_login")
+    flask_login.current_user = current_user
+
+    base_util = types.ModuleType("docassemble.base.util")
+    base_util.log = lambda *args, **kwargs: None
+
+    api_utils = types.ModuleType("docassemble.ALWeaver.api_utils")
+    api_utils.generate_interview_from_bytes = lambda *args, **kwargs: {}
+    api_utils.parse_bool = lambda value, default=False: (
+        default
+        if value is None
+        else str(value).strip().lower() in {"1", "true", "yes", "on"}
+    )
+    api_utils.validate_upload_metadata = lambda **kwargs: (kwargs["filename"], ".docx")
+
+    editor_utils = types.ModuleType("docassemble.ALWeaver.editor_utils")
+    for name, func in {
+        "canonical_block_yaml": lambda block: "id: block\n",
+        "canonicalize_block_yaml": lambda yaml_text: yaml_text.strip(),
+        "comment_out_block_in_yaml": lambda content, block_id: content,
+        "delete_block_from_yaml": lambda content, block_id: content,
+        "delete_saved_file": lambda *args, **kwargs: None,
+        "generate_draft_order": lambda *args, **kwargs: {},
+        "parse_interview_yaml": lambda *args, **kwargs: {
+            "blocks": [],
+            "metadata_blocks": [],
+        },
+        "parse_order_code": lambda *args, **kwargs: {},
+        "playground_get_variables": lambda *args, **kwargs: {},
+        "playground_interview_url": lambda *args, **kwargs: "/interview",
+        "playground_list_projects": lambda *args, **kwargs: [],
+        "playground_list_yaml_files": lambda *args, **kwargs: [],
+        "playground_read_yaml": lambda *args, **kwargs: "",
+        "playground_write_yaml": lambda *args, **kwargs: None,
+        "rename_saved_file": lambda *args, **kwargs: None,
+        "serialize_blocks_to_yaml": lambda *args, **kwargs: "",
+        "serialize_order_steps": lambda *args, **kwargs: "",
+        "enable_commented_block_in_yaml": lambda content, block_id: content,
+        "reorder_blocks_in_yaml": lambda content, order: content,
+        "update_block_in_yaml": lambda content, block_id, new_yaml: content,
+    }.items():
+        setattr(editor_utils, name, func)
+
+    editor_ai_utils = types.ModuleType("docassemble.ALWeaver.editor_ai_utils")
+    editor_ai_utils.DEFAULT_FIELD_TYPES = []
+    editor_ai_utils.normalize_generated_fields = lambda *args, **kwargs: []
+    editor_ai_utils.normalize_generated_screen = lambda *args, **kwargs: {}
+    editor_ai_utils.pick_small_model_name = lambda *args, **kwargs: "gpt-5-nano"
+    editor_ai_utils.validate_yaml_with_dayamlchecker = lambda *args, **kwargs: (
+        True,
+        "",
+    )
+
+    playground_publish = types.ModuleType("docassemble.ALWeaver.playground_publish")
+    playground_publish.SECTION_TO_STORAGE = {
+        "templates": "templates",
+        "modules": "modules",
+        "static": "static",
+        "sources": "sources",
+    }
+    playground_publish._copy_files_to_section = lambda *args, **kwargs: None
+    playground_publish.delete_project = lambda *args, **kwargs: None
+    playground_publish.create_project = lambda *args, **kwargs: None
+    playground_publish.get_list_of_projects = lambda *args, **kwargs: []
+    playground_publish.next_available_project_name = (
+        lambda base_name, existing=None: base_name
+    )
+    playground_publish.normalize_project_name = lambda raw_name: str(raw_name).strip()
+    playground_publish.rename_project = lambda *args, **kwargs: None
+
+    stubs = {
+        "docassemble.base.util": base_util,
+        "docassemble.webapp.app_object": app_object,
+        "docassemble.webapp.server": server_mod,
+        "docassemble.webapp.worker_common": worker_common,
+        "flask_cors": flask_cors,
+        "flask_login": flask_login,
+        "docassemble.ALWeaver.api_utils": api_utils,
+        "docassemble.ALWeaver.editor_utils": editor_utils,
+        "docassemble.ALWeaver.editor_ai_utils": editor_ai_utils,
+        "docassemble.ALWeaver.playground_publish": playground_publish,
+    }
+    previous = {name: sys.modules.get(name) for name in stubs}
+    module_name = "docassemble.ALWeaver._test_api_editor"
+    try:
+        sys.modules.update(stubs)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Unable to load api_editor test module")
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in previous.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+
+
+api_editor = _load_api_editor_for_tests()
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
@@ -214,6 +351,72 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(payload["job_id"], "job-1")
         self.assertEqual(payload["status"], "running")
         self.assertEqual(payload["data"]["stage"], "generate_interview")
+
+    def test_editor_auth_return_target_rejects_protocol_relative_next(self):
+        with api_editor.app.test_request_context("/al/editor?next=//evil.example"):
+            self.assertEqual(
+                api_editor._editor_auth_return_target(), api_editor.EDITOR_BASE_PATH
+            )
+
+    def test_comment_block_route_returns_structured_server_error(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="id: block\n"
+            ),
+            patch.object(
+                api_editor,
+                "comment_out_block_in_yaml",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch.object(api_editor, "log") as mock_log,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/block/comment",
+                method="POST",
+                json={"project": "default", "filename": "test.yml", "block_id": "b1"},
+            ):
+                response = api_editor.editor_api_comment_block()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["type"], "server_error")
+        self.assertEqual(payload["error"]["message"], "boom")
+        mock_log.assert_called_once_with(
+            "ALWeaver editor: comment block error: RuntimeError('boom')", "error"
+        )
+
+    def test_enable_block_route_logs_enable_error(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="id: block\n"
+            ),
+            patch.object(
+                api_editor,
+                "enable_commented_block_in_yaml",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch.object(api_editor, "log") as mock_log,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/block/enable",
+                method="POST",
+                json={"project": "default", "filename": "test.yml", "block_id": "b1"},
+            ):
+                response = api_editor.editor_api_enable_block()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["type"], "server_error")
+        self.assertEqual(payload["error"]["message"], "boom")
+        mock_log.assert_called_once_with(
+            "ALWeaver editor: enable block error: RuntimeError('boom')", "error"
+        )
 
 
 if __name__ == "__main__":

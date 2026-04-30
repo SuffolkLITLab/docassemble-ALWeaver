@@ -1,7 +1,9 @@
 import importlib.util
 import os
 import re
-import subprocess
+
+# Test-only subprocess invocation for CLI validation.
+import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -51,7 +53,8 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
     def _run_dayamlchecker(self, yaml_path: str) -> None:
         if importlib.util.find_spec("dayamlchecker") is None:
             self.fail("dayamlchecker is not installed")
-        subprocess.run(
+        # Test invokes a fixed module via sys.executable without shell expansion.
+        subprocess.run(  # nosec B603
             [sys.executable, "-m", "dayamlchecker", yaml_path],
             check=True,
             stdout=subprocess.PIPE,
@@ -297,6 +300,9 @@ question: |
             def package_info(self):
                 return {}
 
+            def draft_screen_order(self):
+                return []
+
         interview = MinimalInterview()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -518,13 +524,11 @@ question: |
         ]
         captured: dict = {}
 
-        original_render = interview_generator_module._render_interview_yaml
-
         def capture_render(*args, **kwargs):
             captured["objects"] = kwargs.get(
                 "objects", args[3] if len(args) > 3 else []
             )
-            return original_render(*args, **kwargs)
+            return "objects:\n  users: ALPeopleList\n"
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,

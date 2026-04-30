@@ -444,7 +444,7 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
         key: value for key, value in block.items() if not str(key).startswith("_")
     }
     raw = canonical_block_yaml(stable_block)
-    digest = hashlib.sha1(raw.encode()).hexdigest()[:8]  # noqa: S324 — not security
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:8]
     return f"block-{index}-{digest}"
 
 
@@ -697,7 +697,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             for tag in _extract_tags(doc, underlying_type):
                 if tag not in tags:
                     tags.append(tag)
-            entry: Dict[str, Any] = {
+            commented_entry: Dict[str, Any] = {
                 "id": block_id,
                 "index": i,
                 "line_start": line_start,
@@ -709,7 +709,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
                 "yaml": segment_text,
                 "data": doc,
             }
-            blocks.append(entry)
+            blocks.append(commented_entry)
             continue
 
         try:
@@ -748,7 +748,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             else canonical_block_yaml(doc)
         )
 
-        entry: Dict[str, Any] = {
+        block_entry: Dict[str, Any] = {
             "id": block_id,
             "index": i,
             "line_start": line_start,
@@ -761,9 +761,9 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             "data": doc,
         }
         if editor_objects:
-            entry["editor_objects"] = editor_objects
+            block_entry["editor_objects"] = editor_objects
 
-        blocks.append(entry)
+        blocks.append(block_entry)
 
         if block_type == BLOCK_TYPE_METADATA:
             metadata_indices.append(i)

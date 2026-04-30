@@ -1977,6 +1977,7 @@ class DAInterview(DAObject):
         self.short_filename = space_to_underscore(
             varname(self.short_filename_with_spaces)
         )
+        self.interview_label = self.short_filename.lower()
 
         # Heuristics-based attributes - all fast, no file access
         if jurisdiction:
@@ -1993,6 +1994,16 @@ class DAInterview(DAObject):
             except:
                 self.jurisdiction = jurisdiction
                 self.state = jurisdiction
+        self.categories = DADict(auto_gather=False, gathered=True)
+        self.categories["Other"] = False
+        self.has_other_categories = False
+        self.other_categories = ""
+        self.original_form = ""
+        self.help_page_url = ""
+        self.help_page_title = ""
+        self.help_source_text = ""
+        self.use_llm_assist = False
+        self.state = ""
         if categories:
             nsmi_tmp = (
                 categories[1:-1].replace("'", "").strip()
@@ -2022,6 +2033,7 @@ class DAInterview(DAObject):
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
+        self.has_other_categories = False
 
     def _load_and_label_fields(self) -> None:
         """Fast field extraction and labeling. Safe to run on the main thread."""
@@ -2107,6 +2119,7 @@ class DAInterview(DAObject):
             default_country_code=default_country_code,
         )
         self._load_and_label_fields()
+        self.questions.gathered = True
 
     def _llm_default_model(self) -> str:
         return (
@@ -2127,8 +2140,9 @@ class DAInterview(DAObject):
                     stat_result = os.stat(path)
                     mtime_ns = stat_result.st_mtime_ns
                     size = stat_result.st_size
-                except Exception:
-                    pass
+                except OSError:
+                    mtime_ns = None
+                    size = None
                 template_fingerprints.append((path, mtime_ns, size))
 
         cache_key = tuple(template_fingerprints)
@@ -5188,7 +5202,7 @@ def _llm_rewrite_for_plain_language(text: str) -> str:
             if candidate:
                 return candidate
     except Exception:
-        pass
+        return text
     return text
 
 
@@ -5305,12 +5319,19 @@ def _render_interview_yaml(
         template_text, input_encoding="utf-8"
     )  # nosec B702
 
+    questions = getattr(interview, "questions", None)
+    can_render_question_order = hasattr(interview, "draft_screen_order") and getattr(
+        questions, "gathered", False
+    )
     if screen_reordered is None:
         # The interview order block needs both the authored question screens and any
         # built-in fields (e.g., users.gather(), docket_number) so the generated
         # interview actually asks for values it references in review/download screens.
         # `draft_screen_order()` includes built-ins and signatures in a sensible order.
-        screen_reordered = list(interview.draft_screen_order())
+        if can_render_question_order:
+            screen_reordered = list(interview.draft_screen_order())
+        else:
+            screen_reordered = []
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
@@ -5342,11 +5363,14 @@ def _render_interview_yaml(
     navigation_sections, section_assignments = _navigation_sections_and_assignments(
         interview, screen_reordered, screen_triggers
     )
-    interview_order_lines = interview.questions.interview_order_list(
-        interview.all_fields,
-        screen_reordered,
-        sections=section_assignments,
-    )
+    if can_render_question_order and questions is not None:
+        interview_order_lines = questions.interview_order_list(
+            interview.all_fields,
+            screen_reordered,
+            sections=section_assignments,
+        )
+    else:
+        interview_order_lines = []
 
     context = {
         "interview": interview,

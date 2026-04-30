@@ -263,8 +263,11 @@ def weaver_job(job_id: str):
             )
         try:
             workerapp.AsyncResult(id=task_info["id"]).forget()
-        except Exception:
-            pass
+        except Exception as exc:
+            log(
+                f"ALWeaver api_weaver: failed to forget job {job_id!r}: {exc!r}",
+                "warning",
+            )
         r.delete(_job_key(job_id))
         return jsonify(
             {

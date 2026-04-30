@@ -165,7 +165,8 @@ class test_feeling_lucky(unittest.TestCase):
 
     def test_guess_people_quantities_single(self):
         """Fields with only index [0] → quantity 'one'."""
-        fields = DAFieldList.using(auto_gather=False)
+        interview = DAInterview()
+        fields = interview.all_fields
         fields.gathered = True
         for var in ["users[0].name.first", "users[0].name.last", "users[0].signature"]:
             f = type("_F", (), {"final_display_var": var})()
@@ -175,7 +176,8 @@ class test_feeling_lucky(unittest.TestCase):
 
     def test_guess_people_quantities_multiple(self):
         """Fields with index [1] or higher → quantity 'more'."""
-        fields = DAFieldList.using(auto_gather=False)
+        interview = DAInterview()
+        fields = interview.all_fields
         fields.gathered = True
         for var in ["children[0].name.first", "children[1].name.last"]:
             f = type("_F", (), {"final_display_var": var})()
@@ -185,7 +187,8 @@ class test_feeling_lucky(unittest.TestCase):
 
     def test_guess_people_quantities_unknown_person_ignored(self):
         """Unrecognized person prefix like 'docket_numbers[0]' must not appear."""
-        fields = DAFieldList.using(auto_gather=False)
+        interview = DAInterview()
+        fields = interview.all_fields
         fields.gathered = True
         f = type("_F", (), {"final_display_var": "docket_numbers[0]"})()
         fields.append(f)
