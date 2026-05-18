@@ -130,9 +130,10 @@ disable_error_code=["import-untyped"]
 
 [dependency-groups]
 dev = [
-    "docassemble.base",
-    "docassemble.webapp",
+    "docassemble.base>=1.8.0",
+    "docassemble.webapp>=1.8.0",
     "more_itertools",
+    "pytest",
     "pyyaml",
     "docx2python",
     "boto3",
