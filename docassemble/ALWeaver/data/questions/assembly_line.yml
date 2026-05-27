@@ -521,9 +521,6 @@ code: |
         jur=str(
           get_config("assembly line", {}).get("pdf relabel jurisdiction", "MA")
         ),
-        tools_token=get_config("assembly line", {}).get(
-          "tools.suffolklitlab.org api key"
-        ),
         openai_api=get_config("open ai", {}).get("key"),
       )
       if isinstance(stats, dict) and isinstance(stats.get("fields"), list):

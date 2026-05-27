@@ -200,9 +200,6 @@ code: |
         jur="MA",
         normalize=1,
         rewrite=1,
-        tools_token=get_config("assembly line", {}).get(
-          "tools.suffolklitlab.org api key"
-        ),
       )
       document.commit()
   process_field_normalization = True
@@ -223,9 +220,6 @@ code: |
         jur="MA",
         normalize=1,
         rewrite=1,
-        tools_token=get_config("assembly line", {}).get(
-          "tools.suffolklitlab.org api key"
-        ),
       )
 
       temp_new_pdf.commit()
