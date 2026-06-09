@@ -448,28 +448,62 @@ code: |
 # ALDocument objects specify the metadata for each template
 objects:
   % if interview.include_next_steps:
-  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(title=word("Instructions"), filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
   % endif
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(title="${ interview.title }", filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
+  - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(title="${ base_name(document.filename).capitalize().replace("_", " ") }", filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
   % endfor
   % endif
 ---
 # Bundles group the ALDocuments into separate downloads, such as for court and for the user
 objects:
   % if interview.include_next_steps:
-  - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", title=word("All forms to download for your records"), enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True)
   % else:
-  - al_user_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames()}], filename="${interview.interview_label}", title=word("All forms to download for your records"), enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True)
   % endif
   % if interview.court_related:
-  - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }],  filename="${interview.interview_label}", title=word("All forms to deliver to court"), enabled=True)
+  - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True)
   % else:
-  - al_recipient_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }],  filename="${interview.interview_label}", title=word("All forms to file"), enabled=True)
+  - al_recipient_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True)
   % endif
+% if interview.include_next_steps:
+---
+template: ${ interview.interview_label }_Post_interview_instructions.title
+content: |
+  Instructions
+% endif
+% if len(interview.uploaded_templates) == 1:
+---
+template: ${ interview.interview_label }_attachment.title
+content: |
+${ indent(str(interview.title), by=2) }
+% else:
+% for document in interview.uploaded_templates:
+---
+template: ${ varname(base_name(document.filename)) }.title
+content: |
+  ${ base_name(document.filename).capitalize().replace("_", " ") }
+% endfor
+% endif
+---
+template: al_user_bundle.title
+content: |
+  All forms to download for your records
+% if interview.court_related:
+---
+template: al_court_bundle.title
+content: |
+  All forms to deliver to court
+% else:
+---
+template: al_recipient_bundle.title
+content: |
+  All forms to file
+% endif
 # Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
 # used for "preview" and "final" keys, and logic in the template checks the value of 
 # `i` to show or hide the user's signature

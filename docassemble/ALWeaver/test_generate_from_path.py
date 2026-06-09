@@ -170,8 +170,26 @@ question: |
             self.assertNotIn("interview_short_title =", yaml_text)
             self.assertIn("label=word('Edit answers')", yaml_text)
             self.assertIn(
-                'title=word("All forms to download for your records")',
+                "template: test_docx_no_pdf_field_names_attachment.title\n"
+                "content: |\n"
+                "  Test docx no pdf field names",
                 yaml_text,
+            )
+            self.assertIn(
+                "template: al_user_bundle.title\n"
+                "content: |\n"
+                "  All forms to download for your records",
+                yaml_text,
+            )
+            self.assertIn(
+                "template: al_court_bundle.title\n"
+                "content: |\n"
+                "  All forms to deliver to court",
+                yaml_text,
+            )
+            self.assertNotRegex(
+                yaml_text,
+                r"ALDocument(?:Bundle)?\.using\([^\n]*\btitle=",
             )
             self._run_dayamlchecker(result.yaml_path)
 
