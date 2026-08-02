@@ -62,6 +62,14 @@ The file-read API exposes interview text as `raw_yaml`; browser downloads
 validate that field as a string before creating a file, including when the
 source is intentionally empty.
 
+Editor browser requests go through `editor_api_client.js`. The client enforces
+same-origin credentials, structured `EditorApiError` failures, JSON response
+validation, CSRF and request-ID headers, timeouts, and cancellation of
+superseded reads. Write requests are deliberately not cancelled or treated as
+stale by default because the server may already have applied them. The editor
+announces client errors in an ARIA live alert and prevents superseded reads from
+clearing newer interface state.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

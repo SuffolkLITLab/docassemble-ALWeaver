@@ -767,63 +767,61 @@
   ];
 
   // -------------------------------------------------------------------------
-  // Fetch helper
+  // Centralized API client
   // -------------------------------------------------------------------------
-  function apiFetch(path, opts) {
-    opts = opts || {};
-    var url = API + path;
-    return fetch(url, opts).then(function (res) { return res.json(); });
-  }
-
-  function apiGet(path) {
-    return apiFetch(path, { credentials: 'same-origin' });
-  }
-
-  function apiPost(path, body) {
-    return apiFetch(path, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  }
-
-  function fetchResponsePayload(url, opts) {
-    opts = opts || {};
-    return fetch(url, opts).then(function (res) {
-      var contentType = res.headers.get('content-type') || '';
-      return res.text().then(function (text) {
-        var body = null;
-        if (contentType.indexOf('json') !== -1) {
-          try {
-            body = text ? JSON.parse(text) : null;
-          } catch (err) {
-            body = null;
-          }
-        }
-        return {
-          ok: res.ok,
-          status: res.status,
-          contentType: contentType,
-          text: text,
-          body: body,
-        };
-      });
-    });
-  }
-
-  function _fetchErrorMessage(response) {
-    if (!response) return 'Unknown error';
-    var body = response.body || {};
-    if (body.error && body.error.message) return String(body.error.message);
-    if (body.message) return String(body.message);
-    var text = String(response.text || '').trim();
-    if (!text) return 'Request failed with status ' + response.status;
-    if (response.contentType && response.contentType.indexOf('json') === -1) {
-      return 'Server returned HTTP ' + response.status + ' (' + response.contentType + ').';
+  function showApiError(error) {
+    var banner = document.getElementById('editor-api-error');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'editor-api-error';
+      banner.className = 'alert alert-danger alert-dismissible position-fixed';
+      banner.setAttribute('role', 'alert');
+      banner.setAttribute('aria-live', 'assertive');
+      banner.style.cssText = 'top:1rem;left:50%;transform:translateX(-50%);z-index:10000;min-width:300px;max-width:600px;';
+      var message = document.createElement('span');
+      message.setAttribute('data-api-error-message', '');
+      banner.appendChild(message);
+      var closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.className = 'btn-close';
+      closeButton.setAttribute('aria-label', 'Dismiss error');
+      closeButton.addEventListener('click', function () { banner.remove(); });
+      banner.appendChild(closeButton);
+      document.body.appendChild(banner);
     }
-    if (text.length > 240) return text.slice(0, 240) + '...';
-    return text;
+    var messageNode = banner.querySelector('[data-api-error-message]');
+    if (messageNode) messageNode.textContent = error && error.message ? error.message : 'The editor request failed.';
+  }
+
+  var apiClient = window.ALWeaverApiClient.createClient({
+    baseUrl: API,
+    onError: showApiError,
+  });
+
+  function apiGet(path, options) {
+    return apiClient.get(path, options);
+  }
+
+  function apiPost(path, body, options) {
+    return apiClient.post(path, body, options);
+  }
+
+  function apiUpload(path, formData, options) {
+    return apiClient.upload(path, formData, options);
+  }
+
+  function apiGetDetailed(path, options) {
+    return apiClient.getDetailed(path, options);
+  }
+
+  function apiUploadDetailed(path, formData, options) {
+    return apiClient.uploadDetailed(path, formData, options);
+  }
+
+  function isSupersededRequest(error) {
+    return Boolean(error && (
+      error.code === 'stale_response' || error.code === 'request_cancelled'
+    ));
   }
 
   // -------------------------------------------------------------------------
@@ -1104,7 +1102,8 @@
         };
         refreshActiveSymbolPickers();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         resetSymbolCatalog();
       });
   }
@@ -1758,7 +1757,7 @@
       scrollOrderBuilderIntoView();
       return steps;
     }).catch(function (err) {
-      if (loadSeq !== _orderBuilderLoadSeq) return [];
+      if (loadSeq !== _orderBuilderLoadSeq || isSupersededRequest(err)) return [];
       state.orderBuilderLoading = false;
       console.warn('[Order] Failed to load interview order steps: ' + String((err && err.message) || err || 'Unknown error'));
       renderOutline();
@@ -3367,7 +3366,8 @@
       renderOutline();
       renderCanvas();
       runValidation();
-    }).catch(function () {
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
       state.blocks = [];
       state.rawYaml = '';
       state.dirty = false;
@@ -3956,7 +3956,8 @@
         renderValidationDrawer();
         renderOutline();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationErrors = [{ level: 'error', message: 'Could not run validation right now.' }];
         renderValidationDrawer();
@@ -3979,7 +3980,8 @@
         renderValidationDrawer();
         renderOutline();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationErrors = [{ level: 'error', message: 'Could not run style check right now.' }];
         renderValidationDrawer();
@@ -5814,17 +5816,18 @@
     return new Promise(function (resolve, reject) {
       function tick() {
         attempts += 1;
-        fetchResponsePayload(jobUrl, { credentials: 'same-origin' })
+        apiGetDetailed(jobUrl, {
+          cancelPrevious: false,
+          staleKey: 'new-project-job:' + jobUrl,
+        })
           .then(function (response) {
             var payload = response.body || {};
-            if (!response.ok) {
-              reject(new Error(_fetchErrorMessage(response)));
-              return;
-            }
             var jobData = payload.data || {};
             var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
             if (jobStatus === 'failed') {
-              reject(new Error(_fetchErrorMessage(response)));
+              reject(new Error(
+                (payload.error && payload.error.message) || jobData.message || 'Project creation failed.'
+              ));
               return;
             }
             if (jobStatus === 'succeeded') {
@@ -5902,7 +5905,8 @@
         }
         container.innerHTML = res.data.html;
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
       });
   }
@@ -6343,6 +6347,7 @@
               markInterviewDirty();
               renderCanvas();
             }).catch(function (err) {
+              if (isSupersededRequest(err)) return;
               window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
             }).finally(function () {
               _setButtonLoading('ai-generate-screen', false, '');
@@ -6597,7 +6602,8 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-        }).catch(function () {
+        }).catch(function (error) {
+          if (isSupersededRequest(error)) return;
           window.alert('Unable to download the file.');
         });
       return;
@@ -6826,6 +6832,7 @@
         markInterviewDirty();
         renderCanvas();
       }).catch(function (err) {
+        if (isSupersededRequest(err)) return;
         window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
       }).finally(function () {
         _setButtonLoading('ai-generate-screen', false, '');
@@ -6860,6 +6867,7 @@
         state.dirty = true;
         renderCanvas();
       }).catch(function (err) {
+        if (isSupersededRequest(err)) return;
         window.alert('Unable to generate fields: ' + String((err && err.message) || err || 'Unknown error'));
       }).finally(function () {
         _setButtonLoading('ai-generate-fields', false, '');
@@ -7150,7 +7158,8 @@
             return;
           }
           window.alert((res.error && res.error.message) || 'Unable to save metadata safely.');
-        }).catch(function () {
+        }).catch(function (error) {
+          if (isSupersededRequest(error)) return;
           window.alert('Unable to save metadata safely.');
         });
       } else {
@@ -7369,12 +7378,9 @@
         formData.append('help_page_title', helpPageTitle);
         formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
-        fetchResponsePayload(API + '/api/new-project', { method: 'POST', credentials: 'same-origin', body: formData })
+        apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {
             var payload = response.body || {};
-            if (!response.ok) {
-              throw new Error(_fetchErrorMessage(response));
-            }
             if (String(payload.status || '').toLowerCase() === 'queued' || response.status === 202) {
               var queuedData = payload.data || {};
               var queuedProject = queuedData.project || projectName;
@@ -7411,9 +7417,12 @@
                 loadFiles();
               });
             }
-            throw new Error(_fetchErrorMessage(response));
+            throw new Error('The server did not confirm project creation.');
           })
-          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) {
+            if (isSupersededRequest(err)) return;
+            _showUploadError(err.message || 'Network error');
+          });
       } else {
         apiPost('/api/new-project', {
           project_name: projectName,
@@ -7433,7 +7442,10 @@
               apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
           })
-          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) {
+            if (isSupersededRequest(err)) return;
+            _showUploadError(err.message || 'Network error');
+          });
       }
       return;
     }
@@ -7501,11 +7513,7 @@
       for (var i = 0; i < target.files.length; i++) {
         formData.append('files', target.files[i], target.files[i].name);
       }
-      fetch(API + '/api/section-file/upload', {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: formData,
-      }).then(function (res) { return res.json(); })
+      apiUpload('/api/section-file/upload', formData)
         .then(function (res) {
           if (!res.success) {
             window.alert((res.error && res.error.message) || 'Upload failed.');
