@@ -148,6 +148,43 @@ api_editor = _load_api_editor_for_tests()
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
+    def test_save_file_accepts_intentionally_empty_source(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "content": "",
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 200)
+        mock_write.assert_called_once_with(7, "default", "test.yml", "")
+
+    def test_save_file_rejects_missing_content(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={"project": "default", "filename": "test.yml"},
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("content must be", response.get_json()["error"]["message"])
+        mock_write.assert_not_called()
+
     def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
         model = {
             "blocks": [],

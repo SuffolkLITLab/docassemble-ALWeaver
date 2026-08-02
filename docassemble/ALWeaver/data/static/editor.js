@@ -7331,7 +7331,7 @@
     }
     if (target.id === 'save-full-yaml') {
       var yamlContent = getMonacoValue('full-yaml-monaco');
-      if (!yamlContent) return;
+      if (yamlContent === undefined || yamlContent === null) return;
       state.fullYamlStash = {};
       if (state.fullYamlTab === 'order' && state.activeOrderBlockId) {
         apiPost('/api/block', {
