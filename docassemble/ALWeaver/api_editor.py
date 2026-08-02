@@ -44,8 +44,8 @@ from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
 import yaml
-from flask import Response, jsonify, request
-from flask_cors import cross_origin
+from flask import Response, jsonify, redirect, request
+from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
 from docassemble.base.util import log
@@ -217,9 +217,14 @@ DEFAULT_DASHBOARD_EDITOR_URLS = {
 
 
 def _editor_auth_check() -> bool:
-    """Return True when the browser session belongs to an authenticated user."""
+    """Return True for authenticated Docassemble admins and developers."""
     try:
-        return bool(current_user.is_authenticated)
+        has_role = getattr(current_user, "has_role", None)
+        return bool(
+            current_user.is_authenticated
+            and callable(has_role)
+            and has_role("admin", "developer")
+        )
     except Exception:
         return False
 
@@ -801,6 +806,7 @@ def _render_editor_page() -> str:
     login_url, logout_url = _editor_auth_urls()
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
+        "csrfToken": generate_csrf(),
         "auth": {
             "authenticated": False,
             "loginUrl": login_url,
@@ -946,10 +952,11 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
 
 
 @app.route(EDITOR_BASE_PATH, methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_page() -> Response:
     """Serve the WYSIWYM interview editor page."""
+    if not _editor_auth_check():
+        login_url, _logout_url = _editor_auth_urls()
+        return redirect(login_url)
     log("ALWeaver: Serving editor page", "info")
     html = _render_editor_page()
     if not html:
@@ -959,8 +966,6 @@ def editor_page() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/static/<path:filename>", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_static(filename: str) -> Response:
     """Serve static assets (CSS/JS) for the editor."""
     # Only allow safe filenames
@@ -985,8 +990,6 @@ def editor_static(filename: str) -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/projects", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_projects() -> Response:
     """List playground projects for the current user."""
     request_id = str(uuid.uuid4())
@@ -1014,8 +1017,6 @@ def editor_api_projects() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/project/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_project() -> Response:
     """Rename a playground project across all sections."""
     request_id = str(uuid.uuid4())
@@ -1063,8 +1064,6 @@ def editor_api_rename_project() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/project/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_project() -> Response:
     """Delete a playground project across all sections."""
     request_id = str(uuid.uuid4())
@@ -1108,8 +1107,6 @@ def editor_api_delete_project() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/files", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_files() -> Response:
     """List YAML files in a playground project."""
     request_id = str(uuid.uuid4())
@@ -1150,8 +1147,6 @@ def editor_api_files() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/new", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_file() -> Response:
     """Create a new YAML interview file in the current playground project."""
     request_id = str(uuid.uuid4())
@@ -1206,8 +1201,6 @@ def editor_api_new_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-files", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_files() -> Response:
     """List files for templates/modules/data sources in the selected project."""
     request_id = str(uuid.uuid4())
@@ -1251,8 +1244,6 @@ def editor_api_section_files() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_get_section_file() -> Response:
     """Read a text-editable section file from templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1312,8 +1303,6 @@ def editor_api_get_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_section_file() -> Response:
     """Save a text-editable section file in templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1372,8 +1361,6 @@ def editor_api_save_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/new", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_section_file() -> Response:
     """Create a new file in templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1430,8 +1417,6 @@ def editor_api_new_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/upload", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_upload_section_file() -> Response:
     """Upload one or more files into templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1493,8 +1478,6 @@ def editor_api_upload_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/raw", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_file_raw() -> Response:
     """Serve the raw bytes for a section file (preview/download iframe)."""
     request_id = str(uuid.uuid4())
@@ -1540,8 +1523,6 @@ def editor_api_section_file_raw() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/docx-preview", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_file_docx_preview() -> Response:
     """Return a low-fidelity HTML preview for DOCX template files."""
     request_id = str(uuid.uuid4())
@@ -1602,8 +1583,6 @@ def editor_api_section_file_docx_preview() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/dashboard-editor-url", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_dashboard_editor_url() -> Response:
     """Return a URL for opening a template in a dedicated dashboard editor tab."""
     request_id = str(uuid.uuid4())
@@ -1656,8 +1635,6 @@ def editor_api_dashboard_editor_url() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_get_file() -> Response:
     """Read and parse a YAML file into the normalised block model."""
     request_id = str(uuid.uuid4())
@@ -1806,8 +1783,6 @@ def editor_api_validate_source() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/validate", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_validate() -> Response:
     """Run DAYamlChecker on a playground YAML file and return errors."""
     request_id = str(uuid.uuid4())
@@ -1978,8 +1953,6 @@ def editor_api_validate() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/style-check", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_style_check() -> Response:
     """Run the system-wide interview linter and return block-aware style findings."""
     request_id = str(uuid.uuid4())
@@ -2060,8 +2033,6 @@ def editor_api_style_check() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_file() -> Response:
     """Save full YAML content to a playground file."""
     request_id = str(uuid.uuid4())
@@ -2255,8 +2226,6 @@ def editor_api_patch_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/metadata", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_metadata() -> Response:
     """Update only existing metadata-related YAML documents."""
     request_id = str(uuid.uuid4())
@@ -2338,8 +2307,6 @@ def editor_api_save_metadata() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_file() -> Response:
     """Rename a YAML interview file within the current playground project."""
     request_id = str(uuid.uuid4())
@@ -2391,8 +2358,6 @@ def editor_api_rename_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_file() -> Response:
     """Delete a YAML interview file from the current playground project."""
     request_id = str(uuid.uuid4())
@@ -2438,8 +2403,6 @@ def editor_api_delete_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_section_file() -> Response:
     """Rename a file inside templates/modules/static/data sources."""
     request_id = str(uuid.uuid4())
@@ -2494,8 +2457,6 @@ def editor_api_rename_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_section_file() -> Response:
     """Delete a file inside templates/modules/static/data sources."""
     request_id = str(uuid.uuid4())
@@ -2544,8 +2505,6 @@ def editor_api_delete_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_block() -> Response:
     """Update a single block in a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2621,8 +2580,6 @@ def editor_api_save_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_block() -> Response:
     """Delete a single block from a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2671,8 +2628,6 @@ def editor_api_delete_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/comment", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_comment_block() -> Response:
     """Disable a single block by commenting it out in YAML."""
     request_id = str(uuid.uuid4())
@@ -2721,8 +2676,6 @@ def editor_api_comment_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/enable", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_enable_block() -> Response:
     """Re-enable a previously commented-out block in a YAML file."""
     request_id = str(uuid.uuid4())
@@ -2771,8 +2724,6 @@ def editor_api_enable_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/reorder", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_reorder_blocks() -> Response:
     """Reorder all blocks in a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2824,8 +2775,6 @@ def editor_api_reorder_blocks() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/insert-block", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_insert_block() -> Response:
     """Insert a new block into a YAML file after the given block id.
 
@@ -2926,8 +2875,6 @@ def editor_api_insert_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/variables", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_variables() -> Response:
     """Get extracted variable names from a playground YAML file."""
     request_id = str(uuid.uuid4())
@@ -2981,8 +2928,6 @@ def editor_api_variables() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/order", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_order() -> Response:
     """Save order-builder steps as a mandatory code block."""
     request_id = str(uuid.uuid4())
@@ -3072,8 +3017,6 @@ def editor_api_save_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-screen", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_ai_generate_screen() -> Response:
     """Generate a single question screen draft from interview + template context."""
     request_id = str(uuid.uuid4())
@@ -3191,8 +3134,6 @@ def editor_api_ai_generate_screen() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-fields", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_ai_generate_fields() -> Response:
     """Generate fields for one existing question block using full interview context."""
     request_id = str(uuid.uuid4())
@@ -3303,8 +3244,6 @@ def editor_api_ai_generate_fields() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/parse-order", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_parse_order() -> Response:
     """Parse order code text into structured steps (no file required)."""
     request_id = str(uuid.uuid4())
@@ -3332,8 +3271,6 @@ def editor_api_parse_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/draft-order", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_draft_order() -> Response:
     """Generate a draft order from the current file's blocks."""
     request_id = str(uuid.uuid4())
@@ -3379,8 +3316,6 @@ def editor_api_draft_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/draft-review-screen", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_draft_review_screen() -> Response:
     """Generate draft review-screen YAML using ALDashboard when available."""
     request_id = str(uuid.uuid4())
@@ -3428,8 +3363,6 @@ def editor_api_draft_review_screen() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/preview-url", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_preview_url() -> Response:
     """Get the docassemble interview preview URL for a playground file."""
     request_id = str(uuid.uuid4())
@@ -3801,8 +3734,6 @@ def _reconcile_new_project_job_state(
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_project() -> Response:
     """Create a new playground project, optionally seeded with a template.
 
@@ -4061,8 +3992,6 @@ def _new_project_from_uploads(
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project/jobs/<job_id>", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_new_project_job(job_id: str) -> Response:
     """Get the status of a queued upload-based project creation job."""
     request_id = str(uuid.uuid4())

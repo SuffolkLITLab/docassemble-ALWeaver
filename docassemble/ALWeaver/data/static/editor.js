@@ -624,6 +624,7 @@
 
   var apiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
+    csrfToken: BOOT.csrfToken || null,
     onError: showApiError,
   });
 

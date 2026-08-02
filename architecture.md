@@ -86,6 +86,12 @@ stale by default because the server may already have applied them. The editor
 announces client errors in an ARIA live alert and prevents superseded reads from
 clearing newer interface state.
 
+All `/al/editor` browser routes are same-origin and require an authenticated
+Docassemble admin or developer. The editor page injects a per-session Flask-WTF
+token into bootstrap state, and the centralized client sends it on every write.
+No editor route is CSRF-exempt and no wildcard CORS policy is installed. Any
+separate API-key integration remains outside the browser editor route family.
+
 Unsaved interview edits are tracked by `editor_dirty_state.js` per filename and
 block ID, with separate source-dirty and pending-command state. Each loaded file
 also has a deep-cloned saved model. Discard restores that model, while a
