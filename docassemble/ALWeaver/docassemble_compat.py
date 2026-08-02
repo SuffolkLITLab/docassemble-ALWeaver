@@ -254,9 +254,12 @@ def get_worker_app() -> Any:
 
 
 def background_context() -> AbstractContextManager[Any]:
-    context_factory = getattr(
-        _private_webapp_module("docassemble.webapp.worker_common"), "bg_context"
-    )
+    worker_common = _private_webapp_module("docassemble.webapp.worker_common")
+    context_factory = getattr(worker_common, "bg_context", None)
+    if not callable(context_factory):
+        context_factory = getattr(
+            _private_webapp_module("docassemble.webapp.tasks.context"), "bg_context"
+        )
     return context_factory()
 
 

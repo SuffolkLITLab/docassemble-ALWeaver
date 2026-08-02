@@ -10,9 +10,21 @@ from flask_cors import cross_origin
 
 from docassemble.base.config import daconfig, in_celery
 from docassemble.base.util import log
-from docassemble.webapp.app_object import app, csrf
-from docassemble.webapp.server import api_verify, jsonify_with_status, r
-from docassemble.webapp.worker_common import workerapp
+
+from .docassemble_compat import (
+    get_api_verify,
+    get_csrf,
+    get_flask_app,
+    get_redis_client,
+    get_worker_app,
+    json_response as jsonify_with_status,
+)
+
+app = get_flask_app()
+csrf = get_csrf()
+api_verify = get_api_verify()
+r = get_redis_client()
+workerapp = get_worker_app()
 
 try:
     from .api_utils import (

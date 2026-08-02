@@ -1,4 +1,5 @@
 import os
+from contextlib import nullcontext
 from pathlib import Path
 import subprocess
 import types
@@ -115,8 +116,37 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
         self.assertEqual(result.data, {"hook": True})
         self.assertTrue(captured["read_only"])
 
+    def test_background_context_feature_detects_110_location(self):
+        modules = {
+            "docassemble.webapp.worker_common": types.SimpleNamespace(),
+            "docassemble.webapp.tasks.context": types.SimpleNamespace(
+                bg_context=nullcontext
+            ),
+        }
+        with patch.object(
+            docassemble_compat,
+            "_private_webapp_module",
+            side_effect=lambda name: modules[name],
+        ):
+            with docassemble_compat.background_context():
+                pass
+
 
 class TestDocassembleSourceCompatibility(unittest.TestCase):
+    def test_private_webapp_imports_are_isolated_to_compatibility_module(self):
+        package_dir = Path(__file__).resolve().parent
+        violations = []
+        for path in package_dir.glob("*.py"):
+            if path.name == "docassemble_compat.py" or path.name.startswith("test_"):
+                continue
+            for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+                if (
+                    "from docassemble.webapp" in line
+                    or "import docassemble.webapp" in line
+                ):
+                    violations.append(f"{path.name}:{line_number}: {line.strip()}")
+        self.assertEqual(violations, [], "\n".join(violations))
+
     def test_19_and_110_session_contracts_when_checkout_available(self):
         repo_dir = Path(__file__).resolve().parents[2]
         checkout = Path(
@@ -161,6 +191,20 @@ class TestDocassembleSourceCompatibility(unittest.TestCase):
         )
         self.assertEqual(hooks_result.returncode, 0, hooks_result.stderr)
         self.assertIn("def server_run_action_in_session(**kwargs)", hooks_result.stdout)
+
+        context_locations = {
+            "v1.9.13": "docassemble_webapp/docassemble/webapp/worker_common.py",
+            "v1.10.7": "docassemble_webapp/docassemble/webapp/tasks/context.py",
+        }
+        for ref, context_path in context_locations.items():
+            result = subprocess.run(
+                ["git", "-C", str(checkout), "show", f"{ref}:{context_path}"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
+            self.assertIn("def bg_context()", result.stdout)
 
 
 if __name__ == "__main__":

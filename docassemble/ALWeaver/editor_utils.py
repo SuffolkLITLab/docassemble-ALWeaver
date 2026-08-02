@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
+from .docassemble_compat import create_playground, create_saved_file
+
 __all__ = [
     "parse_interview_yaml",
     "source_revision",
@@ -1470,9 +1472,7 @@ def _playground_user_context(user_id: int):
 
 def playground_list_projects(user_id: int) -> List[str]:
     """Return sorted list of playground project names."""
-    from docassemble.webapp.files import SavedFile
-
-    playground = SavedFile(user_id, fix=False, section="playground")
+    playground = create_saved_file(user_id, fix=False, section="playground")
     projects = playground.list_of_dirs() or []
     projects = [p for p in projects if isinstance(p, str) and p.strip()]
     if "default" not in projects:
@@ -1482,10 +1482,8 @@ def playground_list_projects(user_id: int) -> List[str]:
 
 def playground_list_yaml_files(user_id: int, project: str) -> List[Dict[str, str]]:
     """List YAML interview files in a playground project."""
-    from docassemble.webapp.playground import Playground
-
     with _playground_user_context(user_id):
-        pg = Playground(project=project)
+        pg = create_playground(project=project)
         return [
             {"filename": fn, "label": fn}
             for fn in pg.file_list
@@ -1495,10 +1493,8 @@ def playground_list_yaml_files(user_id: int, project: str) -> List[Dict[str, str
 
 def playground_read_yaml(user_id: int, project: str, filename: str) -> str:
     """Read a YAML file from the playground, returning its text content."""
-    from docassemble.webapp.playground import Playground
-
     with _playground_user_context(user_id):
-        pg = Playground(project=project)
+        pg = create_playground(project=project)
         if filename not in pg.file_list:
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
@@ -1511,10 +1507,8 @@ def playground_write_yaml(
     user_id: int, project: str, filename: str, content: str
 ) -> None:
     """Write YAML content to a playground file."""
-    from docassemble.webapp.playground import Playground
-
     with _playground_user_context(user_id):
-        pg = Playground(project=project)
+        pg = create_playground(project=project)
         pg.write_file(filename, content)
 
 
@@ -1522,10 +1516,8 @@ def playground_get_variables(
     user_id: int, project: str, filename: str
 ) -> Dict[str, Any]:
     """Extract variable names from a playground YAML file."""
-    from docassemble.webapp.playground import Playground
-
     with _playground_user_context(user_id):
-        pg = Playground(project=project)
+        pg = create_playground(project=project)
         if filename not in pg.file_list:
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
@@ -1617,9 +1609,9 @@ def playground_get_variables(
     # Include files from the project's templates folder to power template pickers.
     template_files: List[str] = []
     try:
-        from docassemble.webapp.files import SavedFile
-
-        template_area = SavedFile(user_id, fix=False, section="playgroundtemplate")
+        template_area = create_saved_file(
+            user_id, fix=False, section="playgroundtemplate"
+        )
         template_project_dir = os.path.join(template_area.directory, project)
         if os.path.isdir(template_project_dir):
             template_files = sorted(
@@ -1647,9 +1639,7 @@ def playground_get_variables(
     static_files: List[str] = []
     static_images: List[str] = []
     try:
-        from docassemble.webapp.files import SavedFile
-
-        static_area = SavedFile(user_id, fix=False, section="playgroundstatic")
+        static_area = create_saved_file(user_id, fix=False, section="playgroundstatic")
         static_project_dir = os.path.join(static_area.directory, project)
         if os.path.isdir(static_project_dir):
             static_files = sorted(

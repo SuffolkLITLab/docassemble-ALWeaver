@@ -50,9 +50,19 @@ from flask_cors import cross_origin
 from flask_login import current_user
 
 from docassemble.base.util import log
-from docassemble.webapp.app_object import app, csrf
-from docassemble.webapp.server import jsonify_with_status, r
-from docassemble.webapp.worker_common import bg_context
+
+from .docassemble_compat import (
+    background_context as bg_context,
+    create_saved_file,
+    get_csrf,
+    get_flask_app,
+    get_redis_client,
+    json_response as jsonify_with_status,
+)
+
+app = get_flask_app()
+csrf = get_csrf()
+r = get_redis_client()
 
 from .api_utils import (
     generate_interview_from_bytes,
@@ -334,9 +344,7 @@ def _normalize_storage_filename(raw: Optional[str]) -> str:
 def _editor_storage_directory(
     user_id: int, project: str, storage_section: str
 ) -> tuple[Any, str]:
-    from docassemble.webapp.files import SavedFile
-
-    area = SavedFile(user_id, fix=True, section=storage_section)
+    area = create_saved_file(user_id, fix=True, section=storage_section)
     directory = (
         area.directory
         if project == "default"
@@ -347,9 +355,7 @@ def _editor_storage_directory(
 
 
 def _editor_playground_directory(user_id: int, project: str) -> tuple[Any, str]:
-    from docassemble.webapp.files import SavedFile
-
-    area = SavedFile(user_id, fix=True, section="playground")
+    area = create_saved_file(user_id, fix=True, section="playground")
     directory = (
         area.directory
         if project == "default"
@@ -856,11 +862,11 @@ def _project_template_context_text(
 ) -> str:
     """Extract lightweight context from uploaded templates in playgroundtemplate."""
     try:
-        from docassemble.webapp.files import SavedFile
+        area = create_saved_file(
+            user_id, fix=False, section=SECTION_TO_STORAGE["templates"]
+        )
     except Exception:
         return ""
-
-    area = SavedFile(user_id, fix=False, section=SECTION_TO_STORAGE["templates"])
     project_dir = (
         area.directory
         if project == "default"

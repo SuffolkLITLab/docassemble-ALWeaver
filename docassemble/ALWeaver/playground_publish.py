@@ -5,6 +5,8 @@ import re
 import shutil
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .docassemble_compat import create_saved_file
+
 __all__ = [
     "create_project",
     "delete_project",
@@ -85,9 +87,7 @@ def _directory_for(area: Any, project_name: str) -> str:
 
 
 def get_list_of_projects(user_id: int) -> List[str]:
-    from docassemble.webapp.files import SavedFile
-
-    playground = SavedFile(user_id, fix=False, section="playground")
+    playground = create_saved_file(user_id, fix=False, section="playground")
     projects = playground.list_of_dirs() or []
     return sorted(
         {
@@ -99,10 +99,8 @@ def get_list_of_projects(user_id: int) -> List[str]:
 
 
 def create_project(user_id: int, project_name: str) -> None:
-    from docassemble.webapp.files import SavedFile
-
     for section in PLAYGROUND_SECTIONS:
-        area = SavedFile(user_id, fix=True, section=section)
+        area = create_saved_file(user_id, fix=True, section=section)
         project_dir = os.path.join(area.directory, project_name)
         if not os.path.isdir(project_dir):
             os.makedirs(project_dir, exist_ok=True)
@@ -113,15 +111,13 @@ def create_project(user_id: int, project_name: str) -> None:
 
 
 def rename_project(user_id: int, old_project_name: str, new_project_name: str) -> None:
-    from docassemble.webapp.files import SavedFile
-
     if old_project_name == "default" or new_project_name == "default":
         raise ValueError("default project cannot be renamed")
 
     project_locations = []
     found_any = False
     for section in PLAYGROUND_SECTIONS:
-        area = SavedFile(user_id, fix=True, section=section)
+        area = create_saved_file(user_id, fix=True, section=section)
         old_dir = _directory_for(area, old_project_name)
         new_dir = _directory_for(area, new_project_name)
         project_locations.append((area, old_dir, new_dir))
@@ -141,14 +137,12 @@ def rename_project(user_id: int, old_project_name: str, new_project_name: str) -
 
 
 def delete_project(user_id: int, project_name: str) -> None:
-    from docassemble.webapp.files import SavedFile
-
     if project_name == "default":
         raise ValueError("default project cannot be deleted")
 
     deleted_any = False
     for section in PLAYGROUND_SECTIONS:
-        area = SavedFile(user_id, fix=True, section=section)
+        area = create_saved_file(user_id, fix=True, section=section)
         project_dir = _directory_for(area, project_name)
         if not os.path.isdir(project_dir):
             continue
@@ -206,12 +200,10 @@ def _copy_files_to_section(
     storage_section: str,
     files: Sequence[Any],
 ) -> List[str]:
-    from docassemble.webapp.files import SavedFile
-
     if not files:
         return []
 
-    area = SavedFile(user_id, fix=True, section=storage_section)
+    area = create_saved_file(user_id, fix=True, section=storage_section)
     destination_dir = _directory_for(area, project_name)
     os.makedirs(destination_dir, exist_ok=True)
 

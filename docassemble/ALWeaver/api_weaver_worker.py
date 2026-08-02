@@ -2,9 +2,10 @@
 
 from typing import Any, Dict, Mapping, Optional
 
-from docassemble.webapp.worker_common import bg_context, workerapp  # type: ignore[import-untyped]
-
 from .api_utils import generate_interview_from_bytes
+from .docassemble_compat import background_context as bg_context, get_worker_app
+
+workerapp = get_worker_app()
 
 
 @workerapp.task
