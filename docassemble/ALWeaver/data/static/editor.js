@@ -6785,8 +6785,11 @@
       if (!state.project || !state.filename) return;
       apiGet('/api/file?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
         .then(function (res) {
-          if (!res.success || !res.data) return;
-          var content = res.data.content || '';
+          if (!res.success || !res.data || typeof res.data.raw_yaml !== 'string') {
+            window.alert((res.error && res.error.message) || 'Unable to download: the server returned an invalid file response.');
+            return;
+          }
+          var content = res.data.raw_yaml;
           var blob = new Blob([content], { type: 'text/yaml' });
           var url = URL.createObjectURL(blob);
           var a = document.createElement('a');
@@ -6796,6 +6799,8 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+        }).catch(function () {
+          window.alert('Unable to download the file.');
         });
       return;
     }

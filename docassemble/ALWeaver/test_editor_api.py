@@ -148,6 +148,37 @@ api_editor = _load_api_editor_for_tests()
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
+    def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
+        model = {
+            "blocks": [],
+            "metadata_blocks": [],
+            "include_blocks": [],
+            "default_screen_parts_blocks": [],
+            "order_blocks": [],
+        }
+        for source in ("metadata:\n  title: 'Exact'\n", ""):
+            with self.subTest(source=source):
+                with (
+                    patch.object(api_editor, "_editor_auth_check", return_value=True),
+                    patch.object(api_editor, "_current_user_id", return_value=7),
+                    patch.object(
+                        api_editor, "playground_read_yaml", return_value=source
+                    ),
+                    patch.object(
+                        api_editor, "parse_interview_yaml", return_value=model
+                    ),
+                ):
+                    with api_editor.app.test_request_context(
+                        "/al/editor/api/file?project=default&filename=test.yml",
+                        method="GET",
+                    ):
+                        response = api_editor.editor_api_get_file()
+
+                payload = response.get_json()["data"]
+                self.assertEqual(payload["filename"], "test.yml")
+                self.assertEqual(payload["raw_yaml"], source)
+                self.assertIn("revision", payload)
+
     def test_normalize_new_filename_adds_yaml_extension(self):
         self.assertEqual(api_editor._normalize_new_filename("draft"), "draft.yml")
         self.assertEqual(api_editor._normalize_new_filename("draft.yaml"), "draft.yaml")

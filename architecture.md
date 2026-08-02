@@ -58,6 +58,10 @@ documents cannot be identified safely, the scoped save is rejected and the user
 must use full source mode. This is an interim safeguard pending the general
 revisioned source-patch model.
 
+The file-read API exposes interview text as `raw_yaml`; browser downloads
+validate that field as a string before creating a file, including when the
+source is intentionally empty.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.
