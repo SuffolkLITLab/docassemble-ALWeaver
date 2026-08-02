@@ -93,6 +93,26 @@ class WeaverInterviewArtifacts:
     package_file: Optional[Any] = None
 
 
+@dataclass
+class _PersonObjectSpec:
+    """Represents one entry in the generated interview's ``objects:`` block."""
+
+    name: str
+    type: str = "ALPeopleList"
+    params: dict = field(default_factory=dict)
+
+
+# Per-person default params that match AssemblyLine's ql_baseline.yml.
+# Applied when no explicit quantity was specified (e.g., in "I'm feeling lucky" mode).
+_PERSON_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
+    "users": {"there_are_any": True},
+    "children": {"ask_number": True},
+    "witnesses": {"ask_number": True},
+    "decedents": {"ask_number": True, "target_number": 1},
+    "guardians_ad_litem": {"ask_number": True},
+}
+
+
 __all__ = [
     "attachment_download_html",
     "base_name",
@@ -371,7 +391,7 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
             url,
             headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
         )
-        # url checked for SSRF above, so marking as audited for bandit
+        # URL safety is validated above before fetching.
         with urlopen(req, timeout=10) as response:  # nosec B310
             content_type = str(response.headers.get("Content-Type", "") or "").lower()
             if content_type and (
@@ -1308,6 +1328,40 @@ class DAFieldList(DAList):
         else:
             return people - (set(reserved_pluralizers_map.values()) - set(people_vars))
 
+    def _guess_people_quantities(
+        self,
+        reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
+    ) -> Dict[str, str]:
+        """Estimate the quantity of each person type by scanning field index values.
+
+        Examines each field's ``final_display_var`` for patterns like
+        ``users[0].name.first`` or ``children[1].name.last``.  The maximum
+        0-based index found per person type determines the quantity:
+        index == 0 → ``"one"``, index >= 1 → ``"more"``.
+
+        Returns:
+            A dict mapping canonical person name → ``"one"`` or ``"more"``.
+            Person types with no indexed fields are omitted.
+        """
+        known_plurals = set(reserved_person_pluralizers_map.values())
+        max_indices: Dict[str, int] = {}
+        for field_item in self:
+            display_var = getattr(field_item, "final_display_var", None) or ""
+            match = re.match(r"^([A-Za-z_]\w*)\[(\d+)\]", display_var)
+            if not match:
+                continue
+            prefix = match.group(1)
+            index = int(match.group(2))
+            canonical = reserved_person_pluralizers_map.get(prefix, prefix)
+            if canonical not in known_plurals:
+                continue
+            if canonical not in max_indices or index > max_indices[canonical]:
+                max_indices[canonical] = index
+        return {
+            person: ("one" if max_idx == 0 else "more")
+            for person, max_idx in max_indices.items()
+        }
+
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
@@ -1735,6 +1789,41 @@ class DAInterview(DAObject):
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
 
+    def _guess_objects_list(self) -> List[_PersonObjectSpec]:
+        """Build an objects list for the generated interview using field analysis heuristics.
+
+        Mirrors the person candidate consolidation logic in assembly_line.yml and
+        adds quantity guessing from field index numbers.  Always includes ``users``.
+        """
+        person_candidates: Set[str] = set(self.all_fields.get_person_candidates())
+        person_candidates.add("users")
+
+        # Mirror defendants/plaintiffs → other_parties consolidation (assembly_line.yml:1910-1922)
+        if (
+            "defendants" in person_candidates and "plaintiffs" in person_candidates
+        ) or (
+            "respondents" in person_candidates and "petitioners" in person_candidates
+        ):
+            person_candidates.add("other_parties")
+        person_candidates.discard("petitioners")
+        person_candidates.discard("respondents")
+        person_candidates.discard("plaintiffs")
+        person_candidates.discard("defendants")
+
+        quantities = self.all_fields._guess_people_quantities()
+
+        result: List[_PersonObjectSpec] = []
+        for person in sorted(person_candidates):
+            quantity = quantities.get(person)
+            if quantity == "one":
+                params: Dict[str, Any] = {"ask_number": True, "target_number": 1}
+            elif quantity == "more":
+                params = {"there_are_any": True}
+            else:
+                params = dict(_PERSON_DEFAULT_PARAMS.get(person, {}))
+            result.append(_PersonObjectSpec(name=person, params=params))
+        return result
+
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
         """
         Create a draft screen order. We ask for the user's name first, then
@@ -1888,6 +1977,7 @@ class DAInterview(DAObject):
         self.short_filename = space_to_underscore(
             varname(self.short_filename_with_spaces)
         )
+        self.interview_label = self.short_filename.lower()
 
         # Heuristics-based attributes - all fast, no file access
         if jurisdiction:
@@ -1904,6 +1994,16 @@ class DAInterview(DAObject):
             except:
                 self.jurisdiction = jurisdiction
                 self.state = jurisdiction
+        self.categories = DADict(auto_gather=False, gathered=True)
+        self.categories["Other"] = False
+        self.has_other_categories = False
+        self.other_categories = ""
+        self.original_form = ""
+        self.help_page_url = ""
+        self.help_page_title = ""
+        self.help_source_text = ""
+        self.use_llm_assist = False
+        self.state = ""
         if categories:
             nsmi_tmp = (
                 categories[1:-1].replace("'", "").strip()
@@ -1919,9 +2019,9 @@ class DAInterview(DAObject):
         self.form_type = self._guess_posture(self.title)
         self.jurisdiction_choices = get_matching_deps("jurisdiction", jurisdiction)
         self.org_choices = get_matching_deps("organization", jurisdiction)
-        self.getting_started = "Before you get started, you need to..."
         self.intro_prompt = self._guess_intro_prompt(self.title)
         self.court_related = not (self.form_type == "letter")
+        self.getting_started = self._guess_getting_started(self.title)
         self.landing_page_url = ""
         self.efiling_enabled = False
         self.integrated_efiling = False
@@ -1933,6 +2033,7 @@ class DAInterview(DAObject):
         self.allowed_courts = DADict(auto_gather=False, gathered=True)
         self.default_country_code = default_country_code
         self.output_mako_choice = "Default configuration:standard AssemblyLine"
+        self.has_other_categories = False
 
     def _load_and_label_fields(self) -> None:
         """Fast field extraction and labeling. Safe to run on the main thread."""
@@ -2018,6 +2119,7 @@ class DAInterview(DAObject):
             default_country_code=default_country_code,
         )
         self._load_and_label_fields()
+        self.questions.gathered = True
 
     def _llm_default_model(self) -> str:
         return (
@@ -2038,8 +2140,9 @@ class DAInterview(DAObject):
                     stat_result = os.stat(path)
                     mtime_ns = stat_result.st_mtime_ns
                     size = stat_result.st_size
-                except Exception:
-                    pass
+                except OSError:
+                    mtime_ns = None
+                    size = None
                 template_fingerprints.append((path, mtime_ns, size))
 
         cache_key = tuple(template_fingerprints)
@@ -2765,6 +2868,60 @@ Rules:
                 self.llm_draft_next_steps_what_happens_if_i_win
             )
 
+        # Lucky mode skips the step-by-step metadata screens, so copy drafted
+        # intro metadata onto the live interview fields before rendering output.
+        if hasattr(self, "llm_draft_title"):
+            drafted_title = _safe_short_label(str(self.llm_draft_title), 100)
+            if drafted_title:
+                self.title = drafted_title
+                self.short_title = drafted_title[:25]
+                self.short_filename_with_spaces = drafted_title
+                self.short_filename = space_to_underscore(varname(drafted_title))
+        if hasattr(self, "llm_draft_intro_prompt"):
+            intro_prompt = _safe_short_label(str(self.llm_draft_intro_prompt), 60)
+            if intro_prompt:
+                self.intro_prompt = intro_prompt
+        if hasattr(self, "llm_draft_description"):
+            description = str(self.llm_draft_description or "").strip()
+            if description:
+                self.description = description
+        if hasattr(self, "llm_draft_can_i_use_this_form"):
+            can_use = str(self.llm_draft_can_i_use_this_form or "").strip()
+            if can_use:
+                self.can_I_use_this_form = can_use
+        if hasattr(self, "llm_draft_getting_started"):
+            getting_started = str(self.llm_draft_getting_started or "").strip()
+            if getting_started:
+                self.getting_started = getting_started
+        if hasattr(self, "llm_draft_when_you_are_finished"):
+            when_finished = str(self.llm_draft_when_you_are_finished or "").strip()
+            if when_finished:
+                self.when_you_are_finished = when_finished
+        if hasattr(self, "llm_draft_landing_page_url"):
+            landing_page_url = str(self.llm_draft_landing_page_url or "").strip()
+            if landing_page_url and is_url(landing_page_url):
+                self.landing_page_url = landing_page_url
+        if hasattr(self, "llm_draft_typical_role"):
+            role = str(self.llm_draft_typical_role)
+            if role in {"plaintiff", "defendant"}:
+                self.typical_role = role
+        if hasattr(self, "llm_draft_form_type"):
+            form_type = str(self.llm_draft_form_type)
+            if form_type in {
+                "starts_case",
+                "existing_case",
+                "appeal",
+                "letter",
+                "other_form",
+                "other",
+            }:
+                self.form_type = form_type
+                self.court_related = form_type in {
+                    "starts_case",
+                    "existing_case",
+                    "appeal",
+                }
+
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):
             self.apply_llm_field_updates(field_updates)
@@ -2821,7 +2978,7 @@ Rules:
         if url:
             draft_title = url
         elif input_file:
-            draft_title = input_file.path()
+            draft_title = getattr(input_file, "filename", None) or input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
         return (
@@ -2915,6 +3072,32 @@ Rules:
         elif self.form_type == "letter":
             return "Write a " + title
         return "Get a " + title
+
+    def _guess_getting_started(self, title: str) -> str:
+        """Create a form-specific non-LLM intro instead of a placeholder."""
+
+        intro_prompt = getattr(self, "intro_prompt", "") or self._guess_intro_prompt(
+            title
+        )
+        action = (
+            intro_prompt[0:1].lower() + intro_prompt[1:]
+            if intro_prompt
+            else "complete this form"
+        )
+        title_text = str(title or "this form").strip() or "this form"
+        role_text = (
+            "your court case"
+            if getattr(self, "court_related", True)
+            else "your request"
+        )
+        return (
+            f"This interview will help you {action}.\n\n"
+            "Before you get started, gather any information you have about:\n\n"
+            f"1. The people or organizations named in the {title_text}.\n"
+            f"1. Important dates, addresses, and contact information for {role_text}.\n"
+            "1. Any papers, notices, or records that you may need to refer to.\n\n"
+            "When you are finished, you can review your answers and download your completed form."
+        )
 
     def _guess_role(self, title: str):
         """Guess role from the form's title, using some simple heuristics.
@@ -4240,8 +4423,25 @@ class _LocalDAStaticFile(DAStaticFile):
         return self.full_path
 
 
-def _make_static_file_from_path(path: str) -> DAStaticFile:
+def _make_static_file_from_path(
+    path: str, filename: Optional[str] = None
+) -> DAStaticFile:
+    if filename:
+        return _LocalDAStaticFile(full_path=path, filename=os.path.basename(filename))
     return _LocalDAStaticFile(full_path=path)
+
+
+def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> None:
+    exact_base = os.path.splitext(os.path.basename(str(exact_name or "").strip()))[
+        0
+    ].strip()
+    if not exact_base:
+        return
+    exact_title = exact_base.replace("_", " ").capitalize()
+    interview.title = exact_title
+    interview.short_title = exact_title[:25]
+    interview.short_filename_with_spaces = exact_title
+    interview.short_filename = space_to_underscore(varname(exact_title))
 
 
 def _resolve_template_path(template_ref: str) -> str:
@@ -4997,7 +5197,7 @@ def _llm_rewrite_for_plain_language(text: str) -> str:
             if candidate:
                 return candidate
     except Exception:
-        pass
+        return text
     return text
 
 
@@ -5109,17 +5309,24 @@ def _render_interview_yaml(
         output_mako_text = mako_handle.read()
 
     template_text = output_defs_text + "\n" + output_mako_text
-    # This mako template is making a docassemble YAML, so it's not directly at risk of XSS injection.
+    # This template renders docassemble YAML, not HTML output.
     template = mako.template.Template(
         template_text, input_encoding="utf-8"
     )  # nosec B702
 
+    questions = getattr(interview, "questions", None)
+    can_render_question_order = hasattr(interview, "draft_screen_order") and getattr(
+        questions, "gathered", False
+    )
     if screen_reordered is None:
         # The interview order block needs both the authored question screens and any
         # built-in fields (e.g., users.gather(), docket_number) so the generated
         # interview actually asks for values it references in review/download screens.
         # `draft_screen_order()` includes built-ins and signatures in a sensible order.
-        screen_reordered = list(interview.draft_screen_order())
+        if can_render_question_order:
+            screen_reordered = list(interview.draft_screen_order())
+        else:
+            screen_reordered = []
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
@@ -5151,11 +5358,14 @@ def _render_interview_yaml(
     navigation_sections, section_assignments = _navigation_sections_and_assignments(
         interview, screen_reordered, screen_triggers
     )
-    interview_order_lines = interview.questions.interview_order_list(
-        interview.all_fields,
-        screen_reordered,
-        sections=section_assignments,
-    )
+    if can_render_question_order and questions is not None:
+        interview_order_lines = questions.interview_order_list(
+            interview.all_fields,
+            screen_reordered,
+            sections=section_assignments,
+        )
+    else:
+        interview_order_lines = []
 
     context = {
         "interview": interview,
@@ -5232,6 +5442,35 @@ class _LocalDAFileAdapter:
         return None
 
 
+def _normalize_objects(
+    objects: List[Any], interview: Optional[Any] = None
+) -> List[_PersonObjectSpec]:
+    """Convert a list of objects (DAObject or _PersonObjectSpec) to _PersonObjectSpec.
+
+    For objects with empty params, uses field index heuristics from the interview
+    when available, then falls back to per-person defaults matching ql_baseline.yml.
+    """
+    quantities: Dict[str, str] = {}
+    if interview is not None and hasattr(interview, "all_fields"):
+        quantities = interview.all_fields._guess_people_quantities()
+
+    result = []
+    for obj in objects:
+        name = str(getattr(obj, "name", "") or "")
+        obj_type = str(getattr(obj, "type", "ALPeopleList") or "ALPeopleList")
+        params = dict(getattr(obj, "params", None) or {})
+        if not params:
+            quantity = quantities.get(name)
+            if quantity == "one":
+                params = {"ask_number": True, "target_number": 1}
+            elif quantity == "more":
+                params = {"there_are_any": True}
+            else:
+                params = dict(_PERSON_DEFAULT_PARAMS.get(name, {}))
+        result.append(_PersonObjectSpec(name=name, type=obj_type, params=params))
+    return result
+
+
 def generate_interview_artifacts(
     interview: DAInterview,
     *,
@@ -5240,6 +5479,7 @@ def generate_interview_artifacts(
     output_mako_choice: Optional[str] = None,
     yaml_output_file: Optional[Any] = None,
     package_output_file: Optional[Any] = None,
+    objects: Optional[List[Any]] = None,
 ) -> WeaverInterviewArtifacts:
     yaml_filename = f"{interview.interview_label}.yml"
     chosen_output_mako_raw = output_mako_choice
@@ -5254,11 +5494,19 @@ def generate_interview_artifacts(
         if isinstance(chosen_output_mako_raw, str)
         else "Default configuration:standard AssemblyLine"
     )
+    if objects is None:
+        resolved_objects: List[_PersonObjectSpec] = (
+            interview._guess_objects_list()
+            if hasattr(interview, "_guess_objects_list")
+            else []
+        )
+    else:
+        resolved_objects = _normalize_objects(objects, interview=interview)
     yaml_text = _render_interview_yaml(
         interview=interview,
         include_download_screen=include_download_screen,
         output_mako_choice=chosen_output_mako,
-        objects=[],
+        objects=resolved_objects,
         screen_reordered=None,
     )
 
@@ -5316,6 +5564,7 @@ def generate_interview_from_path(
     *,
     output_dir: Optional[str] = None,
     title: Optional[str] = None,
+    exact_name: Optional[str] = None,
     jurisdiction: Optional[str] = None,
     categories: Optional[str] = None,
     default_country_code: str = "US",
@@ -5323,6 +5572,10 @@ def generate_interview_from_path(
     create_package_zip: bool = True,
     include_next_steps: bool = True,
     include_download_screen: bool = True,
+    use_llm_assist: bool = False,
+    help_page_url: Optional[str] = None,
+    help_page_title: Optional[str] = None,
+    help_source_text: Optional[str] = None,
     interview_overrides: Optional[Dict[str, Any]] = None,
     field_definitions: Optional[List[FieldDefinition]] = None,
     screen_definitions: Optional[List[Screen]] = None,
@@ -5330,7 +5583,10 @@ def generate_interview_from_path(
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
     _ensure_current_question_package()
-    da_file = _make_static_file_from_path(input_path)
+    resolved_exact_name = os.path.basename(
+        str(exact_name or os.path.basename(input_path) or input_path).strip()
+    )
+    da_file = _make_static_file_from_path(input_path, filename=resolved_exact_name)
 
     merged_screens = None
     if screen_definitions:
@@ -5350,8 +5606,28 @@ def generate_interview_from_path(
 
     interview.output_mako_choice = output_mako_choice
     interview.include_next_steps = include_next_steps
+    interview.use_llm_assist = bool(use_llm_assist)
+    if help_page_url is not None:
+        interview.help_page_url = str(help_page_url).strip()
+    if help_page_title is not None:
+        interview.help_page_title = str(help_page_title).strip()
+    if help_source_text is not None:
+        interview.help_source_text = str(help_source_text)
 
+    override_title_requested = False
     if interview_overrides:
+        if isinstance(interview_overrides, str):
+            try:
+                interview_overrides = json.loads(interview_overrides)
+            except (json.JSONDecodeError, TypeError):
+                raise ValueError("interview_overrides must be a dict, not a string")
+        if not isinstance(interview_overrides, dict):
+            raise TypeError(
+                f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
+            )
+        override_title_requested = bool(
+            str(interview_overrides.get("title", "") or "").strip()
+        )
         for key, value in interview_overrides.items():
             setattr(interview, key, value)
 
@@ -5367,6 +5643,10 @@ def generate_interview_from_path(
         interview.help_page_url = ""
     if not hasattr(interview, "help_page_title"):
         interview.help_page_title = ""
+    if not hasattr(interview, "help_source_text"):
+        interview.help_source_text = ""
+    if not hasattr(interview, "use_llm_assist"):
+        interview.use_llm_assist = bool(use_llm_assist)
     if not hasattr(interview, "state"):
         interview.state = ""
     if not hasattr(interview, "landing_page_url"):
@@ -5385,6 +5665,16 @@ def generate_interview_from_path(
         interview.footer = ""
     if not hasattr(interview, "when_you_are_finished"):
         interview.when_you_are_finished = ""
+    if hasattr(interview, "help_page_url") and str(interview.help_page_url).strip():
+        interview.help_page_url = str(interview.help_page_url).strip()
+        if not is_url(interview.help_page_url):
+            raise ValueError("help_page_url must be a valid URL.")
+    else:
+        interview.help_page_url = ""
+    if hasattr(interview, "help_page_title"):
+        interview.help_page_title = str(interview.help_page_title or "").strip()
+    if hasattr(interview, "help_source_text"):
+        interview.help_source_text = str(interview.help_source_text or "")
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
     for field in interview.all_fields:
@@ -5413,10 +5703,35 @@ def generate_interview_from_path(
     elif added_fields:
         interview.auto_group_fields()
 
+    llm_enabled = bool(getattr(interview, "use_llm_assist", False))
+    if llm_enabled:
+        log(
+            "ALWeaver generate_interview_from_path: AI assist enabled "
+            f"exact_name={resolved_exact_name!r} "
+            f"help_page_url={getattr(interview, 'help_page_url', '')!r} "
+            f"help_source_chars={len(str(getattr(interview, 'help_source_text', '') or ''))}",
+            "info",
+        )
+        interview._prefetch_reference_site()
+        interview.llm_prefill_metadata(apply=True)
+        interview.llm_predict_state(apply=True)
+        interview.llm_refine_field_labels(apply=True)
+        if not screen_definitions:
+            interview.llm_group_fields(apply=True)
+
+    if exact_name and not str(title or "").strip() and not override_title_requested:
+        _apply_exact_name_to_interview(interview, exact_name)
+
     interview_label = varname(interview.title)
     if not interview_label:
         interview_label = varname("ending_variable_" + interview.title)
     interview.interview_label = interview_label.lower()
+    log(
+        "ALWeaver generate_interview_from_path: final naming "
+        f"title={interview.title!r} interview_label={interview.interview_label!r} "
+        f"package_title={interview.package_title!r}",
+        "info",
+    )
 
     if include_next_steps:
         _assign_next_steps_template(interview)

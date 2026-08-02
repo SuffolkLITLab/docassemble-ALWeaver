@@ -56,7 +56,7 @@ label_datatype_refinement_system_prompt: |
 
   Allowed datatypes:
   text, area, yesno, noyes, yesnoradio, noyesradio, integer, number, currency,
-  date, email, multiple choice dropdown, multiple choice combobox,
+  date, email, code, multiple choice dropdown, multiple choice combobox,
   multiple choice radio, multiple choice checkboxes, multiselect
 
 grouping_system_prompt: |

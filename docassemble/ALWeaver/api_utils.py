@@ -87,12 +87,21 @@ def coerce_generation_options(raw_options: Mapping[str, Any]) -> Dict[str, Any]:
         "categories",
         "default_country_code",
         "output_mako_choice",
+        "exact_name",
+        "help_page_url",
+        "help_page_title",
+        "help_source_text",
     ):
         value = raw_options.get(key)
         if value is not None and value != "":
             options[key] = str(value)
 
-    for key in ("create_package_zip", "include_next_steps", "include_download_screen"):
+    for key in (
+        "create_package_zip",
+        "include_next_steps",
+        "include_download_screen",
+        "use_llm_assist",
+    ):
         if key in raw_options and raw_options.get(key) is not None:
             options[key] = parse_bool(raw_options.get(key), default=False)
 
@@ -219,10 +228,13 @@ def generate_interview_from_bytes(
             input_path = handle.name
             handle.write(content_bytes)
 
+        resolved_generation_options = dict(generation_options)
+        resolved_generation_options.setdefault("exact_name", safe_filename)
+
         result = generate_interview_from_path(
             input_path=input_path,
             output_dir=output_dir,
-            **generation_options,
+            **resolved_generation_options,
         )
 
         payload: Dict[str, Any] = {"input_filename": safe_filename}
@@ -278,9 +290,14 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "categories": {"type": "string"},
                                         "default_country_code": {"type": "string"},
                                         "output_mako_choice": {"type": "string"},
+                                        "exact_name": {"type": "string"},
+                                        "help_page_url": {"type": "string"},
+                                        "help_page_title": {"type": "string"},
+                                        "help_source_text": {"type": "string"},
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "use_llm_assist": {"type": "boolean"},
                                         "field_definitions": {"type": "string"},
                                         "screen_definitions": {"type": "string"},
                                         "interview_overrides": {"type": "string"},
@@ -313,9 +330,14 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "categories": {"type": "string"},
                                         "default_country_code": {"type": "string"},
                                         "output_mako_choice": {"type": "string"},
+                                        "exact_name": {"type": "string"},
+                                        "help_page_url": {"type": "string"},
+                                        "help_page_title": {"type": "string"},
+                                        "help_source_text": {"type": "string"},
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "use_llm_assist": {"type": "boolean"},
                                         "field_definitions": {
                                             "type": "array",
                                             "items": {"type": "object"},
@@ -422,6 +444,9 @@ def build_docs_html() -> str:
   -H "X-API-Key: &lt;DOCASSEMBLE_API_KEY&gt;" \\
   -F "file=@template.pdf" \\
   -F "title=My interview" \\
+  -F "exact_name=template.pdf" \\
+  -F "use_llm_assist=true" \\
+  -F "help_page_url=https://example.com/reference" \\
   -F "include_next_steps=false" \\
   -F "create_package_zip=true" \\
   {WEAVER_API_BASE_PATH}</pre>
@@ -438,6 +463,9 @@ def build_docs_html() -> str:
   "filename": "template.docx",
   "file_content_base64": "&lt;base64-content&gt;",
   "title": "My interview",
+  "exact_name": "template.docx",
+  "use_llm_assist": true,
+  "help_page_url": "https://example.com/reference",
   "include_next_steps": false,
   "create_package_zip": true,
   "mode": "sync"

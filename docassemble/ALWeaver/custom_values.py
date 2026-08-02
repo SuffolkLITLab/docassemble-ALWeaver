@@ -233,13 +233,13 @@ def get_matching_deps(
             )
 
     if len(dep_choices) > 0 or str(state).lower() == "any":
+        deduped_choices = [
+            item
+            for item in unique_everseen(dep_choices)
+            if isinstance(item, str) and item
+        ]
         return DADict(
-            elements={
-                item: True
-                for item in unique_everseen(
-                    dep_choices, key=lambda x: frozenset(x.items())
-                )
-            },
+            elements={item: True for item in deduped_choices},
             auto_gather=False,
             gathered=True,
         )

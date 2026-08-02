@@ -7,10 +7,12 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 __all__ = [
     "create_project",
+    "delete_project",
     "get_list_of_projects",
     "next_available_project_name",
     "normalize_project_name",
     "publish_weaver_artifacts_to_playground",
+    "rename_project",
 ]
 
 
@@ -108,6 +110,54 @@ def create_project(user_id: int, project_name: str) -> None:
         with open(placeholder, "a", encoding="utf-8"):
             os.utime(placeholder, None)
         area.finalize()
+
+
+def rename_project(user_id: int, old_project_name: str, new_project_name: str) -> None:
+    from docassemble.webapp.files import SavedFile
+
+    if old_project_name == "default" or new_project_name == "default":
+        raise ValueError("default project cannot be renamed")
+
+    project_locations = []
+    found_any = False
+    for section in PLAYGROUND_SECTIONS:
+        area = SavedFile(user_id, fix=True, section=section)
+        old_dir = _directory_for(area, old_project_name)
+        new_dir = _directory_for(area, new_project_name)
+        project_locations.append((area, old_dir, new_dir))
+        if os.path.isdir(old_dir):
+            found_any = True
+        if os.path.exists(new_dir):
+            raise ValueError(f"{new_project_name} already exists")
+
+    if not found_any:
+        raise FileNotFoundError(f"{old_project_name} not found")
+
+    for area, old_dir, new_dir in project_locations:
+        if not os.path.isdir(old_dir):
+            continue
+        os.rename(old_dir, new_dir)
+        area.finalize()
+
+
+def delete_project(user_id: int, project_name: str) -> None:
+    from docassemble.webapp.files import SavedFile
+
+    if project_name == "default":
+        raise ValueError("default project cannot be deleted")
+
+    deleted_any = False
+    for section in PLAYGROUND_SECTIONS:
+        area = SavedFile(user_id, fix=True, section=section)
+        project_dir = _directory_for(area, project_name)
+        if not os.path.isdir(project_dir):
+            continue
+        shutil.rmtree(project_dir)
+        area.finalize()
+        deleted_any = True
+
+    if not deleted_any:
+        raise FileNotFoundError(f"{project_name} not found")
 
 
 def _source_path_and_filename(file_like: Any) -> Tuple[str, str]:

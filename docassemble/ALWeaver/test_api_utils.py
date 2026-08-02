@@ -34,6 +34,11 @@ class test_api_utils(unittest.TestCase):
                 "title": "Example",
                 "create_package_zip": "false",
                 "include_next_steps": "true",
+                "exact_name": "Example Upload.docx",
+                "help_page_url": "https://example.com/reference",
+                "help_page_title": "Example reference",
+                "help_source_text": "Context for Weaver",
+                "use_llm_assist": "true",
                 "field_definitions": '[{"field":"x","datatype":"text"}]',
                 "screen_definitions": '[{"question":"Screen 1","fields":[{"field":"x"}]}]',
                 "interview_overrides": '{"foo":"bar"}',
@@ -42,6 +47,11 @@ class test_api_utils(unittest.TestCase):
         self.assertEqual(options["title"], "Example")
         self.assertFalse(options["create_package_zip"])
         self.assertTrue(options["include_next_steps"])
+        self.assertEqual(options["exact_name"], "Example Upload.docx")
+        self.assertEqual(options["help_page_url"], "https://example.com/reference")
+        self.assertEqual(options["help_page_title"], "Example reference")
+        self.assertEqual(options["help_source_text"], "Context for Weaver")
+        self.assertTrue(options["use_llm_assist"])
         self.assertEqual(options["field_definitions"][0]["field"], "x")
         self.assertEqual(options["screen_definitions"][0]["question"], "Screen 1")
         self.assertEqual(options["interview_overrides"]["foo"], "bar")
@@ -124,6 +134,7 @@ class test_api_utils(unittest.TestCase):
         )
         self.assertIn("yaml_text", result)
         self.assertIn("yaml_filename", result)
+        self.assertEqual(result["yaml_filename"], "test_docx_no_pdf_field_names.yml")
         self.assertNotIn("package_zip_base64", result)
 
 

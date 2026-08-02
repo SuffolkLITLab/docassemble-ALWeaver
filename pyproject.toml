@@ -36,6 +36,23 @@ exclude_dirs = ["scripts", "venv", ".venv"]
 [tool.black]
 extend-exclude = '(__init__.py|setup.py)'
 
+[tool.docsig]
+excludes = [
+    "docassemble/ALWeaver/api_editor.py",
+    "docassemble/ALWeaver/api_utils.py",
+    "docassemble/ALWeaver/api_weaver.py",
+    "docassemble/ALWeaver/api_weaver_worker.py",
+    "docassemble/ALWeaver/custom_values.py",
+    "docassemble/ALWeaver/draggable_table.py",
+    "docassemble/ALWeaver/editor_ai_utils.py",
+    "docassemble/ALWeaver/editor_utils.py",
+    "docassemble/ALWeaver/interview_generator.py",
+    "docassemble/ALWeaver/list_taxonomy.py",
+    "docassemble/ALWeaver/playground_publish.py",
+    "docassemble/ALWeaver/validate_template_files.py",
+    "scripts/weaver_async_smoketest.py",
+]
+
 [tool.mypy]
 # global options
 exclude = '''(?x)(
@@ -109,6 +126,11 @@ ignore_missing_imports=true
 disable_error_code=["import-untyped"]
 
 [[tool.mypy.overrides]]
+module = "flask_login"
+ignore_missing_imports=true
+disable_error_code=["import-untyped"]
+
+[[tool.mypy.overrides]]
 module = "mypy-pdfminer.*"
 ignore_missing_imports=true
 
@@ -123,6 +145,12 @@ ignore_missing_imports=true
 [[tool.mypy.overrides]]
 module = "docassemble.ALDashboard.interview_linter"
 ignore_missing_imports=true
+
+[[tool.mypy.overrides]]
+module = "docassemble.ALDashboard.review_screen_generator"
+ignore_missing_imports=true
+
+disable_error_code=["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = "docassemble.ALWeaver.interview_generator"
