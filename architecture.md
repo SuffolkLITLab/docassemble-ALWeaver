@@ -94,6 +94,13 @@ and YAML-path fields, while retaining the legacy display aliases during the UI
 transition. The validation drawer identifies saved-source and unsaved-source
 results explicitly.
 
+`docassemble_compat.py` is Weaver's compatibility boundary for Docassemble
+1.9.x and 1.10.x. Session orchestration uses the stable high-level functions in
+`docassemble.base.functions`; raw inspection actions feature-detect the 1.10
+Pluggy hook and otherwise use the populated 1.9 server implementation. The same
+module owns access to initialized Flask, storage, Redis, and worker objects so
+the rest of Weaver does not depend on version-specific private module paths.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.
