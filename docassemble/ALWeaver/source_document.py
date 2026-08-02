@@ -149,6 +149,22 @@ def parse_source_document(filename: str, raw_text: str) -> SourceDocument:
     """Parse source for analysis while retaining every original character."""
     documents: List[SourceBlock] = []
     diagnostics: List[Diagnostic] = []
+    try:
+        # Structural validity belongs to the complete YAML stream. Directives
+        # and document markers can lose their meaning when a body is parsed in
+        # isolation, so sliced-block parsing below is analysis-only.
+        list(yaml.compose_all(raw_text))
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        error_start = getattr(mark, "index", 0) or 0
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                message=str(exc),
+                filename=filename,
+                source_range=_range(raw_text, error_start, error_start),
+            )
+        )
     for document_index, (start, end, body) in enumerate(_document_bodies(raw_text)):
         parsed_value: Any = None
         node = None
@@ -158,18 +174,10 @@ def parse_source_document(filename: str, raw_text: str) -> SourceDocument:
         else:
             try:
                 node = yaml.compose(body)
-            except yaml.YAMLError as exc:
-                mark = getattr(exc, "problem_mark", None)
-                error_start = start + (getattr(mark, "index", 0) or 0)
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        message=str(exc),
-                        filename=filename,
-                        source_range=_range(raw_text, error_start, error_start),
-                    )
+            except yaml.YAMLError:
+                unsupported_reasons.append(
+                    "document cannot be mapped safely outside its YAML stream context"
                 )
-                unsupported_reasons.append("structurally invalid YAML")
             if node is not None:
                 try:
                     parsed_value = yaml.safe_load(body)

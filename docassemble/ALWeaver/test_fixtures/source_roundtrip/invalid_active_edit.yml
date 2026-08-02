@@ -1,0 +1,6 @@
+# This is a deliberately invalid in-progress editor buffer.
+id: unfinished
+question: [the user has not finished typing
+---
+code: |
+  untouched_python = True
