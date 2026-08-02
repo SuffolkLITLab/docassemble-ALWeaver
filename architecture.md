@@ -109,6 +109,20 @@ records against Celery. A Redis record without an associated task is marked
 expired rather than reported as running. Weaver refuses the operation when the
 worker module is not configured and never falls back to an in-process thread.
 
+The editor is being separated incrementally so beta behavior remains testable
+throughout the refactor. `editor_state_store.js` now owns the initial application
+state and exposes immutable snapshots, subscriptions, and reducer-based dispatch.
+It retains an explicit `mutateLegacy()` bridge for controller code that has not
+yet been extracted; new view modules should dispatch actions rather than mutate
+unrelated state.
+
+`editor_command_manager.js` defines reversible commands with descriptions,
+affected-file reporting, source-patch generation, and undo/redo history. Existing
+editing paths are migrated to commands one at a time. Command history is cleared
+after a full file save, reload, or discard so commands never cross server
+revisions. These modules are packaged locally, and the source-editor module uses
+Docassemble's bundled CodeMirror support rather than a Monaco shim.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

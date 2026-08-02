@@ -18,72 +18,24 @@
   var authState = BOOT.auth || {};
   var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
   var dirtyState = window.ALWeaverDirtyState.createDirtyState();
+  var stateStore = window.ALWeaverStateStore.createEditorStore({
+    projects: BOOT.projects || [],
+  });
+  var commandManager = window.ALWeaverCommands.createCommandManager({
+    applyCommandValue: function (command, value) {
+      if (command.type !== 'replace-editor-state') {
+        throw new Error('Unsupported editor command: ' + command.type);
+      }
+      restoreInterviewModel(value);
+      renderOutline();
+      renderCanvas();
+    },
+  });
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
-  var state = {
-    projects: BOOT.projects || [],
-    project: null,
-    files: [],
-    filename: null,
-    blocks: [],
-    metadataIndices: [],
-    includeIndices: [],
-    defaultSpIndices: [],
-    orderIndices: [],
-    orderSteps: [],
-    orderStepMap: {},
-    activeOrderBlockId: null,
-    orderBuilderLoading: false,
-    orderDirty: false,
-    orderCollapsed: {},
-    selectedOrderStepIds: {},
-    symbolCatalog: {
-      loadedFor: null,
-      all: [],
-      topLevel: [],
-      groups: {},
-    },
-    rawYaml: '',
-    revision: null,
-    metadataRawYaml: '',
-    selectedBlockId: null,
-    currentView: 'interview',
-    canvasMode: 'project-selector',
-    questionEditMode: 'preview',
-    questionBlockTab: 'screen',
-    advancedOpen: false,
-    advancedShowMore: false,
-    reviewMetaOpen: false,
-    openReviewItemIndex: null,
-    jumpTarget: 'questions',
-    fullYamlTab: 'full',
-    searchQuery: '',
-    projectSearchQuery: '',
-    sectionFiles: {
-      templates: [],
-      modules: [],
-      static: [],
-      data: [],
-    },
-    sectionSelectedFile: {
-      templates: null,
-      modules: null,
-      static: null,
-      data: null,
-    },
-    sectionDirty: false,
-    sectionSavedContent: {},
-    markdownPreviewMode: false,
-    insertAfterBlockId: null,
-    fullYamlStash: {},
-    validationErrors: [],
-    validationOpen: false,
-    validationMode: 'validation',
-    validationSourceScope: 'saved_source',
-    validationBaseRevisionMatches: null,
-  };
+  var state = stateStore.getState();
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var MAX_RECENT_PROJECTS = 8;
@@ -480,6 +432,7 @@
   function discardInterviewChanges() {
     var restored = dirtyState.discardFile(state.filename);
     if (!restoreInterviewModel(restored)) return false;
+    commandManager.clear();
     renderOutline();
     renderCanvas();
     return true;
@@ -523,6 +476,7 @@
       );
     } else {
       dirtyState.setFileSaved(state.filename, state.revision, savedModel);
+      commandManager.clear();
     }
     dirtyState.activate(state.filename, state.selectedBlockId);
     loadAvailableSymbols(true);
@@ -3243,6 +3197,7 @@
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
       dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
+      commandManager.clear();
       dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
       renderOutline();
