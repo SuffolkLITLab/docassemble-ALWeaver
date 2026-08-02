@@ -51,12 +51,18 @@ from flask_login import current_user
 from docassemble.base.util import log
 
 from .docassemble_compat import (
+    create_target_session,
     create_saved_file,
+    get_target_question,
+    get_target_variables,
+    go_back_target_session,
     get_csrf,
     get_flask_app,
     get_redis_client,
     get_worker_app,
     json_response as jsonify_with_status,
+    run_target_action_raw,
+    set_target_variables,
 )
 
 app = get_flask_app()
@@ -110,6 +116,14 @@ from .source_document import (
     apply_range_operations,
     parse_source_document,
     unified_source_diff,
+)
+from .runtime_sessions import (
+    append_runtime_event,
+    create_runtime_record,
+    delete_runtime_record,
+    load_runtime_record,
+    playground_yaml_filename,
+    store_runtime_record,
 )
 
 try:
@@ -2079,17 +2093,21 @@ def editor_api_save_file() -> Response:
         )
 
 
-def _patch_model_enabled() -> bool:
-    """Return whether the revisioned source-patch beta is enabled."""
-    configured = os.environ.get("WEAVER_ENABLE_PATCH_MODEL")
+def _editor_feature_enabled(name: str) -> bool:
+    """Read an opt-in editor feature flag from environment or DA config."""
+    configured = os.environ.get(name)
     if configured is None:
         try:
             from docassemble.base.config import daconfig
 
-            configured = daconfig.get("WEAVER_ENABLE_PATCH_MODEL")
+            configured = daconfig.get(name)
         except (ImportError, AttributeError):
             configured = None
     return str(configured or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _patch_model_enabled() -> bool:
+    return _editor_feature_enabled("WEAVER_ENABLE_PATCH_MODEL")
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/patch", methods=["POST"])
@@ -2304,6 +2322,457 @@ def editor_api_save_metadata() -> Response:
             },
             500,
         )
+
+
+RUNTIME_INSPECTION_ACTIONS = {
+    "al_weaver.inspect_object",
+    "al_weaver.inspect_variable",
+    "al_weaver.inspect_event_stack",
+    "al_weaver.inspect_gathering_state",
+}
+RUNTIME_ACTION_RESULT_LIMIT = 256 * 1024
+RUNTIME_VARIABLE_RESULT_LIMIT = 1024 * 1024
+
+
+def _runtime_inspector_enabled() -> bool:
+    return _editor_feature_enabled("WEAVER_ENABLE_RUNTIME_INSPECTOR")
+
+
+def _runtime_disabled(request_id: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "feature_disabled",
+                "code": "runtime_inspector_disabled",
+                "message": "The runtime session inspector is not enabled.",
+            },
+        },
+        404,
+    )
+
+
+def _runtime_not_found(request_id: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "not_found",
+                "code": "runtime_session_not_found",
+                "message": "The target session was not found.",
+            },
+        },
+        404,
+    )
+
+
+def _runtime_operation_failed(
+    request_id: str, operation: str, exc: Exception
+) -> Response:
+    log(
+        "ALWeaver editor: runtime operation failed "
+        f"operation={operation} error_type={type(exc).__name__}",
+        "error",
+    )
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "runtime_error",
+                "code": "runtime_operation_failed",
+                "message": "Docassemble could not complete the runtime inspection request.",
+                "details": {"operation": operation},
+            },
+        },
+        502,
+    )
+
+
+def _runtime_target_url(record: Any) -> str:
+    return (
+        "/interview?i="
+        + quote(record.yaml_filename, safe="")
+        + "&session="
+        + quote(record.docassemble_session_id, safe="")
+    )
+
+
+def _load_owned_runtime_session(weaver_session_id: str) -> Any:
+    return load_runtime_record(r, weaver_session_id, _current_user_id())
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/runtime/sessions", methods=["POST"])
+def editor_api_runtime_create_session() -> Response:
+    """Create a separate Docassemble target session for runtime inspection."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        purpose = str(post_data.get("purpose") or "test").strip()
+        if purpose not in {"test", "scenario", "inspection"}:
+            raise ValueError("purpose must be test, scenario, or inspection")
+        url_args = post_data.get("url_args")
+        if url_args is not None and not isinstance(url_args, dict):
+            raise ValueError("url_args must be an object or null")
+
+        # Confirms this developer owns the requested Playground file.
+        playground_read_yaml(uid, project, filename)
+        yaml_filename = playground_yaml_filename(uid, project, filename)
+        target = create_target_session(
+            yaml_filename,
+            secret=None,
+            url_args=url_args or None,
+        )
+        if target.secret is not None:
+            raise ValueError("Encrypted target sessions are not currently supported")
+        record = create_runtime_record(
+            weaver_session_id=str(uuid.uuid4()),
+            owner_user_id=uid,
+            project=project,
+            filename=filename,
+            yaml_filename=yaml_filename,
+            target=target,
+            purpose=purpose,
+        )
+        store_runtime_record(r, record)
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": record.public_dict(_runtime_target_url(record)),
+            },
+            201,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_session_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: runtime session creation failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "runtime_session_creation_failed",
+                    "message": "The target Docassemble session could not be created.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>",
+    methods=["GET", "DELETE"],
+)
+def editor_api_runtime_session(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    if request.method == "DELETE":
+        delete_runtime_record(r, weaver_session_id, _current_user_id())
+        return jsonify(
+            {"success": True, "request_id": request_id, "data": {"deleted": True}}
+        )
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": record.public_dict(_runtime_target_url(record)),
+        }
+    )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/variables",
+    methods=["GET", "POST"],
+)
+def editor_api_runtime_variables(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        target = record.target()
+        if request.method == "POST":
+            post_data = request.get_json(silent=True)
+            if not isinstance(post_data, dict):
+                raise ValueError("Request body must be a JSON object")
+            variables = post_data.get("variables", {})
+            delete = post_data.get("delete", [])
+            if not isinstance(variables, dict):
+                raise ValueError("variables must be an object")
+            if not isinstance(delete, list) or not all(
+                isinstance(name, str) and name.strip() for name in delete
+            ):
+                raise ValueError("delete must be a list of variable names")
+            serialized_input = json.dumps(
+                {"variables": variables, "delete": delete}, default=str
+            )
+            if len(serialized_input.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+                raise ValueError("Variable payload is too large")
+            set_target_variables(
+                target,
+                variables,
+                delete=delete,
+                overwrite=bool(post_data.get("overwrite", False)),
+                process_objects=False,
+            )
+            append_runtime_event(
+                r,
+                record,
+                "scenario_applied",
+                set_count=len(variables),
+                delete_count=len(delete),
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"updated": True},
+                }
+            )
+
+        variables = get_target_variables(target, simplify=True)
+        include_internal = parse_bool(
+            request.args.get("include_internal"), default=False
+        )
+        if not include_internal:
+            variables = {
+                key: value
+                for key, value in variables.items()
+                if not str(key).startswith("_internal")
+            }
+        serialized = json.dumps(variables, default=str)
+        if len(serialized.encode("utf-8")) > RUNTIME_VARIABLE_RESULT_LIMIT:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "response_too_large",
+                        "code": "runtime_variables_too_large",
+                        "message": "The simplified variable result is too large to display.",
+                    },
+                },
+                413,
+            )
+        append_runtime_event(r, record, "variables_refreshed")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "variables": variables,
+                    "includes_internal": include_internal,
+                    "fact_source": "observed_runtime",
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_variable_request",
+                    "message": str(exc),
+                },
+            },
+            400,
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "variables", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/question",
+    methods=["GET"],
+)
+def editor_api_runtime_question(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        question = get_target_question(record.target())
+        append_runtime_event(
+            r,
+            record,
+            "question_returned",
+            question_name=question.get("questionName"),
+        )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"question": question, "fact_source": "observed_runtime"},
+            }
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "question", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/back",
+    methods=["POST"],
+)
+def editor_api_runtime_back(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        go_back_target_session(record.target())
+        append_runtime_event(r, record, "back_invoked")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"went_back": True},
+            }
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "back", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/actions/<action_name>",
+    methods=["POST"],
+)
+def editor_api_runtime_action(weaver_session_id: str, action_name: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    if action_name not in RUNTIME_INSPECTION_ACTIONS:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "forbidden_action",
+                    "code": "runtime_action_not_allowed",
+                    "message": "That runtime inspection action is not allowlisted.",
+                },
+            },
+            403,
+        )
+    post_data = request.get_json(silent=True) or {}
+    arguments = post_data.get("arguments", {})
+    if not isinstance(arguments, dict):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_action_arguments",
+                    "message": "arguments must be an object",
+                },
+            },
+            400,
+        )
+    try:
+        result = run_target_action_raw(
+            record.target(), action_name, arguments=arguments, read_only=True
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "action", exc)
+    data = result.data
+    if isinstance(data, (bytes, bytearray)) or (
+        isinstance(data, str)
+        and data.lstrip().lower().startswith(("<!doctype html", "<html"))
+    ):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "invalid_action_response",
+                    "code": "runtime_action_response_rejected",
+                    "message": "The inspection action returned an unsupported response.",
+                },
+            },
+            502,
+        )
+    try:
+        serialized = json.dumps(
+            {"status": result.status, "data": data, "warnings": result.warnings}
+        )
+    except (TypeError, ValueError):
+        serialized = ""
+    if not serialized or len(serialized.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "invalid_action_response",
+                    "code": "runtime_action_response_rejected",
+                    "message": "The inspection action response cannot be displayed safely.",
+                },
+            },
+            502,
+        )
+    append_runtime_event(r, record, "action_invoked", action=action_name)
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "status": result.status,
+                "data": data,
+                "warnings": result.warnings,
+                "fact_source": "observed_runtime",
+            },
+        }
+    )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/rename", methods=["POST"])

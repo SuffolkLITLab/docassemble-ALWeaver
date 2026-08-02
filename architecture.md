@@ -123,6 +123,22 @@ Pluggy hook and otherwise use the populated 1.9 server implementation. The same
 module owns access to initialized Flask, storage, Redis, and worker objects so
 the rest of Weaver does not depend on version-specific private module paths.
 
+The runtime inspector server API is disabled by default behind
+`WEAVER_ENABLE_RUNTIME_INSPECTOR`. It creates a Docassemble session separate from
+the editor and stores an expiring, owner-scoped `WeaverTargetSession` record in
+Redis. Browser calls use only Weaver's opaque session ID; every lookup verifies
+the current developer, and public session metadata excludes the raw Docassemble
+ID and any secret. Deleting the Weaver record revokes further inspector access;
+it does not claim to delete Docassemble's underlying session.
+
+Variable reads are simplified and omit `_internal` by default. Variable writes
+never deserialize objects. Question and back operations call Docassemble through
+the compatibility interface. Inspection actions are limited to four
+`al_weaver.inspect_*` names, always run with `read_only=True`, and reject binary,
+HTML, non-JSON, and oversized responses. Returned questions, variables, and
+action data are labeled `observed_runtime` so they cannot be confused with
+static-analysis findings. Weaver never chooses the next question.
+
 Uploaded-file project generation runs as the named
 `weaver_editor_new_project_task` in Docassemble's configured Celery worker.
 Redis stores an owner-scoped job record with queued, start, finish, progress,

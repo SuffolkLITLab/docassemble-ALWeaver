@@ -63,6 +63,12 @@ The revisioned graphical source-patch API is an opt-in beta. Set
 environment variable) to enable it. The default production path remains off
 until graphical editing paths have migrated to exact source-range commands.
 
+The server-side runtime inspector is also opt-in. Set
+`WEAVER_ENABLE_RUNTIME_INSPECTOR: true` to enable owner-scoped target sessions,
+current-question and variable inspection, scenario seeding, back navigation, and
+the fixed read-only `al_weaver.inspect_*` action allowlist. Docassemble remains
+the only interview runtime.
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.
