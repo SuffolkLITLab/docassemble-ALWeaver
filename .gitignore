@@ -5,6 +5,7 @@ docassemble/assemblylinewizard/docassemble*
 .hypothesis/
 *.egg-info
 .code/
+build
 
 # alkiln testing
 tests/chromedriver
@@ -28,3 +29,5 @@ package-lock.json
 .creds
 .codex
 dist/**
+.codex
+.creds

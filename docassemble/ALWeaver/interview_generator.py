@@ -3389,16 +3389,11 @@ Rules:
         try:
             field_grouping = formfyxer.cluster_screens(
                 [field.variable for field in self.all_fields.custom()],
-                tools_token=get_config("assembly line", {}).get(
-                    "tools.suffolklitlab.org api key", None
-                ),
             )
             if not field_grouping:
                 field_grouping = self._null_group_fields()
-        except:
-            log(
-                f"Auto field grouping failed. Tried using tools.suffolklitlab.org api key {get_config('assembly line',{}).get('tools.suffolklitlab.org api key', None)}"
-            )
+        except Exception as ex:
+            log(f"Auto field grouping failed. {ex}")
             field_grouping = self._null_group_fields()
         self.field_grouping = field_grouping
         self.questions.auto_gather = False

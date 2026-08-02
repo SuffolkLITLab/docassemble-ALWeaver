@@ -127,6 +127,7 @@ question: |
                 interview_overrides={
                     "state": "MA",
                     "jurisdiction": "NAM-US-US+MA",
+                    "intro_prompt": "A person's interview",
                 },
                 field_definitions=[
                     {
@@ -163,6 +164,36 @@ question: |
             )
             self.assertRegex(yaml_text, r"(?m)^sections:\n(?:\s+- .+\n)+")
             self.assertRegex(yaml_text, r'(?m)^  nav\.set_section\("[-a-z_]+"\)$')
+            self.assertFalse(yaml_text.lstrip().startswith("---\n\n---"))
+            self.assertIn(
+                "template: interview_short_title\ncontent: |\n"
+                "  A person's interview",
+                yaml_text,
+            )
+            self.assertNotIn("interview_short_title =", yaml_text)
+            self.assertIn("label=word('Edit answers')", yaml_text)
+            self.assertIn(
+                "template: test_docx_no_pdf_field_names_attachment.title\n"
+                "content: |\n"
+                "  Test docx no pdf field names",
+                yaml_text,
+            )
+            self.assertIn(
+                "template: al_user_bundle.title\n"
+                "content: |\n"
+                "  All forms to download for your records",
+                yaml_text,
+            )
+            self.assertIn(
+                "template: al_court_bundle.title\n"
+                "content: |\n"
+                "  All forms to deliver to court",
+                yaml_text,
+            )
+            self.assertNotRegex(
+                yaml_text,
+                r"ALDocument(?:Bundle)?\.using\([^\n]*\btitle=",
+            )
             self._run_dayamlchecker(result.yaml_path)
 
     def test_generate_from_docx_uses_exact_name_for_temp_paths(self):
