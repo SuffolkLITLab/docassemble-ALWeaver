@@ -9,6 +9,7 @@ Provides:
     POST /al/editor/api/file/new — create a new YAML interview file
     GET  /al/editor/api/file     — read & parse a YAML file
     POST /al/editor/api/file     — save full YAML back to a file
+    POST /al/editor/api/file/metadata — update metadata-related documents only
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
     GET  /al/editor/api/variables — extract variable names from a file
@@ -67,6 +68,7 @@ try:
         delete_saved_file,
         generate_draft_order,
         parse_interview_yaml,
+        metadata_source_slice,
         parse_order_code,
         playground_get_variables,
         playground_interview_url,
@@ -77,9 +79,11 @@ try:
         rename_saved_file,
         serialize_blocks_to_yaml,
         serialize_order_steps,
+        source_revision,
         enable_commented_block_in_yaml,
         reorder_blocks_in_yaml,
         update_block_in_yaml,
+        update_metadata_documents_in_yaml,
     )
 except Exception as _editor_utils_import_err:
     import traceback as _traceback
@@ -1526,6 +1530,8 @@ def editor_api_get_file() -> Response:
                     "order_steps": order_steps,
                     "order_step_map": order_step_map,
                     "raw_yaml": raw_yaml,
+                    "revision": source_revision(raw_yaml),
+                    "metadata_raw_yaml": metadata_source_slice(raw_yaml),
                 },
             }
         )
@@ -1844,6 +1850,89 @@ def editor_api_save_file() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: save file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/metadata", methods=["POST"])
+@csrf.exempt
+@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
+def editor_api_save_metadata() -> Response:
+    """Update only existing metadata-related YAML documents."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        edited_yaml = post_data.get("raw_yaml")
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(edited_yaml, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(current_content)
+        if expected_revision != current_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": "The file changed since it was loaded.",
+                        "expected_revision": expected_revision,
+                        "current_revision": current_revision,
+                    },
+                },
+                409,
+            )
+
+        updated_content = update_metadata_documents_in_yaml(
+            current_content, edited_yaml
+        )
+        playground_write_yaml(uid, project, filename, updated_content)
+        model = parse_interview_yaml(updated_content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+                    "order_blocks": model["order_blocks"],
+                    "raw_yaml": updated_content,
+                    "revision": source_revision(updated_content),
+                    "metadata_raw_yaml": metadata_source_slice(updated_content),
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: save metadata error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

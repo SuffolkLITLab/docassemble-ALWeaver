@@ -67,6 +67,7 @@ def _load_api_editor_for_tests():
             "blocks": [],
             "metadata_blocks": [],
         },
+        "metadata_source_slice": lambda *args, **kwargs: "",
         "parse_order_code": lambda *args, **kwargs: {},
         "playground_get_variables": lambda *args, **kwargs: {},
         "playground_interview_url": lambda *args, **kwargs: "/interview",
@@ -77,9 +78,11 @@ def _load_api_editor_for_tests():
         "rename_saved_file": lambda *args, **kwargs: None,
         "serialize_blocks_to_yaml": lambda *args, **kwargs: "",
         "serialize_order_steps": lambda *args, **kwargs: "",
+        "source_revision": lambda text: "test-revision",
         "enable_commented_block_in_yaml": lambda content, block_id: content,
         "reorder_blocks_in_yaml": lambda content, order: content,
         "update_block_in_yaml": lambda content, block_id, new_yaml: content,
+        "update_metadata_documents_in_yaml": lambda content, edited: content,
     }.items():
         setattr(editor_utils, name, func)
 
@@ -417,6 +420,98 @@ class TestEditorApiFileCreation(unittest.TestCase):
         mock_log.assert_called_once_with(
             "ALWeaver editor: enable block error: RuntimeError('boom')", "error"
         )
+
+    def test_metadata_save_preserves_unrelated_source_exactly(self):
+        from . import editor_utils as real_editor_utils
+
+        source = (
+            "# header\n"
+            "metadata:\n"
+            "  title: 'Original' # title comment\n"
+            "---\n"
+            "# unrelated comment\n"
+            "id: intro\n"
+            "question: |\n"
+            "  Keep this exactly.\n"
+        )
+        edited = "# header\nmetadata:\n  title: 'Edited' # title comment"
+        revision = real_editor_utils.source_revision(source)
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=source),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(
+                api_editor,
+                "source_revision",
+                side_effect=real_editor_utils.source_revision,
+            ),
+            patch.object(
+                api_editor,
+                "update_metadata_documents_in_yaml",
+                side_effect=real_editor_utils.update_metadata_documents_in_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                side_effect=real_editor_utils.parse_interview_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "metadata_source_slice",
+                side_effect=real_editor_utils.metadata_source_slice,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file/metadata",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": edited,
+                    "expected_revision": revision,
+                },
+            ):
+                response = api_editor.editor_api_save_metadata()
+
+        expected = source.replace("'Original'", "'Edited'")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["raw_yaml"], expected)
+        mock_write.assert_called_once_with(7, "default", "test.yml", expected)
+
+    def test_metadata_save_rejects_stale_revision_without_writing(self):
+        from .editor_utils import source_revision as real_source_revision
+
+        source = "metadata:\n  title: Current\n---\nid: intro\nquestion: Hello\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=source),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(
+                api_editor, "source_revision", side_effect=real_source_revision
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file/metadata",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": "metadata:\n  title: Local\n",
+                    "expected_revision": "stale",
+                },
+            ):
+                response = api_editor.editor_api_save_metadata()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(payload["error"]["code"], "revision_conflict")
+        self.assertEqual(
+            payload["error"]["current_revision"], real_source_revision(source)
+        )
+        mock_write.assert_not_called()
 
 
 if __name__ == "__main__":

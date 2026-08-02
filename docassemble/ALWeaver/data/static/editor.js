@@ -154,6 +154,8 @@
       groups: {},
     },
     rawYaml: '',
+    revision: null,
+    metadataRawYaml: '',
     selectedBlockId: null,
     currentView: 'interview',
     canvasMode: 'project-selector',
@@ -740,6 +742,8 @@
     state.orderIndices = data.order_blocks || [];
     state.orderStepMap = data.order_step_map || state.orderStepMap || {};
     state.rawYaml = data.raw_yaml || state.rawYaml;
+    state.revision = data.revision || state.revision;
+    state.metadataRawYaml = data.metadata_raw_yaml || '';
     var nextOrderBlockId = state.activeOrderBlockId;
     if (!nextOrderBlockId || !getBlockById(nextOrderBlockId)) {
       nextOrderBlockId = getDefaultOrderBlockId();
@@ -3557,6 +3561,8 @@
       state.orderIndices = d.order_blocks || [];
       state.orderStepMap = d.order_step_map || {};
       state.rawYaml = d.raw_yaml || '';
+      state.revision = d.revision || null;
+      state.metadataRawYaml = d.metadata_raw_yaml || '';
       state.dirty = false;
       state.fullYamlStash = {};
       state.selectedBlockId = getDefaultVisibleBlockId();
@@ -5644,11 +5650,7 @@
         content = '# No interview-order block selected';
       }
     } else {
-      var parts = [];
-      state.metadataIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      state.includeIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      state.defaultSpIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      content = parts.join('\n---\n') || '# No metadata blocks found';
+      content = state.metadataRawYaml || '# No metadata blocks found';
     }
 
     initMonaco(function () {
@@ -7333,6 +7335,21 @@
           block_id: state.activeOrderBlockId,
           block_yaml: yamlContent,
         }).then(function (res) { if (res.success && res.data) refreshFromFileResponse(res.data); });
+      } else if (state.fullYamlTab === 'metadata') {
+        apiPost('/api/file/metadata', {
+          project: state.project,
+          filename: state.filename,
+          raw_yaml: yamlContent,
+          expected_revision: state.revision,
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data);
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to save metadata safely.');
+        }).catch(function () {
+          window.alert('Unable to save metadata safely.');
+        });
       } else {
         apiPost('/api/file', { project: state.project, filename: state.filename, content: yamlContent })
           .then(function (res) { if (res.success) { state.dirty = false; loadFile(); } });

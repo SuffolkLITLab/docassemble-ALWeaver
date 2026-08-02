@@ -50,6 +50,14 @@ This directory also contains test files for unit testing with ALKiln (see below 
 These files are primarily the front-end interface files, including images and
 CSS.
 
+The graphical editor treats the Playground YAML source as authoritative. The
+metadata source tab saves through `/al/editor/api/file/metadata`, which requires
+the revision returned by the file-read endpoint and replaces only existing
+`metadata`, `include`, and `default screen parts` document bodies. If those
+documents cannot be identified safely, the scoped save is rejected and the user
+must use full source mode. This is an interim safeguard pending the general
+revisioned source-patch model.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

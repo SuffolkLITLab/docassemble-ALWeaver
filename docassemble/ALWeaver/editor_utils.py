@@ -17,6 +17,9 @@ import yaml
 
 __all__ = [
     "parse_interview_yaml",
+    "source_revision",
+    "metadata_source_slice",
+    "update_metadata_documents_in_yaml",
     "serialize_blocks_to_yaml",
     "parse_order_code",
     "serialize_order_steps",
@@ -60,6 +63,16 @@ BLOCK_TYPE_OTHER = "other"
 _METADATA_KEYS = {"metadata"}
 _INCLUDE_KEYS = {"include", "includes"}
 _DEFAULT_SCREEN_KEYS = {"default screen parts"}
+
+_METADATA_DOCUMENT_TYPES = {
+    BLOCK_TYPE_METADATA,
+    BLOCK_TYPE_INCLUDES,
+    BLOCK_TYPE_DEFAULT_SCREEN_PARTS,
+}
+
+_YAML_DOCUMENT_SEPARATOR_RE = re.compile(
+    r"(?m)^---[ \t]*(?:#[^\r\n]*)?(?:\r\n|\n|\r|$)"
+)
 
 _BLOCK_KEY_ORDER = [
     "metadata",
@@ -788,6 +801,114 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         "order_blocks": order_indices,
         "raw_yaml": raw_yaml,
     }
+
+
+def source_revision(raw_yaml: str) -> str:
+    """Return the content revision used for optimistic source updates."""
+    return hashlib.sha256(raw_yaml.encode("utf-8")).hexdigest()
+
+
+def _source_document_bodies(raw_yaml: str) -> List[Tuple[int, int, str]]:
+    """Split YAML documents while retaining exact source offsets for each body."""
+    bodies: List[Tuple[int, int, str]] = []
+    body_start = 0
+    for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
+        bodies.append(
+            (body_start, separator.start(), raw_yaml[body_start : separator.start()])
+        )
+        body_start = separator.end()
+    bodies.append((body_start, len(raw_yaml), raw_yaml[body_start:]))
+    return bodies
+
+
+def _metadata_document_type(document_body: str) -> Optional[str]:
+    if not document_body.strip():
+        return None
+    try:
+        value = yaml.safe_load(document_body)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Unable to parse metadata YAML: {exc}") from exc
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Metadata editor documents must be YAML mappings")
+    block_type = _detect_block_type(value)
+    if block_type not in _METADATA_DOCUMENT_TYPES:
+        raise ValueError(
+            "Metadata editor content may contain only metadata, include, and "
+            "default screen parts documents"
+        )
+    return block_type
+
+
+def metadata_source_slice(raw_yaml: str) -> str:
+    """Return exact metadata-related document bodies for source-mode editing."""
+    documents: List[str] = []
+    for _start, _end, body in _source_document_bodies(raw_yaml):
+        try:
+            block_type = _metadata_document_type(body)
+        except ValueError:
+            continue
+        if block_type is not None:
+            documents.append(body.strip("\r\n"))
+    return "\n---\n".join(documents)
+
+
+def update_metadata_documents_in_yaml(full_yaml: str, edited_yaml: str) -> str:
+    """Replace only safely identified metadata-related YAML document bodies.
+
+    Document separators and every non-metadata source byte remain untouched. The
+    submitted documents must correspond one-for-one, by type and order, with the
+    existing metadata-related documents. Insertion is intentionally refused until
+    the general lossless patch model can place a new document safely.
+    """
+    current_documents: List[Tuple[int, int, str, str]] = []
+    for start, end, body in _source_document_bodies(full_yaml):
+        try:
+            block_type = _metadata_document_type(body)
+        except ValueError:
+            # Invalid or unsupported non-target source must not prevent an exact
+            # replacement of a separately identifiable metadata document.
+            continue
+        if block_type is not None:
+            current_documents.append((start, end, body, block_type))
+
+    if not current_documents:
+        raise ValueError(
+            "No metadata-related document could be identified safely. "
+            "Edit this interview in full source mode."
+        )
+
+    edited_documents: List[Tuple[str, str]] = []
+    for _start, _end, body in _source_document_bodies(edited_yaml):
+        block_type = _metadata_document_type(body)
+        if block_type is not None:
+            edited_documents.append((body.strip("\r\n"), block_type))
+
+    current_types = [item[3] for item in current_documents]
+    edited_types = [item[1] for item in edited_documents]
+    if edited_types != current_types:
+        raise ValueError(
+            "Metadata documents no longer match the source file. "
+            "Reload the file or edit it in full source mode."
+        )
+
+    updated = full_yaml
+    for (start, end, original_body, _block_type), (
+        edited_body,
+        _edited_type,
+    ) in reversed(list(zip(current_documents, edited_documents))):
+        leading_length = len(original_body) - len(original_body.lstrip("\r\n"))
+        trailing_length = len(original_body) - len(original_body.rstrip("\r\n"))
+        leading = original_body[:leading_length]
+        trailing = (
+            original_body[len(original_body) - trailing_length :]
+            if trailing_length
+            else ""
+        )
+        replacement = leading + edited_body + trailing
+        updated = updated[:start] + replacement + updated[end:]
+    return updated
 
 
 def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
