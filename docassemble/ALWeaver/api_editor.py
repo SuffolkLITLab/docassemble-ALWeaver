@@ -821,6 +821,11 @@ def _render_editor_page() -> str:
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
         "csrfToken": generate_csrf(),
+        "features": {
+            "runtimeInspector": _editor_feature_enabled(
+                "WEAVER_ENABLE_RUNTIME_INSPECTOR"
+            ),
+        },
         "auth": {
             "authenticated": False,
             "loginUrl": login_url,
@@ -2530,6 +2535,14 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
             post_data = request.get_json(silent=True)
             if not isinstance(post_data, dict):
                 raise ValueError("Request body must be a JSON object")
+            scenario_yaml = post_data.get("scenario_yaml")
+            if scenario_yaml is not None:
+                if not isinstance(scenario_yaml, str):
+                    raise ValueError("scenario_yaml must be a string")
+                scenario = yaml.safe_load(scenario_yaml)
+                if not isinstance(scenario, dict):
+                    raise ValueError("Scenario YAML must contain a mapping")
+                post_data = scenario
             variables = post_data.get("variables", {})
             delete = post_data.get("delete", [])
             if not isinstance(variables, dict):

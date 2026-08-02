@@ -117,6 +117,36 @@ class TestEditorRuntimeApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(set_variables.call_args.kwargs["process_objects"])
 
+    def test_yaml_scenario_is_parsed_only_on_the_server(self):
+        self._record()
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "set_target_variables") as set_variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables",
+                method="POST",
+                json={
+                    "scenario_yaml": (
+                        "name: Married tenant\n"
+                        "variables:\n"
+                        "  user.marital_status: married\n"
+                        "delete:\n"
+                        "  - final_document\n"
+                    )
+                },
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set_variables.call_args.args[1], {"user.marital_status": "married"}
+        )
+        self.assertEqual(set_variables.call_args.kwargs["delete"], ["final_document"])
+
     def test_arbitrary_actions_are_rejected(self):
         self._record()
         patches = self._base_patches()

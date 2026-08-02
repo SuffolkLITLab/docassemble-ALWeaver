@@ -37,6 +37,10 @@ async function run() {
   assert.strictEqual(requests[0].options.headers['X-Request-ID'], 'request-123');
   assert.strictEqual(requests[0].options.credentials, 'same-origin');
 
+  await client.delete('/api/runtime/sessions/test-session');
+  assert.strictEqual(requests[1].options.method, 'DELETE');
+  assert.strictEqual(requests[1].options.headers['X-CSRF-Token'], 'csrf-value');
+
   const uploadRequests = [];
   const uploadClient = api.createClient({
     csrfToken: 'upload-csrf',

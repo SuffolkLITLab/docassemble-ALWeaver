@@ -636,6 +636,10 @@
     return apiClient.post(path, body, options);
   }
 
+  function apiDelete(path, body, options) {
+    return apiClient.delete(path, body, options);
+  }
+
   function apiUpload(path, formData, options) {
     return apiClient.upload(path, formData, options);
   }
@@ -647,6 +651,21 @@
   function apiUploadDetailed(path, formData, options) {
     return apiClient.uploadDetailed(path, formData, options);
   }
+
+  var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
+    api: {
+      get: apiGet,
+      post: apiPost,
+      delete: apiDelete,
+    },
+    getContext: function () {
+      return { project: state.project, filename: state.filename };
+    },
+    getBlocks: function () { return state.blocks || []; },
+    onSessionChange: function (session) {
+      state.runtimeTargetSession = session;
+    },
+  });
 
   function isSupersededRequest(error) {
     return Boolean(error && (
@@ -4128,7 +4147,9 @@
       renderValidationDrawer();
       return;
     }
-    if (state.canvasMode === 'project-selector') {
+    if (state.canvasMode === 'runtime-inspector') {
+      runtimeInspector.render(canvasContent);
+    } else if (state.canvasMode === 'project-selector') {
       renderProjectSelector();
     } else if (state.canvasMode === 'new-project') {
       renderNewProject();
@@ -6841,6 +6862,18 @@
       toggleFullYaml();
       return;
     }
+    if (uiAction === 'open-runtime-inspector') {
+      if (!state.project || !state.filename) return;
+      function openRuntimeInspector() {
+        stashCurrentEditorState();
+        state.canvasMode = 'runtime-inspector';
+        state.currentView = 'interview';
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('open the runtime inspector', openRuntimeInspector)) return;
+      openRuntimeInspector();
+      return;
+    }
     if (orderBuilderBtn) {
       var requestedOrderBlock = state.activeOrderBlockId || getDefaultOrderBlockId();
       if (deferNavigationForUnsavedChanges('open the interview order', function () {
@@ -6897,7 +6930,7 @@
     }
     if (uiAction === 'preview-interview') {
       if (!state.filename) return;
-      promptAndSaveUnsavedChanges('run the interview').then(function (saved) {
+      promptAndSaveUnsavedChanges('open the interview').then(function (saved) {
         if (!saved) return;
         apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
           .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
@@ -7965,6 +7998,9 @@
       renderLoginRequired();
       return;
     }
+    document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
+      control.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
+    });
     initSourceEditor(function () {
       populateProjects();
       state.canvasMode = 'project-selector';

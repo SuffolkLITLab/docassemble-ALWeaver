@@ -204,6 +204,9 @@
       post: function (path, body, requestOptions) {
         return request('POST', path, body, requestOptions);
       },
+      delete: function (path, body, requestOptions) {
+        return request('DELETE', path, body, requestOptions);
+      },
       upload: function (path, formData, requestOptions) {
         requestOptions = Object.assign({}, requestOptions || {}, { json: false });
         return request('POST', path, formData, requestOptions);

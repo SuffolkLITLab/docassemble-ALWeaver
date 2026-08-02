@@ -139,6 +139,15 @@ HTML, non-JSON, and oversized responses. Returned questions, variables, and
 action data are labeled `observed_runtime` so they cannot be confused with
 static-analysis findings. Weaver never chooses the next question.
 
+The browser inspector is isolated in `editor_runtime_inspector.js`. It can start
+or restart a test session, open the authoritative interview, inspect the current
+question, browse simplified variables, reveal `_internal` data explicitly, go
+back, and apply a YAML test scenario. Scenario YAML is parsed and validated on
+the server, never in browser JavaScript. Scenario seeding is labeled as a fixture
+that may bypass earlier questions. Question-to-source links are shown only when a
+stable returned `questionName` matches a known block; otherwise the UI says that
+no confident match is available.
+
 Uploaded-file project generation runs as the named
 `weaver_editor_new_project_task` in Docassemble's configured Celery worker.
 Redis stores an owner-scoped job record with queued, start, finish, progress,
