@@ -81,6 +81,8 @@
     validationErrors: [],
     validationOpen: false,
     validationMode: 'validation',
+    validationSourceScope: 'saved_source',
+    validationBaseRevisionMatches: null,
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -3936,15 +3938,85 @@
     runValidation();
   }
 
+  function getValidationSourceSnapshot() {
+    stashCurrentEditorState();
+    var fileState = dirtyState.getFileState(state.filename);
+    var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
+    var hasDirtyBlocks = Boolean(fileState && fileState.dirtyBlockIds && fileState.dirtyBlockIds.length);
+    var options = {
+      rawYaml: state.rawYaml,
+      blocks: state.blocks,
+      blockReplacements: {},
+    };
+
+    if (hasDirtySource && state.fullYamlTab === 'full') {
+      if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'full')) {
+        throw new Error('The unsaved full source buffer is not available. Reopen source mode and try again.');
+      }
+      options.fullSource = state.fullYamlStash.full;
+    } else if (hasDirtySource && state.fullYamlTab === 'metadata') {
+      if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'metadata')) {
+        throw new Error('The unsaved metadata buffer is not available. Reopen source mode and try again.');
+      }
+      options.metadataSource = state.fullYamlStash.metadata;
+    }
+
+    if (state.orderDirty) {
+      throw new Error('Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.');
+    }
+
+    if (!hasDirtySource && hasDirtyBlocks) {
+      fileState.dirtyBlockIds.forEach(function (blockId) {
+        var block = getBlockById(blockId);
+        if (!block) throw new Error('Cannot find unsaved block ' + blockId + '.');
+        var isActiveBlock = blockId === state.selectedBlockId ||
+          (state.fullYamlTab === 'order' && blockId === state.activeOrderBlockId);
+        options.blockReplacements[blockId] = isActiveBlock
+          ? getBlockYamlForSave(block)
+          : block.yaml;
+      });
+    }
+
+    return {
+      rawYaml: window.ALWeaverValidationSource.buildValidationSource(options),
+      scope: (hasDirtySource || hasDirtyBlocks) ? 'unsaved_source' : 'saved_source',
+    };
+  }
+
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
     state.validationMode = 'validation';
+    state.validationBaseRevisionMatches = null;
+    var validationSnapshot;
+    try {
+      validationSnapshot = getValidationSourceSnapshot();
+    } catch (error) {
+      state.validationSourceScope = 'unsaved_source';
+      state.validationErrors = [{
+        level: 'error',
+        severity: 'error',
+        message: error && error.message ? error.message : 'Could not prepare the unsaved source for validation.',
+        file_name: state.filename,
+        filename: state.filename,
+      }];
+      renderValidationDrawer();
+      renderOutline();
+      return;
+    }
+    state.validationSourceScope = validationSnapshot.scope;
+    var validationSource = validationSnapshot.rawYaml;
     _validationInFlight = true;
-    apiGet('/api/weaver/validate?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    apiPost('/api/validate-source', {
+      project: state.project,
+      filename: state.filename,
+      raw_yaml: validationSource,
+      revision: state.revision,
+    })
       .then(function (res) {
         _validationInFlight = false;
         if (res.success && res.data) {
-          state.validationErrors = res.data.errors || [];
+          state.validationErrors = res.data.diagnostics || res.data.errors || [];
+          state.validationBaseRevisionMatches = res.data.base_revision_matches;
         } else {
           state.validationErrors = [];
         }
@@ -3963,6 +4035,8 @@
   function runStyleCheck() {
     if (!state.project || !state.filename || _validationInFlight) return;
     state.validationMode = 'style';
+    state.validationSourceScope = 'saved_source';
+    state.validationBaseRevisionMatches = null;
     _validationInFlight = true;
     apiGet('/api/weaver/style-check?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename) + '&include_llm=1')
       .then(function (res) {
@@ -4040,8 +4114,17 @@
       return;
     }
     drawer.classList.add('open');
+    var scopeText = state.validationMode === 'style'
+      ? 'This style check covers the saved source.'
+      : (state.validationSourceScope === 'unsaved_source'
+        ? 'This validation covers the unsaved source currently in the editor.'
+        : 'This validation covers the saved source.');
+    var scopeHtml = '<div class="editor-validation-scope small text-muted mb-2">' + esc(scopeText) + '</div>';
+    if (state.validationBaseRevisionMatches === false) {
+      scopeHtml += '<div class="alert alert-warning py-1 px-2 small mb-2">The saved file changed after this editor buffer was loaded. These results still cover the local buffer; reload or merge before saving.</div>';
+    }
     if (count === 0) {
-      body.innerHTML = '<div class="text-muted small p-2">No errors or warnings found.</div>';
+      body.innerHTML = scopeHtml + '<div class="text-muted small p-2">No errors or warnings found.</div>';
       return;
     }
     var sortedErrors = (state.validationErrors || []).slice().sort(function (a, b) {
@@ -4051,7 +4134,7 @@
       if (rankDiff !== 0) return rankDiff;
       return Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0);
     });
-    var html = '<div class="editor-validation-summary small text-muted mb-2">'
+    var html = scopeHtml + '<div class="editor-validation-summary small text-muted mb-2">'
       + summary.error + ' errors, '
       + summary.warning + ' warnings, '
       + summary.info + ' infos'

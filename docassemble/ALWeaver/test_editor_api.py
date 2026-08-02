@@ -185,6 +185,85 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertIn("content must be", response.get_json()["error"]["message"])
         mock_write.assert_not_called()
 
+    def test_validate_source_uses_submitted_buffer(self):
+        submitted = "---\nid: unsaved\nquestion: Unsaved title\n"
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        findings = [
+            {
+                "severity": "warning",
+                "level": "warning",
+                "message": "Unsaved diagnostic",
+                "filename": "test.yml",
+                "file_name": "test.yml",
+                "block_id": "unsaved",
+                "source_range": None,
+                "yaml_path": None,
+            }
+        ]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "_validate_source_text", return_value=findings
+            ) as mock_validate,
+            patch.object(
+                api_editor, "playground_get_variables"
+            ) as mock_saved_variable_check,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/validate-source",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": submitted,
+                    "revision": "test-revision",
+                },
+            ):
+                response = api_editor.editor_api_validate_source()
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()["data"]
+        self.assertEqual(payload["scope"], "unsaved_source")
+        self.assertEqual(payload["filename"], "test.yml")
+        self.assertEqual(payload["diagnostics"], findings)
+        self.assertEqual(payload["errors"], findings)
+        self.assertTrue(payload["base_revision_matches"])
+        mock_validate.assert_called_once_with(submitted, "test.yml")
+        mock_saved_variable_check.assert_not_called()
+
+    def test_validate_source_rejects_missing_raw_yaml(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/validate-source",
+                method="POST",
+                json={"project": "default", "filename": "test.yml"},
+            ):
+                response = api_editor.editor_api_validate_source()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("raw_yaml", response.get_json()["error"]["message"])
+
+    def test_validate_source_syntax_diagnostic_has_source_range(self):
+        diagnostics = api_editor._validate_source_text(
+            "---\nid: broken\nquestion: [not closed\n", "broken.yml"
+        )
+
+        syntax_errors = [
+            item for item in diagnostics if item.get("source") == "yaml-parser"
+        ]
+        self.assertEqual(len(syntax_errors), 1)
+        diagnostic = syntax_errors[0]
+        self.assertEqual(diagnostic["severity"], "error")
+        self.assertEqual(diagnostic["filename"], "broken.yml")
+        self.assertEqual(diagnostic["source_range"]["start"]["line"], 4)
+        self.assertIn("offset", diagnostic["source_range"]["start"])
+        self.assertIn("yaml_path", diagnostic)
+
     def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
         model = {
             "blocks": [],

@@ -85,6 +85,15 @@ Docassemble 1.9.0, 1.9.13, 1.10.0, and 1.10.7. If the Docassemble asset cannot
 initialize, the adapter falls back to an accessible native textarea rather than
 loading an editor from a third-party CDN.
 
+Validation uses `POST /al/editor/api/validate-source` with the source currently
+visible in the editor and its base revision. Graphical block and metadata edits
+are overlaid only onto their mapped source ranges to create a validation-only
+snapshot; the saved Playground file is not substituted for that submitted
+buffer. Diagnostics use Weaver-owned severity, filename, block, source-range,
+and YAML-path fields, while retaining the legacy display aliases during the UI
+transition. The validation drawer identifies saved-source and unsaved-source
+results explicitly.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

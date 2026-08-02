@@ -21,7 +21,8 @@ Provides:
     POST /al/editor/api/draft-order — generate a draft order from blocks
     POST /al/editor/api/draft-review-screen — generate draft review YAML
     GET  /al/editor/api/preview-url — get the interview preview URL
-    GET  /al/editor/api/weaver/validate — validate a YAML file with Weaver checks
+    GET  /al/editor/api/weaver/validate — validate a saved YAML file
+    POST /al/editor/api/validate-source — validate a submitted source buffer
 """
 
 from __future__ import annotations
@@ -517,6 +518,158 @@ def _lint_summary_for_findings(findings: List[Dict[str, Any]]) -> Dict[str, int]
             level = "error"
         summary[level] += 1
     return summary
+
+
+def _source_range_for_line(
+    raw_yaml: str, line_number: Any, column_number: Any = 1
+) -> Optional[Dict[str, Any]]:
+    """Return a one-line source range with line, column, and character offsets."""
+    try:
+        line = int(line_number)
+        column = max(1, int(column_number or 1))
+    except (TypeError, ValueError):
+        return None
+    source_lines = raw_yaml.splitlines(keepends=True)
+    if line == len(source_lines) + 1 and raw_yaml.endswith(("\n", "\r")):
+        return {
+            "start": {"line": line, "column": column, "offset": len(raw_yaml)},
+            "end": {"line": line, "column": column, "offset": len(raw_yaml)},
+        }
+    if line < 1 or line > len(source_lines):
+        return None
+    line_text = source_lines[line - 1]
+    line_content = line_text.rstrip("\r\n")
+    start_of_line = sum(len(item) for item in source_lines[: line - 1])
+    start_offset = start_of_line + min(column - 1, len(line_content))
+    end_offset = start_of_line + len(line_content)
+    return {
+        "start": {
+            "line": line,
+            "column": column,
+            "offset": start_offset,
+        },
+        "end": {
+            "line": line,
+            "column": len(line_content) + 1,
+            "offset": end_offset,
+        },
+    }
+
+
+def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
+    """Validate exactly ``raw_yaml`` and return Weaver-owned diagnostics."""
+    findings: List[Dict[str, Any]] = []
+
+    try:
+        list(yaml.compose_all(raw_yaml))
+    except yaml.MarkedYAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line_number = getattr(mark, "line", None)
+        column_number = getattr(mark, "column", None)
+        line_number = line_number + 1 if isinstance(line_number, int) else None
+        column_number = column_number + 1 if isinstance(column_number, int) else 1
+        message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
+        findings.append(
+            {
+                "severity": "error",
+                "level": "error",
+                "message": message,
+                "filename": filename,
+                "file_name": filename,
+                "line_number": line_number,
+                "source_range": _source_range_for_line(
+                    raw_yaml, line_number, column_number
+                ),
+                "yaml_path": None,
+                "source": "yaml-parser",
+            }
+        )
+
+    try:
+        from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+
+        checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+        for checker_error in checker_errors:
+            message = str(
+                getattr(checker_error, "err_str", "") or checker_error
+            ).strip()
+            lowered = message.lower()
+            level = "error"
+            if lowered.startswith("warning:"):
+                level = "warning"
+                message = message[len("warning:") :].strip()
+            elif lowered.startswith("info:"):
+                level = "info"
+                message = message[len("info:") :].strip()
+            line_number = getattr(checker_error, "line_number", None)
+            variable = ""
+            qmatch = re.search(r'"([^"]+)"', message) or re.search(
+                r"'([^']+)'", message
+            )
+            if qmatch:
+                variable = qmatch.group(1)
+            yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
+                checker_error, "path", None
+            )
+            if yaml_path is not None:
+                yaml_path = str(yaml_path)
+            findings.append(
+                {
+                    "severity": level,
+                    "level": level,
+                    "message": message,
+                    "variable": variable,
+                    "filename": filename,
+                    "file_name": filename,
+                    "line_number": line_number,
+                    "source_range": _source_range_for_line(raw_yaml, line_number),
+                    "yaml_path": yaml_path,
+                    "source": "dayamlchecker",
+                }
+            )
+    except Exception:
+        ok, output = validate_yaml_with_dayamlchecker(raw_yaml)
+        if not ok and output:
+            for output_line in output.splitlines():
+                message = output_line.strip()
+                if not message:
+                    continue
+                lowered = message.lower()
+                level = "warning" if lowered.startswith("warning") else "error"
+                if lowered.startswith("info"):
+                    level = "info"
+                findings.append(
+                    {
+                        "severity": level,
+                        "level": level,
+                        "message": message,
+                        "variable": "",
+                        "filename": filename,
+                        "file_name": filename,
+                        "line_number": None,
+                        "source_range": None,
+                        "yaml_path": None,
+                        "source": "dayamlchecker-cli",
+                    }
+                )
+
+    deduped: List[Dict[str, Any]] = []
+    seen: set = set()
+    for finding in findings:
+        key = (
+            str(finding.get("severity") or finding.get("level") or ""),
+            str(finding.get("message") or ""),
+            str(finding.get("line_number") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+
+    model = parse_interview_yaml(raw_yaml)
+    return _annotate_lint_findings(
+        deduped, model.get("blocks", []), source_name="unsaved-source"
+    )
 
 
 def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
@@ -1552,6 +1705,88 @@ def editor_api_get_file() -> Response:
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/validate-source", methods=["POST"])
+def editor_api_validate_source() -> Response:
+    """Validate source supplied by the editor without reading it back from disk."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        raw_yaml = post_data.get("raw_yaml")
+        if not isinstance(raw_yaml, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        revision = post_data.get("revision")
+        if revision is not None and not isinstance(revision, str):
+            raise ValueError("revision must be a string or null")
+
+        # Reading the target confirms that this developer owns the Playground
+        # file and lets the client distinguish current and stale base revisions.
+        saved_yaml = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(saved_yaml)
+        diagnostics = _validate_source_text(raw_yaml, filename)
+        summary = _lint_summary_for_findings(diagnostics)
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "scope": "unsaved_source",
+                    "diagnostics": diagnostics,
+                    "errors": diagnostics,
+                    "summary": {
+                        "count": len(diagnostics),
+                        "errors": summary["error"],
+                        "warnings": summary["warning"],
+                        "infos": summary["info"],
+                    },
+                    "revision": revision,
+                    "current_revision": current_revision,
+                    "base_revision_matches": (
+                        revision == current_revision if revision is not None else None
+                    ),
+                    "validated_source_revision": source_revision(raw_yaml),
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_validation_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: validate-source error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "source_validation_failed",
+                    "message": str(exc),
+                },
             },
             500,
         )
