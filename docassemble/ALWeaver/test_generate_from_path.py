@@ -461,10 +461,10 @@ question: |
         self.assertEqual(result["input_filename"], docx_path.name)
 
     def test_interview_short_title_always_generated(self):
-        """Regression: interview_short_title code block must always appear in
-        the generated YAML, even when no LLM is used.  The block was previously
+        """Regression: interview_short_title template must always appear in
+        the generated YAML, even when no LLM is used. The template was previously
         gated on a Mako ``defined()`` check that always evaluated to False in
-        the Python rendering path, so the block was silently omitted."""
+        the Python rendering path, so it was silently omitted."""
         pdf_path = (
             Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
         )
@@ -477,13 +477,14 @@ question: |
             )
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
 
-        # The block must be present and contain a non-empty Python string literal.
-        self.assertIn("interview_short_title =", yaml_text)
-        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
-        self.assertIsNotNone(match, "interview_short_title assignment not found")
-        rhs = match.group(1).strip()
-        # repr() produces a quoted string — must not be an empty string literal.
-        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
+        match = re.search(
+            r"(?m)^template: interview_short_title\s*$\n"
+            r"^content: \|\s*$\n^  (\S.*)$",
+            yaml_text,
+        )
+        self.assertIsNotNone(match, "interview_short_title template not found")
+        self.assertTrue(match.group(1).strip(), "interview_short_title must not be empty")
+        self.assertNotIn("interview_short_title =", yaml_text)
 
     def test_interview_short_title_via_upload_flow(self):
         """interview_short_title must also appear when using generate_interview_from_bytes
@@ -503,11 +504,14 @@ question: |
             include_yaml_text=True,
         )
         yaml_text = result["yaml_text"]
-        self.assertIn("interview_short_title =", yaml_text)
-        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
-        self.assertIsNotNone(match, "interview_short_title assignment not found")
-        rhs = match.group(1).strip()
-        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
+        match = re.search(
+            r"(?m)^template: interview_short_title\s*$\n"
+            r"^content: \|\s*$\n^  (\S.*)$",
+            yaml_text,
+        )
+        self.assertIsNotNone(match, "interview_short_title template not found")
+        self.assertTrue(match.group(1).strip(), "interview_short_title must not be empty")
+        self.assertNotIn("interview_short_title =", yaml_text)
 
     def test_objects_block_always_generated(self):
         """Regression: objects: block must always appear in generated YAML, with at
