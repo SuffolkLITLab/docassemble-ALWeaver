@@ -58,6 +58,11 @@ The graphical editor uses the same configured worker module for uploaded-file
 project generation. It refuses that long-running operation when Celery is not
 configured; it does not fall back to an in-process daemon thread.
 
+The revisioned graphical source-patch API is an opt-in beta. Set
+`WEAVER_ENABLE_PATCH_MODEL: true` in the Docassemble configuration (or the same
+environment variable) to enable it. The default production path remains off
+until graphical editing paths have migrated to exact source-range commands.
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.

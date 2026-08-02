@@ -105,6 +105,13 @@ except Exception as _editor_utils_import_err:
         "error",
     )
     raise
+
+from .source_document import (
+    apply_range_operations,
+    parse_source_document,
+    unified_source_diff,
+)
+
 try:
     from .editor_ai_utils import (
         DEFAULT_FIELD_TYPES,
@@ -2096,6 +2103,152 @@ def editor_api_save_file() -> Response:
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+def _patch_model_enabled() -> bool:
+    """Return whether the revisioned source-patch beta is enabled."""
+    configured = os.environ.get("WEAVER_ENABLE_PATCH_MODEL")
+    if configured is None:
+        try:
+            from docassemble.base.config import daconfig
+
+            configured = daconfig.get("WEAVER_ENABLE_PATCH_MODEL")
+        except (ImportError, AttributeError):
+            configured = None
+    return str(configured or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/patch", methods=["POST"])
+def editor_api_patch_file() -> Response:
+    """Atomically apply source-range edits against an expected file revision."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _patch_model_enabled():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "feature_disabled",
+                    "code": "patch_model_disabled",
+                    "message": "The revisioned source-patch model is not enabled.",
+                },
+            },
+            404,
+        )
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        operations = post_data.get("operations")
+        if not isinstance(operations, list) or not operations:
+            raise ValueError("operations must be a non-empty list")
+        base_raw_yaml = post_data.get("base_raw_yaml")
+        if base_raw_yaml is not None and not isinstance(base_raw_yaml, str):
+            raise ValueError("base_raw_yaml must be a string or null")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(current_content)
+        if expected_revision != current_revision:
+            conflict = {
+                "type": "revision_conflict",
+                "code": "revision_conflict",
+                "message": "The file changed since it was loaded.",
+                "expected_revision": expected_revision,
+                "current_revision": current_revision,
+                "current_raw_yaml": current_content,
+                "base_raw_yaml": base_raw_yaml,
+            }
+            conflict["details"] = {
+                key: value
+                for key, value in conflict.items()
+                if key not in {"type", "code", "message", "details"}
+            }
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": conflict,
+                },
+                409,
+            )
+
+        updated_content, applied_operations = apply_range_operations(
+            current_content, operations
+        )
+        source_document = parse_source_document(filename, updated_content)
+        diagnostics = [item.to_dict() for item in source_document.diagnostics]
+        if not source_document.structurally_valid:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "invalid_patched_source",
+                        "code": "invalid_patched_source",
+                        "message": "The patch would produce structurally invalid YAML.",
+                        "details": {"diagnostics": diagnostics},
+                    },
+                },
+                422,
+            )
+
+        # Reparse before the single write. Parsed values are returned for
+        # analysis only; the original patched text remains authoritative.
+        model = parse_interview_yaml(updated_content)
+        source_diff = unified_source_diff(current_content, updated_content, filename)
+        playground_write_yaml(uid, project, filename, updated_content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "raw_yaml": updated_content,
+                    "revision": source_document.revision,
+                    "applied_operations": applied_operations,
+                    "diagnostics": diagnostics,
+                    "diff": source_diff,
+                    "blocks": model["blocks"],
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_patch_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: source patch error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "patch_failed",
+                    "message": "The source patch could not be applied.",
+                },
             },
             500,
         )

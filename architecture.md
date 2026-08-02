@@ -58,6 +58,22 @@ documents cannot be identified safely, the scoped save is rejected and the user
 must use full source mode. This is an interim safeguard pending the general
 revisioned source-patch model.
 
+The general patch beta is implemented at `POST /al/editor/api/file/patch` and is
+disabled by default behind `WEAVER_ENABLE_PATCH_MODEL`. A request supplies the
+expected SHA-256 source revision and one or more non-overlapping
+`replace-range` operations. Weaver validates every range, applies the full set in
+memory, reparses the result, and performs one Playground write only if the result
+is structurally valid. The response includes the exact resulting text, new
+revision, applied operations, diagnostics, and a unified source diff. A stale
+revision returns HTTP 409 with current and optional base source for a three-way
+merge; it never overwrites the newer file.
+
+`source_document.py` retains the original text and exact document offsets as the
+authoritative representation. Parsed mappings and top-level property ranges are
+analysis aids only. Empty documents, custom tags, unsupported top-level values,
+comments, and formatting remain in their original source ranges, with unsupported
+constructs marked as such instead of reconstructed through `yaml.dump()`.
+
 The file-read API exposes interview text as `raw_yaml`; browser downloads
 validate that field as a string before creating a file, including when the
 source is intentionally empty.
