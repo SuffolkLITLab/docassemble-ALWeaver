@@ -36,6 +36,10 @@ def _load_api_editor_for_tests():
 
     worker_common = types.ModuleType("docassemble.webapp.worker_common")
     worker_common.bg_context = nullcontext
+    worker_common.workerapp = types.SimpleNamespace(
+        send_task=lambda *args, **kwargs: None,
+        AsyncResult=lambda *args, **kwargs: None,
+    )
 
     flask_cors = types.ModuleType("flask_cors")
     flask_cors.cross_origin = lambda *args, **kwargs: (lambda fn: fn)
@@ -332,6 +336,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
             patch.object(
                 api_editor, "next_available_project_name", return_value="DocxSmoke"
             ),
@@ -407,6 +412,29 @@ class TestEditorApiFileCreation(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
 
+    def test_new_project_upload_refuses_when_celery_is_not_configured(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=False),
+            patch.object(api_editor, "create_project") as mock_create_project,
+        ):
+            with api_editor.app.test_client() as client:
+                response = client.post(
+                    "/al/editor/api/new-project",
+                    data={
+                        "project_name": "DocxSmoke",
+                        "files": (BytesIO(b"not read"), "source.docx"),
+                    },
+                    content_type="multipart/form-data",
+                )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "editor_async_not_configured"
+        )
+        mock_create_project.assert_not_called()
+
     def test_complete_new_project_upload_job_writes_yaml(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         uploaded_files = [
@@ -419,7 +447,6 @@ class TestEditorApiFileCreation(unittest.TestCase):
         generated_yaml = "metadata:\n  title: Demand Letter\n---\n"
 
         with (
-            patch.object(api_editor, "bg_context", return_value=nullcontext()),
             patch.object(api_editor, "_update_new_project_job_state") as mock_update,
             patch.object(api_editor, "generate_interview_from_bytes") as mock_generate,
             patch.object(api_editor, "playground_write_yaml") as mock_write,
@@ -477,14 +504,90 @@ class TestEditorApiFileCreation(unittest.TestCase):
         mock_copy_files.assert_called_once()
         self.assertTrue(mock_update.called)
 
+    def test_start_new_project_job_enqueues_celery_without_daemon_thread(self):
+        async_result = types.SimpleNamespace(id="celery-task-1")
+        with (
+            patch.object(api_editor, "_store_new_project_job_state") as mock_store,
+            patch.object(api_editor, "_update_new_project_job_state") as mock_update,
+            patch.object(
+                api_editor.workerapp, "send_task", return_value=async_result
+            ) as mock_send,
+        ):
+            result = api_editor._start_new_project_upload_job(
+                uid=7,
+                request_id="req-1",
+                project_name="DocxSmoke",
+                uploaded_files=[
+                    {
+                        "filename": "source.docx",
+                        "content_bytes": b"content",
+                        "mimetype": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    }
+                ],
+                generation_options={"include_next_steps": False},
+                debug_requested=False,
+            )
+
+        self.assertEqual(result["state"]["status"], "queued")
+        self.assertEqual(result["state"]["owner_user_id"], 7)
+        self.assertEqual(result["state"]["operation_type"], "new_project_upload")
+        mock_store.assert_called_once()
+        mock_send.assert_called_once()
+        self.assertEqual(
+            mock_send.call_args.kwargs["kwargs"]["job_id"], result["job_id"]
+        )
+        mock_update.assert_called_once_with(
+            result["job_id"], celery_task_id="celery-task-1"
+        )
+
+        api_source = Path(api_editor.__file__).read_text()
+        self.assertNotIn("import threading", api_source)
+        self.assertNotIn("threading.Thread", api_source)
+
+    def test_running_job_without_celery_task_is_marked_expired(self):
+        expired = {
+            "status": "expired",
+            "stage": "expired",
+            "finished_at": 123,
+        }
+        with patch.object(
+            api_editor, "_update_new_project_job_state", return_value=expired
+        ) as mock_update:
+            result = api_editor._reconcile_new_project_job_state(
+                "job-1", {"status": "running", "owner_user_id": 7}
+            )
+
+        self.assertEqual(result["status"], "expired")
+        self.assertEqual(mock_update.call_args.kwargs["status"], "expired")
+
     def test_new_project_job_status_route_returns_state(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(
                 api_editor,
                 "_load_new_project_job_state",
                 return_value={
                     "status": "running",
+                    "owner_user_id": 7,
+                    "celery_task_id": "celery-1",
+                    "stage": "generate_interview",
+                    "project": "DocxSmoke",
+                    "message": "Generating interview from the uploaded document.",
+                },
+            ),
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=types.SimpleNamespace(state="STARTED"),
+            ),
+            patch.object(
+                api_editor,
+                "_update_new_project_job_state",
+                return_value={
+                    "status": "running",
+                    "owner_user_id": 7,
+                    "celery_task_id": "celery-1",
                     "stage": "generate_interview",
                     "project": "DocxSmoke",
                     "message": "Generating interview from the uploaded document.",
@@ -501,6 +604,23 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(payload["job_id"], "job-1")
         self.assertEqual(payload["status"], "running")
         self.assertEqual(payload["data"]["stage"], "generate_interview")
+
+    def test_new_project_job_status_hides_another_users_job(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_load_new_project_job_state",
+                return_value={"status": "running", "owner_user_id": 99},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project/jobs/job-1", method="GET"
+            ):
+                response = api_editor.editor_api_new_project_job("job-1")
+
+        self.assertEqual(response.status_code, 404)
 
     def test_editor_auth_return_target_rejects_protocol_relative_next(self):
         with api_editor.app.test_request_context("/al/editor?next=//evil.example"):

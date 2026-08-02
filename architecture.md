@@ -101,6 +101,14 @@ Pluggy hook and otherwise use the populated 1.9 server implementation. The same
 module owns access to initialized Flask, storage, Redis, and worker objects so
 the rest of Weaver does not depend on version-specific private module paths.
 
+Uploaded-file project generation runs as the named
+`weaver_editor_new_project_task` in Docassemble's configured Celery worker.
+Redis stores an owner-scoped job record with queued, start, finish, progress,
+result, and structured-error fields, while status polling reconciles nonterminal
+records against Celery. A Redis record without an associated task is marked
+expired rather than reported as running. Weaver refuses the operation when the
+worker module is not configured and never falls back to an in-process thread.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

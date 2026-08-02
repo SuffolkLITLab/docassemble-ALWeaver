@@ -26,3 +26,31 @@ def weaver_generate_task(
             include_package_zip_base64=include_package_zip_base64,
             include_yaml_text=include_yaml_text,
         )
+
+
+@workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
+)
+def weaver_editor_new_project_task(
+    *,
+    job_id: str,
+    uid: int,
+    project_name: str,
+    request_id: str,
+    uploaded_files: list[Dict[str, Any]],
+    generation_options: Dict[str, Any],
+    debug_requested: bool,
+) -> Dict[str, Any]:
+    """Create an editor project inside Docassemble's configured Celery worker."""
+    with bg_context():
+        from .api_editor import _complete_new_project_upload_job
+
+        return _complete_new_project_upload_job(
+            job_id=job_id,
+            uid=uid,
+            project_name=project_name,
+            request_id=request_id,
+            uploaded_files=uploaded_files,
+            generation_options=generation_options,
+            debug_requested=debug_requested,
+        )

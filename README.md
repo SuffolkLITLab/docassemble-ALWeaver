@@ -54,6 +54,10 @@ celery modules:
   - docassemble.ALWeaver.api_weaver_worker
 ```
 
+The graphical editor uses the same configured worker module for uploaded-file
+project generation. It refuses that long-running operation when Celery is not
+configured; it does not fall back to an in-process daemon thread.
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.

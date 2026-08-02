@@ -37,7 +37,6 @@ import traceback
 import textwrap
 import tempfile
 import time
-import threading
 import uuid
 from copy import deepcopy
 from html import escape
@@ -52,17 +51,18 @@ from flask_login import current_user
 from docassemble.base.util import log
 
 from .docassemble_compat import (
-    background_context as bg_context,
     create_saved_file,
     get_csrf,
     get_flask_app,
     get_redis_client,
+    get_worker_app,
     json_response as jsonify_with_status,
 )
 
 app = get_flask_app()
 csrf = get_csrf()
 r = get_redis_client()
+workerapp = get_worker_app()
 
 from .api_utils import (
     generate_interview_from_bytes,
@@ -3318,6 +3318,23 @@ def editor_api_preview_url() -> Response:
 
 NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
 NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+NEW_PROJECT_CELERY_MODULE = "docassemble.ALWeaver.api_weaver_worker"
+NEW_PROJECT_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
+)
+NEW_PROJECT_TERMINAL_STATES = {
+    "succeeded",
+    "failed",
+    "cancelled",
+    "expired",
+}
+
+
+def _editor_async_is_configured() -> bool:
+    from docassemble.base.config import daconfig
+
+    celery_modules = daconfig.get("celery modules", []) or []
+    return NEW_PROJECT_CELERY_MODULE in celery_modules
 
 
 def _new_project_job_key(job_id: str) -> str:
@@ -3377,6 +3394,8 @@ def _complete_new_project_upload_job(
             message="Starting background Weaver generation.",
             project=project_name,
             request_id=request_id,
+            started_at=time.time(),
+            progress=5,
         )
         temp_paths: List[str] = []
         first_result: Optional[Dict[str, Any]] = None
@@ -3402,6 +3421,7 @@ def _complete_new_project_upload_job(
                     status="running",
                     stage=stage,
                     message="Generating interview from the uploaded document.",
+                    progress=20,
                 )
                 first_result = generate_interview_from_bytes(
                     filename=filename,
@@ -3426,6 +3446,7 @@ def _complete_new_project_upload_job(
             status="running",
             stage=stage,
             message="Writing generated interview YAML.",
+            progress=70,
         )
         playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
 
@@ -3435,6 +3456,7 @@ def _complete_new_project_upload_job(
             status="running",
             stage=stage,
             message="Copying uploaded files into the project.",
+            progress=85,
         )
         _copy_files_to_section(
             user_id=uid,
@@ -3459,6 +3481,8 @@ def _complete_new_project_upload_job(
             generated_from=result["generated_from"],
             uploaded_count=result["uploaded_count"],
             result=result,
+            progress=100,
+            finished_at=time.time(),
         )
         return result
     except Exception as exc:
@@ -3476,6 +3500,7 @@ def _complete_new_project_upload_job(
             stage=stage,
             message=error_payload["message"],
             error=error_payload,
+            finished_at=time.time(),
         )
         log(
             "ALWeaver editor: background new-project upload failed "
@@ -3485,31 +3510,6 @@ def _complete_new_project_upload_job(
         raise
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def _run_new_project_upload_job(
-    *,
-    job_id: str,
-    uid: int,
-    project_name: str,
-    request_id: str,
-    uploaded_files: List[Dict[str, Any]],
-    generation_options: Dict[str, Any],
-    debug_requested: bool,
-) -> None:
-    try:
-        with bg_context():
-            _complete_new_project_upload_job(
-                job_id=job_id,
-                uid=uid,
-                project_name=project_name,
-                request_id=request_id,
-                uploaded_files=uploaded_files,
-                generation_options=generation_options,
-                debug_requested=debug_requested,
-            )
-    except Exception:
-        return
 
 
 def _start_new_project_upload_job(
@@ -3522,37 +3522,129 @@ def _start_new_project_upload_job(
     debug_requested: bool,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
+    queued_at = time.time()
     initial_state: Dict[str, Any] = {
         "status": "queued",
         "stage": "queued",
         "message": "Queued for background Weaver generation.",
+        "owner_user_id": uid,
+        "operation_type": "new_project_upload",
+        "input_revision": None,
         "project": project_name,
         "request_id": request_id,
         "generated_from": uploaded_files[0].get("filename") if uploaded_files else None,
         "uploaded_count": len(uploaded_files),
+        "queued_at": queued_at,
+        "started_at": None,
+        "finished_at": None,
+        "progress": 0,
+        "result": None,
+        "error": None,
     }
     _store_new_project_job_state(job_id, initial_state)
-
-    worker = threading.Thread(
-        target=_run_new_project_upload_job,
-        kwargs={
-            "job_id": job_id,
-            "uid": uid,
-            "project_name": project_name,
-            "request_id": request_id,
-            "uploaded_files": uploaded_files,
-            "generation_options": generation_options,
-            "debug_requested": debug_requested,
-        },
-        daemon=True,
-        name=f"alweaver-new-project-{job_id}",
-    )
-    worker.start()
+    try:
+        task = workerapp.send_task(
+            NEW_PROJECT_CELERY_TASK,
+            kwargs={
+                "job_id": job_id,
+                "uid": uid,
+                "project_name": project_name,
+                "request_id": request_id,
+                "uploaded_files": uploaded_files,
+                "generation_options": generation_options,
+                "debug_requested": debug_requested,
+            },
+        )
+    except Exception as exc:
+        _update_new_project_job_state(
+            job_id,
+            status="failed",
+            stage="enqueue",
+            message="Unable to queue background Weaver generation.",
+            finished_at=time.time(),
+            error={
+                "type": "queue_error",
+                "message": str(exc) or "Unable to queue Celery task.",
+            },
+        )
+        raise
+    _update_new_project_job_state(job_id, celery_task_id=task.id)
     return {
         "job_id": job_id,
         "job_url": f"{EDITOR_BASE_PATH}/api/new-project/jobs/{job_id}",
         "state": initial_state,
     }
+
+
+def _reconcile_new_project_job_state(
+    job_id: str, state: Dict[str, Any]
+) -> Dict[str, Any]:
+    status = str(state.get("status") or "queued")
+    if status in NEW_PROJECT_TERMINAL_STATES:
+        return state
+    celery_task_id = state.get("celery_task_id")
+    if not celery_task_id:
+        return _update_new_project_job_state(
+            job_id,
+            status="expired",
+            stage="expired",
+            message="The job has no associated Celery task.",
+            finished_at=time.time(),
+            error={
+                "type": "job_expired",
+                "message": "The queued task record is unavailable.",
+            },
+        )
+
+    task_result = workerapp.AsyncResult(id=celery_task_id)
+    celery_state = str(getattr(task_result, "state", "") or "").upper()
+    if celery_state == "SUCCESS":
+        task_value = getattr(task_result, "result", None)
+        return _update_new_project_job_state(
+            job_id,
+            status="succeeded",
+            stage="done",
+            message="Project created successfully.",
+            progress=100,
+            finished_at=time.time(),
+            result=task_value if isinstance(task_value, dict) else state.get("result"),
+        )
+    if celery_state == "FAILURE":
+        task_error = getattr(task_result, "result", None)
+        return _update_new_project_job_state(
+            job_id,
+            status="failed",
+            stage=state.get("stage") or "failed",
+            message="ALWeaver generation failed.",
+            finished_at=time.time(),
+            error={
+                "type": "celery_failure",
+                "message": str(task_error or "Task failed"),
+            },
+        )
+    if celery_state == "REVOKED":
+        return _update_new_project_job_state(
+            job_id,
+            status="cancelled",
+            stage="cancelled",
+            message="The job was cancelled.",
+            finished_at=time.time(),
+        )
+    if celery_state in {"STARTED", "RETRY"}:
+        updates: Dict[str, Any] = {"status": "running"}
+        if not state.get("started_at"):
+            updates["started_at"] = time.time()
+        return _update_new_project_job_state(job_id, **updates)
+    if celery_state in {"PENDING", "RECEIVED"}:
+        return _update_new_project_job_state(job_id, status="queued")
+    return _update_new_project_job_state(
+        job_id,
+        status="expired",
+        stage="expired",
+        message="The Celery task state is no longer available.",
+        finished_at=time.time(),
+        error={"type": "job_expired", "message": f"Unknown task state: {celery_state}"},
+    )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project", methods=["POST"])
@@ -3666,6 +3758,23 @@ def _new_project_from_uploads(
     on the first file to produce a draft YAML, writes it to a new playground
     project, and copies all uploaded originals into the templates section.
     """
+    if not _editor_async_is_configured():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "async_not_configured",
+                    "code": "editor_async_not_configured",
+                    "message": (
+                        "Background project generation is not configured. Add "
+                        f"{NEW_PROJECT_CELERY_MODULE!r} to the Docassemble "
+                        "'celery modules' configuration list."
+                    ),
+                },
+            },
+            503,
+        )
     raw_name = request.form.get("project_name", "NewProject")
     generation_notes = request.form.get("generation_notes", "").strip()
     help_page_url = request.form.get("help_page_url", "").strip()
@@ -3807,8 +3916,9 @@ def editor_api_new_project_job(job_id: str) -> Response:
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
+        uid = _current_user_id()
         state = _load_new_project_job_state(job_id)
-        if not state:
+        if not state or state.get("owner_user_id") not in {None, uid}:
             return jsonify_with_status(
                 {
                     "success": False,
@@ -3817,6 +3927,7 @@ def editor_api_new_project_job(job_id: str) -> Response:
                 },
                 404,
             )
+        state = _reconcile_new_project_job_state(job_id, state)
         status = str(state.get("status") or "queued")
         return jsonify(
             {

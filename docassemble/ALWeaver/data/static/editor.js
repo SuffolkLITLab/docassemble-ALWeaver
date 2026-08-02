@@ -5904,9 +5904,12 @@
             var payload = response.body || {};
             var jobData = payload.data || {};
             var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
-            if (jobStatus === 'failed') {
+            if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
               reject(new Error(
-                (payload.error && payload.error.message) || jobData.message || 'Project creation failed.'
+                (payload.error && payload.error.message) ||
+                (jobData.error && jobData.error.message) ||
+                jobData.message ||
+                'Project creation failed.'
               ));
               return;
             }
@@ -5914,7 +5917,10 @@
               resolve(payload);
               return;
             }
-            _setUploadProgressMessage(jobData.message || ('Creating project "' + (projectName || 'new project') + '"...'));
+            var progressPrefix = Number.isFinite(Number(jobData.progress))
+              ? String(Number(jobData.progress)) + '% — '
+              : '';
+            _setUploadProgressMessage(progressPrefix + (jobData.message || ('Creating project "' + (projectName || 'new project') + '"...')));
             if (attempts >= UPLOAD_JOB_MAX_ATTEMPTS) {
               reject(new Error('Timed out waiting for the background job to finish.'));
               return;
