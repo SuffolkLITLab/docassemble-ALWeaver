@@ -77,6 +77,14 @@ single-block save updates only that block's dirty state and overlays any other
 unsaved local blocks on the fresh server response. Navigation decisions use the
 accessible Save/Discard/Stay dialog instead of clearing a global dirty flag.
 
+Source controls use Docassemble's own CodeMirror 6 bundle at
+`/static/app/cm6.min.js`. Weaver wraps the stable `window.daNewEditor()` factory
+in `editor_source_adapter.js` and depends only on the editor bundle's `ev`,
+`enable()`, and `disable()` members. That contract and asset path are present in
+Docassemble 1.9.0, 1.9.13, 1.10.0, and 1.10.7. If the Docassemble asset cannot
+initialize, the adapter falls back to an accessible native textarea rather than
+loading an editor from a third-party CDN.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

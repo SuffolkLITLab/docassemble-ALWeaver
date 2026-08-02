@@ -1245,9 +1245,9 @@ html, body {
   text-decoration: underline;
 }
 
-/* ===== Monaco editor containers ===== */
+/* ===== CodeMirror source editor containers ===== */
 
-.editor-monaco-container {
+.editor-source-container {
   width: 100%;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);

@@ -1,7 +1,7 @@
 /* =============================================================================
    Docassemble Interview Editor — Client-side controller
    Communicates with /al/editor/api/* endpoints.
-   Uses Monaco editor for YAML/Python code editing.
+   Uses Docassemble's bundled CodeMirror editor through a Weaver adapter.
    ============================================================================= */
 
 (function () {
@@ -214,257 +214,50 @@
     if (!state.sectionDirty) return true;
     var savedContent = state.sectionSavedContent[sectionSnapshotKey()];
     if (savedContent === undefined) return false;
-    var editor = _monacoEditors['section-file-monaco'];
+    var editor = _sourceEditors['section-file-source-editor'];
     if (editor) editor.setValue(savedContent);
-    var textarea = _textareaEditors['section-file-monaco'];
-    if (textarea) textarea.value = savedContent;
     state.sectionDirty = false;
     updateTopbarSaveState();
     return true;
   }
 
   // -------------------------------------------------------------------------
-  // Monaco management
+  // Source editor adapter
   // -------------------------------------------------------------------------
-  var _monacoReady = false;
-  var _monacoLoading = false;
-  var _monacoFailed = false;
-  var _monacoLoaderBase = null;
-  var _monacoEditors = {};
+  var _sourceEditors = {};
   var _outlineSortable = null;
-  var _textareaEditors = {};
-  var _makoLanguageRegistered = false;
 
-  function registerMakoLanguage() {
-    if (_makoLanguageRegistered || typeof monaco === 'undefined' || !monaco.languages) return;
-    if (typeof monaco.languages.getLanguages === 'function') {
-      var languages = monaco.languages.getLanguages();
-      for (var i = 0; i < languages.length; i++) {
-        if (languages[i] && languages[i].id === 'mako') {
-          _makoLanguageRegistered = true;
-          return;
-        }
-      }
-    }
-
-    monaco.languages.register({ id: 'mako' });
-    monaco.languages.setMonarchTokensProvider('mako', {
-      defaultToken: '',
-      tokenPostfix: '.mako',
-      keywords: [
-        'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
-        'False', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'None', 'not', 'or',
-        'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield', 'block', 'namespace',
-        'endblock', 'endfor', 'endif', 'endtry', 'endwhile', 'endwith'
-      ],
-      tokenizer: {
-        root: [
-          [/^\s*##.*$/, 'comment.mako'],
-          [/^\s*%\s*(if|elif|else|for|while|try|except|finally|with|def|block|namespace|endfor|endif|endwhile|endtry|endwith|endblock)\b.*$/, ['delimiter.mako', 'keyword.mako']],
-          [/^\s*%.*$/, 'meta.mako'],
-          [/<%doc>/, { token: 'comment.mako', next: '@docBlock' }],
-          [/<%/, { token: 'delimiter.mako', next: '@pythonBlock' }],
-          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
-          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
-          [/<\/?[A-Za-z][\w:-]*/, 'tag.mako'],
-          [/&[a-zA-Z_][\w-]*;/, 'string.escape'],
-          [/[{}()[\]]/, '@brackets'],
-          [/[;,.]/, 'delimiter'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b[A-Za-z_][\w]*\b/, {
-            cases: {
-              '@keywords': 'keyword.mako',
-              '@default': 'identifier'
-            }
-          }],
-          [/\s+/, 'white'],
-        ],
-        expression: [
-          [/\}/, { token: 'delimiter.mako', next: '@pop' }],
-          { include: '@rootExpression' },
-        ],
-        parenExpression: [
-          [/\)/, { token: 'delimiter.mako', next: '@pop' }],
-          { include: '@rootExpression' },
-        ],
-        rootExpression: [
-          [/\s+/, 'white'],
-          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
-          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
-          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
-          [/[{}()[\]]/, '@brackets'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
-          [/./, 'operator'],
-        ],
-        pythonBlock: [
-          [/%>/, { token: 'delimiter.mako', next: '@pop' }],
-          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
-          [/./, 'operator'],
-        ],
-        docBlock: [
-          [/<\/doc>/, { token: 'comment.mako', next: '@pop' }],
-          [/.*$/, 'comment.mako'],
-        ],
-      },
-    });
-    _makoLanguageRegistered = true;
+  function initSourceEditor(callback) {
+    callback();
   }
 
-  function _loadScriptOnce(src, callback) {
-    var existing = document.querySelector('script[data-editor-loader-src="' + src + '"]');
-    if (existing) {
-      if (existing.getAttribute('data-loaded') === 'true') {
-        callback(true);
-        return;
-      }
-      existing.addEventListener('load', function () { callback(true); }, { once: true });
-      existing.addEventListener('error', function () { callback(false); }, { once: true });
-      return;
-    }
-    var script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.setAttribute('data-editor-loader-src', src);
-    script.addEventListener('load', function () {
-      script.setAttribute('data-loaded', 'true');
-      callback(true);
-    }, { once: true });
-    script.addEventListener('error', function () {
-      callback(false);
-    }, { once: true });
-    document.head.appendChild(script);
-  }
-
-  function _getMonacoLoaderCandidates() {
-    return [
-      'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js'
-    ];
-  }
-
-  function _ensureMonacoLoader(callback) {
-    if (typeof require !== 'undefined' && require && require.config) {
-      callback(true);
-      return;
-    }
-    var candidates = _getMonacoLoaderCandidates().slice();
-    function tryNext() {
-      var src = candidates.shift();
-      if (!src) {
-        callback(false);
-        return;
-      }
-      _loadScriptOnce(src, function (loaded) {
-        if (loaded && typeof require !== 'undefined' && require && require.config) {
-          _monacoLoaderBase = src.replace(/\/loader\.js(?:\?.*)?$/, '');
-          callback(true);
-          return;
-        }
-        tryNext();
-      });
-    }
-    tryNext();
-  }
-
-  function initMonaco(callback) {
-    if (_monacoReady) { callback(); return; }
-    if (_monacoFailed) {
-      callback();
-      return;
-    }
-    if (_monacoLoading) {
-      window.setTimeout(function () { initMonaco(callback); }, 50);
-      return;
-    }
-    _monacoLoading = true;
-    _ensureMonacoLoader(function (loaderReady) {
-      if (!loaderReady || typeof require === 'undefined' || !require.config) {
-        _monacoLoading = false;
-        _monacoFailed = true;
-        callback();
-        return;
-      }
-      var vsBase = _monacoLoaderBase || 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
-      require.config({ paths: { vs: vsBase } });
-      require(['vs/editor/editor.main'], function () {
-        registerMakoLanguage();
-        _monacoLoading = false;
-        _monacoReady = true;
-        callback();
-      }, function () {
-        _monacoLoading = false;
-        _monacoFailed = true;
-        callback();
-      });
+  function disposeSourceEditors() {
+    Object.keys(_sourceEditors).forEach(function (key) {
+      if (_sourceEditors[key]) _sourceEditors[key].dispose();
+      delete _sourceEditors[key];
     });
   }
 
-  function disposeMonacoEditors() {
-    Object.keys(_monacoEditors).forEach(function (key) {
-      if (_monacoEditors[key]) {
-        _monacoEditors[key].dispose();
-        delete _monacoEditors[key];
-      }
-    });
-    Object.keys(_textareaEditors).forEach(function (key) {
-      delete _textareaEditors[key];
-    });
-  }
-
-  function createMonacoEditor(containerId, value, language, opts) {
+  function createSourceEditor(containerId, value, language, options) {
     var container = document.getElementById(containerId);
     if (!container) return null;
-    opts = opts || {};
-    if (!_monacoReady || typeof monaco === 'undefined') {
-      container.innerHTML = '';
-      var textarea = document.createElement('textarea');
-      textarea.className = 'editor-yaml-textarea';
-      textarea.value = value || '';
-      if (opts.onChange) textarea.addEventListener('input', opts.onChange);
-      container.appendChild(textarea);
-      _textareaEditors[containerId] = textarea;
-      return textarea;
-    }
-    var editor = monaco.editor.create(container, {
-      value: value || '',
-      language: language || 'yaml',
-      theme: 'vs',
-      fontSize: 13,
-      fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      lineNumbers: opts.lineNumbers !== false ? 'on' : 'off',
-      wordWrap: 'on',
-      automaticLayout: true,
-      tabSize: 2,
-      renderWhitespace: 'none',
-      overviewRulerLanes: 0,
-      hideCursorInOverviewRuler: true,
-      scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false },
-    });
-    _monacoEditors[containerId] = editor;
-    if (opts.onChange) {
-      editor.onDidChangeModelContent(opts.onChange);
-    }
+    options = options || {};
+    var defaultLabel = language === 'python' ? 'Python source editor' :
+      (language === 'yaml' ? 'YAML source editor' : 'Source editor');
+    var editor = window.ALWeaverSourceEditor.createSourceEditor(
+      container,
+      value,
+      language,
+      { ariaLabel: options.ariaLabel || defaultLabel }
+    );
+    if (options.onChange) editor.onChange(options.onChange);
+    _sourceEditors[containerId] = editor;
     return editor;
   }
 
-  function getMonacoValue(containerId) {
-    var ed = _monacoEditors[containerId];
-    if (ed) return ed.getValue();
-    var ta = _textareaEditors[containerId];
-    return ta ? ta.value : '';
+  function getSourceEditorValue(containerId) {
+    var editor = _sourceEditors[containerId];
+    return editor ? editor.getValue() : '';
   }
 
   function getOrCreateBootstrapModal(elementId) {
@@ -2865,7 +2658,7 @@
     var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'code_block');
     yaml = appendYamlValue(yaml, 'id', blockId);
 
-    var codeText = getMonacoValue('code-monaco');
+    var codeText = getSourceEditorValue('code-source-editor');
     if (!codeText && block && block.data && block.data.code) {
       codeText = String(block.data.code);
     }
@@ -3926,7 +3719,7 @@
     if (state.questionEditMode === 'preview' && block.type === 'review') {
       return serializeReviewToYaml(block);
     }
-    var yamlVal = getMonacoValue('block-yaml-monaco');
+    var yamlVal = getSourceEditorValue('block-source-editor');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
     return yamlVal;
   }
@@ -4009,7 +3802,7 @@
     var sectionForSave = getSectionFromView(state.currentView);
     var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
     if (!state.project || !sectionForSave || !sectionFileMeta) return Promise.resolve(false);
-    var contentVal = getMonacoValue('section-file-monaco');
+    var contentVal = getSourceEditorValue('section-file-source-editor');
     return apiPost('/api/section-file', {
       project: state.project,
       section: sectionForSave,
@@ -4286,7 +4079,7 @@
   }
 
   function renderCanvas() {
-    disposeMonacoEditors();
+    disposeSourceEditors();
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
@@ -4692,9 +4485,9 @@
       }
 
     } else {
-      // YAML edit mode — Monaco
+      // YAML source edit mode
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
@@ -4702,8 +4495,8 @@
     canvasContent.innerHTML = html;
 
     if (!isPreview) {
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
           onChange: function () { markInterviewDirty(); }
         });
       });
@@ -4785,11 +4578,11 @@
     html += '<div class="editor-shell">';
     if (isYaml) {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div></div>';
       canvasContent.innerHTML = html;
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
           onChange: function () { markInterviewDirty(); }
         });
       });
@@ -4900,7 +4693,7 @@
     });
   }
 
-  // --- Code block: Monaco + advanced panel ---
+  // --- Code block: source editor + advanced panel ---
   function renderCodeBlock(block) {
     var data = block.data || {};
     var codeText = data.code || '';
@@ -4920,9 +4713,9 @@
     html += '<div class="editor-shell">';
 
     if (state.questionEditMode === 'preview') {
-      // Python editor via Monaco
+      // Python source editor
       html += '<div class="editor-card"><div class="editor-card-header">Python code</div><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="code-monaco" style="height:400px"></div>';
+      html += '<div class="editor-source-container" id="code-source-editor" style="height:400px"></div>';
       html += '</div></div>';
 
       // Advanced: id, if, sets, only sets, need, etc.
@@ -4930,20 +4723,20 @@
     } else {
       // Full YAML mode
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
     html += '</div>';
     canvasContent.innerHTML = html;
 
-    initMonaco(function () {
+    initSourceEditor(function () {
       if (state.questionEditMode === 'preview') {
-        createMonacoEditor('code-monaco', codeText, 'python', {
+        createSourceEditor('code-source-editor', codeText, 'python', {
           onChange: function () { markInterviewDirty(); }
         });
       } else {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
           onChange: function () { markInterviewDirty(); }
         });
       }
@@ -5025,7 +4818,7 @@
       html += renderAdvancedPanel(block);
     } else {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:400px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:400px"></div>';
       html += '</div></div>';
     }
 
@@ -5033,8 +4826,8 @@
     canvasContent.innerHTML = html;
 
     if (state.questionEditMode !== 'preview') {
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
           onChange: function () { markInterviewDirty(); }
         });
       });
@@ -5059,14 +4852,14 @@
 
     html += '<div class="editor-shell">';
     html += '<div class="editor-card"><div class="editor-card-body">';
-    html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+    html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
     html += '</div></div>';
     html += '</div>';
 
     canvasContent.innerHTML = html;
 
-    initMonaco(function () {
-      createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
+    initSourceEditor(function () {
+      createSourceEditor('block-source-editor', block.yaml, 'yaml', {
         onChange: function () { markInterviewDirty(); }
       });
     });
@@ -5588,11 +5381,11 @@
   }
 
   // -------------------------------------------------------------------------
-  // Full YAML editor (Monaco)
+  // Full YAML source editor
   // -------------------------------------------------------------------------
   function _stashFullYamlContent() {
     if (state.canvasMode !== 'full-yaml') return;
-    var content = getMonacoValue('full-yaml-monaco');
+    var content = getSourceEditorValue('full-source-editor');
     if (content !== undefined && content !== null) {
       state.fullYamlStash[state.fullYamlTab] = content;
     }
@@ -5614,7 +5407,7 @@
     html += '</div>';
 
     html += '<div class="editor-card"><div class="editor-card-body">';
-    var editorId = 'full-yaml-monaco';
+    var editorId = 'full-source-editor';
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     if (state.fullYamlTab === 'order') {
       var orderTargets = getOrderTargets();
@@ -5630,7 +5423,7 @@
         html += '</div>';
       }
     }
-    html += '<div class="editor-monaco-container" id="' + editorId + '" style="height:600px"></div>';
+    html += '<div class="editor-source-container" id="' + editorId + '" style="height:600px"></div>';
     html += '</div></div>';
 
     html += '<div class="d-flex justify-content-end"><button class="btn btn-primary" id="save-full-yaml">Save</button></div>';
@@ -5653,8 +5446,8 @@
       content = state.metadataRawYaml || '# No metadata blocks found';
     }
 
-    initMonaco(function () {
-      createMonacoEditor(editorId, content, 'yaml', {
+    initSourceEditor(function () {
+      createSourceEditor(editorId, content, 'yaml', {
         onChange: function () { markInterviewDirty(); }
       });
     });
@@ -6151,7 +5944,7 @@
     if (editable) {
       html += '<div class="editor-card"><div class="editor-card-body">';
       html += '<div class="d-flex justify-content-between align-items-center mb-2"><div class="editor-tiny">Editing ' + esc(fileMeta.filename) + '</div><button class="btn btn-sm btn-primary" id="save-section-file"' + (!state.sectionDirty ? ' disabled' : '') + '>Save</button></div>';
-      html += '<div class="editor-monaco-container" id="section-file-monaco" style="height:620px"></div>';
+      html += '<div class="editor-source-container" id="section-file-source-editor" style="height:620px"></div>';
       html += '</div></div>';
     } else {
       html += renderSectionPreview(fileMeta);
@@ -6174,9 +5967,9 @@
           else if (lowerName.endsWith('.json')) language = 'json';
           else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) language = 'yaml';
           else if (lowerName.endsWith('.csv')) language = 'plaintext';
-          initMonaco(function () {
+          initSourceEditor(function () {
             state.sectionSavedContent[sectionSnapshotKey()] = text;
-            createMonacoEditor('section-file-monaco', text, language, {
+            createSourceEditor('section-file-source-editor', text, language, {
               onChange: function () {
                 state.sectionDirty = true;
                 var saveBtn = document.getElementById('save-section-file');
@@ -7410,7 +7203,7 @@
       return;
     }
     if (target.id === 'save-full-yaml') {
-      var yamlContent = getMonacoValue('full-yaml-monaco');
+      var yamlContent = getSourceEditorValue('full-source-editor');
       if (yamlContent === undefined || yamlContent === null) return;
       state.fullYamlStash = {};
       if (state.fullYamlTab === 'order' && state.activeOrderBlockId) {
@@ -8127,7 +7920,7 @@
       renderLoginRequired();
       return;
     }
-    initMonaco(function () {
+    initSourceEditor(function () {
       populateProjects();
       state.canvasMode = 'project-selector';
       renderCanvas();
