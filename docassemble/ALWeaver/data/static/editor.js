@@ -6236,6 +6236,8 @@
 
   document.addEventListener('click', function (e) {
     var target = e.target;
+    var actionControl = target.closest('[data-action]');
+    var uiAction = actionControl ? actionControl.getAttribute('data-action') : null;
     var topTab = target.closest('.editor-top-tab');
     var jumpItem = target.closest('.editor-jump-item') || target.closest('.editor-jump-more-menu [data-jump]');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
@@ -6361,7 +6363,7 @@
       renderValidationDrawer();
       return;
     }
-    if (target.id === 'btn-check-errors' || target.closest('#btn-check-errors')) {
+    if (uiAction === 'check-errors') {
       state.validationOpen = true;
       runValidation();
       return;
@@ -6652,7 +6654,7 @@
     }
 
     // Top action buttons
-    if (target.id === 'btn-project-selector') {
+    if (uiAction === 'open-project-selector') {
       if (blockUnsavedSectionNavigation()) return;
       stashCurrentEditorState();
       state.canvasMode = 'project-selector';
@@ -6841,7 +6843,7 @@
       return;
     }
 
-    if (target.id === 'btn-standard-playground') {
+    if (uiAction === 'open-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
         promptAndSaveUnsavedChanges('open the playground').then(function (saved) {
@@ -6935,7 +6937,7 @@
       renderCanvas();
       return;
     }
-    if (target.id === 'btn-full-yaml') {
+    if (uiAction === 'open-full-yaml') {
       if (blockUnsavedSectionNavigation()) return;
       stashCurrentEditorState();
       _stashFullYamlContent();
@@ -6993,7 +6995,7 @@
       }
       return;
     }
-    if (target.id === 'btn-preview-interview') {
+    if (uiAction === 'preview-interview') {
       if (!state.filename) return;
       promptAndSaveUnsavedChanges('run the interview').then(function (saved) {
         if (!saved) return;
