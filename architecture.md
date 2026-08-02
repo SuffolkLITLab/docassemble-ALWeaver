@@ -70,6 +70,13 @@ stale by default because the server may already have applied them. The editor
 announces client errors in an ARIA live alert and prevents superseded reads from
 clearing newer interface state.
 
+Unsaved interview edits are tracked by `editor_dirty_state.js` per filename and
+block ID, with separate source-dirty and pending-command state. Each loaded file
+also has a deep-cloned saved model. Discard restores that model, while a
+single-block save updates only that block's dirty state and overlays any other
+unsaved local blocks on the fresh server response. Navigation decisions use the
+accessible Save/Discard/Stay dialog instead of clearing a global dirty flag.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

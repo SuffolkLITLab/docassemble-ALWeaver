@@ -149,6 +149,28 @@
 
 <!-- ===== MODALS ===== -->
 
+<!-- Unsaved changes decision -->
+<div class="modal fade" id="unsaved-changes-modal" tabindex="-1"
+     aria-labelledby="unsaved-changes-title" aria-describedby="unsaved-changes-message"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unsaved-changes-title">Unsaved changes</h5>
+      </div>
+      <div class="modal-body">
+        <p id="unsaved-changes-message">Save or discard your changes before continuing.</p>
+        <div class="alert alert-danger d-none" id="unsaved-changes-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-unsaved-choice="stay">Stay</button>
+        <button type="button" class="btn btn-outline-danger" data-unsaved-choice="discard">Discard</button>
+        <button type="button" class="btn btn-primary" data-unsaved-choice="save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Insert Block Modal -->
 <div class="modal fade" id="insert-modal" tabindex="-1">
   <div class="modal-dialog">
@@ -294,6 +316,7 @@
 </script>
 <script src="/al/editor/static/editor_serializers.js"></script>
 <script src="/al/editor/static/editor_api_client.js"></script>
+<script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor.js"></script>
 </body>
 </html>

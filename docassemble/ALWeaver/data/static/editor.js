@@ -17,6 +17,7 @@
   var API = BOOT.apiBasePath || '/al/editor';
   var authState = BOOT.auth || {};
   var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
+  var dirtyState = window.ALWeaverDirtyState.createDirtyState();
 
   // -------------------------------------------------------------------------
   // State
@@ -73,7 +74,7 @@
       data: null,
     },
     sectionDirty: false,
-    dirty: false,
+    sectionSavedContent: {},
     markdownPreviewMode: false,
     insertAfterBlockId: null,
     fullYamlStash: {},
@@ -158,7 +159,8 @@
   function updateTopbarSaveState() {
     var btn = document.getElementById('btn-save-file');
     if (!btn) return;
-    var isDirty = state.dirty || state.sectionDirty;
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty;
     btn.disabled = !isDirty;
     var badge = btn.querySelector('.js-save-badge');
     if (badge) {
@@ -199,9 +201,25 @@
     return Boolean(fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx'));
   }
 
-  function blockUnsavedSectionNavigation() {
-    if (!state.sectionDirty || isInterviewView()) return false;
-    window.alert('You have unsaved changes in this file. Save your changes before leaving this file.');
+  function hasUnsavedChanges() {
+    return dirtyState.hasDirty(state.filename) || state.sectionDirty;
+  }
+
+  function sectionSnapshotKey() {
+    var filename = state.sectionSelectedFile[state.currentView] || '';
+    return [state.project || '', state.currentView || '', filename].join('::');
+  }
+
+  function discardSectionChanges() {
+    if (!state.sectionDirty) return true;
+    var savedContent = state.sectionSavedContent[sectionSnapshotKey()];
+    if (savedContent === undefined) return false;
+    var editor = _monacoEditors['section-file-monaco'];
+    if (editor) editor.setValue(savedContent);
+    var textarea = _textareaEditors['section-file-monaco'];
+    if (textarea) textarea.value = savedContent;
+    state.sectionDirty = false;
+    updateTopbarSaveState();
     return true;
   }
 
@@ -625,14 +643,64 @@
     return html;
   }
 
-  function refreshFromFileResponse(data) {
+  function captureInterviewModel() {
+    return cloneData({
+      blocks: state.blocks,
+      metadataIndices: state.metadataIndices,
+      includeIndices: state.includeIndices,
+      defaultSpIndices: state.defaultSpIndices,
+      orderIndices: state.orderIndices,
+      orderSteps: state.orderSteps,
+      orderStepMap: state.orderStepMap,
+      activeOrderBlockId: state.activeOrderBlockId,
+      rawYaml: state.rawYaml,
+      revision: state.revision,
+      metadataRawYaml: state.metadataRawYaml,
+    });
+  }
+
+  function restoreInterviewModel(model) {
+    if (!model) return false;
+    state.blocks = cloneData(model.blocks) || [];
+    state.metadataIndices = cloneData(model.metadataIndices) || [];
+    state.includeIndices = cloneData(model.includeIndices) || [];
+    state.defaultSpIndices = cloneData(model.defaultSpIndices) || [];
+    state.orderIndices = cloneData(model.orderIndices) || [];
+    state.orderSteps = cloneData(model.orderSteps) || [];
+    state.orderStepMap = cloneData(model.orderStepMap) || {};
+    state.activeOrderBlockId = model.activeOrderBlockId || null;
+    state.rawYaml = typeof model.rawYaml === 'string' ? model.rawYaml : '';
+    state.revision = model.revision || null;
+    state.metadataRawYaml = typeof model.metadataRawYaml === 'string' ? model.metadataRawYaml : '';
+    state.orderDirty = false;
+    state.fullYamlStash = {};
+    if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
+      state.selectedBlockId = getDefaultVisibleBlockId();
+    }
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    updateTopbarSaveState();
+    return true;
+  }
+
+  function discardInterviewChanges() {
+    var restored = dirtyState.discardFile(state.filename);
+    if (!restoreInterviewModel(restored)) return false;
+    renderOutline();
+    renderCanvas();
+    return true;
+  }
+
+  function refreshFromFileResponse(data, options) {
+    options = options || {};
+    var fileBefore = dirtyState.getFileState(state.filename);
+    var localBlocksBefore = cloneData(state.blocks) || [];
     state.blocks = data.blocks || [];
     state.metadataIndices = data.metadata_blocks || [];
     state.includeIndices = data.include_blocks || [];
     state.defaultSpIndices = data.default_screen_parts_blocks || [];
     state.orderIndices = data.order_blocks || [];
     state.orderStepMap = data.order_step_map || state.orderStepMap || {};
-    state.rawYaml = data.raw_yaml || state.rawYaml;
+    state.rawYaml = typeof data.raw_yaml === 'string' ? data.raw_yaml : state.rawYaml;
     state.revision = data.revision || state.revision;
     state.metadataRawYaml = data.metadata_raw_yaml || '';
     var nextOrderBlockId = state.activeOrderBlockId;
@@ -648,8 +716,20 @@
     state.questionEditMode = 'preview';
     state.advancedOpen = false;
     state.markdownPreviewMode = false;
-    state.dirty = false;
     state.fullYamlStash = {};
+    var savedModel = captureInterviewModel();
+    if (options.savedBlockId) {
+      dirtyState.markBlockSaved(options.savedBlockId, state.revision, savedModel, state.filename);
+      state.blocks = window.ALWeaverDirtyState.preserveDirtyBlocks(
+        state.blocks,
+        localBlocksBefore,
+        fileBefore ? fileBefore.dirtyBlockIds : [],
+        options.savedBlockId
+      );
+    } else {
+      dirtyState.setFileSaved(state.filename, state.revision, savedModel);
+    }
+    dirtyState.activate(state.filename, state.selectedBlockId);
     loadAvailableSymbols(true);
     renderOutline();
     renderCanvas();
@@ -1681,8 +1761,18 @@
     return Boolean(inlineInvoke || inlineCondition || inlineValue);
   }
 
-  function markInterviewDirty() {
-    state.dirty = true;
+  function markInterviewDirty(commandId) {
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    if (state.canvasMode === 'full-yaml' && state.fullYamlTab !== 'order') {
+      dirtyState.markSourceDirty(commandId);
+    } else {
+      dirtyState.markBlockDirty(
+        (state.canvasMode === 'order-builder' || (state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order'))
+          ? state.activeOrderBlockId
+          : state.selectedBlockId,
+        commandId
+      );
+    }
     updateTopbarSaveState();
   }
 
@@ -2911,10 +3001,7 @@
     var idInput = document.getElementById('adv-id');
     if (idInput) {
       var nextId = idInput.value.trim();
-      if (nextId) {
-        blk.id = nextId;
-        state.selectedBlockId = nextId;
-      }
+      if (nextId) blk.data.id = nextId;
     }
 
     var qTitle = document.getElementById('q-title');
@@ -3343,7 +3430,6 @@
       if (!res.success) {
         state.blocks = [];
         state.rawYaml = '';
-        state.dirty = false;
         renderOutline();
         renderCanvas();
         return;
@@ -3358,10 +3444,11 @@
       state.rawYaml = d.raw_yaml || '';
       state.revision = d.revision || null;
       state.metadataRawYaml = d.metadata_raw_yaml || '';
-      state.dirty = false;
       state.fullYamlStash = {};
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
+      dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
+      dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
       renderOutline();
       renderCanvas();
@@ -3370,7 +3457,6 @@
       if (isSupersededRequest(error)) return;
       state.blocks = [];
       state.rawYaml = '';
-      state.dirty = false;
       renderOutline();
       renderCanvas();
     });
@@ -3846,7 +3932,34 @@
   }
 
   function saveCurrentBlockIfDirty() {
-    if (!state.dirty || !state.filename) return Promise.resolve(true);
+    if (!dirtyState.hasDirty(state.filename) || !state.filename) return Promise.resolve(true);
+    var fileDirtyState = dirtyState.getFileState(state.filename);
+    if (fileDirtyState && fileDirtyState.sourceDirty) {
+      _stashFullYamlContent();
+      var sourceTab = state.fullYamlTab || 'full';
+      var hasStashedSource = Object.prototype.hasOwnProperty.call(state.fullYamlStash, sourceTab);
+      var sourceContent = hasStashedSource ? state.fullYamlStash[sourceTab] : state.rawYaml;
+      if (sourceTab === 'metadata') {
+        return apiPost('/api/file/metadata', {
+          project: state.project,
+          filename: state.filename,
+          raw_yaml: sourceContent,
+          expected_revision: state.revision,
+        }).then(function (res) {
+          if (!res.success || !res.data) return false;
+          refreshFromFileResponse(res.data);
+          return true;
+        });
+      }
+      return apiPost('/api/file', {
+        project: state.project,
+        filename: state.filename,
+        content: sourceContent,
+      }).then(function (res) {
+        if (!res.success) return false;
+        return loadFile().then(function () { return true; });
+      });
+    }
     if (state.orderDirty) {
       syncActiveOrderStepMap();
       return apiPost('/api/order', {
@@ -3860,31 +3973,34 @@
           return false;
         }
         state.orderDirty = false;
-        state.dirty = false;
-        updateTopbarSaveState();
-        return true;
+        return loadFile().then(function () { return true; });
       });
     }
-    var block = getSelectedBlock();
+    var editingRawOrder = state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
+    var block = editingRawOrder ? getBlockById(state.activeOrderBlockId) : getSelectedBlock();
     if (!block) return Promise.resolve(true);
-    var yamlVal = getBlockYamlForSave(block);
+    var originalBlockId = block.id;
+    if (editingRawOrder) _stashFullYamlContent();
+    var yamlVal = editingRawOrder
+      ? state.fullYamlStash.order
+      : getBlockYamlForSave(block);
     if (!yamlVal) return Promise.resolve(false);
     return apiPost('/api/block', {
       project: state.project,
       filename: state.filename,
-      block_id: block.id,
+      block_id: originalBlockId,
       block_yaml: yamlVal,
     }).then(function (res) {
       if (!res.success || !res.data) {
         window.alert((res.error && res.error.message) || 'Unable to save block.');
         return false;
       }
-      var keepBlockId = res.data.saved_block_id || block.id;
-      refreshFromFileResponse(res.data);
+      var keepBlockId = res.data.saved_block_id || originalBlockId;
+      refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
       state.selectedBlockId = keepBlockId;
       renderOutline();
       renderCanvas();
-      return true;
+      return !dirtyState.hasDirty(state.filename);
     });
   }
 
@@ -3905,6 +4021,7 @@
         return false;
       }
       state.sectionDirty = false;
+      state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
       updateTopbarSaveState();
       var saveSectionBtn = document.getElementById('save-section-file');
       if (saveSectionBtn) saveSectionBtn.disabled = true;
@@ -3914,14 +4031,99 @@
 
   function promptAndSaveUnsavedChanges(actionLabel) {
     stashCurrentEditorState();
-    if (!state.dirty && !state.sectionDirty) return Promise.resolve(true);
-    var label = actionLabel || 'continue';
-    var shouldSave = window.confirm('You have unsaved changes. Save before you ' + label + '?');
-    if (!shouldSave) return Promise.resolve(false);
-    return saveCurrentSectionFileIfDirty().then(function (sectionSaved) {
-      if (!sectionSaved) return false;
-      return saveCurrentBlockIfDirty();
+    if (!hasUnsavedChanges()) return Promise.resolve(true);
+    var modalElement = document.getElementById('unsaved-changes-modal');
+    var modal = getOrCreateBootstrapModal('unsaved-changes-modal');
+    if (!modalElement || !modal) return Promise.resolve(false);
+
+    var priorFocus = document.activeElement;
+    var message = modalElement.querySelector('#unsaved-changes-message');
+    var errorBox = modalElement.querySelector('#unsaved-changes-error');
+    if (message) {
+      message.textContent = 'You have unsaved changes. Save or discard them before you ' +
+        (actionLabel || 'continue') + '.';
+    }
+    if (errorBox) {
+      errorBox.textContent = '';
+      errorBox.classList.add('d-none');
+    }
+
+    return new Promise(function (resolve) {
+      var buttons = modalElement.querySelectorAll('[data-unsaved-choice]');
+      var finished = false;
+
+      function setButtonsDisabled(disabled) {
+        buttons.forEach(function (button) { button.disabled = disabled; });
+      }
+
+      function finish(result) {
+        if (finished) return;
+        finished = true;
+        buttons.forEach(function (button) { button.onclick = null; });
+        modal.hide();
+        window.setTimeout(function () {
+          if (priorFocus && typeof priorFocus.focus === 'function') priorFocus.focus();
+        }, 0);
+        resolve(result);
+      }
+
+      buttons.forEach(function (button) {
+        button.onclick = function () {
+          var choice = button.getAttribute('data-unsaved-choice');
+          if (choice === 'stay') {
+            finish(false);
+            return;
+          }
+          if (choice === 'discard') {
+            var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
+            var sectionDiscarded = discardSectionChanges();
+            if (interviewDiscarded && sectionDiscarded) {
+              finish(true);
+            } else if (errorBox) {
+              errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
+              errorBox.classList.remove('d-none');
+            }
+            return;
+          }
+
+          setButtonsDisabled(true);
+          saveCurrentSectionFileIfDirty()
+            .then(function (sectionSaved) {
+              if (!sectionSaved) return false;
+              return saveCurrentBlockIfDirty();
+            })
+            .then(function (saved) {
+              if (saved) {
+                finish(true);
+                return;
+              }
+              setButtonsDisabled(false);
+              if (errorBox) {
+                errorBox.textContent = 'The changes could not be saved. Correct the error or choose Stay.';
+                errorBox.classList.remove('d-none');
+              }
+            })
+            .catch(function (error) {
+              setButtonsDisabled(false);
+              if (errorBox) {
+                errorBox.textContent = error && error.message ? error.message : 'The changes could not be saved.';
+                errorBox.classList.remove('d-none');
+              }
+            });
+        };
+      });
+
+      modal.show();
     });
+  }
+
+  function deferNavigationForUnsavedChanges(actionLabel, action) {
+    stashCurrentEditorState();
+    if (!hasUnsavedChanges()) return false;
+    promptAndSaveUnsavedChanges(actionLabel).then(function (canContinue) {
+      if (canContinue) action();
+    });
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -4502,7 +4704,7 @@
     if (!isPreview) {
       initMonaco(function () {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+          onChange: function () { markInterviewDirty(); }
         });
       });
     } else if (!isMdPreview) {
@@ -4588,7 +4790,7 @@
       canvasContent.innerHTML = html;
       initMonaco(function () {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+          onChange: function () { markInterviewDirty(); }
         });
       });
       return;
@@ -4738,11 +4940,11 @@
     initMonaco(function () {
       if (state.questionEditMode === 'preview') {
         createMonacoEditor('code-monaco', codeText, 'python', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+          onChange: function () { markInterviewDirty(); }
         });
       } else {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+          onChange: function () { markInterviewDirty(); }
         });
       }
     });
@@ -4833,7 +5035,7 @@
     if (state.questionEditMode !== 'preview') {
       initMonaco(function () {
         createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+          onChange: function () { markInterviewDirty(); }
         });
       });
       return;
@@ -4865,7 +5067,7 @@
 
     initMonaco(function () {
       createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-        onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+        onChange: function () { markInterviewDirty(); }
       });
     });
   }
@@ -5391,7 +5593,7 @@
   function _stashFullYamlContent() {
     if (state.canvasMode !== 'full-yaml') return;
     var content = getMonacoValue('full-yaml-monaco');
-    if (content) {
+    if (content !== undefined && content !== null) {
       state.fullYamlStash[state.fullYamlTab] = content;
     }
   }
@@ -5452,7 +5654,9 @@
     }
 
     initMonaco(function () {
-      createMonacoEditor(editorId, content, 'yaml');
+      createMonacoEditor(editorId, content, 'yaml', {
+        onChange: function () { markInterviewDirty(); }
+      });
     });
   }
 
@@ -5971,14 +6175,17 @@
           else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) language = 'yaml';
           else if (lowerName.endsWith('.csv')) language = 'plaintext';
           initMonaco(function () {
+            state.sectionSavedContent[sectionSnapshotKey()] = text;
             createMonacoEditor('section-file-monaco', text, language, {
               onChange: function () {
                 state.sectionDirty = true;
                 var saveBtn = document.getElementById('save-section-file');
                 if (saveBtn) saveBtn.disabled = false;
+                updateTopbarSaveState();
               }
             });
             state.sectionDirty = false;
+            updateTopbarSaveState();
           });
         });
     } else if (fileMeta.preview_kind === 'docx') {
@@ -6183,21 +6390,26 @@
     if (validationItem) {
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
-        var validationBlock = getBlockById(validationBlockId);
-        if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
-          state.jumpTarget = 'all';
-          $$('.editor-jump-item').forEach(function (j) {
-            j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
-          });
+        function openValidationBlock() {
+          var validationBlock = getBlockById(validationBlockId);
+          if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
+            state.jumpTarget = 'all';
+            $$('.editor-jump-item').forEach(function (j) {
+              j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
+            });
+          }
+          state.currentView = 'interview';
+          state.validationOpen = true;
+          state.selectedBlockId = validationBlockId;
+          dirtyState.setActiveBlock(validationBlockId);
+          var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+          if (interviewTab) setActiveTopTab(interviewTab);
+          renderOutline();
+          renderCanvas();
+          renderValidationDrawer();
         }
-        state.currentView = 'interview';
-        state.validationOpen = true;
-        state.selectedBlockId = validationBlockId;
-        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-        if (interviewTab) setActiveTopTab(interviewTab);
-        renderOutline();
-        renderCanvas();
-        renderValidationDrawer();
+        if (validationBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open the reported block', openValidationBlock)) return;
+        openValidationBlock();
       }
       return;
     }
@@ -6211,30 +6423,38 @@
 
     // View tabs
     if (topTab) {
-      if (topTab.getAttribute('data-view') !== state.currentView && blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.currentView = topTab.getAttribute('data-view');
-      setActiveTopTab(topTab);
-      if (state.currentView === 'interview') {
-        state.canvasMode = state.project ? 'question' : 'project-selector';
-        if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
-          state.selectedBlockId = getDefaultVisibleBlockId();
+      var nextView = topTab.getAttribute('data-view');
+      function changeTopView() {
+        stashCurrentEditorState();
+        state.currentView = nextView;
+        setActiveTopTab(topTab);
+        if (state.currentView === 'interview') {
+          state.canvasMode = state.project ? 'question' : 'project-selector';
+          if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+            state.selectedBlockId = getDefaultVisibleBlockId();
+          }
+          renderOutline();
+          renderCanvas();
+        } else {
+          renderOutline();
+          renderCanvas();
+          loadSectionFiles(state.currentView);
         }
-        renderOutline();
-        renderCanvas();
-      } else {
-        renderOutline();
-        renderCanvas();
-        loadSectionFiles(state.currentView);
       }
+      if (nextView !== state.currentView && deferNavigationForUnsavedChanges('switch views', changeTopView)) return;
+      changeTopView();
       return;
     }
 
     // Project selector cards
     if (projectCardBtn) {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      openProject(projectCardBtn.getAttribute('data-project-card'));
+      var cardProject = projectCardBtn.getAttribute('data-project-card');
+      function openCardProject() {
+        stashCurrentEditorState();
+        openProject(cardProject);
+      }
+      if (cardProject !== state.project && deferNavigationForUnsavedChanges('switch projects', openCardProject)) return;
+      openCardProject();
       return;
     }
     if (target.id === 'open-new-project-card') {
@@ -6245,22 +6465,25 @@
 
     // Jump targets
     if (jumpItem) {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
       var jump = jumpItem.getAttribute('data-jump');
-      $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
-      // Only visually activate direct jump buttons, not dropdown items
-      if (jumpItem.classList.contains('editor-jump-item')) {
-        jumpItem.classList.add('active');
+      function changeJumpTarget() {
+        stashCurrentEditorState();
+        $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
+        // Only visually activate direct jump buttons, not dropdown items
+        if (jumpItem.classList.contains('editor-jump-item')) {
+          jumpItem.classList.add('active');
+        }
+        state.jumpTarget = jump;
+        state.canvasMode = 'question';
+        state.selectedBlockId = getDefaultVisibleBlockId();
+        state.currentView = 'interview';
+        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab) setActiveTopTab(interviewTab);
+        renderCanvas();
+        renderOutline();
       }
-      state.jumpTarget = jump;
-      state.canvasMode = 'question';
-      state.selectedBlockId = getDefaultVisibleBlockId();
-      state.currentView = 'interview';
-      var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab) setActiveTopTab(interviewTab);
-      renderCanvas();
-      renderOutline();
+      if (jump !== state.jumpTarget && deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) return;
+      changeJumpTarget();
       return;
     }
 
@@ -6270,11 +6493,29 @@
       if (!isInterviewView()) {
         var viewForFile = state.currentView;
         var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
-        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && blockUnsavedSectionNavigation()) return;
+        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && deferNavigationForUnsavedChanges('open another file', function () {
+          state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+          renderOutline();
+          renderCanvas();
+        })) return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
       } else {
+        var nextBlockId = outlineItem.getAttribute('data-block-id');
+        if (nextBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open another block', function () {
+          state.selectedBlockId = nextBlockId;
+          dirtyState.setActiveBlock(nextBlockId);
+          state.canvasMode = 'question';
+          state.questionEditMode = 'preview';
+          state.questionBlockTab = 'screen';
+          state.advancedOpen = false;
+          state.advancedShowMore = false;
+          state.markdownPreviewMode = false;
+          renderOutline();
+          renderCanvas();
+        })) return;
         stashCurrentEditorState();
-        state.selectedBlockId = outlineItem.getAttribute('data-block-id');
+        state.selectedBlockId = nextBlockId;
+        dirtyState.setActiveBlock(nextBlockId);
         state.canvasMode = 'question';
         state.questionEditMode = 'preview';
         state.questionBlockTab = 'screen';
@@ -6449,6 +6690,9 @@
     if (orderBlockBtn) {
       var nextOrderBlockId = orderBlockBtn.getAttribute('data-order-block-id');
       if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId) return;
+      if (deferNavigationForUnsavedChanges('open another order block', function () {
+        enterOrderBuilder(nextOrderBlockId, 'order-switcher');
+      })) return;
       stashCurrentEditorState();
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
@@ -6456,13 +6700,16 @@
 
     // Top action buttons
     if (uiAction === 'open-project-selector') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.canvasMode = 'project-selector';
-      state.currentView = 'interview';
-      var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab0) setActiveTopTab(interviewTab0);
-      renderCanvas();
+      function showProjectSelector() {
+        stashCurrentEditorState();
+        state.canvasMode = 'project-selector';
+        state.currentView = 'interview';
+        var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab0) setActiveTopTab(interviewTab0);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('open the project selector', showProjectSelector)) return;
+      showProjectSelector();
       return;
     }
 
@@ -6730,33 +6977,46 @@
     }
 
     if (target.id === 'btn-new-project') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.canvasMode = 'new-project';
-      state.currentView = 'interview';
-      var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab1) setActiveTopTab(interviewTab1);
-      renderCanvas();
+      function showNewProject() {
+        stashCurrentEditorState();
+        state.canvasMode = 'new-project';
+        state.currentView = 'interview';
+        var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab1) setActiveTopTab(interviewTab1);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('create another project', showNewProject)) return;
+      showNewProject();
       return;
     }
     if (uiAction === 'open-full-yaml') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      _stashFullYamlContent();
-      state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
-      state.currentView = 'interview';
-      var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab2) setActiveTopTab(interviewTab2);
-      renderCanvas();
+      function toggleFullYaml() {
+        stashCurrentEditorState();
+        _stashFullYamlContent();
+        state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
+        state.currentView = 'interview';
+        var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab2) setActiveTopTab(interviewTab2);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('switch editors', toggleFullYaml)) return;
+      toggleFullYaml();
       return;
     }
     if (orderBuilderBtn) {
-      enterOrderBuilder(state.activeOrderBlockId || getDefaultOrderBlockId(), 'topbar-order-button');
+      var requestedOrderBlock = state.activeOrderBlockId || getDefaultOrderBlockId();
+      if (deferNavigationForUnsavedChanges('open the interview order', function () {
+        enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
+      })) return;
+      enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
       return;
     }
     if (target.id === 'btn-save-file') {
-      if (!state.filename) return;
-      saveCurrentBlockIfDirty();
+      if (!isInterviewView()) {
+        saveCurrentSectionFileIfDirty();
+      } else if (state.filename) {
+        saveCurrentBlockIfDirty();
+      }
       return;
     }
     if (target.id === 'gen-block-id') {
@@ -6864,7 +7124,7 @@
           fields: res.data.fields,
           continue_button_field: currentQuestionBlock.data['continue button field'] || '',
         });
-        state.dirty = true;
+        markInterviewDirty('ai-generate-fields');
         renderCanvas();
       }).catch(function (err) {
         if (isSupersededRequest(err)) return;
@@ -6877,23 +7137,28 @@
     if (target.id === 'code-to-order-builder') {
       var selectedCodeBlock = getSelectedBlock();
       if (!selectedCodeBlock || selectedCodeBlock.type !== 'code') return;
-      syncActiveOrderStepMap();
-      loadOrderStepsForBlock(selectedCodeBlock.id).then(function () {
-        state.canvasMode = 'order-builder';
-        renderCanvas();
-      });
+      function openCodeOrderBuilder() {
+        syncActiveOrderStepMap();
+        loadOrderStepsForBlock(selectedCodeBlock.id).then(function () {
+          state.canvasMode = 'order-builder';
+          renderCanvas();
+        });
+      }
+      if (deferNavigationForUnsavedChanges('open the order builder', openCodeOrderBuilder)) return;
+      openCodeOrderBuilder();
       return;
     }
 
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
       var nextEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
-      saveCurrentBlockIfDirty().then(function (saved) {
-        if (!saved) return;
+      function changeEditMode() {
         state.questionEditMode = nextEditMode;
         state.markdownPreviewMode = false;
         renderCanvas();
-      });
+      }
+      if (deferNavigationForUnsavedChanges('switch editing modes', changeEditMode)) return;
+      changeEditMode();
       return;
     }
 
@@ -6904,16 +7169,16 @@
       var qTab = questionModeButton.getAttribute('data-question-tab');
       var isPreviewTab = questionModeButton.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
-        saveCurrentBlockIfDirty().then(function (saved) {
-          if (!saved) return;
+        function openQuestionYaml() {
           state.questionEditMode = 'yaml';
           state.markdownPreviewMode = false;
           renderCanvas();
-        });
+        }
+        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionYaml)) return;
+        openQuestionYaml();
         return;
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
-        saveCurrentBlockIfDirty().then(function (saved) {
-          if (!saved) return;
+        function openQuestionPreviewMode() {
           state.questionEditMode = 'preview';
           if (qTab === 'screen' || qTab === 'options') {
             state.questionBlockTab = qTab;
@@ -6926,7 +7191,9 @@
             state.markdownPreviewMode = true;
           }
           renderCanvas();
-        });
+        }
+        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionPreviewMode)) return;
+        openQuestionPreviewMode();
         return;
       }
       if (qMode === 'preview') {
@@ -6971,7 +7238,7 @@
             typeBlock.data.fields[typeFi].datatype = nextType;
           }
         }
-        state.dirty = true;
+        markInterviewDirty('set-field-datatype:' + typeFi);
         renderCanvas();
       }
       return;
@@ -7025,8 +7292,7 @@
           reviewBlock.data.review.push({ Edit: fieldName, button: '${ showifdef("' + fieldName.replace(/"/g, '\\"') + '") }' });
         }
         state.openReviewItemIndex = reviewBlock.data.review.length - 1;
-        state.dirty = true;
-        updateTopbarSaveState();
+        markInterviewDirty('add-review-item');
         renderCanvas();
       }
       return;
@@ -7040,8 +7306,7 @@
         stashReviewItemSnippets(removeReviewBlock);
         removeReviewBlock.data.review.splice(removeRi, 1);
         state.openReviewItemIndex = null;
-        state.dirty = true;
-        updateTopbarSaveState();
+        markInterviewDirty('remove-review-item:' + removeRi);
         renderCanvas();
       }
       return;
@@ -7074,24 +7339,24 @@
         if (_openFieldModsPanels[kFi]) modsPanel.removeAttribute('hidden'); else modsPanel.setAttribute('hidden', '');
       }
       kebabBtn.setAttribute('aria-expanded', _openFieldModsPanels[kFi] ? 'true' : 'false');
-      state.dirty = true;
       return;
     }
 
     if (target.id === 'save-block-btn') {
       var block = getSelectedBlock();
       if (!block) return;
+      var originalBlockId = block.id;
       var yamlVal = getBlockYamlForSave(block);
 
       apiPost('/api/block', {
         project: state.project,
         filename: state.filename,
-        block_id: block.id,
+        block_id: originalBlockId,
         block_yaml: yamlVal,
       }).then(function (res) {
         if (res.success && res.data) {
-          var keepBlockId = res.data.saved_block_id || block.id;
-          refreshFromFileResponse(res.data);
+          var keepBlockId = res.data.saved_block_id || originalBlockId;
+          refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
           state.selectedBlockId = keepBlockId;
           renderOutline();
           renderCanvas();
@@ -7121,18 +7386,27 @@
 
     // Full YAML tabs
     if (target.matches('[data-yaml-tab]')) {
-      _stashFullYamlContent();
-      state.fullYamlTab = target.getAttribute('data-yaml-tab');
-      renderCanvas();
+      var nextYamlTab = target.getAttribute('data-yaml-tab');
+      function switchYamlTab() {
+        _stashFullYamlContent();
+        state.fullYamlTab = nextYamlTab;
+        renderCanvas();
+      }
+      if (nextYamlTab !== state.fullYamlTab && deferNavigationForUnsavedChanges('switch source tabs', switchYamlTab)) return;
+      switchYamlTab();
       return;
     }
     if (target.id === 'back-to-question') {
-      _stashFullYamlContent();
-      var returnMode = state._prevCanvasMode || 'question';
-      state._prevCanvasMode = null;
-      state.canvasMode = returnMode;
-      renderOutline();
-      renderCanvas();
+      function leaveFullYaml() {
+        _stashFullYamlContent();
+        var returnMode = state._prevCanvasMode || 'question';
+        state._prevCanvasMode = null;
+        state.canvasMode = returnMode;
+        renderOutline();
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('return to graphical editing', leaveFullYaml)) return;
+      leaveFullYaml();
       return;
     }
     if (target.id === 'save-full-yaml') {
@@ -7145,7 +7419,11 @@
           filename: state.filename,
           block_id: state.activeOrderBlockId,
           block_yaml: yamlContent,
-        }).then(function (res) { if (res.success && res.data) refreshFromFileResponse(res.data); });
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data, { savedBlockId: state.activeOrderBlockId });
+          }
+        });
       } else if (state.fullYamlTab === 'metadata') {
         apiPost('/api/file/metadata', {
           project: state.project,
@@ -7164,7 +7442,7 @@
         });
       } else {
         apiPost('/api/file', { project: state.project, filename: state.filename, content: yamlContent })
-          .then(function (res) { if (res.success) { state.dirty = false; loadFile(); } });
+          .then(function (res) { if (res.success) loadFile(); });
       }
       return;
     }
@@ -7180,26 +7458,35 @@
       return;
     }
     if (target.id === 'order-to-raw') {
-      stashCurrentEditorState();
-      state._prevCanvasMode = 'order-builder';
-      state.canvasMode = 'full-yaml';
-      state.fullYamlTab = 'order';
-      renderCanvas();
+      function openRawOrder() {
+        stashCurrentEditorState();
+        state._prevCanvasMode = 'order-builder';
+        state.canvasMode = 'full-yaml';
+        state.fullYamlTab = 'order';
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('switch editing modes', openRawOrder)) return;
+      openRawOrder();
       return;
     }
     if (target.id === 'order-back-to-code') {
-      stashCurrentEditorState();
-      if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
-      state.canvasMode = 'question';
-      state.questionEditMode = 'preview';
-      renderOutline();
-      renderCanvas();
+      function returnToOrderCode() {
+        stashCurrentEditorState();
+        if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
+        dirtyState.setActiveBlock(state.selectedBlockId);
+        state.canvasMode = 'question';
+        state.questionEditMode = 'preview';
+        renderOutline();
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('return to the code block', returnToOrderCode)) return;
+      returnToOrderCode();
       return;
     }
     if (target.id === 'save-order-steps') {
       syncActiveOrderStepMap();
       apiPost('/api/order', { project: state.project, filename: state.filename, order_block_id: state.activeOrderBlockId, steps: state.orderSteps })
-        .then(function (res) { if (res.success) { state.orderDirty = false; state.dirty = false; loadFile(); } });
+        .then(function (res) { if (res.success) { state.orderDirty = false; loadFile(); } });
       return;
     }
 
@@ -7253,11 +7540,16 @@
       } else if (action === 'go-to-block') {
         var targetBlock = findBlockByInvoke(stepRecord.step);
         if (targetBlock) {
-          _inlineEditStepId = null;
-          state.canvasMode = 'question';
-          state.selectedBlockId = targetBlock.id;
-          renderOutline();
-          renderCanvas();
+          function openOrderTargetBlock() {
+            _inlineEditStepId = null;
+            state.canvasMode = 'question';
+            state.selectedBlockId = targetBlock.id;
+            dirtyState.setActiveBlock(targetBlock.id);
+            renderOutline();
+            renderCanvas();
+          }
+          if (deferNavigationForUnsavedChanges('open the referenced block', openOrderTargetBlock)) return;
+          openOrderTargetBlock();
         } else {
           var invokeLabel = stepRecord.step.invoke || stepRecord.step.value || stepRecord.step.summary || '';
           var inOther = invokeLabel && state.symbolCatalog && state.symbolCatalog.all.indexOf(invokeLabel) !== -1;
@@ -7286,7 +7578,7 @@
         if (!blk.data.fields) blk.data.fields = [];
         blk.data.fields.push({ label: 'New field', field: 'new_variable' });
         _openFieldModsPanels = {};
-        state.dirty = true;
+        markInterviewDirty('add-field');
         renderCanvas();
       }
       return;
@@ -7300,7 +7592,7 @@
         syncFieldsToData(blk2);
         blk2.data.fields.splice(fi, 1);
         _openFieldModsPanels = {};
-        state.dirty = true;
+        markInterviewDirty('remove-field:' + fi);
         renderCanvas();
       }
       return;
@@ -7322,7 +7614,7 @@
           using_args: '',
           is_document_bundle: false,
         });
-        state.dirty = true;
+        markInterviewDirty('add-object');
         renderCanvas();
       }
       return;
@@ -7335,7 +7627,7 @@
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
         if (Array.isArray(blk4.editor_objects)) blk4.editor_objects.splice(oi, 1);
-        state.dirty = true;
+        markInterviewDirty('remove-object:' + oi);
         renderCanvas();
       }
       return;
@@ -7492,17 +7784,15 @@
         target.id === 'order-inline-edit-value' || target.id === 'order-add-invoke' ||
         target.id === 'order-add-condition' || target.id === 'order-add-value' ||
         target.id === 'order-add-code') {
-      state.dirty = true;
+      markInterviewDirty();
       if (target.id && target.id.indexOf('order-') === 0) state.orderDirty = true;
-      updateTopbarSaveState();
     }
   });
 
   document.addEventListener('change', function (e) {
     var target = e.target;
     if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
-      state.dirty = true;
-      updateTopbarSaveState();
+      markInterviewDirty();
       return;
     }
     if (target.id === 'section-upload-input') {
@@ -7558,7 +7848,7 @@
       var blk = getSelectedBlock();
       if (blk) {
         syncFieldsToData(blk);
-        state.dirty = true;
+        markInterviewDirty('set-field-type');
         renderCanvas();
       }
       return;
@@ -7567,7 +7857,7 @@
       var blk2 = getSelectedBlock();
       if (blk2) {
         syncFieldsToData(blk2);
-        state.dirty = true;
+        markInterviewDirty('set-enable-if');
         renderCanvas();
       }
       return;
@@ -7778,27 +8068,42 @@
   // -------------------------------------------------------------------------
   projectSelect.addEventListener('change', function () {
     var nextProject = projectSelect.value;
-    if (nextProject !== state.project && blockUnsavedSectionNavigation()) {
+    function changeProject() {
+      projectSelect.value = nextProject;
+      stashCurrentEditorState();
+      state.project = nextProject || null;
+      state.selectedBlockId = null;
+      dirtyState.activate(null, null);
+      if (!state.project) {
+        state.canvasMode = 'project-selector';
+        renderCanvas();
+        return;
+      }
+      state.canvasMode = 'question';
+      loadFiles();
+    }
+    if (nextProject !== state.project && deferNavigationForUnsavedChanges('switch projects', changeProject)) {
       projectSelect.value = state.project || '';
       return;
     }
-    stashCurrentEditorState();
-    state.project = nextProject || null;
-    state.selectedBlockId = null;
-    if (!state.project) {
-      state.canvasMode = 'project-selector';
-      renderCanvas();
-      return;
-    }
-    state.canvasMode = 'question';
-    loadFiles();
+    changeProject();
   });
 
   fileSelect.addEventListener('change', function () {
-    stashCurrentEditorState();
-    state.filename = fileSelect.value;
-    state.selectedBlockId = null;
-    loadFile();
+    var nextFilename = fileSelect.value;
+    function changeFile() {
+      fileSelect.value = nextFilename;
+      stashCurrentEditorState();
+      state.filename = nextFilename;
+      state.selectedBlockId = null;
+      dirtyState.activate(state.filename, null);
+      loadFile();
+    }
+    if (nextFilename !== state.filename && deferNavigationForUnsavedChanges('open another file', changeFile)) {
+      fileSelect.value = state.filename || '';
+      return;
+    }
+    changeFile();
   });
 
   searchInput.addEventListener('input', function () {
@@ -7833,7 +8138,7 @@
   document.addEventListener('scroll', hideTypeaheadMenu, true);
   window.addEventListener('beforeunload', function (e) {
     stashCurrentEditorState();
-    if (!state.dirty && !state.sectionDirty) return;
+    if (!dirtyState.hasDirty(state.filename) && !state.sectionDirty) return;
     e.preventDefault();
     e.returnValue = '';
   });
