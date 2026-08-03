@@ -144,12 +144,14 @@ buttons:
   - Restart: restart
 ---
 event: exit_unknown_file_type
+id: exit unknown file type
 question: |
   Is this a valid PDF or DOCX file?
 subquestion: |
   The file you uploaded doesn't appear to be a valid DOCX or PDF document.
 ---
 event: exit_invalid_pdf
+id: exit invalid pdf
 question: |
   Is this a valid PDF?
 subquestion: |
@@ -165,6 +167,7 @@ buttons:
   - Restart: restart
 ---
 event: exit_PSEOF_error
+id: exit pseof error
 question: |
   Something is wrong with the internals of this PDF
 subquestion: |
@@ -177,6 +180,7 @@ buttons:
   - Restart: restart
 ---
 event: exit_invalid_docx
+id: exit invalid docx
 question: |
   Is this a valid DOCX file?
 subquestion: |
@@ -243,6 +247,7 @@ code: |
   ]
 ---
 event: empty_pdf
+id: empty pdf
 question: |
   % if interview.get_file_types() == "pdf":
   You uploaded a PDF without any fields
@@ -267,6 +272,7 @@ subquestion: |
 buttons:
   - Restart: restart
 ---
+id: non-descriptive fields
 question: Some of the fields in your template are not descriptive
 subquestion: |
   Some of your field names can't be turned into valid variable names for a Docassemble interview.
@@ -286,6 +292,7 @@ buttons:
         non_descriptive_field_name = "ignore"
 ---
 event: parsing_exception
+id: parsing exception
 question: ${ parsing_ex.main_issue }
 subquestion: |
   ${ parsing_ex.description }
@@ -363,7 +370,7 @@ fields:
       - There are no unexpected fields in the table: no_unexpected_fields
       - All the reserved fields are bolded as I expected: correct_reserved_fields    
     none of the above: False
-  - Are you okay with fixing the shown warnings yourself?: will_handle_errors
+  - Will you fix the shown warnings yourself? (required): will_handle_errors
     datatype: yesnoradio
     required: True
     validate: |
@@ -641,7 +648,7 @@ subquestion: |
   ---------|---------
   **bold** | Handled by a question in our question library. You can choose whether to use our default question later.
   :person: | Can be optionally handled as an object representing a person
-  `red`    | A word with a reserved meaning in Docassemble, and will not have a question associated with it
+  `Code formatting` | A word with a reserved meaning in Docassemble, and will not have a question associated with it
   
   #### Preview  
   Look over the PDF preview of your file below. Make sure that the fonts,

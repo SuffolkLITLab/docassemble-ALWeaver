@@ -1,5 +1,6 @@
 ---
 event: configure_weaver
+id: configure weaver
 question: |
   Configure Weaver
 subquestion: |
