@@ -36,7 +36,7 @@ class TestEditorUtilsPersistence(unittest.TestCase):
         ):
             result = playground_get_variables(7, "ProjectA", "main.yml")
 
-        self.assertEqual(result["top_level"], ["users"])
+        self.assertEqual(result["top_level_names"], ["users"])
         self.assertEqual(
             result["symbol_groups"]["yaml_files"], ["included.yaml", "main.yml"]
         )
@@ -48,13 +48,16 @@ class TestEditorUtilsPersistence(unittest.TestCase):
         functions_mod.url_of = Mock(return_value="/interview")
         base_mod.functions = functions_mod
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "docassemble.base": base_mod,
-                "docassemble.base.functions": functions_mod,
-            },
-        ), patch.object(docassemble, "base", base_mod, create=True):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "docassemble.base": base_mod,
+                    "docassemble.base.functions": functions_mod,
+                },
+            ),
+            patch.object(docassemble, "base", base_mod, create=True),
+        ):
             result = playground_interview_url(7, "ProjectA", "interview.yml")
 
         self.assertEqual(result, "/interview")
