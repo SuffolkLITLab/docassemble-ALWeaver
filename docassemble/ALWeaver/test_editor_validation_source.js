@@ -36,6 +36,20 @@ assert.strictEqual(
   original.replace('question: Saved question', 'question: Unsaved question')
 );
 
+const crlfOriginal = original.replace(/\n/g, '\r\n');
+const crlfBlockResult = validationSource.buildValidationSource({
+  rawYaml: crlfOriginal,
+  blocks,
+  blockReplacements: {
+    intro: '# keep this comment\nid: intro\nquestion: Unsaved question',
+  },
+});
+assert.strictEqual(
+  crlfBlockResult,
+  crlfOriginal.replace('question: Saved question', 'question: Unsaved question')
+);
+assert.ok(!/(^|[^\r])\n/.test(crlfBlockResult), 'validation snapshot contains mixed LF line endings');
+
 const metadataResult = validationSource.buildValidationSource({
   rawYaml: original,
   blocks,

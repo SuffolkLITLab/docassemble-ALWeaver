@@ -8,7 +8,8 @@
   'use strict';
 
   function escapeYamlStr(str) {
-    if (!str) return str;
+    if (str === undefined || str === null) return str;
+    str = String(str);
     if (str.indexOf('\n') !== -1) {
       return '|\n  ' + str.replace(/\n/g, '\n  ');
     }

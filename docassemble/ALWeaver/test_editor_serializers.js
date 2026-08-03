@@ -73,6 +73,11 @@ function serialize(type, modifiers) {
 }
 
 assert.strictEqual(serializers.escapeYamlStr('plain'), 'plain');
+assert.strictEqual(serializers.escapeYamlStr(''), '""');
+assert.strictEqual(serializers.escapeYamlStr(0), '0');
+assert.strictEqual(serializers.escapeYamlStr(false), 'false');
+assert.strictEqual(serializers.escapeYamlStr(null), null);
+assert.strictEqual(serializers.escapeYamlStr(undefined), undefined);
 assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
 assert.strictEqual(serializers.escapeYamlStr('two\nlines'), '|\n  two\n  lines');
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');

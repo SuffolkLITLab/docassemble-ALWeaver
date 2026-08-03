@@ -28,8 +28,13 @@
     var end = lineStartOffset(source, endLine + 1);
     var original = source.slice(start, end);
     var replacement = String(text === undefined || text === null ? '' : text);
-    if (/\r?\n$/.test(original) && !/\r?\n$/.test(replacement)) {
-      replacement += original.endsWith('\r\n') ? '\r\n' : '\n';
+    var newline = original.indexOf('\r\n') !== -1 ||
+      (original.indexOf('\n') === -1 && source.indexOf('\r\n') !== -1)
+      ? '\r\n'
+      : '\n';
+    replacement = replacement.replace(/\r\n|\r|\n/g, newline);
+    if (/(?:\r\n|\r|\n)$/.test(original) && !/(?:\r\n|\r|\n)$/.test(replacement)) {
+      replacement += newline;
     }
     return { start: start, end: end, text: replacement };
   }
