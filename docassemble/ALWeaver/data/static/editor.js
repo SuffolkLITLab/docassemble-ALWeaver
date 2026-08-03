@@ -159,14 +159,24 @@
   }
 
   function updateTopbarSaveState() {
-    var btn = document.getElementById('btn-save-file');
-    if (!btn) return;
+    var buttons = document.querySelectorAll('.js-save-file-btn');
+    if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
     var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty;
-    btn.disabled = !isDirty;
-    var badge = btn.querySelector('.js-save-badge');
-    if (badge) {
-      badge.classList.toggle('d-none', !isDirty);
+    buttons.forEach(function (btn) {
+      btn.disabled = !isDirty;
+      var badge = btn.querySelector('.js-save-badge');
+      if (badge) {
+        badge.classList.toggle('d-none', !isDirty);
+      }
+    });
+  }
+
+  function saveCurrentFile() {
+    if (!isInterviewView()) {
+      saveCurrentSectionFileIfDirty();
+    } else if (state.filename) {
+      saveCurrentBlockIfDirty();
     }
   }
 
@@ -780,6 +790,17 @@
     return Boolean(error && (
       error.code === 'stale_response' || error.code === 'request_cancelled'
     ));
+  }
+
+  // Navigation-driven loads are aborted by design when the user clicks through
+  // tabs faster than the server answers, and every other failure has already
+  // been surfaced by the client's onError hook. Terminating those chains keeps
+  // rapid clicking from filling the console with unhandled rejections.
+  function swallowNavigationLoadError(error) {
+    if (isSupersededRequest(error)) return;
+    if (window.console && typeof window.console.debug === 'function') {
+      window.console.debug('Editor background load did not complete:', error);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -3257,7 +3278,8 @@
           renderOutline();
           renderCanvas();
         }
-      });
+      })
+      .catch(swallowNavigationLoadError);
   }
 
   function loadFiles() {
@@ -3296,7 +3318,8 @@
           loadSectionFiles('static');
           loadSectionFiles('data');
         });
-      });
+      })
+      .catch(swallowNavigationLoadError);
   }
 
   function loadFile() {
@@ -3907,12 +3930,36 @@
     });
   }
 
+  // The unsaved-changes modal is `data-bs-backdrop="static"` with no close
+  // button and no keyboard dismiss, so the three choice buttons are the only
+  // way out of it. Two things must never happen:
+  //   1. A second prompt must not overwrite the first prompt's button
+  //      handlers. Every navigation gesture opens this modal, so clicking
+  //      through tabs quickly re-enters here before the user has answered.
+  //   2. hide() must not be swallowed. Bootstrap's show() and hide() both
+  //      return early while the modal is mid-transition, so a choice clicked
+  //      during the ~300ms fade nulls out every handler and then fails to
+  //      close, leaving a modal nothing on the page can dismiss.
+  var _unsavedPromptPending = null;
+
+  function hideModalWhenSettled(modal, modalElement) {
+    modal.hide();
+    if (!modalElement.classList.contains('show')) return;
+    // hide() was dropped because the show transition is still running; retry
+    // once Bootstrap reports the modal fully shown.
+    modalElement.addEventListener('shown.bs.modal', function retry() {
+      modalElement.removeEventListener('shown.bs.modal', retry);
+      modal.hide();
+    });
+  }
+
   function promptAndSaveUnsavedChanges(actionLabel) {
     stashCurrentEditorState();
     if (!hasUnsavedChanges()) return Promise.resolve(true);
     var modalElement = document.getElementById('unsaved-changes-modal');
     var modal = getOrCreateBootstrapModal('unsaved-changes-modal');
     if (!modalElement || !modal) return Promise.resolve(false);
+    if (_unsavedPromptPending) return _unsavedPromptPending;
 
     var priorFocus = document.activeElement;
     var message = modalElement.querySelector('#unsaved-changes-message');
@@ -3926,7 +3973,7 @@
       errorBox.classList.add('d-none');
     }
 
-    return new Promise(function (resolve) {
+    var prompt = new Promise(function (resolve) {
       var buttons = modalElement.querySelectorAll('[data-unsaved-choice]');
       var finished = false;
 
@@ -3937,8 +3984,11 @@
       function finish(result) {
         if (finished) return;
         finished = true;
+        _unsavedPromptPending = null;
+        modalElement.removeEventListener('hidden.bs.modal', onHiddenWithoutChoice);
         buttons.forEach(function (button) { button.onclick = null; });
-        modal.hide();
+        setButtonsDisabled(false);
+        hideModalWhenSettled(modal, modalElement);
         window.setTimeout(function () {
           if (priorFocus && typeof priorFocus.focus === 'function') priorFocus.focus();
         }, 0);
@@ -3991,15 +4041,33 @@
         };
       });
 
+      // A dismissal that never went through a choice button still has to
+      // settle the prompt, or the pending guard above would block every later
+      // navigation for the rest of the session. Treat it as "Stay".
+      function onHiddenWithoutChoice() { finish(false); }
+      modalElement.addEventListener('hidden.bs.modal', onHiddenWithoutChoice);
+
       modal.show();
     });
+    _unsavedPromptPending = prompt;
+    return prompt;
   }
+
+  var _pendingNavigationAction = null;
 
   function deferNavigationForUnsavedChanges(actionLabel, action) {
     stashCurrentEditorState();
     if (!hasUnsavedChanges()) return false;
+    // Clicking through tabs quickly stacks several navigations behind one
+    // prompt. Keep only the most recent one: it is the tab the user actually
+    // asked for, and replaying the earlier ones just churns renders.
+    var alreadyPrompting = Boolean(_pendingNavigationAction);
+    _pendingNavigationAction = action;
+    if (alreadyPrompting) return true;
     promptAndSaveUnsavedChanges(actionLabel).then(function (canContinue) {
-      if (canContinue) action();
+      var pendingAction = _pendingNavigationAction;
+      _pendingNavigationAction = null;
+      if (canContinue && pendingAction) pendingAction();
     });
     return true;
   }
@@ -6126,8 +6194,14 @@
     canvasContent.innerHTML = html;
 
     if (editable) {
+      // Remember which file this request belongs to. Clicking through tabs
+      // quickly can land the response after the editor has moved on, and
+      // recording this file's text under whatever is selected by then would
+      // corrupt the dirty-state snapshot for the other file.
+      var requestedSnapshotKey = sectionSnapshotKey();
       apiGet('/api/section-file?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename))
         .then(function (res) {
+          if (sectionSnapshotKey() !== requestedSnapshotKey) return;
           var text = (res && res.success && res.data) ? String(res.data.content || '') : '';
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
@@ -6152,7 +6226,8 @@
             state.sectionDirty = false;
             updateTopbarSaveState();
           });
-        });
+        })
+        .catch(swallowNavigationLoadError);
     } else if (fileMeta.preview_kind === 'docx') {
       loadDocxPreview(view, fileMeta.filename);
     }
@@ -6208,6 +6283,15 @@
 
   document.addEventListener('click', function (e) {
     var target = e.target;
+    // Clicking a button whose visible content is a Font Awesome <i> (or a badge
+    // <span>) makes that child the event target, so the many `target.id === ...`
+    // branches below never match. Resolve to the control that carries the id.
+    // Only descendants with no id of their own are promoted, so anything that
+    // identifies itself keeps its identity.
+    if (!target.id) {
+      var controlHost = target.closest('button, a, [role="button"]');
+      if (controlHost) target = controlHost;
+    }
     var actionControl = target.closest('[data-action]');
     var uiAction = actionControl ? actionControl.getAttribute('data-action') : null;
     var topTab = target.closest('.editor-top-tab');
@@ -6988,12 +7072,8 @@
       enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
       return;
     }
-    if (target.id === 'btn-save-file') {
-      if (!isInterviewView()) {
-        saveCurrentSectionFileIfDirty();
-      } else if (state.filename) {
-        saveCurrentBlockIfDirty();
-      }
+    if (uiAction === 'save-file') {
+      saveCurrentFile();
       return;
     }
     if (target.id === 'gen-block-id') {
@@ -7857,6 +7937,12 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') hideTypeaheadMenu();
+    // Ctrl/Cmd+S saves, so authors do not have to find the topbar button or
+    // discover unsaved work only when a navigation prompt stops them.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 's') {
+      e.preventDefault();
+      saveCurrentFile();
+    }
   });
 
   // -------------------------------------------------------------------------

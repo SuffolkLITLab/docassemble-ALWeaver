@@ -33,7 +33,7 @@
         <button type="button" class="btn btn-sm btn-outline-light" data-action="open-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
         <button type="button" class="btn btn-sm btn-outline-light d-none" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart me-1" aria-hidden="true"></i>Inspect</button>
         <button type="button" class="btn btn-sm btn-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
-        <button type="button" class="btn btn-sm btn-outline-light" id="btn-save-file" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-save-badge js-save-badge d-none"></span></button>
+        <button type="button" class="btn btn-sm btn-outline-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
       </div>
       <button type="button" class="btn btn-sm btn-outline-light d-lg-none ms-auto" id="topbar-hamburger" aria-label="Menu"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
     </div>
@@ -53,6 +53,7 @@
         <button type="button" class="btn btn-sm btn-outline-light" data-action="open-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
         <button type="button" class="btn btn-sm btn-outline-light d-none" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart me-1" aria-hidden="true"></i>Inspect</button>
         <button type="button" class="btn btn-sm btn-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
+        <button type="button" class="btn btn-sm btn-outline-light js-save-file-btn" data-action="save-file" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
       </div>
     </div>
   </header>

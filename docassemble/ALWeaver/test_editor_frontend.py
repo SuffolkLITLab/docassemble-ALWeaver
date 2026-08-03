@@ -69,6 +69,46 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
 
+    def test_unsaved_changes_modal_cannot_trap_the_page(self):
+        """The unsaved-changes modal is opened by every navigation gesture and
+        has a static backdrop, no keyboard dismiss and no close button, so the
+        three choice buttons are the only way out. Clicking through tabs
+        quickly re-enters the prompt, and Bootstrap drops both show() and
+        hide() while a modal is mid-transition. Without these guards a choice
+        clicked during the fade nulls out every handler and then fails to
+        close, leaving a modal that nothing on the page can dismiss."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        modal_start = template.index('id="unsaved-changes-modal"')
+        modal_markup = template[modal_start : template.index("<!--", modal_start)]
+        self.assertIn('data-bs-backdrop="static"', modal_markup)
+        self.assertNotIn("data-bs-dismiss", modal_markup)
+
+        self.assertIn("_unsavedPromptPending", editor)
+        self.assertIn("hidden.bs.modal", editor)
+        self.assertIn("hideModalWhenSettled", editor)
+
+    def test_save_control_is_reachable(self):
+        """The topbar Save button used to be icon-only and matched on
+        `target.id`, but a click on a button's Font Awesome <i> makes the icon
+        the event target, so the button did nothing. It also had no text label,
+        no accessible name and no mobile equivalent, which left navigating away
+        and hitting the unsaved-changes prompt as the only way to notice
+        unsaved work."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        # Present in both the desktop bar and the mobile menu.
+        self.assertEqual(template.count('data-action="save-file"'), 2)
+        self.assertEqual(template.count("js-save-file-btn"), 2)
+        self.assertIn('aria-label="Save your changes"', template)
+
+        # Routed by data-action, not by an id that icon clicks never match.
+        self.assertIn("uiAction === 'save-file'", editor)
+        self.assertNotIn("target.id === 'btn-save-file'", editor)
+        self.assertIn("saveCurrentFile", editor)
+
     def test_docassemble_codemirror_contract_on_supported_tags(self):
         checkout = Path(
             os.environ.get(

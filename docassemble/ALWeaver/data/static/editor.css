@@ -2918,9 +2918,10 @@ code.md-mako-expr {
   vertical-align: middle;
 }
 
-#btn-save-file:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.12);
+.js-save-file-btn:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.22);
+  font-weight: 600;
 }
 
 /* ===== Top tab icon spacing ===== */
