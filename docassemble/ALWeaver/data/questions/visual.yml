@@ -101,14 +101,14 @@ fields:
     show if:
       variable: how_to_share
       is: email_or_sms
-  - Message: tell_a_friend_message
+  - Message to a friend: tell_a_friend_message
     datatype: area
     default: |
       Hi, I wanted to let you know about a free online form-building tool that I learned about:
       "${single_paragraph(all_variables(special='metadata').get('title','ALWeaver'))}". I think this might help you, too. Check it out at the link in this message: 
     js show if: |
       val("how_to_share") === "email_or_sms" && val("sharing_type") === "tell_friend"
-  - Message: share_interview_answers_message
+  - Message about the shared session: share_interview_answers_message
     datatype: area
     default: |
       Hi, I wanted to share my progress on a form on ALWeaver,

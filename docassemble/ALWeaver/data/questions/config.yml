@@ -64,14 +64,18 @@ subquestion: |
 event: intro
 # docassemble.base.functions.url_action('_da_list_add', list=self.instanceName)
 ---
+id: another jurisdiction choice
 question: |
   Is there another juridiction choice?
-yesno: jurisdiction_choices.there_is_another  
+fields:
+  - Another jurisdiction choice: jurisdiction_choices.there_is_another
+    datatype: yesno
 ---
 event: delete_configuration
 code: |
   weaverdata.delete("published_configuration_capabilities")
 ---
+id: jurisdiction choices
 question: |
   Jurisdiction choices
 list collect: 

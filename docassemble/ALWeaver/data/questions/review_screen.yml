@@ -502,15 +502,6 @@ subquestion: |-
   ${ next_steps_documents.table }
 ---
 event: |-
-  weaverdata.revisit
-id: |-
-  revisit weaverdata
-question: |-
-  Edit your answers about Weaverdata
-subquestion: |-
-  ${ weaverdata.table }
----
-event: |-
   quality_check_overlay.revisit
 id: |-
   revisit quality_check_overlay

@@ -12,6 +12,7 @@ code: |
   trial_court.phone_number = appeals_court.phone_number = "867-5309"
   appeals_court.name.text = "Test appeals court"
 ---
+id: upload next step document
 question: |
   Upload the next step document
 fields:
@@ -19,6 +20,7 @@ fields:
     datatype: file
 ---
 mandatory: True
+id: next step document result
 question: |
   Here is the result
 attachment:
