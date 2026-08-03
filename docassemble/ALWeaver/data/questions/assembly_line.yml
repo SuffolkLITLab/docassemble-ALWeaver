@@ -594,7 +594,7 @@ subquestion: |
   Please wait while Weaver generates field label suggestions in the background.
 
   <div class="my-3 text-center">
-    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Working in the background...
@@ -845,7 +845,7 @@ fields:
       that exists.
     required: False
     validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://httpbin.org/anything/my_form")
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://example.org/path")
   - Date original form was last published (optional): interview.original_form_published_on
     datatype: date
     required: False
@@ -1287,7 +1287,7 @@ fields:
     show if: interview.customize_next_steps
     required: False
     validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://httpbin.org/anything/my_form")
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://example.org/path")
   - Add QR code with this link?: interview.generate_next_steps_qr_code
     datatype: yesnoradio
     js show if: |
@@ -2509,7 +2509,7 @@ question: |
   Please wait while the package is installed
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Installing package in the background...
@@ -2523,7 +2523,7 @@ question: |
   Package is being uninstalled, please wait here
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Uninstalling package in the background...
@@ -2878,7 +2878,7 @@ subquestion: |
   Please wait while we generate a draft. This can take up to a minute.
 
   <div class="my-3 text-center">
-    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Drafting in the background...
