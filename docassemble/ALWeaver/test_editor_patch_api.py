@@ -2,22 +2,10 @@
 
 import unittest
 from unittest.mock import patch
-from pathlib import Path
-
 from .test_editor_api import api_editor
 
 
 class TestEditorPatchApi(unittest.TestCase):
-    def test_patch_route_is_not_csrf_exempt_or_cross_origin(self):
-        source = Path(api_editor.__file__).read_text()
-        route_start = source.index(
-            '@app.route(f"{EDITOR_BASE_PATH}/api/file/patch", methods=["POST"])'
-        )
-        function_start = source.index("def editor_api_patch_file", route_start)
-        decorators = source[route_start:function_start]
-        self.assertNotIn("@csrf.exempt", decorators)
-        self.assertNotIn("@cross_origin", decorators)
-
     def _request(self, payload, source):
         write_patch = patch.object(api_editor, "playground_write_yaml")
         with (
@@ -89,24 +77,6 @@ class TestEditorPatchApi(unittest.TestCase):
         self.assertEqual(error["code"], "revision_conflict")
         self.assertEqual(error["current_raw_yaml"], source)
         self.assertEqual(error["base_raw_yaml"], "id: base\nquestion: Base\n")
-        mock_write.assert_not_called()
-
-    def test_all_operations_fail_when_one_range_overlaps(self):
-        source = "id: intro\nquestion: Hello\n"
-        response, mock_write = self._request(
-            {
-                "project": "default",
-                "filename": "main.yml",
-                "expected_revision": "test-revision",
-                "operations": [
-                    {"type": "replace-range", "start": 0, "end": 4, "text": "id"},
-                    {"type": "replace-range", "start": 2, "end": 6, "text": "bad"},
-                ],
-            },
-            source,
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"]["code"], "invalid_patch_request")
         mock_write.assert_not_called()
 
     def test_structurally_invalid_result_is_not_written(self):

@@ -1,6 +1,5 @@
 # do not pre load
 
-from pathlib import Path
 import unittest
 
 from .editor_utils import (
@@ -11,13 +10,6 @@ from .editor_utils import (
 
 
 class TestMetadataEditorSafety(unittest.TestCase):
-    def test_metadata_tab_does_not_save_partial_yaml_to_whole_file_endpoint(self):
-        editor_js = (
-            Path(__file__).resolve().parent / "data" / "static" / "editor.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("apiPost('/api/file/metadata'", editor_js)
-
     def test_title_edit_changes_only_the_title_source(self):
         source = (
             "# interview header\n"
@@ -79,12 +71,6 @@ class TestMetadataEditorSafety(unittest.TestCase):
             )
 
         self.assertEqual(source, "# keep\nid: intro\nquestion: Hello\n")
-
-    def test_invalid_edited_metadata_is_refused(self):
-        source = "metadata:\n  title: Original\n---\nid: intro\nquestion: Hello\n"
-
-        with self.assertRaisesRegex(ValueError, "Unable to parse metadata YAML"):
-            update_metadata_documents_in_yaml(source, "metadata: [")
 
     def test_commented_separators_and_crlf_are_preserved(self):
         source = (

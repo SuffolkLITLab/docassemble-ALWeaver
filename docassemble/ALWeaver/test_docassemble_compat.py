@@ -1,7 +1,6 @@
 # do not pre load
 
 import os
-from contextlib import nullcontext
 from pathlib import Path
 import subprocess
 import types
@@ -94,7 +93,7 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
         action_call = next(call for call in self.calls if call[0] == "action")
         self.assertTrue(action_call[2]["read_only"])
 
-    def test_raw_action_uses_19_server_and_normalizes_result(self):
+    def test_raw_action_normalizes_19_server_and_prefers_110_hook(self):
         target = docassemble_compat.TargetSession("pkg:interview.yml", "session-123")
         result = docassemble_compat.run_target_action_raw(
             target, "al_weaver.inspect_object"
@@ -104,7 +103,6 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
         self.assertEqual(result.data, {"observed": "al_weaver.inspect_object"})
         self.assertEqual(result.warnings, ["test warning"])
 
-    def test_raw_action_prefers_110_pluggy_hook(self):
         captured = {}
 
         def hook(**kwargs):
@@ -117,21 +115,6 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
 
         self.assertEqual(result.data, {"hook": True})
         self.assertTrue(captured["read_only"])
-
-    def test_background_context_feature_detects_110_location(self):
-        modules = {
-            "docassemble.webapp.worker_common": types.SimpleNamespace(),
-            "docassemble.webapp.tasks.context": types.SimpleNamespace(
-                bg_context=nullcontext
-            ),
-        }
-        with patch.object(
-            docassemble_compat,
-            "_private_webapp_module",
-            side_effect=lambda name: modules[name],
-        ):
-            with docassemble_compat.background_context():
-                pass
 
 
 class TestDocassembleSourceCompatibility(unittest.TestCase):

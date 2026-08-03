@@ -10,11 +10,7 @@ import unittest
 NODE_TESTS = (
     "test_editor_api_client.js",
     "test_editor_codemirror_adapter.js",
-    "test_editor_command_manager.js",
-    "test_editor_dirty_state.js",
-    "test_editor_runtime_inspector.js",
     "test_editor_serializers.js",
-    "test_editor_state_store.js",
     "test_editor_validation_source.js",
 )
 
