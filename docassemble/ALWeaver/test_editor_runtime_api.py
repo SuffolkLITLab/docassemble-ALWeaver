@@ -1,10 +1,33 @@
+# do not pre load
+
+import json
 import unittest
 from unittest.mock import patch
 
 from .docassemble_compat import TargetActionResult, TargetSession
-from .runtime_sessions import create_runtime_record, store_runtime_record
+from .runtime_sessions import (
+    create_runtime_record,
+    delete_runtime_record,
+    load_runtime_record,
+    playground_yaml_filename,
+    store_runtime_record,
+)
 from .test_editor_api import api_editor
-from .test_runtime_sessions import FakeRedis
+
+
+class FakeRedis:
+    def __init__(self):
+        self.values = {}
+
+    def set(self, key, value, ex=None):
+        self.values[key] = value
+        self.expiry = ex
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def delete(self, key):
+        self.values.pop(key, None)
 
 
 class TestEditorRuntimeApi(unittest.TestCase):
@@ -31,6 +54,29 @@ class TestEditorRuntimeApi(unittest.TestCase):
             patch.object(api_editor, "_current_user_id", return_value=user_id),
             patch.object(api_editor, "r", self.redis),
         )
+
+    def test_runtime_records_are_owner_scoped_and_publicly_redacted(self):
+        self.assertEqual(
+            playground_yaml_filename(12, "Housing", "main.yml"),
+            "docassemble.playground12Housing:main.yml",
+        )
+        target = TargetSession("docassemble.playground12:main.yml", "raw-da-id")
+        record = create_runtime_record(
+            weaver_session_id="weaver-id",
+            owner_user_id=12,
+            project="default",
+            filename="main.yml",
+            yaml_filename=target.yaml_filename,
+            target=target,
+        )
+        store_runtime_record(self.redis, record)
+
+        self.assertIsNone(load_runtime_record(self.redis, "weaver-id", 99))
+        owned = load_runtime_record(self.redis, "weaver-id", 12)
+        public = owned.public_dict("/interview?opaque")
+        self.assertNotIn("docassemble_session_id", public)
+        self.assertNotIn("raw-da-id", json.dumps(public))
+        self.assertTrue(delete_runtime_record(self.redis, "weaver-id", 12))
 
     def test_create_session_uses_owned_playground_file_and_returns_weaver_id(self):
         target = TargetSession("docassemble.playground7:main.yml", "raw-target-id")

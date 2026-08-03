@@ -1,12 +1,36 @@
+# do not pre load
+
 from pathlib import Path
 import types
 import unittest
 from unittest.mock import patch
 
 from .test_editor_api import api_editor
+from .worker_config import (
+    CELERY_CONFIGURATION_DOCS_URL,
+    CELERY_MODULE,
+    get_worker_configuration_status,
+    worker_configuration_is_ready,
+)
 
 
 class TestEditorSecurity(unittest.TestCase):
+    def test_celery_preflight_is_actionable_and_never_raises(self):
+        configured = {"celery modules": ["another.module", CELERY_MODULE]}
+        self.assertTrue(worker_configuration_is_ready(configured))
+
+        missing = get_worker_configuration_status({"celery modules": []})
+        self.assertFalse(missing["configured"])
+        self.assertEqual(missing["required_module"], CELERY_MODULE)
+        self.assertEqual(missing["docs_url"], CELERY_CONFIGURATION_DOCS_URL)
+
+        class BrokenConfig:
+            def get(self, key, default=None):
+                raise RuntimeError("configuration unavailable")
+
+        failed = get_worker_configuration_status(BrokenConfig())
+        self.assertEqual(failed["code"], "celery_configuration_check_failed")
+
     def test_browser_routes_have_no_csrf_exemptions_or_wildcard_cors(self):
         source = Path(api_editor.__file__).read_text()
         self.assertNotIn("@csrf.exempt", source)
