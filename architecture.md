@@ -100,21 +100,17 @@ unsaved local blocks on the fresh server response. Navigation decisions use the
 accessible Save/Discard/Stay dialog instead of clearing a global dirty flag.
 
 Source controls use Docassemble's own CodeMirror 6 bundle at
-`/static/app/cm6.min.js`. Weaver wraps the stable `window.daNewEditor()` factory
-in `editor_source_adapter.js` and depends only on the editor bundle's `ev`,
-`enable()`, and `disable()` members. That contract and asset path are present in
-Docassemble 1.9.0, 1.9.13, 1.10.0, and 1.10.7. If the Docassemble asset cannot
-initialize, the adapter falls back to an accessible native textarea rather than
-loading an editor from a third-party CDN.
+`/static/app/cm6.min.js` through its `window.daNewEditor()` factory. That asset
+and factory are required; a missing factory raises a clear installation error
+rather than silently changing the editing behavior.
 
 Validation uses `POST /al/editor/api/validate-source` with the source currently
 visible in the editor and its base revision. Graphical block and metadata edits
 are overlaid only onto their mapped source ranges to create a validation-only
 snapshot; the saved Playground file is not substituted for that submitted
-buffer. Diagnostics use Weaver-owned severity, filename, block, source-range,
-and YAML-path fields, while retaining the legacy display aliases during the UI
-transition. The validation drawer identifies saved-source and unsaved-source
-results explicitly.
+buffer. Diagnostics use Weaver-owned level, filename, block, source-range, and
+YAML-path fields. The validation drawer identifies saved-source and
+unsaved-source results explicitly.
 
 `docassemble_compat.py` is Weaver's compatibility boundary for Docassemble
 1.9.x and 1.10.x. Session orchestration uses the stable high-level functions in
@@ -159,20 +155,6 @@ The editor performs this configuration preflight when the server module starts
 and includes the result in its page bootstrap. Missing configuration produces a
 persistent developer warning with setup documentation before an upload is
 attempted, as well as a structured HTTP 503 if a client still submits one.
-
-The editor is being separated incrementally so beta behavior remains testable
-throughout the refactor. `editor_state_store.js` now owns the initial application
-state and exposes immutable snapshots, subscriptions, and reducer-based dispatch.
-It retains an explicit `mutateLegacy()` bridge for controller code that has not
-yet been extracted; new view modules should dispatch actions rather than mutate
-unrelated state.
-
-`editor_command_manager.js` defines reversible commands with descriptions,
-affected-file reporting, source-patch generation, and undo/redo history. Existing
-editing paths are migrated to commands one at a time. Command history is cleared
-after a full file save, reload, or discard so commands never cross server
-revisions. These modules are packaged locally, and the source-editor module uses
-Docassemble's bundled CodeMirror support rather than a Monaco shim.
 
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different

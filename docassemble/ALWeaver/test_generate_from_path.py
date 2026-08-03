@@ -1,12 +1,8 @@
 # do not pre load
 
-import importlib.util
 import os
 import re
 
-# Test-only subprocess invocation for CLI validation.
-import subprocess  # nosec B404
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -53,16 +49,15 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._cluster_patch.stop()
 
     def _run_dayamlchecker(self, yaml_path: str) -> None:
-        if importlib.util.find_spec("dayamlchecker") is None:
-            self.fail("dayamlchecker is not installed")
-        # Test invokes a fixed module via sys.executable without shell expansion.
-        subprocess.run(  # nosec B603
-            [sys.executable, "-m", "dayamlchecker", yaml_path],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        errors = find_errors_from_string(
+            Path(yaml_path).read_text(encoding="utf-8"), input_file=yaml_path
         )
+        details = "\n".join(
+            str(getattr(error, "err_str", "") or error).strip() for error in errors
+        )
+        self.assertFalse(errors, details)
 
     def test_generate_from_pdf(self):
         pdf_path = (

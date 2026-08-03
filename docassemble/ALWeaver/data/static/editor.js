@@ -18,24 +18,72 @@
   var authState = BOOT.auth || {};
   var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
   var dirtyState = window.ALWeaverDirtyState.createDirtyState();
-  var stateStore = window.ALWeaverStateStore.createEditorStore({
-    projects: BOOT.projects || [],
-  });
-  var commandManager = window.ALWeaverCommands.createCommandManager({
-    applyCommandValue: function (command, value) {
-      if (command.type !== 'replace-editor-state') {
-        throw new Error('Unsupported editor command: ' + command.type);
-      }
-      restoreInterviewModel(value);
-      renderOutline();
-      renderCanvas();
-    },
-  });
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
-  var state = stateStore.getState();
+  var state = {
+    projects: BOOT.projects || [],
+    project: null,
+    files: [],
+    filename: null,
+    blocks: [],
+    metadataIndices: [],
+    includeIndices: [],
+    defaultSpIndices: [],
+    orderIndices: [],
+    orderSteps: [],
+    orderStepMap: {},
+    activeOrderBlockId: null,
+    orderBuilderLoading: false,
+    orderDirty: false,
+    orderCollapsed: {},
+    selectedOrderStepIds: {},
+    symbolCatalog: {
+      loadedFor: null,
+      all: [],
+      topLevel: [],
+      groups: {},
+    },
+    rawYaml: '',
+    revision: null,
+    metadataRawYaml: '',
+    selectedBlockId: null,
+    currentView: 'interview',
+    canvasMode: 'project-selector',
+    questionEditMode: 'preview',
+    questionBlockTab: 'screen',
+    advancedOpen: false,
+    advancedShowMore: false,
+    reviewMetaOpen: false,
+    openReviewItemIndex: null,
+    jumpTarget: 'questions',
+    fullYamlTab: 'full',
+    searchQuery: '',
+    projectSearchQuery: '',
+    sectionFiles: {
+      templates: [],
+      modules: [],
+      static: [],
+      data: [],
+    },
+    sectionSelectedFile: {
+      templates: null,
+      modules: null,
+      static: null,
+      data: null,
+    },
+    sectionDirty: false,
+    sectionSavedContent: {},
+    markdownPreviewMode: false,
+    insertAfterBlockId: null,
+    fullYamlStash: {},
+    validationErrors: [],
+    validationOpen: false,
+    validationMode: 'validation',
+    validationSourceScope: 'saved_source',
+    validationBaseRevisionMatches: null,
+  };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var MAX_RECENT_PROJECTS = 8;
@@ -196,14 +244,62 @@
     var container = document.getElementById(containerId);
     if (!container) return null;
     options = options || {};
-    var defaultLabel = language === 'python' ? 'Python source editor' :
-      (language === 'yaml' ? 'YAML source editor' : 'Source editor');
-    var editor = window.ALWeaverSourceEditor.createSourceEditor(
+    if (typeof window.daNewEditor !== 'function') {
+      throw new Error('CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?');
+    }
+    if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
+    container.innerHTML = '';
+    var mode = String(language || '').toLowerCase();
+    if (mode === 'python') mode = 'py';
+    if (mode === 'mako') mode = 'html';
+    if (mode === 'plaintext') mode = 'text';
+    var bundle = window.daNewEditor(
       container,
-      value,
-      language,
-      { ariaLabel: options.ariaLabel || defaultLabel }
+      String(value === undefined || value === null ? '' : value),
+      mode || 'yaml',
+      'default',
+      true
     );
+    if (!bundle || !bundle.ev) {
+      throw new Error('Docassemble could not initialize its CodeMirror editor.');
+    }
+    var view = bundle.ev;
+    var subscribers = [];
+    var originalDispatch = view.dispatch.bind(view);
+    view.dispatch = function () {
+      var before = view.state.doc.toString();
+      originalDispatch.apply(view, arguments);
+      var after = view.state.doc.toString();
+      if (after !== before) {
+        subscribers.slice().forEach(function (callback) { callback(after); });
+      }
+    };
+    if (view.contentDOM && typeof view.contentDOM.setAttribute === 'function') {
+      view.contentDOM.setAttribute('aria-label', options.ariaLabel || 'Source editor');
+      view.contentDOM.setAttribute('aria-multiline', 'true');
+    }
+    var editor = {
+      getValue: function () { return view.state.doc.toString(); },
+      setValue: function (nextValue) {
+        view.dispatch({
+          changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: String(nextValue === undefined || nextValue === null ? '' : nextValue),
+          },
+        });
+      },
+      onChange: function (callback) {
+        subscribers.push(callback);
+        return { dispose: function () {
+          subscribers = subscribers.filter(function (candidate) { return candidate !== callback; });
+        } };
+      },
+      dispose: function () {
+        subscribers = [];
+        view.destroy();
+      },
+    };
     if (options.onChange) editor.onChange(options.onChange);
     _sourceEditors[containerId] = editor;
     return editor;
@@ -432,7 +528,6 @@
   function discardInterviewChanges() {
     var restored = dirtyState.discardFile(state.filename);
     if (!restoreInterviewModel(restored)) return false;
-    commandManager.clear();
     renderOutline();
     renderCanvas();
     return true;
@@ -476,7 +571,6 @@
       );
     } else {
       dirtyState.setFileSaved(state.filename, state.revision, savedModel);
-      commandManager.clear();
     }
     dirtyState.activate(state.filename, state.selectedBlockId);
     loadAvailableSymbols(true);
@@ -3232,7 +3326,6 @@
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
       dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
-      commandManager.clear();
       dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
       renderOutline();
@@ -3984,9 +4077,7 @@
       state.validationSourceScope = 'unsaved_source';
       state.validationErrors = [{
         level: 'error',
-        severity: 'error',
         message: error && error.message ? error.message : 'Could not prepare the unsaved source for validation.',
-        file_name: state.filename,
         filename: state.filename,
       }];
       renderValidationDrawer();
@@ -4136,8 +4227,8 @@
       if (level === 'warning') icon = 'fa-triangle-exclamation';
       if (level === 'error') icon = 'fa-circle-xmark';
       var lineText = err.line_number ? ('Line ' + Number(err.line_number)) : '';
-      if (lineText && err.file_name) lineText += ' - ';
-      if (err.file_name) lineText += String(err.file_name).split('/').pop();
+      if (lineText && err.filename) lineText += ' - ';
+      if (err.filename) lineText += String(err.filename).split('/').pop();
       html += '<li class="editor-validation-item' + (err.block_id ? ' editor-validation-item-linked' : '') + '"' + (err.block_id ? ' data-block-id="' + esc(String(err.block_id)) + '"' : '') + '>';
       html += '<i class="fa-solid ' + icon + ' editor-validation-item-icon ' + esc(level) + '" aria-hidden="true"></i>';
       html += '<div class="editor-validation-item-msg">';

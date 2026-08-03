@@ -3,11 +3,6 @@ from __future__ import annotations
 import json
 import re
 
-# Controlled CLI invocation without shell.
-import subprocess  # nosec B404
-import sys
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 DEFAULT_FIELD_TYPES: List[str] = [
@@ -199,28 +194,14 @@ def normalize_generated_screen(
 
 def validate_yaml_with_dayamlchecker(
     yaml_text: str,
-    checker_module: str = "dayamlchecker",
 ) -> Tuple[bool, str]:
-    """Validate YAML content via DAYamlChecker CLI module."""
-    temp_path: Optional[Path] = None
-    try:
-        fd, raw_path = tempfile.mkstemp(suffix=".yml")
-        temp_path = Path(raw_path)
-        with open(fd, "w", encoding="utf-8", closefd=False) as handle:
-            handle.write(yaml_text)
-        # Invoke a fixed module via sys.executable without shell expansion.
-        result = subprocess.run(  # nosec B603
-            [sys.executable, "-m", checker_module, str(temp_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            return True, (result.stdout or "").strip()
-        combined = "\n".join(
-            part for part in [result.stdout, result.stderr] if part
-        ).strip()
-        return False, combined or "DAYamlChecker validation failed"
-    finally:
-        if temp_path and temp_path.exists():
-            temp_path.unlink(missing_ok=True)
+    """Validate YAML content using DAYamlChecker's Python API."""
+    from dayamlchecker.yaml_structure import find_errors_from_string
+
+    errors = find_errors_from_string(yaml_text)
+    if not errors:
+        return True, ""
+    details = "\n".join(
+        str(getattr(error, "err_str", "") or error).strip() for error in errors
+    )
+    return False, details or "DAYamlChecker validation failed"

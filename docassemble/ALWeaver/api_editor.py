@@ -609,11 +609,9 @@ def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
         message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
         findings.append(
             {
-                "severity": "error",
                 "level": "error",
                 "message": message,
                 "filename": filename,
-                "file_name": filename,
                 "line_number": line_number,
                 "source_range": _source_range_for_line(
                     raw_yaml, line_number, column_number
@@ -623,79 +621,49 @@ def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
             }
         )
 
-    try:
-        from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+    from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
 
-        checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-        for checker_error in checker_errors:
-            message = str(
-                getattr(checker_error, "err_str", "") or checker_error
-            ).strip()
-            lowered = message.lower()
-            level = "error"
-            if lowered.startswith("warning:"):
-                level = "warning"
-                message = message[len("warning:") :].strip()
-            elif lowered.startswith("info:"):
-                level = "info"
-                message = message[len("info:") :].strip()
-            line_number = getattr(checker_error, "line_number", None)
-            variable = ""
-            qmatch = re.search(r'"([^"]+)"', message) or re.search(
-                r"'([^']+)'", message
-            )
-            if qmatch:
-                variable = qmatch.group(1)
-            yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
-                checker_error, "path", None
-            )
-            if yaml_path is not None:
-                yaml_path = str(yaml_path)
-            findings.append(
-                {
-                    "severity": level,
-                    "level": level,
-                    "message": message,
-                    "variable": variable,
-                    "filename": filename,
-                    "file_name": filename,
-                    "line_number": line_number,
-                    "source_range": _source_range_for_line(raw_yaml, line_number),
-                    "yaml_path": yaml_path,
-                    "source": "dayamlchecker",
-                }
-            )
-    except Exception:
-        ok, output = validate_yaml_with_dayamlchecker(raw_yaml)
-        if not ok and output:
-            for output_line in output.splitlines():
-                message = output_line.strip()
-                if not message:
-                    continue
-                lowered = message.lower()
-                level = "warning" if lowered.startswith("warning") else "error"
-                if lowered.startswith("info"):
-                    level = "info"
-                findings.append(
-                    {
-                        "severity": level,
-                        "level": level,
-                        "message": message,
-                        "variable": "",
-                        "filename": filename,
-                        "file_name": filename,
-                        "line_number": None,
-                        "source_range": None,
-                        "yaml_path": None,
-                        "source": "dayamlchecker-cli",
-                    }
-                )
+    checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+    for checker_error in checker_errors:
+        message = str(getattr(checker_error, "err_str", "") or checker_error).strip()
+        lowered = message.lower()
+        level = "error"
+        if lowered.startswith("warning:"):
+            level = "warning"
+            message = message[len("warning:") :].strip()
+        elif lowered.startswith("info:"):
+            level = "info"
+            message = message[len("info:") :].strip()
+        line_number = getattr(checker_error, "line_number", None)
+        variable = ""
+        qmatch = re.search(r'"([^"]+)"', message) or re.search(
+            r"'([^']+)'", message
+        )
+        if qmatch:
+            variable = qmatch.group(1)
+        yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
+            checker_error, "path", None
+        )
+        if yaml_path is not None:
+            yaml_path = str(yaml_path)
+        findings.append(
+            {
+                "level": level,
+                "message": message,
+                "variable": variable,
+                "filename": filename,
+                "line_number": line_number,
+                "source_range": _source_range_for_line(raw_yaml, line_number),
+                "yaml_path": yaml_path,
+                "source": "dayamlchecker",
+            }
+        )
 
     deduped: List[Dict[str, Any]] = []
     seen: set = set()
     for finding in findings:
         key = (
-            str(finding.get("severity") or finding.get("level") or ""),
+            str(finding.get("level") or ""),
             str(finding.get("message") or ""),
             str(finding.get("line_number") or ""),
         )
@@ -1824,67 +1792,35 @@ def editor_api_validate() -> Response:
         model = parse_interview_yaml(raw_yaml)
 
         errors: List[Dict[str, Any]] = []
-        used_structured_checker = False
-        try:
-            # Prefer structured API so we can return level + line_number reliably.
-            from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+        from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
 
-            checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-            for checker_error in checker_errors:
-                msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
-                    checker_error
-                )
-                lowered = msg.lower()
-                level = "error"
-                if lowered.startswith("warning:"):
-                    level = "warning"
-                    msg = msg[len("warning:") :].strip()
-                elif lowered.startswith("info:"):
-                    level = "info"
-                    msg = msg[len("info:") :].strip()
-                variable = ""
-                qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
-                if qmatch:
-                    variable = qmatch.group(1)
-                errors.append(
-                    {
-                        "level": level,
-                        "message": msg,
-                        "variable": variable,
-                        "line_number": getattr(checker_error, "line_number", None),
-                        "file_name": getattr(checker_error, "file_name", filename),
-                        "source": "dayamlchecker",
-                    }
-                )
-            used_structured_checker = True
-        except Exception:
-            # Fallback: keep legacy subprocess checker behavior if module import fails.
-            ok, output = validate_yaml_with_dayamlchecker(raw_yaml)
-            if not ok and output:
-                for line in output.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    level = "error"
-                    if line.lower().startswith("warning"):
-                        level = "warning"
-                    elif line.lower().startswith("info"):
-                        level = "info"
-                    variable = ""
-                    qmatch = re.search(r"'([^']+)'", line)
-                    if qmatch:
-                        variable = qmatch.group(1)
-                    errors.append(
-                        {
-                            "level": level,
-                            "message": line,
-                            "variable": variable,
-                            "line_number": None,
-                            "file_name": filename,
-                            "source": "dayamlchecker-cli",
-                        }
-                    )
-
+        checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+        for checker_error in checker_errors:
+            msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
+                checker_error
+            )
+            lowered = msg.lower()
+            level = "error"
+            if lowered.startswith("warning:"):
+                level = "warning"
+                msg = msg[len("warning:") :].strip()
+            elif lowered.startswith("info:"):
+                level = "info"
+                msg = msg[len("info:") :].strip()
+            variable = ""
+            qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
+            if qmatch:
+                variable = qmatch.group(1)
+            errors.append(
+                {
+                    "level": level,
+                    "message": msg,
+                    "variable": variable,
+                    "line_number": getattr(checker_error, "line_number", None),
+                    "filename": filename,
+                    "source": "dayamlchecker",
+                }
+            )
         # Also include playground-style undefined variable and parse diagnostics.
         try:
             variable_info = playground_get_variables(uid, project, filename)
@@ -1903,7 +1839,7 @@ def editor_api_validate() -> Response:
                             "message": f"Undefined variable referenced: {var_name}",
                             "variable": var_name,
                             "line_number": None,
-                            "file_name": filename,
+                            "filename": filename,
                             "source": "playground",
                         }
                     )
@@ -1914,7 +1850,7 @@ def editor_api_validate() -> Response:
                     "message": str(exc) or "Playground parser reported an error",
                     "variable": "",
                     "line_number": None,
-                    "file_name": filename,
+                    "filename": filename,
                     "source": "playground",
                 }
             )
@@ -1954,7 +1890,7 @@ def editor_api_validate() -> Response:
                         "infos": sum(1 for err in errors if err.get("level") == "info"),
                     },
                     "checker": "dayamlchecker",
-                    "structured": used_structured_checker,
+                    "structured": True,
                 },
             }
         )

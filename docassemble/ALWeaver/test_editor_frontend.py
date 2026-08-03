@@ -9,7 +9,6 @@ import unittest
 
 NODE_TESTS = (
     "test_editor_api_client.js",
-    "test_editor_codemirror_adapter.js",
     "test_editor_serializers.js",
     "test_editor_validation_source.js",
 )
@@ -62,11 +61,8 @@ class TestEditorFrontend(unittest.TestCase):
         )
         for module in (
             "editor_api_client.js",
-            "editor_command_manager.js",
             "editor_dirty_state.js",
             "editor_serializers.js",
-            "editor_source_adapter.js",
-            "editor_state_store.js",
             "editor_validation_source.js",
         ):
             self.assertLess(template.index(module), template.index("editor.js"))
