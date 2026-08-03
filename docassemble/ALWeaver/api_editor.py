@@ -636,9 +636,7 @@ def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
             message = message[len("info:") :].strip()
         line_number = getattr(checker_error, "line_number", None)
         variable = ""
-        qmatch = re.search(r'"([^"]+)"', message) or re.search(
-            r"'([^']+)'", message
-        )
+        qmatch = re.search(r'"([^"]+)"', message) or re.search(r"'([^']+)'", message)
         if qmatch:
             variable = qmatch.group(1)
         yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
