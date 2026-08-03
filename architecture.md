@@ -102,7 +102,11 @@ accessible Save/Discard/Stay dialog instead of clearing a global dirty flag.
 Source controls use Docassemble's own CodeMirror 6 bundle at
 `/static/app/cm6.min.js` through its `window.daNewEditor()` factory. That asset
 and factory are required; a missing factory raises a clear installation error
-rather than silently changing the editing behavior.
+rather than silently changing the editing behavior. `daNewEditor()` attaches an
+unsized `EditorView` to whatever parent it is given, so `.editor-source-container`
+in `editor.css` owns the height constraint and hands overflow to `.cm-scroller`;
+without that the view grows to fit the document and neither the scrollbar nor
+the wheel works.
 
 Validation uses `POST /al/editor/api/validate-source` with the source currently
 visible in the editor and its base revision. Graphical block and metadata edits

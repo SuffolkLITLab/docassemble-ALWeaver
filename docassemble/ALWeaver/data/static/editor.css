@@ -1248,10 +1248,69 @@ html, body {
 /* ===== CodeMirror source editor containers ===== */
 
 .editor-source-container {
+  position: relative;
   width: 100%;
+  min-height: 120px;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
   overflow: hidden;
+}
+
+/* daNewEditor() adds no sizing extension, so the view grows to fit the document
+   and our overflow:hidden simply clips it — no scrollbar, and the wheel has
+   nothing to move. Constrain the view to the container and let .cm-scroller own
+   the overflow, which is what CodeMirror 6 expects for a fixed-height editor. */
+.editor-source-container .cm-editor {
+  height: 100%;
+  max-height: 100%;
+}
+
+.editor-source-container .cm-scroller {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #b6c0cd transparent;
+}
+
+/* WebKit hides overlay scrollbars until scrolling; keep a persistent track so
+   long files visibly advertise that there is more content below. */
+.editor-source-container .cm-scroller::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-thumb {
+  background-color: #b6c0cd;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: #8b98a8;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* cm6.min.js switches to the oneDark theme under this same query. */
+@media (prefers-color-scheme: dark) {
+  .editor-source-container .cm-scroller {
+    scrollbar-color: #5a6373 transparent;
+  }
+
+  .editor-source-container .cm-scroller::-webkit-scrollbar-thumb {
+    background-color: #5a6373;
+  }
+
+  .editor-source-container .cm-scroller::-webkit-scrollbar-thumb:hover {
+    background-color: #79839a;
+  }
 }
 
 .editor-yaml-textarea {
