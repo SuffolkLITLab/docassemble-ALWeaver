@@ -41,7 +41,7 @@ import uuid
 from copy import deepcopy
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import yaml
 from flask import Response, jsonify, redirect, request
@@ -984,7 +984,7 @@ def editor_page() -> Response:
     """Serve the WYSIWYM interview editor page."""
     if not _editor_auth_check():
         login_url, _logout_url = _editor_auth_urls()
-        return redirect(login_url)
+        return cast(Response, redirect(login_url))
     log("ALWeaver: Serving editor page", "info")
     html = _render_editor_page()
     if not html:
@@ -2163,7 +2163,7 @@ def editor_api_patch_file() -> Response:
         current_content = playground_read_yaml(uid, project, filename)
         current_revision = source_revision(current_content)
         if expected_revision != current_revision:
-            conflict = {
+            conflict: Dict[str, Any] = {
                 "type": "revision_conflict",
                 "code": "revision_conflict",
                 "message": "The file changed since it was loaded.",

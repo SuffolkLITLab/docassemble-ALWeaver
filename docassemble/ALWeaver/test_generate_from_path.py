@@ -483,7 +483,9 @@ question: |
             yaml_text,
         )
         self.assertIsNotNone(match, "interview_short_title template not found")
-        self.assertTrue(match.group(1).strip(), "interview_short_title must not be empty")
+        self.assertTrue(
+            match.group(1).strip(), "interview_short_title must not be empty"
+        )
         self.assertNotIn("interview_short_title =", yaml_text)
 
     def test_interview_short_title_via_upload_flow(self):
@@ -510,7 +512,9 @@ question: |
             yaml_text,
         )
         self.assertIsNotNone(match, "interview_short_title template not found")
-        self.assertTrue(match.group(1).strip(), "interview_short_title must not be empty")
+        self.assertTrue(
+            match.group(1).strip(), "interview_short_title must not be empty"
+        )
         self.assertNotIn("interview_short_title =", yaml_text)
 
     def test_objects_block_always_generated(self):

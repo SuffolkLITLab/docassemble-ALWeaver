@@ -1,18 +1,47 @@
 import unittest
 import types
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 import docassemble
 
+from . import editor_utils
 from .editor_utils import (
     canonical_block_yaml,
     parse_interview_yaml,
+    playground_get_variables,
     playground_interview_url,
     update_block_in_yaml,
 )
 
 
 class TestEditorUtilsPersistence(unittest.TestCase):
+    def test_playground_variable_scan_uses_compatibility_factory(self):
+        playground = Mock()
+        playground.variables_from_file.return_value = {
+            "all_names_reduced": ["users[0].name.first"],
+        }
+        playground.file_list = ["main.yml", "included.yaml", "notes.txt"]
+
+        with (
+            patch.object(
+                editor_utils,
+                "_playground_user_context",
+                return_value=nullcontext(),
+            ),
+            patch.object(
+                editor_utils, "create_playground", return_value=playground
+            ) as create_playground,
+            patch.object(editor_utils, "playground_read_yaml", return_value=""),
+        ):
+            result = playground_get_variables(7, "ProjectA", "main.yml")
+
+        self.assertEqual(result["top_level"], ["users"])
+        self.assertEqual(
+            result["symbol_groups"]["yaml_files"], ["included.yaml", "main.yml"]
+        )
+        self.assertGreaterEqual(create_playground.call_count, 2)
+
     def test_playground_interview_url_requests_fresh_session(self):
         base_mod = types.ModuleType("docassemble.base")
         functions_mod = types.ModuleType("docassemble.base.functions")

@@ -9,7 +9,9 @@ class TestEditorFrontendModules(unittest.TestCase):
         template = (package_dir / "data/templates/editor.html").read_text()
         editor = (package_dir / "data/static/editor.js").read_text()
 
-        self.assertLess(template.index("editor_state_store.js"), template.index("editor.js"))
+        self.assertLess(
+            template.index("editor_state_store.js"), template.index("editor.js")
+        )
         self.assertLess(
             template.index("editor_command_manager.js"), template.index("editor.js")
         )

@@ -23,8 +23,12 @@ class TestEditorCodeMirrorAdapter(unittest.TestCase):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
-        self.assertLess(template.index("/static/app/cm6.min.js"), template.index("editor.js"))
-        self.assertLess(template.index("editor_source_adapter.js"), template.index("editor.js"))
+        self.assertLess(
+            template.index("/static/app/cm6.min.js"), template.index("editor.js")
+        )
+        self.assertLess(
+            template.index("editor_source_adapter.js"), template.index("editor.js")
+        )
         self.assertIn("ALWeaverSourceEditor.createSourceEditor", editor)
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
@@ -49,7 +53,10 @@ class TestEditorCodeMirrorAdapter(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
             source = result.stdout
-            self.assertIn("function daNewEditor(parent, initial_contents, mode, keymapping, lineWrapping)", source)
+            self.assertIn(
+                "function daNewEditor(parent, initial_contents, mode, keymapping, lineWrapping)",
+                source,
+            )
             self.assertIn("window.daNewEditor = daNewEditor", source)
             self.assertIn("this.ev = ev", source)
             self.assertIn("disable()", source)

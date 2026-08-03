@@ -1553,7 +1553,7 @@ def playground_get_variables(
 
     try:
         with _playground_user_context(user_id):
-            pg = Playground(project=project)
+            pg = create_playground(project=project)
             yaml_files = sorted(
                 {
                     str(file_name).strip()

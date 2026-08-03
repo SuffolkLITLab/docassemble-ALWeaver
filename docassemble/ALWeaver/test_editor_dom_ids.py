@@ -27,9 +27,7 @@ class TestEditorDomIds(unittest.TestCase):
         parser.feed(template)
 
         duplicates = sorted(
-            element_id
-            for element_id, count in Counter(parser.ids).items()
-            if count > 1
+            element_id for element_id, count in Counter(parser.ids).items() if count > 1
         )
         self.assertEqual(duplicates, [])
 

@@ -5,19 +5,14 @@ from docx2python import docx2python
 from jinja2 import Environment, BaseLoader
 import jinja2.exceptions
 from docassemble.base.util import DAFile
-from docassemble.base.parse import (
-    DAEnvironment,
-    DAExtension,
-    registered_jinja_filters,
-)
+import docassemble.base.parse as da_parse
 
-try:
-    # Pre 1.4.56
-    from docassemble.base.parse import builtin_jinja_filters
-except:
-    from docassemble.base.parse import get_builtin_jinja_filters
-
-    builtin_jinja_filters = get_builtin_jinja_filters()
+DAEnvironment = getattr(da_parse, "DAEnvironment")
+DAExtension = getattr(da_parse, "DAExtension")
+registered_jinja_filters = getattr(da_parse, "registered_jinja_filters")
+builtin_jinja_filters = getattr(da_parse, "builtin_jinja_filters", None)
+if builtin_jinja_filters is None:
+    builtin_jinja_filters = getattr(da_parse, "get_builtin_jinja_filters")()
 import docassemble.base.util
 import keyword
 import docassemble.AssemblyLine.al_general
@@ -41,13 +36,13 @@ __all__ = [
 
 
 all_reserved_names = set(
-    docassemble.base.util.__all__
-    + docassemble.AssemblyLine.al_general.__all__
-    + docassemble.AssemblyLine.al_document.__all__
-    + docassemble.AssemblyLine.language.__all__
+    list(docassemble.base.util.__all__)
+    + list(docassemble.AssemblyLine.al_general.__all__)
+    + list(docassemble.AssemblyLine.al_document.__all__)
+    + list(docassemble.AssemblyLine.language.__all__)
     # + docassemble.AssemblyLine.sessions.__all__
-    + docassemble.ALToolbox.misc.__all__
-    + keyword.kwlist
+    + list(docassemble.ALToolbox.misc.__all__)
+    + list(keyword.kwlist)
     + list(dir(__builtins__))
     + [
         "_attachment_email_address",

@@ -1895,7 +1895,7 @@ class DAInterview(DAObject):
         output_file: Optional[DAFile] = None,
     ) -> DAFile:
         # 2. Build data for folders_and_files and package_info
-        folders_and_files = {
+        folders_and_files: Dict[str, List[Any]] = {
             "questions": [interview_mako_output],
             "modules": [],
             "static": [],
@@ -1908,7 +1908,7 @@ class DAInterview(DAObject):
                     self.instructions
                 ] + self.uploaded_templates
             else:
-                folders_and_files["templates"] = self.uploaded_templates
+                folders_and_files["templates"] = list(self.uploaded_templates)
         else:
             folders_and_files["templates"] = []
 
@@ -4059,12 +4059,12 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
 
 
 def reflect_fields(
-    pdf_field_tuples: List[Tuple], image_placeholder: DAFile = None
-) -> List[Dict[str, str]]:
+    pdf_field_tuples: List[Tuple], image_placeholder: Optional[DAFile] = None
+) -> List[Dict[str, Any]]:
     """Return a mapping between the field names and either the same name, or "yes"
     if the field is a checkbox value, in order to visually capture the location of
     labeled fields on the PDF."""
-    mapping = []
+    mapping: List[Dict[str, Any]] = []
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
             export_val = field[5] if len(field) >= 6 else ""
@@ -4103,7 +4103,7 @@ def create_package_zip(
     info: dict,
     author_info: dict,
     folders_and_files: dict,
-    fileobj: DAFile = None,
+    fileobj: Optional[DAFile] = None,
 ) -> DAFile:
     """
     Given a dictionary of lists, with the keys representing folders and the values
