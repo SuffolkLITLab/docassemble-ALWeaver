@@ -6,7 +6,8 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 import importlib
 import importlib.metadata
-from typing import Any, Dict, List, Optional
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from flask import Response, jsonify
 
@@ -79,14 +80,36 @@ def create_docx_jinja_environment(*, undefined: Any) -> Any:
     return environment
 
 
-def _private_webapp_module(module_name: str) -> Any:
-    """Import a private webapp module only inside this compatibility boundary."""
-    try:
-        return importlib.import_module(module_name)
-    except ImportError as exc:
-        raise DocassembleCompatibilityError(
-            f"Docassemble webapp capability {module_name!r} is unavailable"
-        ) from exc
+def _first_webapp_attr(candidates: Sequence[Tuple[str, str]], capability: str) -> Any:
+    """Return the first attribute that exists among (module, attribute) candidates.
+
+    Private webapp modules are imported only inside this compatibility boundary.
+
+    Docassemble 1.10.x moved several webapp internals out of
+    ``docassemble.webapp.server`` and ``docassemble.webapp.app_object``, so each
+    capability has to be looked up in more than one place. Modules that are
+    already imported are preferred, so that probing for a capability never
+    triggers the import of a heavyweight webapp module that this process does
+    not otherwise use.
+    """
+    for module_name, attribute in candidates:
+        module = sys.modules.get(module_name)
+        value = getattr(module, attribute, None) if module is not None else None
+        if value is not None:
+            return value
+    for module_name, attribute in candidates:
+        if module_name in sys.modules:
+            continue
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        value = getattr(module, attribute, None)
+        if value is not None:
+            return value
+    raise DocassembleCompatibilityError(
+        f"This Docassemble installation does not expose {capability}"
+    )
 
 
 def _docassemble_version() -> str:
@@ -268,47 +291,83 @@ def run_target_action_raw(
 
 
 def get_flask_app() -> Any:
-    return getattr(_private_webapp_module("docassemble.webapp.app_object"), "app")
+    return _first_webapp_attr(
+        (
+            ("docassemble.webapp.app_object", "app"),
+            ("docassemble.webapp.app_object", "flaskapp"),
+            ("docassemble.webapp.flask_app", "flaskapp"),
+            ("docassemble.webapp.server", "app"),
+        ),
+        "its Flask application",
+    )
 
 
 def get_csrf() -> Any:
-    return getattr(_private_webapp_module("docassemble.webapp.app_object"), "csrf")
+    return _first_webapp_attr(
+        (
+            ("docassemble.webapp.app_object", "csrf"),
+            ("docassemble.webapp.extensions", "csrf"),
+        ),
+        "its CSRF protection",
+    )
 
 
 def get_redis_client() -> Any:
-    return getattr(_private_webapp_module("docassemble.webapp.server"), "r")
+    return _first_webapp_attr(
+        (
+            ("docassemble.webapp.daredis", "r"),
+            ("docassemble.webapp.server", "r"),
+        ),
+        "its Redis client",
+    )
 
 
 def get_api_verify() -> Any:
-    return getattr(_private_webapp_module("docassemble.webapp.server"), "api_verify")
+    return _first_webapp_attr(
+        (
+            ("docassemble.webapp.api.helpers", "api_verify"),
+            ("docassemble.webapp.server", "api_verify"),
+        ),
+        "its API authentication",
+    )
 
 
 def get_worker_app() -> Any:
-    return getattr(
-        _private_webapp_module("docassemble.webapp.worker_common"), "workerapp"
+    return _first_webapp_attr(
+        (
+            ("docassemble.webapp.worker_common", "workerapp"),
+            ("docassemble.webapp.tasks.common", "celery_app"),
+        ),
+        "its Celery worker application",
     )
 
 
 def background_context() -> AbstractContextManager[Any]:
-    worker_common = _private_webapp_module("docassemble.webapp.worker_common")
-    context_factory = getattr(worker_common, "bg_context", None)
-    if not callable(context_factory):
-        context_factory = getattr(
-            _private_webapp_module("docassemble.webapp.tasks.context"), "bg_context"
-        )
+    context_factory = _first_webapp_attr(
+        (
+            ("docassemble.webapp.worker_common", "bg_context"),
+            ("docassemble.webapp.tasks.context", "bg_context"),
+        ),
+        "its background task context",
+    )
     return context_factory()
 
 
 def create_saved_file(*args: Any, **kwargs: Any) -> Any:
-    saved_file = getattr(
-        _private_webapp_module("docassemble.webapp.files"), "SavedFile"
+    saved_file = _first_webapp_attr(
+        (
+            ("docassemble.webapp.files", "SavedFile"),
+            ("docassemble.webapp.files.savedfile", "SavedFile"),
+        ),
+        "its saved file storage",
     )
     return saved_file(*args, **kwargs)
 
 
 def create_playground(*args: Any, **kwargs: Any) -> Any:
-    playground = getattr(
-        _private_webapp_module("docassemble.webapp.playground"), "Playground"
+    playground = _first_webapp_attr(
+        (("docassemble.webapp.playground", "Playground"),),
+        "its playground storage",
     )
     return playground(*args, **kwargs)
 

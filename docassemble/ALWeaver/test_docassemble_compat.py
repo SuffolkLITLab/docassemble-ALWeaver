@@ -1,8 +1,10 @@
 # do not pre load
 
+from contextlib import contextmanager, nullcontext
 import os
 from pathlib import Path
 import subprocess
+import sys
 import types
 import unittest
 from unittest.mock import patch
@@ -127,6 +129,115 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
         self.assertIn("ampersand_filter", environment.filters)
 
 
+class TestWebappAccessors(unittest.TestCase):
+    """The webapp internals the Weaver needs moved between 1.9.x and 1.10.x."""
+
+    LAYOUT_19 = {
+        "docassemble.webapp.app_object": {"app": "flask-app", "csrf": "csrf"},
+        "docassemble.webapp.daredis": {"r": "redis"},
+        "docassemble.webapp.server": {"r": "redis", "api_verify": "api-verify"},
+        "docassemble.webapp.worker_common": {
+            "workerapp": "worker",
+            "bg_context": nullcontext,
+        },
+    }
+    LAYOUT_110 = {
+        "docassemble.webapp.app_object": {"flaskapp": "flask-app"},
+        "docassemble.webapp.extensions": {"csrf": "csrf"},
+        "docassemble.webapp.daredis": {"r": "redis"},
+        "docassemble.webapp.api.helpers": {"api_verify": "api-verify"},
+        "docassemble.webapp.worker_common": {"workerapp": "worker"},
+        "docassemble.webapp.tasks.context": {"bg_context": nullcontext},
+    }
+
+    @contextmanager
+    def _layout(self, modules):
+        """Present exactly one Docassemble layout, with nothing else installed."""
+        stubs = {}
+        for module_name, attributes in modules.items():
+            module = types.ModuleType(module_name)
+            for name, value in attributes.items():
+                setattr(module, name, value)
+            stubs[module_name] = module
+        removed = {
+            name: module
+            for name, module in sys.modules.items()
+            if name.startswith("docassemble.webapp") and name not in stubs
+        }
+        for name in removed:
+            del sys.modules[name]
+        try:
+            with patch.dict(sys.modules, stubs, clear=False):
+                with patch.object(
+                    docassemble_compat.importlib,
+                    "import_module",
+                    side_effect=ImportError("not installed"),
+                ):
+                    yield
+        finally:
+            sys.modules.update(removed)
+
+    def _resolve_all(self):
+        return {
+            "app": docassemble_compat.get_flask_app(),
+            "csrf": docassemble_compat.get_csrf(),
+            "redis": docassemble_compat.get_redis_client(),
+            "api_verify": docassemble_compat.get_api_verify(),
+            "worker": docassemble_compat.get_worker_app(),
+        }
+
+    def test_accessors_resolve_against_both_docassemble_layouts(self):
+        expected = {
+            "app": "flask-app",
+            "csrf": "csrf",
+            "redis": "redis",
+            "api_verify": "api-verify",
+            "worker": "worker",
+        }
+        for label, layout in (("1.9.x", self.LAYOUT_19), ("1.10.x", self.LAYOUT_110)):
+            with self.subTest(layout=label):
+                with self._layout(layout):
+                    self.assertEqual(self._resolve_all(), expected)
+
+    def test_background_context_is_found_in_both_layouts(self):
+        for label, layout in (("1.9.x", self.LAYOUT_19), ("1.10.x", self.LAYOUT_110)):
+            with self.subTest(layout=label):
+                with self._layout(layout):
+                    with docassemble_compat.background_context():
+                        pass
+
+    def test_missing_capability_raises_compatibility_error(self):
+        with self._layout({}):
+            with self.assertRaises(docassemble_compat.DocassembleCompatibilityError):
+                docassemble_compat.get_flask_app()
+
+    def test_already_imported_modules_are_preferred_over_new_imports(self):
+        """Probing must never import a webapp module the process is not using."""
+        stub = types.ModuleType("docassemble.webapp.server")
+        stub.r = "redis-from-loaded-module"
+        with patch.dict(sys.modules, {"docassemble.webapp.server": stub}, clear=False):
+            imported = []
+
+            def record(module_name):
+                imported.append(module_name)
+                raise ImportError(module_name)
+
+            with patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=record
+            ):
+                self.assertEqual(
+                    docassemble_compat._first_webapp_attr(
+                        (
+                            ("docassemble.webapp.daredis", "r"),
+                            ("docassemble.webapp.server", "r"),
+                        ),
+                        "its Redis client",
+                    ),
+                    "redis-from-loaded-module",
+                )
+            self.assertEqual(imported, [])
+
+
 class TestDocassembleSourceCompatibility(unittest.TestCase):
     def test_private_webapp_imports_are_isolated_to_compatibility_module(self):
         package_dir = Path(__file__).resolve().parent
@@ -200,6 +311,37 @@ class TestDocassembleSourceCompatibility(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
             self.assertIn("def bg_context()", result.stdout)
+
+        webapp_symbols = {
+            "v1.9.13": (
+                ("app_object.py", "app, csrf = create_app()"),
+                ("server.py", "from docassemble.webapp.daredis import r"),
+                ("server.py", "def api_verify("),
+            ),
+            "v1.10.7": (
+                ("app_object.py", "flaskapp = Flask(__name__)"),
+                ("extensions.py", "csrf = CSRFProtect()"),
+                ("daredis.py", "r = redis."),
+                ("api/helpers.py", "def api_verify("),
+                ("worker_common.py", "celery_app as workerapp"),
+            ),
+        }
+        for ref, expectations in webapp_symbols.items():
+            for module_path, snippet in expectations:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(checkout),
+                        "show",
+                        f"{ref}:docassemble_webapp/docassemble/webapp/{module_path}",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
+                self.assertIn(snippet, result.stdout, f"{ref}:{module_path}")
 
 
 if __name__ == "__main__":
