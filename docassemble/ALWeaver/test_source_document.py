@@ -53,19 +53,19 @@ class TestSourceDocument(unittest.TestCase):
             )
 
     def test_round_trip_corpus_preserves_unsupported_and_invalid_source(self):
-        source = (self.fixture_dir / "complex_interview.yml").read_text()
+        source = (self.fixture_dir / "complex_interview.yml.fixture").read_text()
         document = parse_source_document("complex_interview.yml", source)
         self.assertEqual(document.raw_text, source)
         self.assertTrue(document.structurally_valid, document.diagnostics)
         self.assertTrue(any(not block.supported for block in document.documents))
 
-        invalid = (self.fixture_dir / "invalid_active_edit.yml").read_text()
+        invalid = (self.fixture_dir / "invalid_active_edit.yml.fixture").read_text()
         invalid_document = parse_source_document("invalid_active_edit.yml", invalid)
         self.assertEqual(invalid_document.raw_text, invalid)
         self.assertFalse(invalid_document.structurally_valid)
 
     def test_corpus_edits_change_only_the_target_range(self):
-        source = (self.fixture_dir / "complex_interview.yml").read_text()
+        source = (self.fixture_dir / "complex_interview.yml.fixture").read_text()
         for old, new in (
             ("EDIT_TARGET", "Changed title"),
             ("A folded question", "The edited folded question"),
