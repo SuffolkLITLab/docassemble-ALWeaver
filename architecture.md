@@ -155,6 +155,10 @@ result, and structured-error fields, while status polling reconciles nonterminal
 records against Celery. A Redis record without an associated task is marked
 expired rather than reported as running. Weaver refuses the operation when the
 worker module is not configured and never falls back to an in-process thread.
+The editor performs this configuration preflight when the server module starts
+and includes the result in its page bootstrap. Missing configuration produces a
+persistent developer warning with setup documentation before an upload is
+attempted, as well as a structured HTTP 503 if a client still submits one.
 
 The editor is being separated incrementally so beta behavior remains testable
 throughout the refactor. `editor_state_store.js` now owns the initial application

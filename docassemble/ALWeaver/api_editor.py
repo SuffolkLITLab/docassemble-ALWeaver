@@ -64,6 +64,12 @@ from .docassemble_compat import (
     run_target_action_raw,
     set_target_variables,
 )
+from .worker_config import (
+    CELERY_CONFIGURATION_DOCS_URL,
+    CELERY_MODULE,
+    get_worker_configuration_status,
+    worker_configuration_is_ready,
+)
 
 app = get_flask_app()
 csrf = get_csrf()
@@ -825,6 +831,9 @@ def _render_editor_page() -> str:
             "runtimeInspector": _editor_feature_enabled(
                 "WEAVER_ENABLE_RUNTIME_INSPECTOR"
             ),
+        },
+        "systemChecks": {
+            "celery": get_worker_configuration_status(),
         },
         "auth": {
             "authenticated": False,
@@ -3886,7 +3895,7 @@ def editor_api_preview_url() -> Response:
 
 NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
 NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
-NEW_PROJECT_CELERY_MODULE = "docassemble.ALWeaver.api_weaver_worker"
+NEW_PROJECT_CELERY_MODULE = CELERY_MODULE
 NEW_PROJECT_CELERY_TASK = (
     "docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
 )
@@ -3899,10 +3908,22 @@ NEW_PROJECT_TERMINAL_STATES = {
 
 
 def _editor_async_is_configured() -> bool:
-    from docassemble.base.config import daconfig
+    return worker_configuration_is_ready()
 
-    celery_modules = daconfig.get("celery modules", []) or []
-    return NEW_PROJECT_CELERY_MODULE in celery_modules
+
+def _log_editor_worker_preflight() -> None:
+    status = get_worker_configuration_status()
+    if status["configured"]:
+        return
+    log(
+        "ALWeaver editor Celery preflight: "
+        f"{status['message']} Configuration instructions: "
+        f"{CELERY_CONFIGURATION_DOCS_URL}",
+        "warning",
+    )
+
+
+_log_editor_worker_preflight()
 
 
 def _new_project_job_key(job_id: str) -> str:
@@ -4335,8 +4356,10 @@ def _new_project_from_uploads(
                     "message": (
                         "Background project generation is not configured. Add "
                         f"{NEW_PROJECT_CELERY_MODULE!r} to the Docassemble "
-                        "'celery modules' configuration list."
+                        "'celery modules' configuration list, then restart the "
+                        "Docassemble web and Celery services."
                     ),
+                    "details": get_worker_configuration_status(),
                 },
             },
             503,

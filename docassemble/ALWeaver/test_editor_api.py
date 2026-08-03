@@ -433,6 +433,9 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(
             response.get_json()["error"]["code"], "editor_async_not_configured"
         )
+        details = response.get_json()["error"]["details"]
+        self.assertFalse(details["configured"])
+        self.assertIn("#celery-worker-configuration", details["docs_url"])
         mock_create_project.assert_not_called()
 
     def test_complete_new_project_upload_job_writes_yaml(self):

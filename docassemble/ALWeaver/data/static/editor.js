@@ -622,6 +622,21 @@
     if (messageNode) messageNode.textContent = error && error.message ? error.message : 'The editor request failed.';
   }
 
+  function renderSystemChecks() {
+    var warning = document.getElementById('editor-celery-warning');
+    if (!warning) return;
+    var check = BOOT.systemChecks && BOOT.systemChecks.celery;
+    if (!check || check.configured) {
+      warning.classList.add('d-none');
+      return;
+    }
+    var message = warning.querySelector('[data-celery-warning-message]');
+    var docs = warning.querySelector('[data-celery-warning-docs]');
+    if (message) message.textContent = ' ' + (check.message || 'Uploaded-document project generation is unavailable.');
+    if (docs) docs.href = check.docs_url || 'https://github.com/SuffolkLITLab/docassemble-ALWeaver#celery-worker-configuration';
+    warning.classList.remove('d-none');
+  }
+
   var apiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
     csrfToken: BOOT.csrfToken || null,
@@ -7998,6 +8013,7 @@
       renderLoginRequired();
       return;
     }
+    renderSystemChecks();
     document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
       control.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
     });

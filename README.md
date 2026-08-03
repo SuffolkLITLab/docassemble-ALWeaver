@@ -47,16 +47,30 @@ The API uses docassemble's API key authentication via `api_verify()`.
 The `POST` endpoint defaults to synchronous behavior, and supports optional
 asynchronous execution with `mode=async` (or `async=true`).
 
-To enable async mode, add this module to your docassemble configuration:
+## Celery worker configuration
+
+Uploaded-document project generation in the graphical editor and asynchronous
+API requests require ALWeaver's task module to be registered with Docassemble's
+global Celery configuration. Add the module to the existing `celery modules`
+list in the Docassemble configuration; preserve any modules already listed:
 
 ```yaml
 celery modules:
   - docassemble.ALWeaver.api_weaver_worker
 ```
 
-The graphical editor uses the same configured worker module for uploaded-file
-project generation. It refuses that long-running operation when Celery is not
-configured; it does not fall back to an in-process daemon thread.
+After changing the configuration, restart or redeploy both the Docassemble web
+service and every Celery worker so that they load the same task registry. Blank
+project creation, ordinary graphical/source editing, and synchronous API calls
+do not require this module.
+
+ALWeaver checks this setting when its editor module starts and whenever the
+editor page loads. If it is missing, the server logs a warning and the editor
+shows a persistent setup notice before a developer selects a file to generate.
+An attempted background request fails with HTTP 503, a structured
+`async_not_configured` API error (or `editor_async_not_configured` from the
+graphical editor), and a link back to these instructions. Weaver does not enqueue
+an unregistered task or fall back to an in-process thread.
 
 The revisioned graphical source-patch API is an opt-in beta. Set
 `WEAVER_ENABLE_PATCH_MODEL: true` in the Docassemble configuration (or the same

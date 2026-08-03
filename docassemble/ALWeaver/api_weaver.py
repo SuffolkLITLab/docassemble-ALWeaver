@@ -19,6 +19,11 @@ from .docassemble_compat import (
     get_worker_app,
     json_response as jsonify_with_status,
 )
+from .worker_config import (
+    CELERY_MODULE as ASYNC_CELERY_MODULE,
+    get_worker_configuration_status,
+    worker_configuration_is_ready,
+)
 
 app = get_flask_app()
 csrf = get_csrf()
@@ -51,15 +56,13 @@ except Exception as _api_utils_import_err:
 __all__ = []
 JOB_KEY_PREFIX = "da:alweaver:job:"
 JOB_KEY_EXPIRE_SECONDS = 24 * 60 * 60
-ASYNC_CELERY_MODULE = "docassemble.ALWeaver.api_weaver_worker"
 
 if not in_celery:
     from .api_weaver_worker import weaver_generate_task
 
 
 def _async_is_configured() -> bool:
-    celery_modules = daconfig.get("celery modules", []) or []
-    return ASYNC_CELERY_MODULE in celery_modules
+    return worker_configuration_is_ready(daconfig)
 
 
 def _job_key(job_id: str) -> str:
@@ -177,11 +180,14 @@ def weaver_generate():
                         "request_id": request_id,
                         "error": {
                             "type": "async_not_configured",
+                            "code": "async_not_configured",
                             "message": (
                                 "Async mode is not configured. Add "
                                 f"{ASYNC_CELERY_MODULE!r} to the docassemble "
-                                "'celery modules' configuration list."
+                                "'celery modules' configuration list, then restart "
+                                "the Docassemble web and Celery services."
                             ),
+                            "details": get_worker_configuration_status(daconfig),
                         },
                     },
                     503,

@@ -50,6 +50,43 @@ class TestEditorSecurity(unittest.TestCase):
                 rendered = api_editor._render_editor_page()
         self.assertIn('"csrfToken": "server-csrf-token"', rendered)
 
+    def test_page_bootstrap_warns_before_unconfigured_celery_use(self):
+        template = "<script>window.data = __EDITOR_BOOTSTRAP_JSON__;</script>"
+        status = {
+            "configured": False,
+            "code": "celery_module_missing",
+            "message": "Uploaded generation unavailable.",
+            "docs_url": "https://example.test/setup",
+        }
+        with (
+            patch.object(api_editor, "_get_template_content", return_value=template),
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_list_projects", return_value=[]),
+            patch.object(api_editor, "generate_csrf", return_value="test-csrf"),
+            patch.object(
+                api_editor,
+                "get_worker_configuration_status",
+                return_value=status,
+            ),
+        ):
+            with api_editor.app.test_request_context("/al/editor"):
+                rendered = api_editor._render_editor_page()
+
+        self.assertIn('"systemChecks"', rendered)
+        self.assertIn('"celery_module_missing"', rendered)
+        self.assertIn('"https://example.test/setup"', rendered)
+
+    def test_editor_renders_accessible_celery_preflight_notice(self):
+        package_dir = Path(api_editor.__file__).parent
+        template = (package_dir / "data/templates/editor.html").read_text()
+        controller = (package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="editor-celery-warning"', template)
+        self.assertIn('aria-live="polite"', template)
+        self.assertIn("BOOT.systemChecks && BOOT.systemChecks.celery", controller)
+        self.assertIn("renderSystemChecks();", controller)
+
     def test_editor_page_redirects_non_developers_before_rendering(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=False),
