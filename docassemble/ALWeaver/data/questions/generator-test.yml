@@ -10,6 +10,7 @@ code: |
   ran_tests
 ---
 event: ran_tests
+id: ran tests
 question: map_names() tests
 css: |
   <style>

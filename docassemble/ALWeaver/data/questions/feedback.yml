@@ -110,7 +110,7 @@ continue button field: intro
 ---
 if: |
   get_config('debug')
-id: intro
+id: intro tester
 question: |
   Tester feedback form
 decoration: opinion  

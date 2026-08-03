@@ -36,6 +36,7 @@ sections:
 mandatory: True
 id: Interview Order
 code: |
+  menu_items = [action_menu_item("Configure Weaver", "configure_weaver")]
   if not get_config("enable weaver for unauthenticated users", True):
     if not (user_logged_in() and user_has_privilege(["developer", "admin"])):
       not_authorized
@@ -153,6 +154,7 @@ code: |
   show_interview
 ---
 event: not_authorized
+id: not authorized
 question: |
   You must be logged in as a developer to access the Weaver.
 subquestion: |
@@ -192,10 +194,6 @@ modules:
   - docassemble.ALToolbox.misc #collapse_template()
   - docassemble.AssemblyLine.sessions
   - docassemble.base.logger
----
-mandatory: True
-code: |
-  menu_items = [action_menu_item("Configure Weaver", "configure_weaver")]
 ---
 objects:
   - install_step1_status: DAEmpty # This and below are to avoid playground error highlighting
@@ -589,13 +587,14 @@ code: |
   background_response()
 ---
 event: waiting_screen_autolabel_existing_pdf_fields
+id: waiting screen autolabel existing pdf fields
 question: |
   Preparing suggested field labels
 subquestion: |
   Please wait while Weaver generates field label suggestions in the background.
 
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Working in the background...
@@ -604,6 +603,7 @@ subquestion: |
 reload: 5
 ---
 event: autolabel_existing_pdf_fields_failed
+id: autolabel existing pdf fields failed
 question: |
   Auto-labeling did not finish
 subquestion: |
@@ -651,6 +651,7 @@ fields:
       ]
 ---
 event: autolabel_docx_no_suggestions_found
+id: autolabel docx no suggestions found
 question: |
   Weaver could not auto-label this DOCX
 subquestion: |
@@ -844,7 +845,7 @@ fields:
       that exists.
     required: False
     validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://httpbin.org/anything/my_form")
   - Date original form was last published (optional): interview.original_form_published_on
     datatype: date
     required: False
@@ -879,7 +880,7 @@ fields:
       Answer yes if the form lists the name of a court, even if it is not
       filed in a court. We will ask you
       questions that help you list the correct set of courts as options.
-  - Kind of form: interview.form_type
+  - Court-related kind of form: interview.form_type
     datatype: radio
     default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "starts_case" }
     choices:
@@ -889,7 +890,7 @@ fields:
       - Form that is not filed in a court: other_form
       - Other: other
     show if: interview.court_related
-  - Kind of form: interview.form_type
+  - Non-court kind of form: interview.form_type
     datatype: radio
     default: ${ interview.llm_draft_form_type if hasattr(interview, "llm_draft_form_type") else "other_form" }
     choices:
@@ -909,7 +910,7 @@ fields:
     code: |
       sorted(get_court_choices()) + ["Other"]
     show if: interview.court_related
-  - Other (separate with a comma): interview.allowed_courts_text
+  - Other (required; separate with a comma): interview.allowed_courts_text
     input type: area
     required: True
     js show if: |
@@ -1038,7 +1039,7 @@ subquestion: |
   This will be shown in the body of the first page.
 
   Example:   
-  [FILE branding_extra, 80%]
+  [FILE branding_extra, 80%, Example Assembly Line branding]
 fields:
   - Action-oriented description of this form: interview.intro_prompt
     default: ${ interview_intro_prompt_default }
@@ -1286,7 +1287,7 @@ fields:
     show if: interview.customize_next_steps
     required: False
     validate: |
-      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://masslegalhelp.org/my_form")
+      lambda y: (not y or is_url(y)) or validation_error("Write a valid URL, like: https://httpbin.org/anything/my_form")
   - Add QR code with this link?: interview.generate_next_steps_qr_code
     datatype: yesnoradio
     js show if: |
@@ -1777,26 +1778,26 @@ subquestion: |
   You need to be logged in with the `developer` or `admin` role to create a Playground project directly from this screen.
   % endif
   
-  ###### Download fallback
+  ##### Download fallback
   You can still download the generated interview as a Docassemble package:
   
   ${ action_button_html(interview_package_download.url_for(attachment=True), color='info', label='Download your package') }
   
-  ###### Post-download instructions         
+  ##### Post-download instructions
   ${ collapse_template(start_your_project) }  
   ${ collapse_template(customize_your_interview) }   
-  See detailed instructions _[here.](https://assemblyline.suffolklitlab.org/docs/authoring/customizing_interview)_  
+  See the detailed [customizing instructions](https://assemblyline.suffolklitlab.org/docs/authoring/customizing_interview).
   </div>
     
   <div class="panel_lavender" markdown="1">
   #### &#11093; Advanced  
-  ###### Review code on the screen
+  ##### Review code on the screen
   ${ collapse_template(yaml_source) } 
 
-  ###### View and download individual generated files
+  ##### View and download individual generated files
   ${ collapse_template(generated_artifacts_downloads) }
 
-  ###### Download the YAML file only
+  ##### Download the YAML file only
   If you already uploaded a previous version of the package to the Playground, 
   you can get just the updated YAML file here.
 
@@ -1985,6 +1986,7 @@ code: |
   interview.questions[i].field_list.there_is_another = False
 ---
 continue button field: interview.all_fields[i].edit_field
+id: edit field
 question: |
   % if hasattr(interview.all_fields[i], 'final_display_var'):
   Edit field ${ bold(interview.all_fields[i].final_display_var) }
@@ -2070,9 +2072,13 @@ validation code: |
 continue button label: Save
 back button label: Cancel
 ---
+# The drag-and-drop helper fields are not user-facing inputs and intentionally
+# have no labels; the visible table and screen title provide their context.
+# no-dayc-block: EA502
 continue button field: interview.questions[i].edit_question
 scan for variables: False
 sets: interview.questions[i].edit_question
+id: edit screen
 question: |
   Edit screen ${ i + 1 }
 fields:
@@ -2199,7 +2205,11 @@ data:
   - signature: Signature
   - download: Download and next steps  
 ---
+# The drag-and-drop helper fields are not user-facing inputs and intentionally
+# have no labels; the visible table provides their context.
+# no-dayc-block: EA502
 continue button field: show_screen_order
+id: review screen order
 question: |
   Review your screen order
 subquestion: |          
@@ -2335,36 +2345,42 @@ attachments:
     docx template file: next_steps_starts_case.docx
     filename: ${ interview.interview_label + '_next_steps' }
     skip undefined: True
+    tagged pdf: True
 ---
 attachments:
   - variable name: next_steps_existing_case[i]
     docx template file: next_steps_existing_case.docx
     filename: ${ interview.interview_label + '_next_steps' }    
     skip undefined: True
+    tagged pdf: True
 ---
 attachments:
   - variable name: next_steps_appeal[i]
     docx template file: next_steps_appeal.docx
     filename: ${ interview.interview_label + '_next_steps' }    
     skip undefined: True
+    tagged pdf: True
 ---
 attachments:
   - variable name: next_steps_letter[i]
     docx template file: next_steps_letter.docx
     filename: ${ interview.interview_label + '_next_steps' }    
     skip undefined: True
+    tagged pdf: True
 ---
 attachments:
   - variable name: next_steps_other_form[i]
     docx template file:  next_steps_other_form.docx
     filename: ${ interview.interview_label + '_next_steps' }    
     skip undefined: True
+    tagged pdf: True
 ---
 attachments:
   - variable name: next_steps_other[i]
     docx template file:  next_steps_other.docx
     filename: ${ interview.interview_label + '_next_steps' }
     skip undefined: True
+    tagged pdf: True
 ---
 code: |
   interview.instructions = next_steps_documents[interview.form_type]["attachment"][
@@ -2488,11 +2504,12 @@ code: |
   background_response()
 ---  
 event: waiting_screen
+id: waiting screen
 question: |
   Please wait while the package is installed
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Installing package in the background...
@@ -2501,11 +2518,12 @@ subquestion: |
 reload: 5
 ---  
 event: waiting_screen_uninstall
+id: waiting screen uninstall
 question: |
   Package is being uninstalled, please wait here
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Uninstalling package in the background...
@@ -2853,13 +2871,14 @@ code: |
   background_response()
 ---
 event: waiting_screen_lucky_drafting
+id: waiting screen lucky drafting
 question: |
   Drafting your interview with AI assistance
 subquestion: |
   Please wait while we generate a draft. This can take up to a minute.
 
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Drafting in the background...
