@@ -57,6 +57,7 @@ import docassemble.base.pdftk
 import formfyxer
 import importlib
 import json
+import keyword
 import mako.runtime
 import mako.template
 import more_itertools
@@ -254,6 +255,10 @@ def varname(var_name: str) -> str:
         var_name = spaces.sub(r"_", var_name)
         var_name = invalid_var_characters.sub(r"", var_name)
         var_name = digit_start.sub(r"", var_name)
+        # A label like "from" or "class" is a valid PDF field name but not a
+        # usable Python identifier, so trailing-underscore it
+        if keyword.iskeyword(var_name):
+            var_name = var_name + "_"
         return var_name
     return var_name
 
@@ -1323,6 +1328,13 @@ class DAFieldList(DAList):
                         # currently this is only trial_court
                         # strip trailing numbers so we end up with just the people object, i.e. `users`
                         people.add(re.sub(r"\d+$", "", matches.groups()[0]))
+        # A prefix like `from` (from a `from_phone` PDF field) is a Python
+        # keyword, so it can never be the name of a person list
+        people = {
+            person
+            for person in people
+            if person.isidentifier() and not keyword.iskeyword(person)
+        }
         if custom_only:
             return people - set(reserved_pluralizers_map.values())
         else:
