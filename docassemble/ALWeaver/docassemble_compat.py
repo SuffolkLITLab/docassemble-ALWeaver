@@ -43,6 +43,42 @@ def _base_functions() -> Any:
     return importlib.import_module("docassemble.base.functions")
 
 
+def _docx_jinja_module() -> Any:
+    """Return the module that owns Docassemble's DOCX Jinja integration."""
+    try:
+        module = importlib.import_module("docassemble.base.jinja")
+    except ImportError:
+        module = importlib.import_module("docassemble.base.parse")
+    if not all(
+        hasattr(module, name)
+        for name in ("DAEnvironment", "DAExtension", "registered_jinja_filters")
+    ):
+        raise DocassembleCompatibilityError(
+            "This Docassemble installation does not expose its DOCX Jinja environment"
+        )
+    return module
+
+
+def create_docx_jinja_environment(*, undefined: Any) -> Any:
+    """Create Docassemble's DOCX Jinja environment across 1.9.x and 1.10.x."""
+    module = _docx_jinja_module()
+    environment = module.DAEnvironment(
+        undefined=undefined,
+        extensions=[module.DAExtension],
+    )
+    environment.filters.update(module.registered_jinja_filters)
+    builtin_filters = getattr(module, "builtin_jinja_filters", None)
+    if builtin_filters is None:
+        get_builtin_filters = getattr(module, "get_builtin_jinja_filters", None)
+        if not callable(get_builtin_filters):
+            raise DocassembleCompatibilityError(
+                "This Docassemble installation does not expose its DOCX Jinja filters"
+            )
+        builtin_filters = get_builtin_filters()
+    environment.filters.update(builtin_filters)
+    return environment
+
+
 def _private_webapp_module(module_name: str) -> Any:
     """Import a private webapp module only inside this compatibility boundary."""
     try:

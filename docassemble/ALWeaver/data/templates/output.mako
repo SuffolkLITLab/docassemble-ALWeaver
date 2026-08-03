@@ -7,7 +7,7 @@
           interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
       )
   )
-  state_for_theme = str(showifdef("interview.state", "") or "").strip().upper()
+  state_for_theme = str(getattr(interview, "state", "") or "").strip().upper()
   massaccess_include = "docassemble.MassAccess:massaccess.yml"
   if state_for_theme == "MA" and massaccess_include not in selected_includes:
       selected_includes.append(massaccess_include)
@@ -24,25 +24,25 @@
   if not topic_values:
       topic_values = ["CO-00-00-00-00"]
 
-  landing_page_url_value = str(showifdef("interview.landing_page_url", "") or "").strip()
+  landing_page_url_value = str(getattr(interview, "landing_page_url", "") or "").strip()
   if not landing_page_url_value:
-      original_form_url = str(showifdef("interview.original_form", "") or "").strip()
+      original_form_url = str(getattr(interview, "original_form", "") or "").strip()
       if original_form_url.startswith(("http://", "https://")):
           landing_page_url_value = original_form_url
       else:
           landing_page_url_value = "https://courtformsonline.org/"
 
-  jurisdiction_value = str(showifdef("interview.jurisdiction", "") or "").strip()
+  jurisdiction_value = str(getattr(interview, "jurisdiction", "") or "").strip()
   if not jurisdiction_value:
-      state_value = str(showifdef("interview.state", "") or "").strip().upper()
-      country_value = str(showifdef("interview.default_country_code", "US") or "US").strip().upper()
+      state_value = str(getattr(interview, "state", "") or "").strip().upper()
+      country_value = str(getattr(interview, "default_country_code", "US") or "US").strip().upper()
       if country_value == "US" and state_value:
           jurisdiction_value = f"NAM-US-US+{state_value}"
       elif country_value:
           jurisdiction_value = f"NAM-{country_value}"
       else:
           jurisdiction_value = "NAM-US"
-  intro_prompt_value = str(showifdef("interview.intro_prompt", "") or "")
+  intro_prompt_value = str(getattr(interview, "intro_prompt", "") or "")
 %>
 ---
 include:
@@ -59,31 +59,31 @@ metadata:
   description: |-
 ${ indent(interview.description, by=4) }
   can_I_use_this_form: |
-% if showifdef("interview.can_I_use_this_form"):
+% if getattr(interview, "can_I_use_this_form", ""):
 ${ indent(interview.can_I_use_this_form, by=4) }
 % endif
   before_you_start: |
-% if showifdef("interview.getting_started"):
+% if getattr(interview, "getting_started", ""):
 ${ indent(interview.getting_started, by=4) }
 % endif
   when_you_are_finished: |
-% if showifdef("interview.when_you_are_finished"):
+% if getattr(interview, "when_you_are_finished", ""):
 ${ indent(interview.when_you_are_finished, by=4) }
 % endif
-  efiling_enabled: ${ "True" if showifdef("interview.efiling_enabled", False) else "False" }
-  integrated_efiling: ${ "True" if showifdef("interview.integrated_efiling", False) else "False" }
-  integrated_email_filing: ${ "True" if showifdef("interview.integrated_email_filing", False) else "False" }
-  requires_notarization: ${ "True" if showifdef("interview.requires_notarization", False) else "False" }
-  unlisted: ${ "True" if showifdef("interview.unlisted", False) else "False" }
-  % if showifdef("interview.footer"):
+  efiling_enabled: ${ "True" if getattr(interview, "efiling_enabled", False) else "False" }
+  integrated_efiling: ${ "True" if getattr(interview, "integrated_efiling", False) else "False" }
+  integrated_email_filing: ${ "True" if getattr(interview, "integrated_email_filing", False) else "False" }
+  requires_notarization: ${ "True" if getattr(interview, "requires_notarization", False) else "False" }
+  unlisted: ${ "True" if getattr(interview, "unlisted", False) else "False" }
+  % if getattr(interview, "footer", ""):
   footer: >-
 ${ indent(interview.footer, by=4) }
   % endif
   landing_page_url: >-
 ${ indent(landing_page_url_value, by=4) }
   maturity: production
-  estimated_completion_minutes: ${ showifdef("interview.estimated_completion_minutes",'""')}
-  estimated_completion_delta: ${ showifdef("interview.estimated_completion_delta", '""')}
+  estimated_completion_minutes: ${ getattr(interview, "estimated_completion_minutes", '""')}
+  estimated_completion_delta: ${ getattr(interview, "estimated_completion_delta", '""')}
   LIST_topics:
     % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
@@ -135,13 +135,13 @@ ${ indent(interview.help_page_title, by=4) }
   review_date: ${ today().format("yyyy-MM-dd")}
   form_titles:
     - ${ interview.title }
-  % if showifdef("interview.form_number"):
+  % if getattr(interview, "form_number", ""):
   form_numbers:
     - ${ interview.form_number }
   % else:
   form_numbers: []
   % endif
-  % if showifdef("interview.filing_fee"):
+  % if getattr(interview, "filing_fee", None):
   fees:
     - Filing fee: ${ currency(interview.filing_fee) }
   % endif

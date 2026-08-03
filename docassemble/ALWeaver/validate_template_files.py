@@ -1,27 +1,16 @@
+import ast
+import importlib.util
+from pathlib import Path
+
 from jinja2 import DebugUndefined
-from jinja2.utils import missing
 from docxtpl import DocxTemplate
 from docx2python import docx2python
-from jinja2 import Environment, BaseLoader
 import jinja2.exceptions
 from docassemble.base.util import DAFile
-import docassemble.base.parse as da_parse
-
-DAEnvironment = getattr(da_parse, "DAEnvironment")
-DAExtension = getattr(da_parse, "DAExtension")
-registered_jinja_filters = getattr(da_parse, "registered_jinja_filters")
-builtin_jinja_filters = getattr(da_parse, "builtin_jinja_filters", None)
-if builtin_jinja_filters is None:
-    builtin_jinja_filters = getattr(da_parse, "get_builtin_jinja_filters")()
+from .docassemble_compat import create_docx_jinja_environment
 import docassemble.base.util
 import keyword
-import docassemble.AssemblyLine.al_general
-import docassemble.AssemblyLine.al_document
-import docassemble.AssemblyLine.language
-
-# import docassemble.AssemblyLine.sessions
-import docassemble.ALToolbox.misc
-from typing import Optional, Iterable, Set, Union, List
+from typing import Optional, Iterable, Set
 import re
 import pikepdf
 
@@ -35,13 +24,40 @@ __all__ = [
 ]
 
 
+def _declared_module_exports(module_name: str) -> Set[str]:
+    """Read a module's literal ``__all__`` without executing the module."""
+    spec = importlib.util.find_spec(module_name)
+    if spec is None or spec.origin is None:
+        raise ImportError(f"Unable to locate {module_name}")
+    source_path = Path(spec.origin)
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = (
+            statement.targets
+            if isinstance(statement, ast.Assign)
+            else [statement.target]
+        )
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in targets
+        ):
+            continue
+        if statement.value is None:
+            continue
+        value = ast.literal_eval(statement.value)
+        if isinstance(value, (list, tuple, set)):
+            return {str(item) for item in value}
+    raise ImportError(f"Unable to read {module_name}.__all__")
+
+
 all_reserved_names = set(
     list(docassemble.base.util.__all__)
-    + list(docassemble.AssemblyLine.al_general.__all__)
-    + list(docassemble.AssemblyLine.al_document.__all__)
-    + list(docassemble.AssemblyLine.language.__all__)
-    # + docassemble.AssemblyLine.sessions.__all__
-    + list(docassemble.ALToolbox.misc.__all__)
+    + list(_declared_module_exports("docassemble.AssemblyLine.al_general"))
+    + list(_declared_module_exports("docassemble.AssemblyLine.al_document"))
+    + list(_declared_module_exports("docassemble.AssemblyLine.language"))
+    + list(_declared_module_exports("docassemble.ALToolbox.misc"))
     + list(keyword.kwlist)
     + list(dir(__builtins__))
     + [
@@ -154,9 +170,7 @@ def get_jinja_errors(the_file: DAFile) -> Optional[str]:
     """Just try rendering the DOCX file as a Jinja2 template and catch any errors.
     Returns a string with the errors, if any.
     """
-    env = DAEnvironment(undefined=CallAndDebugUndefined, extensions=[DAExtension])
-    env.filters.update(registered_jinja_filters)
-    env.filters.update(builtin_jinja_filters)
+    env = create_docx_jinja_environment(undefined=CallAndDebugUndefined)
 
     doc = DocxTemplate(the_file.path())
     try:

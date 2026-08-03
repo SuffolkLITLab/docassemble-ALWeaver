@@ -7,6 +7,8 @@ import types
 import unittest
 from unittest.mock import patch
 
+from jinja2 import DebugUndefined
+
 from . import docassemble_compat
 
 
@@ -115,6 +117,14 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
 
         self.assertEqual(result.data, {"hook": True})
         self.assertTrue(captured["read_only"])
+
+    def test_docx_jinja_environment_uses_installed_docassemble_layout(self):
+        environment = docassemble_compat.create_docx_jinja_environment(
+            undefined=DebugUndefined
+        )
+
+        self.assertIs(environment.undefined, DebugUndefined)
+        self.assertIn("ampersand_filter", environment.filters)
 
 
 class TestDocassembleSourceCompatibility(unittest.TestCase):

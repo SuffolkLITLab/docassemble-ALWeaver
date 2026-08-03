@@ -5582,6 +5582,15 @@ def generate_interview_from_path(
 ) -> WeaverGenerationResult:
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
+    if isinstance(interview_overrides, str):
+        try:
+            interview_overrides = json.loads(interview_overrides)
+        except (json.JSONDecodeError, TypeError):
+            raise ValueError("interview_overrides must be a dict, not a string")
+    if interview_overrides is not None and not isinstance(interview_overrides, dict):
+        raise TypeError(
+            f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
+        )
     _ensure_current_question_package()
     resolved_exact_name = os.path.basename(
         str(exact_name or os.path.basename(input_path) or input_path).strip()
@@ -5594,11 +5603,19 @@ def generate_interview_from_path(
             screen_definitions, field_definitions
         )
 
+    dependency_jurisdiction = jurisdiction
+    if dependency_jurisdiction is None and interview_overrides:
+        dependency_jurisdiction = interview_overrides.get("state")
+        if dependency_jurisdiction is None:
+            dependency_jurisdiction = interview_overrides.get("jurisdiction")
+    if isinstance(dependency_jurisdiction, str) and "+" in dependency_jurisdiction:
+        dependency_jurisdiction = dependency_jurisdiction.rsplit("+", 1)[-1]
+
     interview = DAInterview()
     interview.auto_assign_attributes(
         input_file=da_file,
         title=title,
-        jurisdiction=jurisdiction,
+        jurisdiction=dependency_jurisdiction,
         categories=categories,
         default_country_code=default_country_code,
         screens=merged_screens,
@@ -5616,15 +5633,6 @@ def generate_interview_from_path(
 
     override_title_requested = False
     if interview_overrides:
-        if isinstance(interview_overrides, str):
-            try:
-                interview_overrides = json.loads(interview_overrides)
-            except (json.JSONDecodeError, TypeError):
-                raise ValueError("interview_overrides must be a dict, not a string")
-        if not isinstance(interview_overrides, dict):
-            raise TypeError(
-                f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
-            )
         override_title_requested = bool(
             str(interview_overrides.get("title", "") or "").strip()
         )
