@@ -625,24 +625,25 @@
 
   // Known docassemble field datatypes
   var FIELD_TYPES = [
-    'text', 'area', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
+    'text', 'textC', 'area', 'areaC', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
     'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe',
     'number', 'integer', 'currency', 'date', 'time', 'datetime',
-    'email', 'password', 'url',
+    'email', 'password', 'url', 'al_international_phone',
     'file', 'files', 'camera',
     'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
     'range', 'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
+    'ThreePartsDate', 'BirthDate',
     'ml', 'mlarea', 'microphone', 'camcorder',
     'hidden', 'raw', 'note', 'html', 'raw html', 'code',
     'user', 'environment',
   ];
 
   var FIELD_TYPE_GROUPS = [
-    { label: 'Text inputs', items: ['text', 'area', 'raw', 'email', 'password', 'url', 'ml', 'mlarea'] },
+    { label: 'Text inputs', items: ['text', 'textC', 'area', 'areaC', 'raw', 'email', 'password', 'url', 'al_international_phone', 'ml', 'mlarea'] },
     { label: 'Numbers', items: ['number', 'integer', 'currency', 'range'] },
     { label: 'Choices', items: ['radio', 'checkboxes', 'dropdown', 'combobox', 'multiselect'] },
     { label: 'Booleans', items: ['yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe', 'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe'] },
-    { label: 'Date and time', items: ['date', 'time', 'datetime'] },
+    { label: 'Date and time', items: ['date', 'time', 'datetime', 'ThreePartsDate', 'BirthDate'] },
     { label: 'Files and media', items: ['file', 'files', 'camera', 'microphone', 'camcorder', 'environment'] },
     { label: 'Objects', items: ['object', 'object_radio', 'object_checkboxes', 'object_multiselect', 'user'] },
     { label: 'Standalone content', items: ['note', 'html', 'raw html'] },
@@ -659,6 +660,11 @@
     code: 'Fields code',
     hidden: 'Hidden input',
     mlarea: 'ML area',
+    textC: 'Text with character counter',
+    areaC: 'Area with character counter',
+    al_international_phone: 'International phone',
+    ThreePartsDate: 'Three-part date',
+    BirthDate: 'Birth date',
     object_radio: 'Object radio',
     object_checkboxes: 'Object checkboxes',
     object_multiselect: 'Object multiselect',
@@ -4724,6 +4730,12 @@
             });
             html += '</select>';
             html += '</div>';
+            if (hasChoices) {
+              html += '<div class="editor-field-choices-row">';
+              html += '<label class="editor-tiny" for="field-choices-' + fi + '">Options (one per line)</label>';
+              html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
+              html += '</div>';
+            }
             html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
           }
         });
@@ -5171,7 +5183,9 @@
     var key = String(dtype || 'text').toLowerCase();
     var map = {
       text: 'fa-pencil',
+      textc: 'fa-pencil',
       area: 'fa-paragraph',
+      areac: 'fa-paragraph',
       raw: 'fa-code',
       number: 'fa-hashtag',
       integer: 'fa-hashtag',
@@ -5183,6 +5197,9 @@
       date: 'fa-calendar-day',
       time: 'fa-clock',
       datetime: 'fa-calendar-check',
+      threepartsdate: 'fa-calendar-days',
+      birthdate: 'fa-calendar-day',
+      al_international_phone: 'fa-phone',
       yesno: 'fa-toggle-on',
       yesnowide: 'fa-toggle-on',
       yesnoradio: 'fa-circle-dot',
@@ -5306,7 +5323,11 @@
 
     function renderBasicTab() {
       var out = '';
-      out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+      // Choice datatypes render their options below the field row so they
+      // remain available when the rest of field settings is collapsed.
+      if (CHOICE_TYPES.indexOf(dtype) === -1) {
+        out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+      }
       out += row('field-code-' + fi, 'code (Python expression)', '<textarea class="form-control editor-form-control font-monospace editor-field-code" id="field-code-' + fi + '" rows="3">' + esc(String(codeExpr || '')) + '</textarea>');
       out += row('fmod-default-' + fi, 'default', '<input class="form-control editor-form-control font-monospace" id="fmod-default-' + fi + '" data-fmod="default" data-field-idx="' + fi + '" value="' + esc(String(fmods['default'] || '')) + '">');
       out += row('fmod-input-type-' + fi, 'input type', '<select class="form-select editor-form-control" id="fmod-input-type-' + fi + '" data-fmod="input type" data-field-idx="' + fi + '"><option value="">(default)</option>' + ['area', 'radio', 'dropdown', 'combobox', 'ajax', 'datalist'].map(function (t) { return '<option value="' + t + '"' + (fmods['input type'] === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>');
