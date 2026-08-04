@@ -1,0 +1,47 @@
+%YAML 1.1
+---
+# Metadata comment must stay where it is.
+metadata:
+  title: "EDIT_TARGET" # preserve double quotes and this comment
+  short title: 'Quoted short title'
+unknown organization directive:
+  enabled: true
+---
+include:
+  - shared.yml
+---
+---
+id: complex_question
+question: >-
+  A folded question with ${ user.name } and punctuation.
+subquestion: |
+  Preserve this literal block.
+
+  % if defined("show_detail"):
+  ${ detail }
+  % endif
+fields:
+  - label: users[0].name.first
+    datatype: text
+    show if:
+      code: defined("users[0]")
+---
+id: python_block
+code: |
+  # Python formatting must remain untouched.
+  values = {
+      "first": 1,
+      "second": 2,
+  }
+---
+id: custom_tag_block
+custom value: !organization-specific keep-this-tag
+---
+id: duplicate_keys
+question: First value
+question: Second value
+---
+template: dynamic_template
+content: |
+  Hello ${ users[0] }.
+  <%doc>This Mako documentation stays exactly as written.</%doc>

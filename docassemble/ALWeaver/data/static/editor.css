@@ -12,6 +12,8 @@
   --editor-primary-bg: #e1eaf5;
   --editor-accent: #861e36;
   --editor-topbar-bg: #0d3970;
+  /* Matches docassemble's navbar: 0.5rem padding + a 40px navbar-brand. */
+  --editor-navbar-height: 56px;
   --editor-left-width: 280px;
   --editor-radius: 8px;
   --editor-radius-sm: 6px;
@@ -36,108 +38,110 @@ html, body {
   overflow: hidden;
 }
 
-/* ===== Top bar ===== */
+/* ===== Top bar =====
+   A stock Bootstrap navbar in the Weaver navy, sized to the same 56px as
+   docassemble's own navbar so moving between the editor and a native page
+   doesn't shift the content down. Everything below only sets the brand
+   colour and the geometry Bootstrap can't know about; the nav links,
+   dropdowns and collapse behaviour are Bootstrap's, driven by
+   data-bs-theme="dark" on the <nav>. */
 
-.editor-topbar {
+.editor-navbar {
   flex-shrink: 0;
   background: var(--editor-topbar-bg);
-  color: #fff;
-  border-bottom: none;
+  min-height: var(--editor-navbar-height);
   z-index: 10;
 }
 
-.editor-topbar-inner {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 16px;
-  height: 48px;
+@media (min-width: 992px) {
+  .editor-navbar {
+    height: var(--editor-navbar-height);
+    flex-wrap: nowrap;
+  }
+  /* Bootstrap's .nav-underline adds a 2px border to every link, which would
+     make the tabs taller than the brand and push the bar past 56px. */
+  .editor-navbar .nav-underline .nav-link {
+    padding-block: 0.375rem;
+  }
 }
 
 .editor-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 700;
-  white-space: nowrap;
-  font-size: 15px;
-  color: #fff;
+  border: 0;
+  background: none;
+  color: var(--bs-navbar-brand-color);
+  /* Shrink the project name, never the logo or the tabs beside it. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.editor-brand:hover,
+.editor-brand:focus-visible {
+  color: var(--bs-navbar-brand-hover-color);
 }
 
 .editor-brand-logo {
   width: auto;
-  height: 34px;
+  height: 28px;
   display: block;
   object-fit: contain;
   flex: 0 0 auto;
 }
 
 .editor-brand-project {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  line-height: 1.1;
-  color: #fff;
-  max-width: 38vw;
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.editor-top-tabs {
-  display: flex;
-  gap: 2px;
-  margin-left: 12px;
-  align-items: stretch;
+.editor-brand-caret {
+  font-size: 0.75em;
+  opacity: 0.7;
+  flex: 0 0 auto;
 }
 
 .editor-top-tab {
-  border-radius: 6px 6px 3px 3px;
-  font-size: 13px;
-  font-weight: 500;
+  /* nav-link renders an <a>; these are <button>s doing the same job. */
+  border-width: 0 0 var(--bs-nav-underline-border-width);
+  background: none;
+  font-family: inherit;
   white-space: nowrap;
-  padding: 4px 12px;
-  border-bottom: 2px solid transparent;
-}
-
-.editor-top-tab.active {
-  background: #fff;
-  color: #212529;
-  font-weight: 600;
-  border-bottom-color: transparent;
-}
-
-.editor-top-tab:not(.active) {
-  border-bottom-color: transparent;
-}
-
-.editor-top-tab:not(.active):hover {
-  border-bottom-color: rgba(255, 255, 255, 0.5);
-}
-
-.editor-top-tabs .editor-top-tab.btn-outline-light:hover,
-.editor-top-tabs .editor-top-tab.btn-outline-light:focus-visible {
-  color: #212529;
-  background-color: #f8f9fa;
-  border-color: #f8f9fa;
 }
 
 .editor-top-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
-  margin-left: auto;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  padding-block: 0.5rem;
+}
+
+@media (min-width: 992px) {
+  .editor-top-actions {
+    flex-wrap: nowrap;
+    padding-block: 0;
+  }
 }
 
 .editor-top-actions .btn {
   white-space: nowrap;
 }
 
-.editor-top-actions .btn-outline-light:hover,
-.editor-top-actions .btn-outline-light:focus-visible {
-  color: #212529;
-  background-color: #f8f9fa;
-  border-color: #f8f9fa;
+/* ===== Account menu (docassemble's own menu, rendered from bootstrap JSON) ===== */
+
+.editor-account-nav {
+  flex-direction: row;
+}
+
+@media (min-width: 992px) {
+  .editor-account-nav {
+    margin-left: 0.75rem;
+  }
 }
 
 .editor-icon-btn {
@@ -201,51 +205,6 @@ html, body {
   letter-spacing: 0.02em;
   color: var(--editor-muted);
   font-weight: 600;
-}
-
-.editor-jump-list {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.editor-jump-item {
-  border: 1px solid var(--editor-border);
-  border-radius: 4px;
-  background: #fff;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--editor-muted);
-  font-weight: 500;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-
-.editor-jump-item:hover { background: var(--editor-primary-bg); color: var(--editor-primary); }
-.editor-jump-item.active {
-  border-color: var(--editor-primary);
-  background: var(--editor-primary);
-  color: #fff;
-}
-
-/* More button in jump list */
-.editor-jump-more-btn {
-  padding: 2px 6px;
-}
-
-.editor-jump-more-btn::after {
-  display: none;
-}
-
-.editor-jump-more-menu {
-  min-width: 180px;
-  font-size: 13px;
-}
-
-.editor-jump-more-menu .dropdown-item {
-  padding: 5px 14px;
-  font-size: 13px;
 }
 
 .editor-outline-header {
@@ -1245,13 +1204,72 @@ html, body {
   text-decoration: underline;
 }
 
-/* ===== Monaco editor containers ===== */
+/* ===== CodeMirror source editor containers ===== */
 
-.editor-monaco-container {
+.editor-source-container {
+  position: relative;
   width: 100%;
+  min-height: 120px;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
   overflow: hidden;
+}
+
+/* daNewEditor() adds no sizing extension, so the view grows to fit the document
+   and our overflow:hidden simply clips it — no scrollbar, and the wheel has
+   nothing to move. Constrain the view to the container and let .cm-scroller own
+   the overflow, which is what CodeMirror 6 expects for a fixed-height editor. */
+.editor-source-container .cm-editor {
+  height: 100%;
+  max-height: 100%;
+}
+
+.editor-source-container .cm-scroller {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #b6c0cd transparent;
+}
+
+/* WebKit hides overlay scrollbars until scrolling; keep a persistent track so
+   long files visibly advertise that there is more content below. */
+.editor-source-container .cm-scroller::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-thumb {
+  background-color: #b6c0cd;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: #8b98a8;
+}
+
+.editor-source-container .cm-scroller::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* cm6.min.js switches to the oneDark theme under this same query. */
+@media (prefers-color-scheme: dark) {
+  .editor-source-container .cm-scroller {
+    scrollbar-color: #5a6373 transparent;
+  }
+
+  .editor-source-container .cm-scroller::-webkit-scrollbar-thumb {
+    background-color: #5a6373;
+  }
+
+  .editor-source-container .cm-scroller::-webkit-scrollbar-thumb:hover {
+    background-color: #79839a;
+  }
 }
 
 .editor-yaml-textarea {
@@ -2441,30 +2459,18 @@ code.md-mako-expr {
   font-size: 12px;
 }
 
-/* ===== Mobile / hamburger menu ===== */
-
-#topbar-hamburger {
-  padding: 4px 10px;
-  line-height: 1;
-}
-
-.editor-mobile-menu {
-  background: var(--editor-topbar-bg);
-  padding: 10px 16px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.editor-mobile-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.editor-mobile-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* The collapsed navbar can grow taller than the viewport once every action is
+   stacked, so let it scroll instead of burying the editor below it. */
+@media (max-width: 991.98px) {
+  .editor-navbar .navbar-collapse {
+    max-height: calc(100vh - var(--editor-navbar-height));
+    overflow-y: auto;
+  }
+  /* .nav-underline's 1rem gap is meant for a row; stacked it leaves the five
+     view tabs sprawling over half the screen. */
+  .editor-navbar .nav-underline {
+    --bs-nav-underline-gap: 0;
+  }
 }
 
 /* ===== Validation / Errors drawer ===== */
@@ -2859,23 +2865,8 @@ code.md-mako-expr {
   vertical-align: middle;
 }
 
-#btn-save-file:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.12);
-}
-
-/* ===== Top tab icon spacing ===== */
-
-.editor-top-tab i {
-  font-size: 12px;
-}
-
 /* ===== Errors button icon spacing ===== */
 
 .js-check-errors-btn .js-check-errors-icon {
   margin-right: 4px;
-}
-
-.js-check-errors-btn .js-check-errors-label {
-  /* Only shown when there is no icon visible */
 }

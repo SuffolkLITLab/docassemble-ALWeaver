@@ -10,9 +10,26 @@ from flask_cors import cross_origin
 
 from docassemble.base.config import daconfig, in_celery
 from docassemble.base.util import log
-from docassemble.webapp.app_object import app, csrf
-from docassemble.webapp.server import api_verify, jsonify_with_status, r
-from docassemble.webapp.worker_common import workerapp
+
+from .docassemble_compat import (
+    get_api_verify,
+    get_csrf,
+    get_flask_app,
+    get_redis_client,
+    get_worker_app,
+    json_response as jsonify_with_status,
+)
+from .worker_config import (
+    CELERY_MODULE as ASYNC_CELERY_MODULE,
+    get_worker_configuration_status,
+    worker_configuration_is_ready,
+)
+
+app = get_flask_app()
+csrf = get_csrf()
+api_verify = get_api_verify()
+r = get_redis_client()
+workerapp = get_worker_app()
 
 try:
     from .api_utils import (
@@ -39,15 +56,13 @@ except Exception as _api_utils_import_err:
 __all__ = []
 JOB_KEY_PREFIX = "da:alweaver:job:"
 JOB_KEY_EXPIRE_SECONDS = 24 * 60 * 60
-ASYNC_CELERY_MODULE = "docassemble.ALWeaver.api_weaver_worker"
 
 if not in_celery:
     from .api_weaver_worker import weaver_generate_task
 
 
 def _async_is_configured() -> bool:
-    celery_modules = daconfig.get("celery modules", []) or []
-    return ASYNC_CELERY_MODULE in celery_modules
+    return worker_configuration_is_ready(daconfig)
 
 
 def _job_key(job_id: str) -> str:
@@ -165,11 +180,14 @@ def weaver_generate():
                         "request_id": request_id,
                         "error": {
                             "type": "async_not_configured",
+                            "code": "async_not_configured",
                             "message": (
                                 "Async mode is not configured. Add "
                                 f"{ASYNC_CELERY_MODULE!r} to the docassemble "
-                                "'celery modules' configuration list."
+                                "'celery modules' configuration list, then restart "
+                                "the Docassemble web and Celery services."
                             ),
+                            "details": get_worker_configuration_status(daconfig),
                         },
                     },
                     503,

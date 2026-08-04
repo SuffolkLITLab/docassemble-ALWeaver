@@ -131,6 +131,11 @@ ignore_missing_imports=true
 disable_error_code=["import-untyped"]
 
 [[tool.mypy.overrides]]
+module = "flask_wtf.*"
+ignore_missing_imports=true
+disable_error_code=["import-untyped"]
+
+[[tool.mypy.overrides]]
 module = "mypy-pdfminer.*"
 ignore_missing_imports=true
 
@@ -171,4 +176,3 @@ dev = [
     "types-requests",
     "types-PyYAML",
 ]
-

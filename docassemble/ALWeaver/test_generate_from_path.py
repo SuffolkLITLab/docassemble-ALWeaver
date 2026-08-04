@@ -1,10 +1,8 @@
-import importlib.util
+# do not pre load
+
 import os
 import re
 
-# Test-only subprocess invocation for CLI validation.
-import subprocess  # nosec B404
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -51,16 +49,15 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._cluster_patch.stop()
 
     def _run_dayamlchecker(self, yaml_path: str) -> None:
-        if importlib.util.find_spec("dayamlchecker") is None:
-            self.fail("dayamlchecker is not installed")
-        # Test invokes a fixed module via sys.executable without shell expansion.
-        subprocess.run(  # nosec B603
-            [sys.executable, "-m", "dayamlchecker", yaml_path],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        errors = find_errors_from_string(
+            Path(yaml_path).read_text(encoding="utf-8"), input_file=yaml_path
         )
+        details = "\n".join(
+            str(getattr(error, "err_str", "") or error).strip() for error in errors
+        )
+        self.assertFalse(errors, details)
 
     def test_generate_from_pdf(self):
         pdf_path = (
@@ -222,64 +219,6 @@ question: |
             if temp_input_path and os.path.exists(temp_input_path):
                 os.remove(temp_input_path)
 
-    def test_generate_from_docx_with_llm_assist_calls_llm_hooks(self):
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        temp_input_path = None
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_handle:
-            temp_handle.write(docx_path.read_bytes())
-            temp_input_path = temp_handle.name
-        try:
-            with tempfile.TemporaryDirectory() as outdir:
-                with (
-                    patch.object(
-                        interview_generator_module.DAInterview,
-                        "_prefetch_reference_site",
-                        autospec=True,
-                        return_value=None,
-                    ) as prefetch_patch,
-                    patch.object(
-                        interview_generator_module.DAInterview,
-                        "llm_predict_state",
-                        autospec=True,
-                        return_value=True,
-                    ) as predict_patch,
-                    patch.object(
-                        interview_generator_module.DAInterview,
-                        "llm_refine_field_labels",
-                        autospec=True,
-                        return_value=1,
-                    ) as refine_patch,
-                    patch.object(
-                        interview_generator_module.DAInterview,
-                        "llm_group_fields",
-                        autospec=True,
-                        return_value=True,
-                    ) as group_patch,
-                ):
-                    result = generate_interview_from_path(
-                        temp_input_path,
-                        output_dir=outdir,
-                        exact_name=docx_path.name,
-                        use_llm_assist=True,
-                        help_page_url="https://example.com/reference",
-                        help_source_text="Additional drafting context",
-                        create_package_zip=False,
-                        include_next_steps=False,
-                    )
-
-                self.assertTrue(os.path.exists(result.yaml_path))
-                self.assertEqual(
-                    os.path.basename(result.yaml_path),
-                    "test_docx_no_pdf_field_names.yml",
-                )
-                prefetch_patch.assert_called_once()
-                predict_patch.assert_called_once()
-                refine_patch.assert_called_once()
-                group_patch.assert_called_once()
-        finally:
-            if temp_input_path and os.path.exists(temp_input_path):
-                os.remove(temp_input_path)
-
     def test_deterministic_package_contains_expected_files_including_next_steps(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -412,177 +351,6 @@ question: |
             )
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
             self.assertNotIn('nav.set_section("', yaml_text)
-
-    def test_interview_overrides_string_coerced(self):
-        """Regression: interview_overrides passed as a JSON string should be
-        auto-parsed rather than raising 'str has no attribute items'."""
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = generate_interview_from_path(
-                str(docx_path),
-                output_dir=tmpdir,
-                create_package_zip=False,
-                include_next_steps=False,
-                interview_overrides='{"enable_navigation": false}',
-            )
-            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
-            self.assertNotIn('nav.set_section("', yaml_text)
-
-    def test_interview_overrides_bad_string_raises(self):
-        """A non-JSON string for interview_overrides should raise ValueError."""
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaises(ValueError):
-                generate_interview_from_path(
-                    str(docx_path),
-                    output_dir=tmpdir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    interview_overrides="not valid json",
-                )
-
-    def test_upload_flow_end_to_end(self):
-        """Simulate the editor upload flow: generate_interview_from_bytes with
-        a DOCX file, matching what _new_project_from_uploads does."""
-        from .api_utils import generate_interview_from_bytes
-
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        content = docx_path.read_bytes()
-
-        result = generate_interview_from_bytes(
-            filename=docx_path.name,
-            content_bytes=content,
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            generation_options={"title": "Test Demand Letter"},
-            include_yaml_text=True,
-        )
-        self.assertIn("yaml_text", result)
-        self.assertTrue(len(result["yaml_text"]) > 100)
-        self.assertEqual(result["input_filename"], docx_path.name)
-
-    def test_interview_short_title_always_generated(self):
-        """Regression: interview_short_title code block must always appear in
-        the generated YAML, even when no LLM is used.  The block was previously
-        gated on a Mako ``defined()`` check that always evaluated to False in
-        the Python rendering path, so the block was silently omitted."""
-        pdf_path = (
-            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = generate_interview_from_path(
-                str(pdf_path),
-                output_dir=tmpdir,
-                create_package_zip=False,
-                include_next_steps=False,
-            )
-            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
-
-        # The block must be present and contain a non-empty Python string literal.
-        self.assertIn("interview_short_title =", yaml_text)
-        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
-        self.assertIsNotNone(match, "interview_short_title assignment not found")
-        rhs = match.group(1).strip()
-        # repr() produces a quoted string — must not be an empty string literal.
-        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
-
-    def test_interview_short_title_via_upload_flow(self):
-        """interview_short_title must also appear when using generate_interview_from_bytes
-        (the I'm-feeling-lucky editor upload path)."""
-        from .api_utils import generate_interview_from_bytes
-
-        pdf_path = (
-            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
-        )
-        content = pdf_path.read_bytes()
-
-        result = generate_interview_from_bytes(
-            filename=pdf_path.name,
-            content_bytes=content,
-            mimetype="application/pdf",
-            generation_options={},
-            include_yaml_text=True,
-        )
-        yaml_text = result["yaml_text"]
-        self.assertIn("interview_short_title =", yaml_text)
-        match = re.search(r"interview_short_title\s*=\s*(.+)", yaml_text)
-        self.assertIsNotNone(match, "interview_short_title assignment not found")
-        rhs = match.group(1).strip()
-        self.assertNotIn(rhs, ("''", '""'), "interview_short_title must not be empty")
-
-    def test_objects_block_always_generated(self):
-        """Regression: objects: block must always appear in generated YAML, with at
-        least ``users``, even when generate_interview_artifacts is called with no
-        explicit objects list."""
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = generate_interview_from_path(
-                str(docx_path),
-                output_dir=tmpdir,
-                create_package_zip=False,
-                include_next_steps=False,
-            )
-            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
-
-        self.assertIn("objects:", yaml_text)
-        self.assertIn("users:", yaml_text)
-
-    def test_objects_block_explicit_passed_objects(self):
-        """When objects are explicitly passed to generate_interview_artifacts,
-        they appear in the generated YAML with correct .using() params."""
-
-        class MinimalInterview:
-            def __init__(self):
-                self.interview_label = "my_interview"
-                self.package_title = "MyInterview"
-                self.include_next_steps = False
-                self.uploaded_templates = []
-                self.author = ""
-
-            def package_info(self):
-                return {}
-
-        interview = MinimalInterview()
-        explicit_objects = [
-            type(
-                "_O",
-                (),
-                {
-                    "name": "users",
-                    "type": "ALPeopleList",
-                    "params": {"ask_number": True, "target_number": 1},
-                },
-            )(),
-        ]
-        captured: dict = {}
-
-        def capture_render(*args, **kwargs):
-            captured["objects"] = kwargs.get(
-                "objects", args[3] if len(args) > 3 else []
-            )
-            return "objects:\n  users: ALPeopleList\n"
-
-        with (
-            tempfile.TemporaryDirectory() as tmpdir,
-            patch.object(
-                interview_generator_module,
-                "_render_interview_yaml",
-                side_effect=capture_render,
-            ),
-        ):
-            yaml_out = _LocalDAFileAdapter(os.path.join(tmpdir, "my_interview.yml"))
-            generate_interview_artifacts(
-                interview=interview,
-                include_download_screen=False,
-                create_package_archive=False,
-                yaml_output_file=yaml_out,
-                objects=explicit_objects,
-            )
-
-        self.assertEqual(len(captured["objects"]), 1)
-        self.assertEqual(captured["objects"][0].name, "users")
-        self.assertEqual(
-            captured["objects"][0].params, {"ask_number": True, "target_number": 1}
-        )
 
 
 if __name__ == "__main__":

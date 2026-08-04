@@ -1,6 +1,6 @@
 # do not pre-load
 import unittest
-from .interview_generator import DAField
+from .interview_generator import DAField, varname
 
 
 class test_fill_in_pdf_attributes(unittest.TestCase):
@@ -81,6 +81,25 @@ class test_fill_in_pdf_attributes(unittest.TestCase):
         self.assertEqual(new_field.has_label, True)
         self.assertEqual(new_field.field_type_guess, "multiple choice radio")
         self.assertEqual(new_field.variable_name_guess, "Group1")
+
+    def test_python_keyword_field(self):
+        # "from" is a legal PDF field name but not a legal Python identifier
+        pdf_field_tuple = ("from", "", 0, [10, 10, 100, 30], "/Tx")
+        new_field = DAField()
+        new_field.fill_in_pdf_attributes(pdf_field_tuple, {})
+        self.assertEqual(new_field.raw_field_names, ["from"])
+        self.assertEqual(new_field.variable, "from_")
+        self.assertEqual(new_field.final_display_var, "from_")
+
+
+class test_varname(unittest.TestCase):
+    def test_python_keywords_are_escaped(self):
+        for reserved in ["from", "class", "return", "import", "None", "lambda"]:
+            self.assertEqual(varname(reserved), reserved + "_")
+
+    def test_ordinary_names_are_untouched(self):
+        for ordinary in ["from_fax", "classification", "match", "user_name_first"]:
+            self.assertEqual(varname(ordinary), ordinary)
 
 
 if __name__ == "__main__":

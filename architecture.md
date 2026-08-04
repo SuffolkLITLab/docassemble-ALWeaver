@@ -50,6 +50,116 @@ This directory also contains test files for unit testing with ALKiln (see below 
 These files are primarily the front-end interface files, including images and
 CSS.
 
+The graphical editor treats the Playground YAML source as authoritative. The
+metadata source tab saves through `/al/editor/api/file/metadata`, which requires
+the revision returned by the file-read endpoint and replaces only existing
+`metadata`, `include`, and `default screen parts` document bodies. If those
+documents cannot be identified safely, the scoped save is rejected and the user
+must use full source mode. This is an interim safeguard pending the general
+revisioned source-patch model.
+
+The general patch beta is implemented at `POST /al/editor/api/file/patch` and is
+disabled by default behind `WEAVER_ENABLE_PATCH_MODEL`. A request supplies the
+expected SHA-256 source revision and one or more non-overlapping
+`replace-range` operations. Weaver validates every range, applies the full set in
+memory, reparses the result, and performs one Playground write only if the result
+is structurally valid. The response includes the exact resulting text, new
+revision, applied operations, diagnostics, and a unified source diff. A stale
+revision returns HTTP 409 with current and optional base source for a three-way
+merge; it never overwrites the newer file.
+
+`source_document.py` retains the original text and exact document offsets as the
+authoritative representation. Parsed mappings and top-level property ranges are
+analysis aids only. Empty documents, custom tags, unsupported top-level values,
+comments, and formatting remain in their original source ranges, with unsupported
+constructs marked as such instead of reconstructed through `yaml.dump()`.
+
+The file-read API exposes interview text as `raw_yaml`; browser downloads
+validate that field as a string before creating a file, including when the
+source is intentionally empty.
+
+Editor browser requests go through `editor_api_client.js`. The client enforces
+same-origin credentials, structured `EditorApiError` failures, JSON response
+validation, CSRF and request-ID headers, timeouts, and cancellation of
+superseded reads. Write requests are deliberately not cancelled or treated as
+stale by default because the server may already have applied them. The editor
+announces client errors in an ARIA live alert and prevents superseded reads from
+clearing newer interface state.
+
+All `/al/editor` browser routes are same-origin and require an authenticated
+Docassemble admin or developer. The editor page injects a per-session Flask-WTF
+token into bootstrap state, and the centralized client sends it on every write.
+No editor route is CSRF-exempt and no wildcard CORS policy is installed. Any
+separate API-key integration remains outside the browser editor route family.
+
+Unsaved interview edits are tracked by `editor_dirty_state.js` per filename and
+block ID, with separate source-dirty and pending-command state. Each loaded file
+also has a deep-cloned saved model. Discard restores that model, while a
+single-block save updates only that block's dirty state and overlays any other
+unsaved local blocks on the fresh server response. Navigation decisions use the
+accessible Save/Discard/Stay dialog instead of clearing a global dirty flag.
+
+Source controls use Docassemble's own CodeMirror 6 bundle at
+`/static/app/cm6.min.js` through its `window.daNewEditor()` factory. That asset
+and factory are required; a missing factory raises a clear installation error
+rather than silently changing the editing behavior. `daNewEditor()` attaches an
+unsized `EditorView` to whatever parent it is given, so `.editor-source-container`
+in `editor.css` owns the height constraint and hands overflow to `.cm-scroller`;
+without that the view grows to fit the document and neither the scrollbar nor
+the wheel works.
+
+Validation uses `POST /al/editor/api/validate-source` with the source currently
+visible in the editor and its base revision. Graphical block and metadata edits
+are overlaid only onto their mapped source ranges to create a validation-only
+snapshot; the saved Playground file is not substituted for that submitted
+buffer. Diagnostics use Weaver-owned level, filename, block, source-range, and
+YAML-path fields. The validation drawer identifies saved-source and
+unsaved-source results explicitly.
+
+`docassemble_compat.py` is Weaver's compatibility boundary for Docassemble
+1.9.x and 1.10.x. Session orchestration uses the stable high-level functions in
+`docassemble.base.functions`; raw inspection actions feature-detect the 1.10
+Pluggy hook and otherwise use the populated 1.9 server implementation. The same
+module owns access to initialized Flask, storage, Redis, and worker objects so
+the rest of Weaver does not depend on version-specific private module paths.
+
+The runtime inspector server API is disabled by default behind
+`WEAVER_ENABLE_RUNTIME_INSPECTOR`. It creates a Docassemble session separate from
+the editor and stores an expiring, owner-scoped `WeaverTargetSession` record in
+Redis. Browser calls use only Weaver's opaque session ID; every lookup verifies
+the current developer, and public session metadata excludes the raw Docassemble
+ID and any secret. Deleting the Weaver record revokes further inspector access;
+it does not claim to delete Docassemble's underlying session.
+
+Variable reads are simplified and omit `_internal` by default. Variable writes
+never deserialize objects. Question and back operations call Docassemble through
+the compatibility interface. Inspection actions are limited to four
+`al_weaver.inspect_*` names, always run with `read_only=True`, and reject binary,
+HTML, non-JSON, and oversized responses. Returned questions, variables, and
+action data are labeled `observed_runtime` so they cannot be confused with
+static-analysis findings. Weaver never chooses the next question.
+
+The browser inspector is isolated in `editor_runtime_inspector.js`. It can start
+or restart a test session, open the authoritative interview, inspect the current
+question, browse simplified variables, reveal `_internal` data explicitly, go
+back, and apply a YAML test scenario. Scenario YAML is parsed and validated on
+the server, never in browser JavaScript. Scenario seeding is labeled as a fixture
+that may bypass earlier questions. Question-to-source links are shown only when a
+stable returned `questionName` matches a known block; otherwise the UI says that
+no confident match is available.
+
+Uploaded-file project generation runs as the named
+`weaver_editor_new_project_task` in Docassemble's configured Celery worker.
+Redis stores an owner-scoped job record with queued, start, finish, progress,
+result, and structured-error fields, while status polling reconciles nonterminal
+records against Celery. A Redis record without an associated task is marked
+expired rather than reported as running. Weaver refuses the operation when the
+worker module is not configured and never falls back to an in-process thread.
+The editor performs this configuration preflight when the server module starts
+and includes the result in its page bootstrap. Missing configuration produces a
+persistent developer warning with setup documentation before an upload is
+attempted, as well as a structured HTTP 503 if a client still submits one.
+
 The `next_steps` DOCX files are templates for "next steps" documents that a user
 can print and read after using an interview. They are associated with different
 kinds of interviews that the Weaver can produce.

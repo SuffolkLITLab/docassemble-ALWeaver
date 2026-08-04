@@ -47,12 +47,41 @@ The API uses docassemble's API key authentication via `api_verify()`.
 The `POST` endpoint defaults to synchronous behavior, and supports optional
 asynchronous execution with `mode=async` (or `async=true`).
 
-To enable async mode, add this module to your docassemble configuration:
+## Celery worker configuration
+
+Uploaded-document project generation in the graphical editor and asynchronous
+API requests require ALWeaver's task module to be registered with Docassemble's
+global Celery configuration. Add the module to the existing `celery modules`
+list in the Docassemble configuration; preserve any modules already listed:
 
 ```yaml
 celery modules:
   - docassemble.ALWeaver.api_weaver_worker
 ```
+
+After changing the configuration, restart or redeploy both the Docassemble web
+service and every Celery worker so that they load the same task registry. Blank
+project creation, ordinary graphical/source editing, and synchronous API calls
+do not require this module.
+
+ALWeaver checks this setting when its editor module starts and whenever the
+editor page loads. If it is missing, the server logs a warning and the editor
+shows a persistent setup notice before a developer selects a file to generate.
+An attempted background request fails with HTTP 503, a structured
+`async_not_configured` API error (or `editor_async_not_configured` from the
+graphical editor), and a link back to these instructions. Weaver does not enqueue
+an unregistered task or fall back to an in-process thread.
+
+The revisioned graphical source-patch API is an opt-in beta. Set
+`WEAVER_ENABLE_PATCH_MODEL: true` in the Docassemble configuration (or the same
+environment variable) to enable it. The default production path remains off
+until graphical editing paths have migrated to exact source-range commands.
+
+The server-side runtime inspector is also opt-in. Set
+`WEAVER_ENABLE_RUNTIME_INSPECTOR: true` to enable owner-scoped target sessions,
+current-question and variable inspection, scenario seeding, back navigation, and
+the fixed read-only `al_weaver.inspect_*` action allowlist. Docassemble remains
+the only interview runtime.
 
 ## History
 

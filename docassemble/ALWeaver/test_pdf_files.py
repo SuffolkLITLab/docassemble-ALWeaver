@@ -68,6 +68,27 @@ class test_pdfs(unittest.TestCase):
             "have_served_other_party", fields.get_person_candidates(custom_only=True)
         )
 
+    def test_python_keyword_is_not_a_person(self):
+        """A `from_phone` field must not turn into a `from` person list, since
+        `from` is a Python keyword and would make the interview unparseable."""
+        fields = DAFieldList()
+        for field_name in ["from_phone", "from_fax", "hospital_phone"]:
+            new_field = fields.appendObject()
+            new_field.source_document_type = "pdf"
+            new_field.fill_in_pdf_attributes(
+                (field_name, "", 0, [10, 10, 100, 30], "/Tx"),
+                fields.custom_people_plurals,
+            )
+        fields.gathered = True
+        candidates = fields.get_person_candidates(custom_only=True)
+        self.assertNotIn("from", candidates)
+        self.assertIn("hospital", candidates)
+
+        fields.auto_mark_people_as_builtins()
+        by_variable = {field.variable: field.final_display_var for field in fields}
+        self.assertEqual(by_variable["from_phone"], "from_phone")
+        self.assertEqual(by_variable["hospital_phone"], "hospital[0].phone_number")
+
 
 if __name__ == "__main__":
     unittest.main()

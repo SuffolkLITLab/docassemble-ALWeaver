@@ -9,6 +9,7 @@ Provides:
     POST /al/editor/api/file/new — create a new YAML interview file
     GET  /al/editor/api/file     — read & parse a YAML file
     POST /al/editor/api/file     — save full YAML back to a file
+    POST /al/editor/api/file/metadata — update metadata-related documents only
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
     GET  /al/editor/api/variables — extract variable names from a file
@@ -20,7 +21,8 @@ Provides:
     POST /al/editor/api/draft-order — generate a draft order from blocks
     POST /al/editor/api/draft-review-screen — generate draft review YAML
     GET  /al/editor/api/preview-url — get the interview preview URL
-    GET  /al/editor/api/weaver/validate — validate a YAML file with Weaver checks
+    GET  /al/editor/api/weaver/validate — validate a saved YAML file
+    POST /al/editor/api/validate-source — validate a submitted source buffer
 """
 
 from __future__ import annotations
@@ -35,22 +37,44 @@ import traceback
 import textwrap
 import tempfile
 import time
-import threading
 import uuid
 from copy import deepcopy
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import yaml
-from flask import Response, jsonify, request
-from flask_cors import cross_origin
+from flask import Response, jsonify, redirect, request, url_for
+from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
 from docassemble.base.util import log
-from docassemble.webapp.app_object import app, csrf
-from docassemble.webapp.server import jsonify_with_status, r
-from docassemble.webapp.worker_common import bg_context
+
+from .docassemble_compat import (
+    create_target_session,
+    create_saved_file,
+    get_target_question,
+    get_target_variables,
+    go_back_target_session,
+    get_csrf,
+    get_flask_app,
+    get_redis_client,
+    get_worker_app,
+    json_response as jsonify_with_status,
+    run_target_action_raw,
+    set_target_variables,
+)
+from .worker_config import (
+    CELERY_CONFIGURATION_DOCS_URL,
+    CELERY_MODULE,
+    get_worker_configuration_status,
+    worker_configuration_is_ready,
+)
+
+app = get_flask_app()
+csrf = get_csrf()
+r = get_redis_client()
+workerapp = get_worker_app()
 
 from .api_utils import (
     generate_interview_from_bytes,
@@ -67,6 +91,7 @@ try:
         delete_saved_file,
         generate_draft_order,
         parse_interview_yaml,
+        metadata_source_slice,
         parse_order_code,
         playground_get_variables,
         playground_interview_url,
@@ -77,9 +102,11 @@ try:
         rename_saved_file,
         serialize_blocks_to_yaml,
         serialize_order_steps,
+        source_revision,
         enable_commented_block_in_yaml,
         reorder_blocks_in_yaml,
         update_block_in_yaml,
+        update_metadata_documents_in_yaml,
     )
 except Exception as _editor_utils_import_err:
     import traceback as _traceback
@@ -90,6 +117,21 @@ except Exception as _editor_utils_import_err:
         "error",
     )
     raise
+
+from .source_document import (
+    apply_range_operations,
+    parse_source_document,
+    unified_source_diff,
+)
+from .runtime_sessions import (
+    append_runtime_event,
+    create_runtime_record,
+    delete_runtime_record,
+    load_runtime_record,
+    playground_yaml_filename,
+    store_runtime_record,
+)
+
 try:
     from .editor_ai_utils import (
         DEFAULT_FIELD_TYPES,
@@ -195,9 +237,14 @@ DEFAULT_DASHBOARD_EDITOR_URLS = {
 
 
 def _editor_auth_check() -> bool:
-    """Return True when the browser session belongs to an authenticated user."""
+    """Return True for authenticated Docassemble admins and developers."""
     try:
-        return bool(current_user.is_authenticated)
+        has_role = getattr(current_user, "has_role", None)
+        return bool(
+            current_user.is_authenticated
+            and callable(has_role)
+            and has_role("admin", "developer")
+        )
     except Exception:
         return False
 
@@ -248,6 +295,122 @@ def _editor_auth_urls() -> tuple[str, str]:
         f"/user/sign-in?next={quote(next_target, safe='')}",
         f"/user/sign-out?next={quote(next_target, safe='')}",
     )
+
+
+def _editor_current_language() -> Optional[str]:
+    """Return the active interview language, if docassemble can tell us."""
+    try:
+        import docassemble.base.functions
+
+        return docassemble.base.functions.get_language()
+    except Exception:
+        return None
+
+
+def _resolve_endpoint(*candidates: str) -> str:
+    """Return the URL for the first endpoint name that this server registers.
+
+    Docassemble moved its views onto blueprints (``develop.playground_page``)
+    but older releases registered them bare (``playground_page``), so each menu
+    entry is looked up under every name it has ever had. An unknown name means
+    the feature is absent from this server, not an error.
+    """
+    for candidate in candidates:
+        try:
+            return str(url_for(candidate))
+        except Exception:
+            continue
+    return ""
+
+
+def _editor_account_menu_items(logout_url: str) -> List[Dict[str, str]]:
+    """Build docassemble's own account menu for the signed-in user.
+
+    Mirrors the dropdown in docassemble's ``base_templates/base.html`` so the
+    editor's navbar offers the same destinations, gated by the same roles and
+    configuration flags, as every native docassemble page.
+    """
+    try:
+        if not current_user.is_authenticated:
+            return []
+    except Exception:
+        return []
+
+    items: List[Dict[str, str]] = []
+
+    def add_item(label: str, *endpoints: str, href: Optional[str] = None) -> None:
+        target = href or _resolve_endpoint(*endpoints)
+        if target:
+            items.append({"label": str(label), "url": str(target)})
+
+    def has_roles(*roles: str) -> bool:
+        try:
+            return bool(current_user.has_roles(list(roles)))
+        except Exception:
+            try:
+                return bool(current_user.has_role(*roles))
+            except Exception:
+                return False
+
+    def can_do(permission: str) -> bool:
+        try:
+            return bool(current_user.can_do(permission))
+        except Exception:
+            return False
+
+    if has_roles("admin", "advocate") and app.config.get("ENABLE_MONITOR"):
+        add_item("Monitor", "monitor.monitor", "monitor")
+    if has_roles("admin", "developer", "trainer") and app.config.get("ENABLE_TRAINING"):
+        add_item("Train", "ml.train", "train")
+    if has_roles("admin", "developer"):
+        if app.config.get("ALLOW_UPDATES") and (
+            app.config.get("DEVELOPER_CAN_INSTALL") or has_roles("admin")
+        ):
+            add_item("Package Management", "packages.update_package", "update_package")
+        if app.config.get("ALLOW_LOG_VIEWING"):
+            add_item("Logs", "logs.logs", "logs")
+        if app.config.get("ENABLE_PLAYGROUND"):
+            add_item("Playground", "develop.playground_page", "playground_page")
+            add_item("Utilities", "develop.utilities", "utilities")
+    if has_roles("admin", "advocate") or can_do("access_user_info"):
+        add_item("User List", "users.user_list", "user_list")
+    if has_roles("admin") and app.config.get("ALLOW_CONFIGURATION_EDITING"):
+        add_item("Configuration", "admin.config_page", "config_page")
+    if app.config.get("SHOW_DISPATCH"):
+        add_item("Available Interviews", "admin.interview_start", "interview_start")
+
+    for item in app.config.get("ADMIN_INTERVIEWS", []) or []:
+        try:
+            if item.can_use():
+                add_item(
+                    item.get_title(_editor_current_language()),
+                    href=item.get_url(),
+                )
+        except Exception:  # nosec B112
+            continue
+
+    if app.config.get("SHOW_MY_INTERVIEWS") or has_roles("admin"):
+        add_item("My Interviews", "admin.interview_list", "interview_list")
+    if app.config.get("SHOW_PROFILE") or has_roles("admin", "developer"):
+        add_item("Profile", "users.user_profile_page", "user_profile_page")
+    else:
+        social_id = str(getattr(current_user, "social_id", "") or "")
+        if social_id.startswith("local") and app.config.get("ALLOW_CHANGING_PASSWORD"):
+            add_item("Change Password", "user.change_password")
+
+    add_item("Sign Out", href=logout_url)
+    return items
+
+
+def _editor_user_designator() -> str:
+    """Return the label docassemble would print for the current user."""
+    for attribute in ("first_name", "last_name"):
+        # docassemble shows "First Last" when a name is on file, email otherwise.
+        if str(getattr(current_user, attribute, "") or "").strip():
+            first = str(getattr(current_user, "first_name", "") or "").strip()
+            last = str(getattr(current_user, "last_name", "") or "").strip()
+            return " ".join(part for part in (first, last) if part)
+    return str(getattr(current_user, "email", "") or "").strip() or "Account"
 
 
 # ---------------------------------------------------------------------------
@@ -329,9 +492,7 @@ def _normalize_storage_filename(raw: Optional[str]) -> str:
 def _editor_storage_directory(
     user_id: int, project: str, storage_section: str
 ) -> tuple[Any, str]:
-    from docassemble.webapp.files import SavedFile
-
-    area = SavedFile(user_id, fix=True, section=storage_section)
+    area = create_saved_file(user_id, fix=True, section=storage_section)
     directory = (
         area.directory
         if project == "default"
@@ -342,9 +503,7 @@ def _editor_storage_directory(
 
 
 def _editor_playground_directory(user_id: int, project: str) -> tuple[Any, str]:
-    from docassemble.webapp.files import SavedFile
-
-    area = SavedFile(user_id, fix=True, section="playground")
+    area = create_saved_file(user_id, fix=True, section="playground")
     directory = (
         area.directory
         if project == "default"
@@ -515,6 +674,124 @@ def _lint_summary_for_findings(findings: List[Dict[str, Any]]) -> Dict[str, int]
     return summary
 
 
+def _source_range_for_line(
+    raw_yaml: str, line_number: Any, column_number: Any = 1
+) -> Optional[Dict[str, Any]]:
+    """Return a one-line source range with line, column, and character offsets."""
+    try:
+        line = int(line_number)
+        column = max(1, int(column_number or 1))
+    except (TypeError, ValueError):
+        return None
+    source_lines = raw_yaml.splitlines(keepends=True)
+    if line == len(source_lines) + 1 and raw_yaml.endswith(("\n", "\r")):
+        return {
+            "start": {"line": line, "column": column, "offset": len(raw_yaml)},
+            "end": {"line": line, "column": column, "offset": len(raw_yaml)},
+        }
+    if line < 1 or line > len(source_lines):
+        return None
+    line_text = source_lines[line - 1]
+    line_content = line_text.rstrip("\r\n")
+    start_of_line = sum(len(item) for item in source_lines[: line - 1])
+    start_offset = start_of_line + min(column - 1, len(line_content))
+    end_offset = start_of_line + len(line_content)
+    return {
+        "start": {
+            "line": line,
+            "column": column,
+            "offset": start_offset,
+        },
+        "end": {
+            "line": line,
+            "column": len(line_content) + 1,
+            "offset": end_offset,
+        },
+    }
+
+
+def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
+    """Validate exactly ``raw_yaml`` and return Weaver-owned diagnostics."""
+    findings: List[Dict[str, Any]] = []
+
+    try:
+        list(yaml.compose_all(raw_yaml))
+    except yaml.MarkedYAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line_number = getattr(mark, "line", None)
+        column_number = getattr(mark, "column", None)
+        line_number = line_number + 1 if isinstance(line_number, int) else None
+        column_number = column_number + 1 if isinstance(column_number, int) else 1
+        message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
+        findings.append(
+            {
+                "level": "error",
+                "message": message,
+                "filename": filename,
+                "line_number": line_number,
+                "source_range": _source_range_for_line(
+                    raw_yaml, line_number, column_number
+                ),
+                "yaml_path": None,
+                "source": "yaml-parser",
+            }
+        )
+
+    from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+
+    checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+    for checker_error in checker_errors:
+        message = str(getattr(checker_error, "err_str", "") or checker_error).strip()
+        lowered = message.lower()
+        level = "error"
+        if lowered.startswith("warning:"):
+            level = "warning"
+            message = message[len("warning:") :].strip()
+        elif lowered.startswith("info:"):
+            level = "info"
+            message = message[len("info:") :].strip()
+        line_number = getattr(checker_error, "line_number", None)
+        variable = ""
+        qmatch = re.search(r'"([^"]+)"', message) or re.search(r"'([^']+)'", message)
+        if qmatch:
+            variable = qmatch.group(1)
+        yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
+            checker_error, "path", None
+        )
+        if yaml_path is not None:
+            yaml_path = str(yaml_path)
+        findings.append(
+            {
+                "level": level,
+                "message": message,
+                "variable": variable,
+                "filename": filename,
+                "line_number": line_number,
+                "source_range": _source_range_for_line(raw_yaml, line_number),
+                "yaml_path": yaml_path,
+                "source": "dayamlchecker",
+            }
+        )
+
+    deduped: List[Dict[str, Any]] = []
+    seen: set = set()
+    for finding in findings:
+        key = (
+            str(finding.get("level") or ""),
+            str(finding.get("message") or ""),
+            str(finding.get("line_number") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+
+    model = parse_interview_yaml(raw_yaml)
+    return _annotate_lint_findings(
+        deduped, model.get("blocks", []), source_name="unsaved-source"
+    )
+
+
 def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
     from docassemble.ALDashboard.interview_linter import lint_interview_content
 
@@ -631,10 +908,21 @@ def _render_editor_page() -> str:
     login_url, logout_url = _editor_auth_urls()
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
+        "csrfToken": generate_csrf(),
+        "features": {
+            "runtimeInspector": _editor_feature_enabled(
+                "WEAVER_ENABLE_RUNTIME_INSPECTOR"
+            ),
+        },
+        "systemChecks": {
+            "celery": get_worker_configuration_status(),
+        },
         "auth": {
             "authenticated": False,
             "loginUrl": login_url,
             "logoutUrl": logout_url,
+            "designator": "",
+            "menuItems": [],
         },
     }
     try:
@@ -644,6 +932,8 @@ def _render_editor_page() -> str:
             bootstrap["authenticated"] = True
             bootstrap["auth"]["authenticated"] = True
             bootstrap["auth"]["email"] = getattr(current_user, "email", None)
+            bootstrap["auth"]["designator"] = _editor_user_designator()
+            bootstrap["auth"]["menuItems"] = _editor_account_menu_items(logout_url)
         else:
             bootstrap["authenticated"] = False
             bootstrap["auth"]["authenticated"] = False
@@ -699,11 +989,11 @@ def _project_template_context_text(
 ) -> str:
     """Extract lightweight context from uploaded templates in playgroundtemplate."""
     try:
-        from docassemble.webapp.files import SavedFile
+        area = create_saved_file(
+            user_id, fix=False, section=SECTION_TO_STORAGE["templates"]
+        )
     except Exception:
         return ""
-
-    area = SavedFile(user_id, fix=False, section=SECTION_TO_STORAGE["templates"])
     project_dir = (
         area.directory
         if project == "default"
@@ -776,10 +1066,11 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
 
 
 @app.route(EDITOR_BASE_PATH, methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_page() -> Response:
     """Serve the WYSIWYM interview editor page."""
+    if not _editor_auth_check():
+        login_url, _logout_url = _editor_auth_urls()
+        return cast(Response, redirect(login_url))
     log("ALWeaver: Serving editor page", "info")
     html = _render_editor_page()
     if not html:
@@ -789,8 +1080,6 @@ def editor_page() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/static/<path:filename>", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_static(filename: str) -> Response:
     """Serve static assets (CSS/JS) for the editor."""
     # Only allow safe filenames
@@ -815,8 +1104,6 @@ def editor_static(filename: str) -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/projects", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_projects() -> Response:
     """List playground projects for the current user."""
     request_id = str(uuid.uuid4())
@@ -844,8 +1131,6 @@ def editor_api_projects() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/project/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_project() -> Response:
     """Rename a playground project across all sections."""
     request_id = str(uuid.uuid4())
@@ -893,8 +1178,6 @@ def editor_api_rename_project() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/project/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_project() -> Response:
     """Delete a playground project across all sections."""
     request_id = str(uuid.uuid4())
@@ -938,8 +1221,6 @@ def editor_api_delete_project() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/files", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_files() -> Response:
     """List YAML files in a playground project."""
     request_id = str(uuid.uuid4())
@@ -980,8 +1261,6 @@ def editor_api_files() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/new", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_file() -> Response:
     """Create a new YAML interview file in the current playground project."""
     request_id = str(uuid.uuid4())
@@ -1036,8 +1315,6 @@ def editor_api_new_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-files", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_files() -> Response:
     """List files for templates/modules/data sources in the selected project."""
     request_id = str(uuid.uuid4())
@@ -1081,8 +1358,6 @@ def editor_api_section_files() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_get_section_file() -> Response:
     """Read a text-editable section file from templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1142,8 +1417,6 @@ def editor_api_get_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_section_file() -> Response:
     """Save a text-editable section file in templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1202,8 +1475,6 @@ def editor_api_save_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/new", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_section_file() -> Response:
     """Create a new file in templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1260,8 +1531,6 @@ def editor_api_new_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/upload", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_upload_section_file() -> Response:
     """Upload one or more files into templates/modules/data sources."""
     request_id = str(uuid.uuid4())
@@ -1323,8 +1592,6 @@ def editor_api_upload_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/raw", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_file_raw() -> Response:
     """Serve the raw bytes for a section file (preview/download iframe)."""
     request_id = str(uuid.uuid4())
@@ -1370,8 +1637,6 @@ def editor_api_section_file_raw() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/docx-preview", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_section_file_docx_preview() -> Response:
     """Return a low-fidelity HTML preview for DOCX template files."""
     request_id = str(uuid.uuid4())
@@ -1432,8 +1697,6 @@ def editor_api_section_file_docx_preview() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/dashboard-editor-url", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_dashboard_editor_url() -> Response:
     """Return a URL for opening a template in a dedicated dashboard editor tab."""
     request_id = str(uuid.uuid4())
@@ -1486,8 +1749,6 @@ def editor_api_dashboard_editor_url() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_get_file() -> Response:
     """Read and parse a YAML file into the normalised block model."""
     request_id = str(uuid.uuid4())
@@ -1526,6 +1787,8 @@ def editor_api_get_file() -> Response:
                     "order_steps": order_steps,
                     "order_step_map": order_step_map,
                     "raw_yaml": raw_yaml,
+                    "revision": source_revision(raw_yaml),
+                    "metadata_raw_yaml": metadata_source_slice(raw_yaml),
                 },
             }
         )
@@ -1551,9 +1814,89 @@ def editor_api_get_file() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/validate-source", methods=["POST"])
+def editor_api_validate_source() -> Response:
+    """Validate source supplied by the editor without reading it back from disk."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        raw_yaml = post_data.get("raw_yaml")
+        if not isinstance(raw_yaml, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        revision = post_data.get("revision")
+        if revision is not None and not isinstance(revision, str):
+            raise ValueError("revision must be a string or null")
+
+        # Reading the target confirms that this developer owns the Playground
+        # file and lets the client distinguish current and stale base revisions.
+        saved_yaml = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(saved_yaml)
+        diagnostics = _validate_source_text(raw_yaml, filename)
+        summary = _lint_summary_for_findings(diagnostics)
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "scope": "unsaved_source",
+                    "diagnostics": diagnostics,
+                    "errors": diagnostics,
+                    "summary": {
+                        "count": len(diagnostics),
+                        "errors": summary["error"],
+                        "warnings": summary["warning"],
+                        "infos": summary["info"],
+                    },
+                    "revision": revision,
+                    "current_revision": current_revision,
+                    "base_revision_matches": (
+                        revision == current_revision if revision is not None else None
+                    ),
+                    "validated_source_revision": source_revision(raw_yaml),
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_validation_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: validate-source error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "source_validation_failed",
+                    "message": str(exc),
+                },
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/validate", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_validate() -> Response:
     """Run DAYamlChecker on a playground YAML file and return errors."""
     request_id = str(uuid.uuid4())
@@ -1567,67 +1910,35 @@ def editor_api_validate() -> Response:
         model = parse_interview_yaml(raw_yaml)
 
         errors: List[Dict[str, Any]] = []
-        used_structured_checker = False
-        try:
-            # Prefer structured API so we can return level + line_number reliably.
-            from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
+        from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
 
-            checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-            for checker_error in checker_errors:
-                msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
-                    checker_error
-                )
-                lowered = msg.lower()
-                level = "error"
-                if lowered.startswith("warning:"):
-                    level = "warning"
-                    msg = msg[len("warning:") :].strip()
-                elif lowered.startswith("info:"):
-                    level = "info"
-                    msg = msg[len("info:") :].strip()
-                variable = ""
-                qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
-                if qmatch:
-                    variable = qmatch.group(1)
-                errors.append(
-                    {
-                        "level": level,
-                        "message": msg,
-                        "variable": variable,
-                        "line_number": getattr(checker_error, "line_number", None),
-                        "file_name": getattr(checker_error, "file_name", filename),
-                        "source": "dayamlchecker",
-                    }
-                )
-            used_structured_checker = True
-        except Exception:
-            # Fallback: keep legacy subprocess checker behavior if module import fails.
-            ok, output = validate_yaml_with_dayamlchecker(raw_yaml)
-            if not ok and output:
-                for line in output.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    level = "error"
-                    if line.lower().startswith("warning"):
-                        level = "warning"
-                    elif line.lower().startswith("info"):
-                        level = "info"
-                    variable = ""
-                    qmatch = re.search(r"'([^']+)'", line)
-                    if qmatch:
-                        variable = qmatch.group(1)
-                    errors.append(
-                        {
-                            "level": level,
-                            "message": line,
-                            "variable": variable,
-                            "line_number": None,
-                            "file_name": filename,
-                            "source": "dayamlchecker-cli",
-                        }
-                    )
-
+        checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
+        for checker_error in checker_errors:
+            msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
+                checker_error
+            )
+            lowered = msg.lower()
+            level = "error"
+            if lowered.startswith("warning:"):
+                level = "warning"
+                msg = msg[len("warning:") :].strip()
+            elif lowered.startswith("info:"):
+                level = "info"
+                msg = msg[len("info:") :].strip()
+            variable = ""
+            qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
+            if qmatch:
+                variable = qmatch.group(1)
+            errors.append(
+                {
+                    "level": level,
+                    "message": msg,
+                    "variable": variable,
+                    "line_number": getattr(checker_error, "line_number", None),
+                    "filename": filename,
+                    "source": "dayamlchecker",
+                }
+            )
         # Also include playground-style undefined variable and parse diagnostics.
         try:
             variable_info = playground_get_variables(uid, project, filename)
@@ -1646,7 +1957,7 @@ def editor_api_validate() -> Response:
                             "message": f"Undefined variable referenced: {var_name}",
                             "variable": var_name,
                             "line_number": None,
-                            "file_name": filename,
+                            "filename": filename,
                             "source": "playground",
                         }
                     )
@@ -1657,7 +1968,7 @@ def editor_api_validate() -> Response:
                     "message": str(exc) or "Playground parser reported an error",
                     "variable": "",
                     "line_number": None,
-                    "file_name": filename,
+                    "filename": filename,
                     "source": "playground",
                 }
             )
@@ -1697,7 +2008,7 @@ def editor_api_validate() -> Response:
                         "infos": sum(1 for err in errors if err.get("level") == "info"),
                     },
                     "checker": "dayamlchecker",
-                    "structured": used_structured_checker,
+                    "structured": True,
                 },
             }
         )
@@ -1724,8 +2035,6 @@ def editor_api_validate() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/style-check", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_style_check() -> Response:
     """Run the system-wide interview linter and return block-aware style findings."""
     request_id = str(uuid.uuid4())
@@ -1806,8 +2115,6 @@ def editor_api_style_check() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_file() -> Response:
     """Save full YAML content to a playground file."""
     request_id = str(uuid.uuid4())
@@ -1854,9 +2161,697 @@ def editor_api_save_file() -> Response:
         )
 
 
+def _editor_feature_enabled(name: str) -> bool:
+    """Read an opt-in editor feature flag from environment or DA config."""
+    configured = os.environ.get(name)
+    if configured is None:
+        try:
+            from docassemble.base.config import daconfig
+
+            configured = daconfig.get(name)
+        except (ImportError, AttributeError):
+            configured = None
+    return str(configured or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _patch_model_enabled() -> bool:
+    return _editor_feature_enabled("WEAVER_ENABLE_PATCH_MODEL")
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/patch", methods=["POST"])
+def editor_api_patch_file() -> Response:
+    """Atomically apply source-range edits against an expected file revision."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _patch_model_enabled():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "feature_disabled",
+                    "code": "patch_model_disabled",
+                    "message": "The revisioned source-patch model is not enabled.",
+                },
+            },
+            404,
+        )
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        operations = post_data.get("operations")
+        if not isinstance(operations, list) or not operations:
+            raise ValueError("operations must be a non-empty list")
+        base_raw_yaml = post_data.get("base_raw_yaml")
+        if base_raw_yaml is not None and not isinstance(base_raw_yaml, str):
+            raise ValueError("base_raw_yaml must be a string or null")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(current_content)
+        if expected_revision != current_revision:
+            conflict: Dict[str, Any] = {
+                "type": "revision_conflict",
+                "code": "revision_conflict",
+                "message": "The file changed since it was loaded.",
+                "expected_revision": expected_revision,
+                "current_revision": current_revision,
+                "current_raw_yaml": current_content,
+                "base_raw_yaml": base_raw_yaml,
+            }
+            conflict["details"] = {
+                key: value
+                for key, value in conflict.items()
+                if key not in {"type", "code", "message", "details"}
+            }
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": conflict,
+                },
+                409,
+            )
+
+        updated_content, applied_operations = apply_range_operations(
+            current_content, operations
+        )
+        source_document = parse_source_document(filename, updated_content)
+        diagnostics = [item.to_dict() for item in source_document.diagnostics]
+        if not source_document.structurally_valid:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "invalid_patched_source",
+                        "code": "invalid_patched_source",
+                        "message": "The patch would produce structurally invalid YAML.",
+                        "details": {"diagnostics": diagnostics},
+                    },
+                },
+                422,
+            )
+
+        # Reparse before the single write. Parsed values are returned for
+        # analysis only; the original patched text remains authoritative.
+        model = parse_interview_yaml(updated_content)
+        source_diff = unified_source_diff(current_content, updated_content, filename)
+        playground_write_yaml(uid, project, filename, updated_content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "raw_yaml": updated_content,
+                    "revision": source_document.revision,
+                    "applied_operations": applied_operations,
+                    "diagnostics": diagnostics,
+                    "diff": source_diff,
+                    "blocks": model["blocks"],
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_patch_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: source patch error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "patch_failed",
+                    "message": "The source patch could not be applied.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/file/metadata", methods=["POST"])
+def editor_api_save_metadata() -> Response:
+    """Update only existing metadata-related YAML documents."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        edited_yaml = post_data.get("raw_yaml")
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(edited_yaml, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+
+        current_content = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(current_content)
+        if expected_revision != current_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": "The file changed since it was loaded.",
+                        "expected_revision": expected_revision,
+                        "current_revision": current_revision,
+                    },
+                },
+                409,
+            )
+
+        updated_content = update_metadata_documents_in_yaml(
+            current_content, edited_yaml
+        )
+        playground_write_yaml(uid, project, filename, updated_content)
+        model = parse_interview_yaml(updated_content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": model["blocks"],
+                    "metadata_blocks": model["metadata_blocks"],
+                    "include_blocks": model["include_blocks"],
+                    "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+                    "order_blocks": model["order_blocks"],
+                    "raw_yaml": updated_content,
+                    "revision": source_revision(updated_content),
+                    "metadata_raw_yaml": metadata_source_slice(updated_content),
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: save metadata error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+RUNTIME_INSPECTION_ACTIONS = {
+    "al_weaver.inspect_object",
+    "al_weaver.inspect_variable",
+    "al_weaver.inspect_event_stack",
+    "al_weaver.inspect_gathering_state",
+}
+RUNTIME_ACTION_RESULT_LIMIT = 256 * 1024
+RUNTIME_VARIABLE_RESULT_LIMIT = 1024 * 1024
+
+
+def _runtime_inspector_enabled() -> bool:
+    return _editor_feature_enabled("WEAVER_ENABLE_RUNTIME_INSPECTOR")
+
+
+def _runtime_disabled(request_id: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "feature_disabled",
+                "code": "runtime_inspector_disabled",
+                "message": "The runtime session inspector is not enabled.",
+            },
+        },
+        404,
+    )
+
+
+def _runtime_not_found(request_id: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "not_found",
+                "code": "runtime_session_not_found",
+                "message": "The target session was not found.",
+            },
+        },
+        404,
+    )
+
+
+def _runtime_operation_failed(
+    request_id: str, operation: str, exc: Exception
+) -> Response:
+    log(
+        "ALWeaver editor: runtime operation failed "
+        f"operation={operation} error_type={type(exc).__name__}",
+        "error",
+    )
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "runtime_error",
+                "code": "runtime_operation_failed",
+                "message": "Docassemble could not complete the runtime inspection request.",
+                "details": {"operation": operation},
+            },
+        },
+        502,
+    )
+
+
+def _runtime_target_url(record: Any) -> str:
+    return (
+        "/interview?i="
+        + quote(record.yaml_filename, safe="")
+        + "&session="
+        + quote(record.docassemble_session_id, safe="")
+    )
+
+
+def _load_owned_runtime_session(weaver_session_id: str) -> Any:
+    return load_runtime_record(r, weaver_session_id, _current_user_id())
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/runtime/sessions", methods=["POST"])
+def editor_api_runtime_create_session() -> Response:
+    """Create a separate Docassemble target session for runtime inspection."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        purpose = str(post_data.get("purpose") or "test").strip()
+        if purpose not in {"test", "scenario", "inspection"}:
+            raise ValueError("purpose must be test, scenario, or inspection")
+        url_args = post_data.get("url_args")
+        if url_args is not None and not isinstance(url_args, dict):
+            raise ValueError("url_args must be an object or null")
+
+        # Confirms this developer owns the requested Playground file.
+        playground_read_yaml(uid, project, filename)
+        yaml_filename = playground_yaml_filename(uid, project, filename)
+        target = create_target_session(
+            yaml_filename,
+            secret=None,
+            url_args=url_args or None,
+        )
+        if target.secret is not None:
+            raise ValueError("Encrypted target sessions are not currently supported")
+        record = create_runtime_record(
+            weaver_session_id=str(uuid.uuid4()),
+            owner_user_id=uid,
+            project=project,
+            filename=filename,
+            yaml_filename=yaml_filename,
+            target=target,
+            purpose=purpose,
+        )
+        store_runtime_record(r, record)
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": record.public_dict(_runtime_target_url(record)),
+            },
+            201,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_session_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: runtime session creation failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "runtime_session_creation_failed",
+                    "message": "The target Docassemble session could not be created.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>",
+    methods=["GET", "DELETE"],
+)
+def editor_api_runtime_session(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    if request.method == "DELETE":
+        delete_runtime_record(r, weaver_session_id, _current_user_id())
+        return jsonify(
+            {"success": True, "request_id": request_id, "data": {"deleted": True}}
+        )
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": record.public_dict(_runtime_target_url(record)),
+        }
+    )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/variables",
+    methods=["GET", "POST"],
+)
+def editor_api_runtime_variables(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        target = record.target()
+        if request.method == "POST":
+            post_data = request.get_json(silent=True)
+            if not isinstance(post_data, dict):
+                raise ValueError("Request body must be a JSON object")
+            scenario_yaml = post_data.get("scenario_yaml")
+            if scenario_yaml is not None:
+                if not isinstance(scenario_yaml, str):
+                    raise ValueError("scenario_yaml must be a string")
+                scenario = yaml.safe_load(scenario_yaml)
+                if not isinstance(scenario, dict):
+                    raise ValueError("Scenario YAML must contain a mapping")
+                post_data = scenario
+            variables = post_data.get("variables", {})
+            delete = post_data.get("delete", [])
+            if not isinstance(variables, dict):
+                raise ValueError("variables must be an object")
+            if not isinstance(delete, list) or not all(
+                isinstance(name, str) and name.strip() for name in delete
+            ):
+                raise ValueError("delete must be a list of variable names")
+            serialized_input = json.dumps(
+                {"variables": variables, "delete": delete}, default=str
+            )
+            if len(serialized_input.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+                raise ValueError("Variable payload is too large")
+            set_target_variables(
+                target,
+                variables,
+                delete=delete,
+                overwrite=bool(post_data.get("overwrite", False)),
+                process_objects=False,
+            )
+            append_runtime_event(
+                r,
+                record,
+                "scenario_applied",
+                set_count=len(variables),
+                delete_count=len(delete),
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"updated": True},
+                }
+            )
+
+        variables = get_target_variables(target, simplify=True)
+        include_internal = parse_bool(
+            request.args.get("include_internal"), default=False
+        )
+        if not include_internal:
+            variables = {
+                key: value
+                for key, value in variables.items()
+                if not str(key).startswith("_internal")
+            }
+        serialized = json.dumps(variables, default=str)
+        if len(serialized.encode("utf-8")) > RUNTIME_VARIABLE_RESULT_LIMIT:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "response_too_large",
+                        "code": "runtime_variables_too_large",
+                        "message": "The simplified variable result is too large to display.",
+                    },
+                },
+                413,
+            )
+        append_runtime_event(r, record, "variables_refreshed")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "variables": variables,
+                    "includes_internal": include_internal,
+                    "fact_source": "observed_runtime",
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_variable_request",
+                    "message": str(exc),
+                },
+            },
+            400,
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "variables", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/question",
+    methods=["GET"],
+)
+def editor_api_runtime_question(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        question = get_target_question(record.target())
+        append_runtime_event(
+            r,
+            record,
+            "question_returned",
+            question_name=question.get("questionName"),
+        )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"question": question, "fact_source": "observed_runtime"},
+            }
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "question", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/back",
+    methods=["POST"],
+)
+def editor_api_runtime_back(weaver_session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    try:
+        go_back_target_session(record.target())
+        append_runtime_event(r, record, "back_invoked")
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"went_back": True},
+            }
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "back", exc)
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/actions/<action_name>",
+    methods=["POST"],
+)
+def editor_api_runtime_action(weaver_session_id: str, action_name: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    record = _load_owned_runtime_session(weaver_session_id)
+    if record is None:
+        return _runtime_not_found(request_id)
+    if action_name not in RUNTIME_INSPECTION_ACTIONS:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "forbidden_action",
+                    "code": "runtime_action_not_allowed",
+                    "message": "That runtime inspection action is not allowlisted.",
+                },
+            },
+            403,
+        )
+    post_data = request.get_json(silent=True) or {}
+    arguments = post_data.get("arguments", {})
+    if not isinstance(arguments, dict):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_action_arguments",
+                    "message": "arguments must be an object",
+                },
+            },
+            400,
+        )
+    try:
+        result = run_target_action_raw(
+            record.target(), action_name, arguments=arguments, read_only=True
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "action", exc)
+    data = result.data
+    if isinstance(data, (bytes, bytearray)) or (
+        isinstance(data, str)
+        and data.lstrip().lower().startswith(("<!doctype html", "<html"))
+    ):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "invalid_action_response",
+                    "code": "runtime_action_response_rejected",
+                    "message": "The inspection action returned an unsupported response.",
+                },
+            },
+            502,
+        )
+    try:
+        serialized = json.dumps(
+            {"status": result.status, "data": data, "warnings": result.warnings}
+        )
+    except (TypeError, ValueError):
+        serialized = ""
+    if not serialized or len(serialized.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "invalid_action_response",
+                    "code": "runtime_action_response_rejected",
+                    "message": "The inspection action response cannot be displayed safely.",
+                },
+            },
+            502,
+        )
+    append_runtime_event(r, record, "action_invoked", action=action_name)
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "status": result.status,
+                "data": data,
+                "warnings": result.warnings,
+                "fact_source": "observed_runtime",
+            },
+        }
+    )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/file/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_file() -> Response:
     """Rename a YAML interview file within the current playground project."""
     request_id = str(uuid.uuid4())
@@ -1908,8 +2903,6 @@ def editor_api_rename_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_file() -> Response:
     """Delete a YAML interview file from the current playground project."""
     request_id = str(uuid.uuid4())
@@ -1955,8 +2948,6 @@ def editor_api_delete_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/rename", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_rename_section_file() -> Response:
     """Rename a file inside templates/modules/static/data sources."""
     request_id = str(uuid.uuid4())
@@ -2011,8 +3002,6 @@ def editor_api_rename_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_section_file() -> Response:
     """Delete a file inside templates/modules/static/data sources."""
     request_id = str(uuid.uuid4())
@@ -2061,8 +3050,6 @@ def editor_api_delete_section_file() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_block() -> Response:
     """Update a single block in a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2138,8 +3125,6 @@ def editor_api_save_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/delete", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_delete_block() -> Response:
     """Delete a single block from a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2188,8 +3173,6 @@ def editor_api_delete_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/comment", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_comment_block() -> Response:
     """Disable a single block by commenting it out in YAML."""
     request_id = str(uuid.uuid4())
@@ -2238,8 +3221,6 @@ def editor_api_comment_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/enable", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_enable_block() -> Response:
     """Re-enable a previously commented-out block in a YAML file."""
     request_id = str(uuid.uuid4())
@@ -2288,8 +3269,6 @@ def editor_api_enable_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/block/reorder", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_reorder_blocks() -> Response:
     """Reorder all blocks in a YAML file by block id."""
     request_id = str(uuid.uuid4())
@@ -2341,8 +3320,6 @@ def editor_api_reorder_blocks() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/insert-block", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_insert_block() -> Response:
     """Insert a new block into a YAML file after the given block id.
 
@@ -2443,8 +3420,6 @@ def editor_api_insert_block() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/variables", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_variables() -> Response:
     """Get extracted variable names from a playground YAML file."""
     request_id = str(uuid.uuid4())
@@ -2498,8 +3473,6 @@ def editor_api_variables() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/order", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_save_order() -> Response:
     """Save order-builder steps as a mandatory code block."""
     request_id = str(uuid.uuid4())
@@ -2589,8 +3562,6 @@ def editor_api_save_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-screen", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_ai_generate_screen() -> Response:
     """Generate a single question screen draft from interview + template context."""
     request_id = str(uuid.uuid4())
@@ -2708,8 +3679,6 @@ def editor_api_ai_generate_screen() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-fields", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_ai_generate_fields() -> Response:
     """Generate fields for one existing question block using full interview context."""
     request_id = str(uuid.uuid4())
@@ -2820,8 +3789,6 @@ def editor_api_ai_generate_fields() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/parse-order", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_parse_order() -> Response:
     """Parse order code text into structured steps (no file required)."""
     request_id = str(uuid.uuid4())
@@ -2849,8 +3816,6 @@ def editor_api_parse_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/draft-order", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_draft_order() -> Response:
     """Generate a draft order from the current file's blocks."""
     request_id = str(uuid.uuid4())
@@ -2896,8 +3861,6 @@ def editor_api_draft_order() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/draft-review-screen", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_draft_review_screen() -> Response:
     """Generate draft review-screen YAML using ALDashboard when available."""
     request_id = str(uuid.uuid4())
@@ -2945,8 +3908,6 @@ def editor_api_draft_review_screen() -> Response:
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/preview-url", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_preview_url() -> Response:
     """Get the docassemble interview preview URL for a playground file."""
     request_id = str(uuid.uuid4())
@@ -2988,6 +3949,35 @@ def editor_api_preview_url() -> Response:
 
 NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
 NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+NEW_PROJECT_CELERY_MODULE = CELERY_MODULE
+NEW_PROJECT_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
+)
+NEW_PROJECT_TERMINAL_STATES = {
+    "succeeded",
+    "failed",
+    "cancelled",
+    "expired",
+}
+
+
+def _editor_async_is_configured() -> bool:
+    return worker_configuration_is_ready()
+
+
+def _log_editor_worker_preflight() -> None:
+    status = get_worker_configuration_status()
+    if status["configured"]:
+        return
+    log(
+        "ALWeaver editor Celery preflight: "
+        f"{status['message']} Configuration instructions: "
+        f"{CELERY_CONFIGURATION_DOCS_URL}",
+        "warning",
+    )
+
+
+_log_editor_worker_preflight()
 
 
 def _new_project_job_key(job_id: str) -> str:
@@ -3047,6 +4037,8 @@ def _complete_new_project_upload_job(
             message="Starting background Weaver generation.",
             project=project_name,
             request_id=request_id,
+            started_at=time.time(),
+            progress=5,
         )
         temp_paths: List[str] = []
         first_result: Optional[Dict[str, Any]] = None
@@ -3072,6 +4064,7 @@ def _complete_new_project_upload_job(
                     status="running",
                     stage=stage,
                     message="Generating interview from the uploaded document.",
+                    progress=20,
                 )
                 first_result = generate_interview_from_bytes(
                     filename=filename,
@@ -3096,6 +4089,7 @@ def _complete_new_project_upload_job(
             status="running",
             stage=stage,
             message="Writing generated interview YAML.",
+            progress=70,
         )
         playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
 
@@ -3105,6 +4099,7 @@ def _complete_new_project_upload_job(
             status="running",
             stage=stage,
             message="Copying uploaded files into the project.",
+            progress=85,
         )
         _copy_files_to_section(
             user_id=uid,
@@ -3129,6 +4124,8 @@ def _complete_new_project_upload_job(
             generated_from=result["generated_from"],
             uploaded_count=result["uploaded_count"],
             result=result,
+            progress=100,
+            finished_at=time.time(),
         )
         return result
     except Exception as exc:
@@ -3146,6 +4143,7 @@ def _complete_new_project_upload_job(
             stage=stage,
             message=error_payload["message"],
             error=error_payload,
+            finished_at=time.time(),
         )
         log(
             "ALWeaver editor: background new-project upload failed "
@@ -3155,31 +4153,6 @@ def _complete_new_project_upload_job(
         raise
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def _run_new_project_upload_job(
-    *,
-    job_id: str,
-    uid: int,
-    project_name: str,
-    request_id: str,
-    uploaded_files: List[Dict[str, Any]],
-    generation_options: Dict[str, Any],
-    debug_requested: bool,
-) -> None:
-    try:
-        with bg_context():
-            _complete_new_project_upload_job(
-                job_id=job_id,
-                uid=uid,
-                project_name=project_name,
-                request_id=request_id,
-                uploaded_files=uploaded_files,
-                generation_options=generation_options,
-                debug_requested=debug_requested,
-            )
-    except Exception:
-        return
 
 
 def _start_new_project_upload_job(
@@ -3192,32 +4165,53 @@ def _start_new_project_upload_job(
     debug_requested: bool,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
+    queued_at = time.time()
     initial_state: Dict[str, Any] = {
         "status": "queued",
         "stage": "queued",
         "message": "Queued for background Weaver generation.",
+        "owner_user_id": uid,
+        "operation_type": "new_project_upload",
+        "input_revision": None,
         "project": project_name,
         "request_id": request_id,
         "generated_from": uploaded_files[0].get("filename") if uploaded_files else None,
         "uploaded_count": len(uploaded_files),
+        "queued_at": queued_at,
+        "started_at": None,
+        "finished_at": None,
+        "progress": 0,
+        "result": None,
+        "error": None,
     }
     _store_new_project_job_state(job_id, initial_state)
-
-    worker = threading.Thread(
-        target=_run_new_project_upload_job,
-        kwargs={
-            "job_id": job_id,
-            "uid": uid,
-            "project_name": project_name,
-            "request_id": request_id,
-            "uploaded_files": uploaded_files,
-            "generation_options": generation_options,
-            "debug_requested": debug_requested,
-        },
-        daemon=True,
-        name=f"alweaver-new-project-{job_id}",
-    )
-    worker.start()
+    try:
+        task = workerapp.send_task(
+            NEW_PROJECT_CELERY_TASK,
+            kwargs={
+                "job_id": job_id,
+                "uid": uid,
+                "project_name": project_name,
+                "request_id": request_id,
+                "uploaded_files": uploaded_files,
+                "generation_options": generation_options,
+                "debug_requested": debug_requested,
+            },
+        )
+    except Exception as exc:
+        _update_new_project_job_state(
+            job_id,
+            status="failed",
+            stage="enqueue",
+            message="Unable to queue background Weaver generation.",
+            finished_at=time.time(),
+            error={
+                "type": "queue_error",
+                "message": str(exc) or "Unable to queue Celery task.",
+            },
+        )
+        raise
+    _update_new_project_job_state(job_id, celery_task_id=task.id)
     return {
         "job_id": job_id,
         "job_url": f"{EDITOR_BASE_PATH}/api/new-project/jobs/{job_id}",
@@ -3225,9 +4219,78 @@ def _start_new_project_upload_job(
     }
 
 
+def _reconcile_new_project_job_state(
+    job_id: str, state: Dict[str, Any]
+) -> Dict[str, Any]:
+    status = str(state.get("status") or "queued")
+    if status in NEW_PROJECT_TERMINAL_STATES:
+        return state
+    celery_task_id = state.get("celery_task_id")
+    if not celery_task_id:
+        return _update_new_project_job_state(
+            job_id,
+            status="expired",
+            stage="expired",
+            message="The job has no associated Celery task.",
+            finished_at=time.time(),
+            error={
+                "type": "job_expired",
+                "message": "The queued task record is unavailable.",
+            },
+        )
+
+    task_result = workerapp.AsyncResult(id=celery_task_id)
+    celery_state = str(getattr(task_result, "state", "") or "").upper()
+    if celery_state == "SUCCESS":
+        task_value = getattr(task_result, "result", None)
+        return _update_new_project_job_state(
+            job_id,
+            status="succeeded",
+            stage="done",
+            message="Project created successfully.",
+            progress=100,
+            finished_at=time.time(),
+            result=task_value if isinstance(task_value, dict) else state.get("result"),
+        )
+    if celery_state == "FAILURE":
+        task_error = getattr(task_result, "result", None)
+        return _update_new_project_job_state(
+            job_id,
+            status="failed",
+            stage=state.get("stage") or "failed",
+            message="ALWeaver generation failed.",
+            finished_at=time.time(),
+            error={
+                "type": "celery_failure",
+                "message": str(task_error or "Task failed"),
+            },
+        )
+    if celery_state == "REVOKED":
+        return _update_new_project_job_state(
+            job_id,
+            status="cancelled",
+            stage="cancelled",
+            message="The job was cancelled.",
+            finished_at=time.time(),
+        )
+    if celery_state in {"STARTED", "RETRY"}:
+        updates: Dict[str, Any] = {"status": "running"}
+        if not state.get("started_at"):
+            updates["started_at"] = time.time()
+        return _update_new_project_job_state(job_id, **updates)
+    if celery_state in {"PENDING", "RECEIVED"}:
+        return _update_new_project_job_state(job_id, status="queued")
+    return _update_new_project_job_state(
+        job_id,
+        status="expired",
+        stage="expired",
+        message="The Celery task state is no longer available.",
+        finished_at=time.time(),
+        error={"type": "job_expired", "message": f"Unknown task state: {celery_state}"},
+    )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project", methods=["POST"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["POST", "HEAD"], automatic_options=True)
 def editor_api_new_project() -> Response:
     """Create a new playground project, optionally seeded with a template.
 
@@ -3336,6 +4399,25 @@ def _new_project_from_uploads(
     on the first file to produce a draft YAML, writes it to a new playground
     project, and copies all uploaded originals into the templates section.
     """
+    if not _editor_async_is_configured():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "async_not_configured",
+                    "code": "editor_async_not_configured",
+                    "message": (
+                        "Background project generation is not configured. Add "
+                        f"{NEW_PROJECT_CELERY_MODULE!r} to the Docassemble "
+                        "'celery modules' configuration list, then restart the "
+                        "Docassemble web and Celery services."
+                    ),
+                    "details": get_worker_configuration_status(),
+                },
+            },
+            503,
+        )
     raw_name = request.form.get("project_name", "NewProject")
     generation_notes = request.form.get("generation_notes", "").strip()
     help_page_url = request.form.get("help_page_url", "").strip()
@@ -3469,16 +4551,15 @@ def _new_project_from_uploads(
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project/jobs/<job_id>", methods=["GET"])
-@csrf.exempt
-@cross_origin(origins="*", methods=["GET", "HEAD"], automatic_options=True)
 def editor_api_new_project_job(job_id: str) -> Response:
     """Get the status of a queued upload-based project creation job."""
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
+        uid = _current_user_id()
         state = _load_new_project_job_state(job_id)
-        if not state:
+        if not state or state.get("owner_user_id") not in {None, uid}:
             return jsonify_with_status(
                 {
                     "success": False,
@@ -3487,6 +4568,7 @@ def editor_api_new_project_job(job_id: str) -> Response:
                 },
                 404,
             )
+        state = _reconcile_new_project_job_state(job_id, state)
         status = str(state.get("status") or "queued")
         return jsonify(
             {

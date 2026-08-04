@@ -1,121 +1,12 @@
 /* =============================================================================
    Docassemble Interview Editor — Client-side controller
    Communicates with /al/editor/api/* endpoints.
-   Uses Monaco editor for YAML/Python code editing.
+   Uses Docassemble's bundled CodeMirror editor through a Weaver adapter.
    ============================================================================= */
 
 (function () {
   'use strict';
 
-
-  function escapeYamlStr(str) {
-    if (!str) return str;
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (str.match(/[:\#\{\}\[\]\,\&\*\!\>\|\'\"\%\@\`]/) || str.trim() !== str || str === '') {
-      return '"' + str.replace(/"/g, '\\"') + '"';
-    }
-    return str;
-  }
-
-  function serializeQuestionToYaml() {
-    var yaml = '---\n';
-    
-    var idInput = document.getElementById('adv-id');
-    if (idInput && idInput.value) yaml += 'id: ' + escapeYamlStr(idInput.value) + '\n';
-    
-    var qTitle = document.getElementById('q-title');
-    if (qTitle && qTitle.value) yaml += 'question: ' + escapeYamlStr(qTitle.value) + '\n';
-    
-    var qSub = document.getElementById('q-subquestion');
-    if (qSub && qSub.value) yaml += 'subquestion: ' + escapeYamlStr(qSub.value) + '\n';
-
-    var contField = document.getElementById('q-continue-field');
-    if (contField && contField.value) yaml += 'continue button field: ' + escapeYamlStr(contField.value) + '\n';
-
-    var rows = Array.from(document.querySelectorAll('.editor-field-row'));
-    if (rows.length > 0) {
-      yaml += 'fields:\n';
-      rows.forEach(function(row) {
-        var label = row.querySelector('.editor-field-label-input').value || 'Label';
-        var type = row.querySelector('.editor-field-type-select').value;
-        var variable = row.querySelector('.editor-field-var-input').value;
-        var choicesEl = row.querySelector('.editor-field-choices');
-        
-        if (!variable && type === 'text') {
-           yaml += '  - ' + escapeYamlStr(label) + '\n';
-           return;
-        }
-        
-        yaml += '  - ' + escapeYamlStr(label) + ': ' + escapeYamlStr(variable) + '\n';
-        if (type !== 'text') yaml += '    datatype: ' + type + '\n';
-        
-        if (choicesEl && choicesEl.value && ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown', 'buttons'].indexOf(type) !== -1) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function(c) {
-                if(c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n';
-            });
-        }
-      });
-    }
-    return yaml;
-  }
-
-
-  function escapeYamlStr(str) {
-    if (!str) return str;
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (str.match(/[:\#\{\}\[\]\,\&\*\!\>\|\'\"\%\@\`]/) || str.trim() !== str || str === '') {
-      return '"' + str.replace(/"/g, '\\"') + '"';
-    }
-    return str;
-  }
-
-  function serializeQuestionToYaml() {
-    var yaml = '---\n';
-    
-    var idInput = document.getElementById('adv-id');
-    if (idInput && idInput.value) yaml += 'id: ' + escapeYamlStr(idInput.value) + '\n';
-    
-    var qTitle = document.getElementById('q-title');
-    if (qTitle && qTitle.value) yaml += 'question: ' + escapeYamlStr(qTitle.value) + '\n';
-    
-    var qSub = document.getElementById('q-subquestion');
-    if (qSub && qSub.value) yaml += 'subquestion: ' + escapeYamlStr(qSub.value) + '\n';
-
-    var contField = document.getElementById('q-continue-field');
-    if (contField && contField.value) yaml += 'continue button field: ' + escapeYamlStr(contField.value) + '\n';
-
-    var rows = Array.from(document.querySelectorAll('.editor-field-row'));
-    if (rows.length > 0) {
-      yaml += 'fields:\n';
-      rows.forEach(function(row) {
-        var label = row.querySelector('.editor-field-label-input').value || 'Label';
-        var type = row.querySelector('.editor-field-type-select').value;
-        var variable = row.querySelector('.editor-field-var-input').value;
-        var choicesEl = row.querySelector('.editor-field-choices');
-        
-        if (!variable && type === 'text') {
-           yaml += '  - ' + escapeYamlStr(label) + '\n';
-           return;
-        }
-        
-        yaml += '  - ' + escapeYamlStr(label) + ': ' + escapeYamlStr(variable) + '\n';
-        if (type !== 'text') yaml += '    datatype: ' + type + '\n';
-        
-        if (choicesEl && choicesEl.value && ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown', 'buttons'].indexOf(type) !== -1) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function(c) {
-                if(c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n';
-            });
-        }
-      });
-    }
-    return yaml;
-  }
 
   // -------------------------------------------------------------------------
 
@@ -126,6 +17,7 @@
   var API = BOOT.apiBasePath || '/al/editor';
   var authState = BOOT.auth || {};
   var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
+  var dirtyState = window.ALWeaverDirtyState.createDirtyState();
 
   // -------------------------------------------------------------------------
   // State
@@ -154,6 +46,8 @@
       groups: {},
     },
     rawYaml: '',
+    revision: null,
+    metadataRawYaml: '',
     selectedBlockId: null,
     currentView: 'interview',
     canvasMode: 'project-selector',
@@ -180,13 +74,15 @@
       data: null,
     },
     sectionDirty: false,
-    dirty: false,
+    sectionSavedContent: {},
     markdownPreviewMode: false,
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
     validationOpen: false,
     validationMode: 'validation',
+    validationSourceScope: 'saved_source',
+    validationBaseRevisionMatches: null,
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -238,6 +134,15 @@
     return url;
   }
 
+  // Keep the outline filter control showing whatever the editor decided the
+  // filter should be — inserting a review screen, or opening a reported block
+  // that the current filter hides, both move it without the user touching it.
+  function syncJumpSelect() {
+    if (jumpSelect && jumpSelect.value !== state.jumpTarget) {
+      jumpSelect.value = state.jumpTarget;
+    }
+  }
+
   function updateLeftSearchPlaceholder() {
     if (!searchInput) return;
     searchInput.placeholder = isInterviewView() ? 'Type to filter...' : 'Search files...';
@@ -263,13 +168,24 @@
   }
 
   function updateTopbarSaveState() {
-    var btn = document.getElementById('btn-save-file');
-    if (!btn) return;
-    var isDirty = state.dirty || state.sectionDirty;
-    btn.disabled = !isDirty;
-    var badge = btn.querySelector('.js-save-badge');
-    if (badge) {
-      badge.classList.toggle('d-none', !isDirty);
+    var buttons = document.querySelectorAll('.js-save-file-btn');
+    if (!buttons.length) return;
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty;
+    buttons.forEach(function (btn) {
+      btn.disabled = !isDirty;
+      var badge = btn.querySelector('.js-save-badge');
+      if (badge) {
+        badge.classList.toggle('d-none', !isDirty);
+      }
+    });
+  }
+
+  function saveCurrentFile() {
+    if (!isInterviewView()) {
+      saveCurrentSectionFileIfDirty();
+    } else if (state.filename) {
+      saveCurrentBlockIfDirty();
     }
   }
 
@@ -306,254 +222,111 @@
     return Boolean(fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx'));
   }
 
-  function blockUnsavedSectionNavigation() {
-    if (!state.sectionDirty || isInterviewView()) return false;
-    window.alert('You have unsaved changes in this file. Save your changes before leaving this file.');
+  function hasUnsavedChanges() {
+    return dirtyState.hasDirty(state.filename) || state.sectionDirty;
+  }
+
+  function sectionSnapshotKey() {
+    var filename = state.sectionSelectedFile[state.currentView] || '';
+    return [state.project || '', state.currentView || '', filename].join('::');
+  }
+
+  function discardSectionChanges() {
+    if (!state.sectionDirty) return true;
+    var savedContent = state.sectionSavedContent[sectionSnapshotKey()];
+    if (savedContent === undefined) return false;
+    var editor = _sourceEditors['section-file-source-editor'];
+    if (editor) editor.setValue(savedContent);
+    state.sectionDirty = false;
+    updateTopbarSaveState();
     return true;
   }
 
   // -------------------------------------------------------------------------
-  // Monaco management
+  // Source editor adapter
   // -------------------------------------------------------------------------
-  var _monacoReady = false;
-  var _monacoLoading = false;
-  var _monacoFailed = false;
-  var _monacoLoaderBase = null;
-  var _monacoEditors = {};
+  var _sourceEditors = {};
   var _outlineSortable = null;
-  var _textareaEditors = {};
-  var _makoLanguageRegistered = false;
 
-  function registerMakoLanguage() {
-    if (_makoLanguageRegistered || typeof monaco === 'undefined' || !monaco.languages) return;
-    if (typeof monaco.languages.getLanguages === 'function') {
-      var languages = monaco.languages.getLanguages();
-      for (var i = 0; i < languages.length; i++) {
-        if (languages[i] && languages[i].id === 'mako') {
-          _makoLanguageRegistered = true;
-          return;
-        }
-      }
-    }
-
-    monaco.languages.register({ id: 'mako' });
-    monaco.languages.setMonarchTokensProvider('mako', {
-      defaultToken: '',
-      tokenPostfix: '.mako',
-      keywords: [
-        'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
-        'False', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'None', 'not', 'or',
-        'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield', 'block', 'namespace',
-        'endblock', 'endfor', 'endif', 'endtry', 'endwhile', 'endwith'
-      ],
-      tokenizer: {
-        root: [
-          [/^\s*##.*$/, 'comment.mako'],
-          [/^\s*%\s*(if|elif|else|for|while|try|except|finally|with|def|block|namespace|endfor|endif|endwhile|endtry|endwith|endblock)\b.*$/, ['delimiter.mako', 'keyword.mako']],
-          [/^\s*%.*$/, 'meta.mako'],
-          [/<%doc>/, { token: 'comment.mako', next: '@docBlock' }],
-          [/<%/, { token: 'delimiter.mako', next: '@pythonBlock' }],
-          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
-          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
-          [/<\/?[A-Za-z][\w:-]*/, 'tag.mako'],
-          [/&[a-zA-Z_][\w-]*;/, 'string.escape'],
-          [/[{}()[\]]/, '@brackets'],
-          [/[;,.]/, 'delimiter'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b[A-Za-z_][\w]*\b/, {
-            cases: {
-              '@keywords': 'keyword.mako',
-              '@default': 'identifier'
-            }
-          }],
-          [/\s+/, 'white'],
-        ],
-        expression: [
-          [/\}/, { token: 'delimiter.mako', next: '@pop' }],
-          { include: '@rootExpression' },
-        ],
-        parenExpression: [
-          [/\)/, { token: 'delimiter.mako', next: '@pop' }],
-          { include: '@rootExpression' },
-        ],
-        rootExpression: [
-          [/\s+/, 'white'],
-          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
-          [/\$\{/, { token: 'delimiter.mako', next: '@expression' }],
-          [/\$\(/, { token: 'delimiter.mako', next: '@parenExpression' }],
-          [/[{}()[\]]/, '@brackets'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
-          [/./, 'operator'],
-        ],
-        pythonBlock: [
-          [/%>/, { token: 'delimiter.mako', next: '@pop' }],
-          [/\b(and|as|assert|break|class|continue|def|del|elif|else|except|False|finally|for|from|if|import|in|is|lambda|None|not|or|pass|raise|return|True|try|while|with|yield)\b/, 'keyword.mako'],
-          [/"([^"\\]|\\.)*"/, 'string'],
-          [/'([^'\\]|\\.)*'/, 'string'],
-          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, 'number.float'],
-          [/\b\d+\b/, 'number'],
-          [/\b[A-Za-z_][\w]*\b/, 'identifier'],
-          [/./, 'operator'],
-        ],
-        docBlock: [
-          [/<\/doc>/, { token: 'comment.mako', next: '@pop' }],
-          [/.*$/, 'comment.mako'],
-        ],
-      },
-    });
-    _makoLanguageRegistered = true;
+  function initSourceEditor(callback) {
+    callback();
   }
 
-  function _loadScriptOnce(src, callback) {
-    var existing = document.querySelector('script[data-editor-loader-src="' + src + '"]');
-    if (existing) {
-      if (existing.getAttribute('data-loaded') === 'true') {
-        callback(true);
-        return;
-      }
-      existing.addEventListener('load', function () { callback(true); }, { once: true });
-      existing.addEventListener('error', function () { callback(false); }, { once: true });
-      return;
-    }
-    var script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.setAttribute('data-editor-loader-src', src);
-    script.addEventListener('load', function () {
-      script.setAttribute('data-loaded', 'true');
-      callback(true);
-    }, { once: true });
-    script.addEventListener('error', function () {
-      callback(false);
-    }, { once: true });
-    document.head.appendChild(script);
-  }
-
-  function _getMonacoLoaderCandidates() {
-    return [
-      'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js'
-    ];
-  }
-
-  function _ensureMonacoLoader(callback) {
-    if (typeof require !== 'undefined' && require && require.config) {
-      callback(true);
-      return;
-    }
-    var candidates = _getMonacoLoaderCandidates().slice();
-    function tryNext() {
-      var src = candidates.shift();
-      if (!src) {
-        callback(false);
-        return;
-      }
-      _loadScriptOnce(src, function (loaded) {
-        if (loaded && typeof require !== 'undefined' && require && require.config) {
-          _monacoLoaderBase = src.replace(/\/loader\.js(?:\?.*)?$/, '');
-          callback(true);
-          return;
-        }
-        tryNext();
-      });
-    }
-    tryNext();
-  }
-
-  function initMonaco(callback) {
-    if (_monacoReady) { callback(); return; }
-    if (_monacoFailed) {
-      callback();
-      return;
-    }
-    if (_monacoLoading) {
-      window.setTimeout(function () { initMonaco(callback); }, 50);
-      return;
-    }
-    _monacoLoading = true;
-    _ensureMonacoLoader(function (loaderReady) {
-      if (!loaderReady || typeof require === 'undefined' || !require.config) {
-        _monacoLoading = false;
-        _monacoFailed = true;
-        callback();
-        return;
-      }
-      var vsBase = _monacoLoaderBase || 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
-      require.config({ paths: { vs: vsBase } });
-      require(['vs/editor/editor.main'], function () {
-        registerMakoLanguage();
-        _monacoLoading = false;
-        _monacoReady = true;
-        callback();
-      }, function () {
-        _monacoLoading = false;
-        _monacoFailed = true;
-        callback();
-      });
+  function disposeSourceEditors() {
+    Object.keys(_sourceEditors).forEach(function (key) {
+      if (_sourceEditors[key]) _sourceEditors[key].dispose();
+      delete _sourceEditors[key];
     });
   }
 
-  function disposeMonacoEditors() {
-    Object.keys(_monacoEditors).forEach(function (key) {
-      if (_monacoEditors[key]) {
-        _monacoEditors[key].dispose();
-        delete _monacoEditors[key];
-      }
-    });
-    Object.keys(_textareaEditors).forEach(function (key) {
-      delete _textareaEditors[key];
-    });
-  }
-
-  function createMonacoEditor(containerId, value, language, opts) {
+  function createSourceEditor(containerId, value, language, options) {
     var container = document.getElementById(containerId);
     if (!container) return null;
-    opts = opts || {};
-    if (!_monacoReady || typeof monaco === 'undefined') {
-      container.innerHTML = '';
-      var textarea = document.createElement('textarea');
-      textarea.className = 'editor-yaml-textarea';
-      textarea.value = value || '';
-      if (opts.onChange) textarea.addEventListener('input', opts.onChange);
-      container.appendChild(textarea);
-      _textareaEditors[containerId] = textarea;
-      return textarea;
+    options = options || {};
+    if (typeof window.daNewEditor !== 'function') {
+      throw new Error('CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?');
     }
-    var editor = monaco.editor.create(container, {
-      value: value || '',
-      language: language || 'yaml',
-      theme: 'vs',
-      fontSize: 13,
-      fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      lineNumbers: opts.lineNumbers !== false ? 'on' : 'off',
-      wordWrap: 'on',
-      automaticLayout: true,
-      tabSize: 2,
-      renderWhitespace: 'none',
-      overviewRulerLanes: 0,
-      hideCursorInOverviewRuler: true,
-      scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false },
-    });
-    _monacoEditors[containerId] = editor;
-    if (opts.onChange) {
-      editor.onDidChangeModelContent(opts.onChange);
+    if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
+    container.innerHTML = '';
+    var mode = String(language || '').toLowerCase();
+    if (mode === 'python') mode = 'py';
+    if (mode === 'mako') mode = 'html';
+    if (mode === 'plaintext') mode = 'text';
+    var bundle = window.daNewEditor(
+      container,
+      String(value === undefined || value === null ? '' : value),
+      mode || 'yaml',
+      'default',
+      true
+    );
+    if (!bundle || !bundle.ev) {
+      throw new Error('Docassemble could not initialize its CodeMirror editor.');
     }
+    var view = bundle.ev;
+    var subscribers = [];
+    var originalDispatch = view.dispatch.bind(view);
+    view.dispatch = function () {
+      var before = view.state.doc.toString();
+      originalDispatch.apply(view, arguments);
+      var after = view.state.doc.toString();
+      if (after !== before) {
+        subscribers.slice().forEach(function (callback) { callback(after); });
+      }
+    };
+    if (view.contentDOM && typeof view.contentDOM.setAttribute === 'function') {
+      view.contentDOM.setAttribute('aria-label', options.ariaLabel || 'Source editor');
+      view.contentDOM.setAttribute('aria-multiline', 'true');
+    }
+    var editor = {
+      getValue: function () { return view.state.doc.toString(); },
+      setValue: function (nextValue) {
+        view.dispatch({
+          changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: String(nextValue === undefined || nextValue === null ? '' : nextValue),
+          },
+        });
+      },
+      onChange: function (callback) {
+        subscribers.push(callback);
+        return { dispose: function () {
+          subscribers = subscribers.filter(function (candidate) { return candidate !== callback; });
+        } };
+      },
+      dispose: function () {
+        subscribers = [];
+        view.destroy();
+      },
+    };
+    if (options.onChange) editor.onChange(options.onChange);
+    _sourceEditors[containerId] = editor;
     return editor;
   }
 
-  function getMonacoValue(containerId) {
-    var ed = _monacoEditors[containerId];
-    if (ed) return ed.getValue();
-    var ta = _textareaEditors[containerId];
-    return ta ? ta.value : '';
+  function getSourceEditorValue(containerId) {
+    var editor = _sourceEditors[containerId];
+    return editor ? editor.getValue() : '';
   }
 
   function getOrCreateBootstrapModal(elementId) {
@@ -732,14 +505,66 @@
     return html;
   }
 
-  function refreshFromFileResponse(data) {
+  function captureInterviewModel() {
+    return cloneData({
+      blocks: state.blocks,
+      metadataIndices: state.metadataIndices,
+      includeIndices: state.includeIndices,
+      defaultSpIndices: state.defaultSpIndices,
+      orderIndices: state.orderIndices,
+      orderSteps: state.orderSteps,
+      orderStepMap: state.orderStepMap,
+      activeOrderBlockId: state.activeOrderBlockId,
+      rawYaml: state.rawYaml,
+      revision: state.revision,
+      metadataRawYaml: state.metadataRawYaml,
+    });
+  }
+
+  function restoreInterviewModel(model) {
+    if (!model) return false;
+    state.blocks = cloneData(model.blocks) || [];
+    state.metadataIndices = cloneData(model.metadataIndices) || [];
+    state.includeIndices = cloneData(model.includeIndices) || [];
+    state.defaultSpIndices = cloneData(model.defaultSpIndices) || [];
+    state.orderIndices = cloneData(model.orderIndices) || [];
+    state.orderSteps = cloneData(model.orderSteps) || [];
+    state.orderStepMap = cloneData(model.orderStepMap) || {};
+    state.activeOrderBlockId = model.activeOrderBlockId || null;
+    state.rawYaml = typeof model.rawYaml === 'string' ? model.rawYaml : '';
+    state.revision = model.revision || null;
+    state.metadataRawYaml = typeof model.metadataRawYaml === 'string' ? model.metadataRawYaml : '';
+    state.orderDirty = false;
+    state.fullYamlStash = {};
+    if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
+      state.selectedBlockId = getDefaultVisibleBlockId();
+    }
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    updateTopbarSaveState();
+    return true;
+  }
+
+  function discardInterviewChanges() {
+    var restored = dirtyState.discardFile(state.filename);
+    if (!restoreInterviewModel(restored)) return false;
+    renderOutline();
+    renderCanvas();
+    return true;
+  }
+
+  function refreshFromFileResponse(data, options) {
+    options = options || {};
+    var fileBefore = dirtyState.getFileState(state.filename);
+    var localBlocksBefore = cloneData(state.blocks) || [];
     state.blocks = data.blocks || [];
     state.metadataIndices = data.metadata_blocks || [];
     state.includeIndices = data.include_blocks || [];
     state.defaultSpIndices = data.default_screen_parts_blocks || [];
     state.orderIndices = data.order_blocks || [];
     state.orderStepMap = data.order_step_map || state.orderStepMap || {};
-    state.rawYaml = data.raw_yaml || state.rawYaml;
+    state.rawYaml = typeof data.raw_yaml === 'string' ? data.raw_yaml : state.rawYaml;
+    state.revision = data.revision || state.revision;
+    state.metadataRawYaml = data.metadata_raw_yaml || '';
     var nextOrderBlockId = state.activeOrderBlockId;
     if (!nextOrderBlockId || !getBlockById(nextOrderBlockId)) {
       nextOrderBlockId = getDefaultOrderBlockId();
@@ -753,8 +578,20 @@
     state.questionEditMode = 'preview';
     state.advancedOpen = false;
     state.markdownPreviewMode = false;
-    state.dirty = false;
     state.fullYamlStash = {};
+    var savedModel = captureInterviewModel();
+    if (options.savedBlockId) {
+      dirtyState.markBlockSaved(options.savedBlockId, state.revision, savedModel, state.filename);
+      state.blocks = window.ALWeaverDirtyState.preserveDirtyBlocks(
+        state.blocks,
+        localBlocksBefore,
+        fileBefore ? fileBefore.dirtyBlockIds : [],
+        options.savedBlockId
+      );
+    } else {
+      dirtyState.setFileSaved(state.filename, state.revision, savedModel);
+    }
+    dirtyState.activate(state.filename, state.selectedBlockId);
     loadAvailableSymbols(true);
     renderOutline();
     renderCanvas();
@@ -765,8 +602,11 @@
     $$('.editor-top-tab').forEach(function (tab) {
       var isActive = tab === targetTab;
       tab.classList.toggle('active', isActive);
-      tab.classList.toggle('btn-light', isActive);
-      tab.classList.toggle('btn-outline-light', !isActive);
+      if (isActive) {
+        tab.setAttribute('aria-current', 'page');
+      } else {
+        tab.removeAttribute('aria-current');
+      }
     });
   }
 
@@ -779,29 +619,31 @@
   var projectSelect = $('#project-select');
   var fileSelect = $('#file-select');
   var searchInput = $('#search-input');
+  var jumpSelect = $('#jump-select');
   var outlineList = $('#outline-list');
   var canvasContent = $('#canvas-content');
 
   // Known docassemble field datatypes
   var FIELD_TYPES = [
-    'text', 'area', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
+    'text', 'textC', 'area', 'areaC', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
     'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe',
     'number', 'integer', 'currency', 'date', 'time', 'datetime',
-    'email', 'password', 'url',
+    'email', 'password', 'url', 'al_international_phone',
     'file', 'files', 'camera',
     'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
     'range', 'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
+    'ThreePartsDate', 'BirthDate',
     'ml', 'mlarea', 'microphone', 'camcorder',
     'hidden', 'raw', 'note', 'html', 'raw html', 'code',
     'user', 'environment',
   ];
 
   var FIELD_TYPE_GROUPS = [
-    { label: 'Text inputs', items: ['text', 'area', 'raw', 'email', 'password', 'url', 'ml', 'mlarea'] },
+    { label: 'Text inputs', items: ['text', 'textC', 'area', 'areaC', 'raw', 'email', 'password', 'url', 'al_international_phone', 'ml', 'mlarea'] },
     { label: 'Numbers', items: ['number', 'integer', 'currency', 'range'] },
     { label: 'Choices', items: ['radio', 'checkboxes', 'dropdown', 'combobox', 'multiselect'] },
     { label: 'Booleans', items: ['yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe', 'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe'] },
-    { label: 'Date and time', items: ['date', 'time', 'datetime'] },
+    { label: 'Date and time', items: ['date', 'time', 'datetime', 'ThreePartsDate', 'BirthDate'] },
     { label: 'Files and media', items: ['file', 'files', 'camera', 'microphone', 'camcorder', 'environment'] },
     { label: 'Objects', items: ['object', 'object_radio', 'object_checkboxes', 'object_multiselect', 'user'] },
     { label: 'Standalone content', items: ['note', 'html', 'raw html'] },
@@ -818,6 +660,11 @@
     code: 'Fields code',
     hidden: 'Hidden input',
     mlarea: 'ML area',
+    textC: 'Text with character counter',
+    areaC: 'Area with character counter',
+    al_international_phone: 'International phone',
+    ThreePartsDate: 'Three-part date',
+    BirthDate: 'Birth date',
     object_radio: 'Object radio',
     object_checkboxes: 'Object checkboxes',
     object_multiselect: 'Object multiselect',
@@ -872,63 +719,107 @@
   ];
 
   // -------------------------------------------------------------------------
-  // Fetch helper
+  // Centralized API client
   // -------------------------------------------------------------------------
-  function apiFetch(path, opts) {
-    opts = opts || {};
-    var url = API + path;
-    return fetch(url, opts).then(function (res) { return res.json(); });
-  }
-
-  function apiGet(path) {
-    return apiFetch(path, { credentials: 'same-origin' });
-  }
-
-  function apiPost(path, body) {
-    return apiFetch(path, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  }
-
-  function fetchResponsePayload(url, opts) {
-    opts = opts || {};
-    return fetch(url, opts).then(function (res) {
-      var contentType = res.headers.get('content-type') || '';
-      return res.text().then(function (text) {
-        var body = null;
-        if (contentType.indexOf('json') !== -1) {
-          try {
-            body = text ? JSON.parse(text) : null;
-          } catch (err) {
-            body = null;
-          }
-        }
-        return {
-          ok: res.ok,
-          status: res.status,
-          contentType: contentType,
-          text: text,
-          body: body,
-        };
-      });
-    });
-  }
-
-  function _fetchErrorMessage(response) {
-    if (!response) return 'Unknown error';
-    var body = response.body || {};
-    if (body.error && body.error.message) return String(body.error.message);
-    if (body.message) return String(body.message);
-    var text = String(response.text || '').trim();
-    if (!text) return 'Request failed with status ' + response.status;
-    if (response.contentType && response.contentType.indexOf('json') === -1) {
-      return 'Server returned HTTP ' + response.status + ' (' + response.contentType + ').';
+  function showApiError(error) {
+    var banner = document.getElementById('editor-api-error');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'editor-api-error';
+      banner.className = 'alert alert-danger alert-dismissible position-fixed';
+      banner.setAttribute('role', 'alert');
+      banner.setAttribute('aria-live', 'assertive');
+      banner.style.cssText = 'top:1rem;left:50%;transform:translateX(-50%);z-index:10000;min-width:300px;max-width:600px;';
+      var message = document.createElement('span');
+      message.setAttribute('data-api-error-message', '');
+      banner.appendChild(message);
+      var closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.className = 'btn-close';
+      closeButton.setAttribute('aria-label', 'Dismiss error');
+      closeButton.addEventListener('click', function () { banner.remove(); });
+      banner.appendChild(closeButton);
+      document.body.appendChild(banner);
     }
-    if (text.length > 240) return text.slice(0, 240) + '...';
-    return text;
+    var messageNode = banner.querySelector('[data-api-error-message]');
+    if (messageNode) messageNode.textContent = error && error.message ? error.message : 'The editor request failed.';
+  }
+
+  function renderSystemChecks() {
+    var warning = document.getElementById('editor-celery-warning');
+    if (!warning) return;
+    var check = BOOT.systemChecks && BOOT.systemChecks.celery;
+    if (!check || check.configured) {
+      warning.classList.add('d-none');
+      return;
+    }
+    var message = warning.querySelector('[data-celery-warning-message]');
+    var docs = warning.querySelector('[data-celery-warning-docs]');
+    if (message) message.textContent = ' ' + (check.message || 'Uploaded-document project generation is unavailable.');
+    if (docs) docs.href = check.docs_url || 'https://github.com/SuffolkLITLab/docassemble-ALWeaver#celery-worker-configuration';
+    warning.classList.remove('d-none');
+  }
+
+  var apiClient = window.ALWeaverApiClient.createClient({
+    baseUrl: API,
+    csrfToken: BOOT.csrfToken || null,
+    onError: showApiError,
+  });
+
+  function apiGet(path, options) {
+    return apiClient.get(path, options);
+  }
+
+  function apiPost(path, body, options) {
+    return apiClient.post(path, body, options);
+  }
+
+  function apiDelete(path, body, options) {
+    return apiClient.delete(path, body, options);
+  }
+
+  function apiUpload(path, formData, options) {
+    return apiClient.upload(path, formData, options);
+  }
+
+  function apiGetDetailed(path, options) {
+    return apiClient.getDetailed(path, options);
+  }
+
+  function apiUploadDetailed(path, formData, options) {
+    return apiClient.uploadDetailed(path, formData, options);
+  }
+
+  var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
+    api: {
+      get: apiGet,
+      post: apiPost,
+      delete: apiDelete,
+    },
+    getContext: function () {
+      return { project: state.project, filename: state.filename };
+    },
+    getBlocks: function () { return state.blocks || []; },
+    onSessionChange: function (session) {
+      state.runtimeTargetSession = session;
+    },
+  });
+
+  function isSupersededRequest(error) {
+    return Boolean(error && (
+      error.code === 'stale_response' || error.code === 'request_cancelled'
+    ));
+  }
+
+  // Navigation-driven loads are aborted by design when the user clicks through
+  // tabs faster than the server answers, and every other failure has already
+  // been surfaced by the client's onError hook. Terminating those chains keeps
+  // rapid clicking from filling the console with unhandled rejections.
+  function swallowNavigationLoadError(error) {
+    if (isSupersededRequest(error)) return;
+    if (window.console && typeof window.console.debug === 'function') {
+      window.console.debug('Editor background load did not complete:', error);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1209,7 +1100,8 @@
         };
         refreshActiveSymbolPickers();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         resetSymbolCatalog();
       });
   }
@@ -1787,8 +1679,18 @@
     return Boolean(inlineInvoke || inlineCondition || inlineValue);
   }
 
-  function markInterviewDirty() {
-    state.dirty = true;
+  function markInterviewDirty(commandId) {
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    if (state.canvasMode === 'full-yaml' && state.fullYamlTab !== 'order') {
+      dirtyState.markSourceDirty(commandId);
+    } else {
+      dirtyState.markBlockDirty(
+        (state.canvasMode === 'order-builder' || (state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order'))
+          ? state.activeOrderBlockId
+          : state.selectedBlockId,
+        commandId
+      );
+    }
     updateTopbarSaveState();
   }
 
@@ -1863,7 +1765,7 @@
       scrollOrderBuilderIntoView();
       return steps;
     }).catch(function (err) {
-      if (loadSeq !== _orderBuilderLoadSeq) return [];
+      if (loadSeq !== _orderBuilderLoadSeq || isSupersededRequest(err)) return [];
       state.orderBuilderLoading = false;
       console.warn('[Order] Failed to load interview order steps: ' + String((err && err.message) || err || 'Unknown error'));
       renderOutline();
@@ -2251,16 +2153,7 @@
   var CHOICE_TYPES = ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
                       'object', 'object_radio', 'object_checkboxes', 'object_multiselect'];
 
-  function escapeYamlStr(str) {
-    if (!str) return str;
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (/[:\#\{\}\[\],&*!>|'"%@`]/.test(str) || str.trim() !== str || str === '') {
-      return '"' + str.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-    }
-    return str;
-  }
+  var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
 
   function appendYamlValue(yaml, key, value) {
     if (value === undefined || value === null) return yaml;
@@ -2683,103 +2576,17 @@
     return yaml;
   }
 
-  function serializeQuestionToYaml(block) {
-    var yaml = '';
-    var data = (block && block.data) || {};
-
-    var idInput = document.getElementById('adv-id');
-    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'question_block');
-    yaml = appendYamlValue(yaml, 'id', blockId);
-
-    var qTitle = document.getElementById('q-title');
-    var questionText = qTitle && qTitle.value ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
-    if (questionText) yaml = appendYamlValue(yaml, 'question', questionText);
-
-    var qSub = document.getElementById('q-subquestion');
-    var subquestionText = qSub && qSub.value ? qSub.value : (block && block.data && block.data.subquestion ? String(block.data.subquestion) : '');
-    if (subquestionText) yaml = appendYamlValue(yaml, 'subquestion', subquestionText);
-
-    var rows = document.querySelectorAll('.editor-field-row');
-    if (rows.length > 0) {
-      yaml += 'fields:\n';
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
-        var type = row.querySelector('[data-field-prop="type"]').value;
-        var isStandaloneType = _fieldTypeSupportsStandaloneContent(type);
-        var labelEl = row.querySelector('[data-field-prop="label"]');
-        var label = labelEl ? String(labelEl.value || '') : '';
-        if (!isStandaloneType && !label) label = 'Label';
-        var variable = row.querySelector('[data-field-prop="variable"]').value;
-        var choicesEl = document.getElementById('field-choices-' + rowIdx);
-        var codeEl = document.getElementById('field-code-' + rowIdx);
-        var showIfEl = document.getElementById('field-showif-' + rowIdx);
-        var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
-        var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
-        var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
-        var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
-        var sfmods = {};
-        fmodInputs.forEach(function (el) { var k = el.getAttribute('data-fmod'); var v = el.value.trim(); if (v) sfmods[k] = v; });
-        var hasCodeExpr = codeEl && codeEl.value.trim();
-        var hasChoices = choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1;
-        var showIfVal = showIfEl ? showIfEl.value.trim() : '';
-        var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
-        var isRequired = requiredSwitch ? requiredSwitch.checked : true;
-        var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(sfmods).length > 0;
-        var isMultiLineLabel = label.indexOf('\n') !== -1;
-        if (isStandaloneType) {
-          yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
-          if (hasChoices) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function (c) { if (c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n'; });
-          }
-          if (hasCodeExpr) {
-            var codeStr = codeEl.value.trim();
-            yaml += '    code: |\n';
-            codeStr.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
-          }
-          if (!isRequired) yaml += '    required: False\n';
-          if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
-          Object.keys(sfmods).forEach(function (k) { yaml += '    ' + k + ': ' + escapeYamlStr(sfmods[k]) + '\n'; });
-          continue;
-        }
-        if (isMultiLineLabel || hasMods) {
-          yaml += '  - label: ' + escapeYamlStr(label) + '\n';
-          if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
-        } else {
-          yaml += '  - ' + escapeYamlStr(label) + ':';
-          if (variable) {
-            yaml += ' ' + escapeYamlStr(variable) + '\n';
-          } else {
-            yaml += '\n';
-          }
-        }
-        if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
-        if (hasChoices) {
-          yaml += '    choices:\n';
-          choicesEl.value.split('\n').forEach(function (c) { if (c.trim()) yaml += '      - ' + escapeYamlStr(c.trim()) + '\n'; });
-        }
-        if (hasCodeExpr) {
-          var codeStr = codeEl.value.trim();
-          if (codeStr.indexOf('\n') !== -1) {
-            yaml += '    code: |\n';
-            codeStr.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
-          } else {
-            yaml += '    code: ' + codeStr + '\n';
-          }
-        }
-        if (!isRequired) yaml += '    required: False\n';
-        if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
-        Object.keys(sfmods).forEach(function (k) { yaml += '    ' + k + ': ' + escapeYamlStr(sfmods[k]) + '\n'; });
-      }
-    } else if ((state.markdownPreviewMode || state.questionBlockTab !== 'screen') && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
-      yaml += 'fields:\n';
-      block.data.fields.forEach(function (field) {
-        yaml += _serializeQuestionFieldFromData(field);
-      });
-    }
-
-    return _appendQuestionAdvancedYaml(yaml, block);
+  function serializeQuestionBlockToYaml(block) {
+    return window.ALWeaverSerializers.serializeQuestionToYaml(block, {
+      document: document,
+      appendYamlValue: appendYamlValue,
+      appendYamlBlockValue: appendYamlBlockValue,
+      fieldTypeSupportsStandaloneContent: _fieldTypeSupportsStandaloneContent,
+      choiceTypes: CHOICE_TYPES,
+      state: state,
+      serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
+      appendQuestionAdvancedYaml: _appendQuestionAdvancedYaml,
+    });
   }
 
   function serializeReviewToYaml(block) {
@@ -2976,7 +2783,7 @@
     var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'code_block');
     yaml = appendYamlValue(yaml, 'id', blockId);
 
-    var codeText = getMonacoValue('code-monaco');
+    var codeText = getSourceEditorValue('code-source-editor');
     if (!codeText && block && block.data && block.data.code) {
       codeText = String(block.data.code);
     }
@@ -3112,10 +2919,7 @@
     var idInput = document.getElementById('adv-id');
     if (idInput) {
       var nextId = idInput.value.trim();
-      if (nextId) {
-        blk.id = nextId;
-        state.selectedBlockId = nextId;
-      }
+      if (nextId) blk.data.id = nextId;
     }
 
     var qTitle = document.getElementById('q-title');
@@ -3493,7 +3297,8 @@
           renderOutline();
           renderCanvas();
         }
-      });
+      })
+      .catch(swallowNavigationLoadError);
   }
 
   function loadFiles() {
@@ -3532,7 +3337,8 @@
           loadSectionFiles('static');
           loadSectionFiles('data');
         });
-      });
+      })
+      .catch(swallowNavigationLoadError);
   }
 
   function loadFile() {
@@ -3544,7 +3350,6 @@
       if (!res.success) {
         state.blocks = [];
         state.rawYaml = '';
-        state.dirty = false;
         renderOutline();
         renderCanvas();
         return;
@@ -3557,18 +3362,21 @@
       state.orderIndices = d.order_blocks || [];
       state.orderStepMap = d.order_step_map || {};
       state.rawYaml = d.raw_yaml || '';
-      state.dirty = false;
+      state.revision = d.revision || null;
+      state.metadataRawYaml = d.metadata_raw_yaml || '';
       state.fullYamlStash = {};
       state.selectedBlockId = getDefaultVisibleBlockId();
       setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
+      dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
+      dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
       renderOutline();
       renderCanvas();
       runValidation();
-    }).catch(function () {
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
       state.blocks = [];
       state.rawYaml = '';
-      state.dirty = false;
       renderOutline();
       renderCanvas();
     });
@@ -4027,7 +3835,7 @@
   function getBlockYamlForSave(block) {
     if (!block) return '';
     if (state.questionEditMode === 'preview' && block.type === 'question') {
-      return serializeQuestionToYaml(block);
+      return serializeQuestionBlockToYaml(block);
     }
     if (state.questionEditMode === 'preview' && block.type === 'code') {
       return serializeCodeToYaml(block);
@@ -4038,13 +3846,40 @@
     if (state.questionEditMode === 'preview' && block.type === 'review') {
       return serializeReviewToYaml(block);
     }
-    var yamlVal = getMonacoValue('block-yaml-monaco');
+    var yamlVal = getSourceEditorValue('block-source-editor');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
     return yamlVal;
   }
 
   function saveCurrentBlockIfDirty() {
-    if (!state.dirty || !state.filename) return Promise.resolve(true);
+    if (!dirtyState.hasDirty(state.filename) || !state.filename) return Promise.resolve(true);
+    var fileDirtyState = dirtyState.getFileState(state.filename);
+    if (fileDirtyState && fileDirtyState.sourceDirty) {
+      _stashFullYamlContent();
+      var sourceTab = state.fullYamlTab || 'full';
+      var hasStashedSource = Object.prototype.hasOwnProperty.call(state.fullYamlStash, sourceTab);
+      var sourceContent = hasStashedSource ? state.fullYamlStash[sourceTab] : state.rawYaml;
+      if (sourceTab === 'metadata') {
+        return apiPost('/api/file/metadata', {
+          project: state.project,
+          filename: state.filename,
+          raw_yaml: sourceContent,
+          expected_revision: state.revision,
+        }).then(function (res) {
+          if (!res.success || !res.data) return false;
+          refreshFromFileResponse(res.data);
+          return true;
+        });
+      }
+      return apiPost('/api/file', {
+        project: state.project,
+        filename: state.filename,
+        content: sourceContent,
+      }).then(function (res) {
+        if (!res.success) return false;
+        return loadFile().then(function () { return true; });
+      });
+    }
     if (state.orderDirty) {
       syncActiveOrderStepMap();
       return apiPost('/api/order', {
@@ -4058,31 +3893,34 @@
           return false;
         }
         state.orderDirty = false;
-        state.dirty = false;
-        updateTopbarSaveState();
-        return true;
+        return loadFile().then(function () { return true; });
       });
     }
-    var block = getSelectedBlock();
+    var editingRawOrder = state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
+    var block = editingRawOrder ? getBlockById(state.activeOrderBlockId) : getSelectedBlock();
     if (!block) return Promise.resolve(true);
-    var yamlVal = getBlockYamlForSave(block);
+    var originalBlockId = block.id;
+    if (editingRawOrder) _stashFullYamlContent();
+    var yamlVal = editingRawOrder
+      ? state.fullYamlStash.order
+      : getBlockYamlForSave(block);
     if (!yamlVal) return Promise.resolve(false);
     return apiPost('/api/block', {
       project: state.project,
       filename: state.filename,
-      block_id: block.id,
+      block_id: originalBlockId,
       block_yaml: yamlVal,
     }).then(function (res) {
       if (!res.success || !res.data) {
         window.alert((res.error && res.error.message) || 'Unable to save block.');
         return false;
       }
-      var keepBlockId = res.data.saved_block_id || block.id;
-      refreshFromFileResponse(res.data);
+      var keepBlockId = res.data.saved_block_id || originalBlockId;
+      refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
       state.selectedBlockId = keepBlockId;
       renderOutline();
       renderCanvas();
-      return true;
+      return !dirtyState.hasDirty(state.filename);
     });
   }
 
@@ -4091,7 +3929,7 @@
     var sectionForSave = getSectionFromView(state.currentView);
     var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
     if (!state.project || !sectionForSave || !sectionFileMeta) return Promise.resolve(false);
-    var contentVal = getMonacoValue('section-file-monaco');
+    var contentVal = getSourceEditorValue('section-file-source-editor');
     return apiPost('/api/section-file', {
       project: state.project,
       section: sectionForSave,
@@ -4103,6 +3941,7 @@
         return false;
       }
       state.sectionDirty = false;
+      state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
       updateTopbarSaveState();
       var saveSectionBtn = document.getElementById('save-section-file');
       if (saveSectionBtn) saveSectionBtn.disabled = true;
@@ -4110,16 +3949,146 @@
     });
   }
 
+  // The unsaved-changes modal is `data-bs-backdrop="static"` with no close
+  // button and no keyboard dismiss, so the three choice buttons are the only
+  // way out of it. Two things must never happen:
+  //   1. A second prompt must not overwrite the first prompt's button
+  //      handlers. Every navigation gesture opens this modal, so clicking
+  //      through tabs quickly re-enters here before the user has answered.
+  //   2. hide() must not be swallowed. Bootstrap's show() and hide() both
+  //      return early while the modal is mid-transition, so a choice clicked
+  //      during the ~300ms fade nulls out every handler and then fails to
+  //      close, leaving a modal nothing on the page can dismiss.
+  var _unsavedPromptPending = null;
+
+  function hideModalWhenSettled(modal, modalElement) {
+    modal.hide();
+    if (!modalElement.classList.contains('show')) return;
+    // hide() was dropped because the show transition is still running; retry
+    // once Bootstrap reports the modal fully shown.
+    modalElement.addEventListener('shown.bs.modal', function retry() {
+      modalElement.removeEventListener('shown.bs.modal', retry);
+      modal.hide();
+    });
+  }
+
   function promptAndSaveUnsavedChanges(actionLabel) {
     stashCurrentEditorState();
-    if (!state.dirty && !state.sectionDirty) return Promise.resolve(true);
-    var label = actionLabel || 'continue';
-    var shouldSave = window.confirm('You have unsaved changes. Save before you ' + label + '?');
-    if (!shouldSave) return Promise.resolve(false);
-    return saveCurrentSectionFileIfDirty().then(function (sectionSaved) {
-      if (!sectionSaved) return false;
-      return saveCurrentBlockIfDirty();
+    if (!hasUnsavedChanges()) return Promise.resolve(true);
+    var modalElement = document.getElementById('unsaved-changes-modal');
+    var modal = getOrCreateBootstrapModal('unsaved-changes-modal');
+    if (!modalElement || !modal) return Promise.resolve(false);
+    if (_unsavedPromptPending) return _unsavedPromptPending;
+
+    var priorFocus = document.activeElement;
+    var message = modalElement.querySelector('#unsaved-changes-message');
+    var errorBox = modalElement.querySelector('#unsaved-changes-error');
+    if (message) {
+      message.textContent = 'You have unsaved changes. Save or discard them before you ' +
+        (actionLabel || 'continue') + '.';
+    }
+    if (errorBox) {
+      errorBox.textContent = '';
+      errorBox.classList.add('d-none');
+    }
+
+    var prompt = new Promise(function (resolve) {
+      var buttons = modalElement.querySelectorAll('[data-unsaved-choice]');
+      var finished = false;
+
+      function setButtonsDisabled(disabled) {
+        buttons.forEach(function (button) { button.disabled = disabled; });
+      }
+
+      function finish(result) {
+        if (finished) return;
+        finished = true;
+        _unsavedPromptPending = null;
+        modalElement.removeEventListener('hidden.bs.modal', onHiddenWithoutChoice);
+        buttons.forEach(function (button) { button.onclick = null; });
+        setButtonsDisabled(false);
+        hideModalWhenSettled(modal, modalElement);
+        window.setTimeout(function () {
+          if (priorFocus && typeof priorFocus.focus === 'function') priorFocus.focus();
+        }, 0);
+        resolve(result);
+      }
+
+      buttons.forEach(function (button) {
+        button.onclick = function () {
+          var choice = button.getAttribute('data-unsaved-choice');
+          if (choice === 'stay') {
+            finish(false);
+            return;
+          }
+          if (choice === 'discard') {
+            var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
+            var sectionDiscarded = discardSectionChanges();
+            if (interviewDiscarded && sectionDiscarded) {
+              finish(true);
+            } else if (errorBox) {
+              errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
+              errorBox.classList.remove('d-none');
+            }
+            return;
+          }
+
+          setButtonsDisabled(true);
+          saveCurrentSectionFileIfDirty()
+            .then(function (sectionSaved) {
+              if (!sectionSaved) return false;
+              return saveCurrentBlockIfDirty();
+            })
+            .then(function (saved) {
+              if (saved) {
+                finish(true);
+                return;
+              }
+              setButtonsDisabled(false);
+              if (errorBox) {
+                errorBox.textContent = 'The changes could not be saved. Correct the error or choose Stay.';
+                errorBox.classList.remove('d-none');
+              }
+            })
+            .catch(function (error) {
+              setButtonsDisabled(false);
+              if (errorBox) {
+                errorBox.textContent = error && error.message ? error.message : 'The changes could not be saved.';
+                errorBox.classList.remove('d-none');
+              }
+            });
+        };
+      });
+
+      // A dismissal that never went through a choice button still has to
+      // settle the prompt, or the pending guard above would block every later
+      // navigation for the rest of the session. Treat it as "Stay".
+      function onHiddenWithoutChoice() { finish(false); }
+      modalElement.addEventListener('hidden.bs.modal', onHiddenWithoutChoice);
+
+      modal.show();
     });
+    _unsavedPromptPending = prompt;
+    return prompt;
+  }
+
+  var _pendingNavigationAction = null;
+
+  function deferNavigationForUnsavedChanges(actionLabel, action) {
+    stashCurrentEditorState();
+    if (!hasUnsavedChanges()) return false;
+    // Clicking through tabs quickly stacks several navigations behind one
+    // prompt. Keep only the most recent one: it is the tab the user actually
+    // asked for, and replaying the earlier ones just churns renders.
+    var alreadyPrompting = Boolean(_pendingNavigationAction);
+    _pendingNavigationAction = action;
+    if (alreadyPrompting) return true;
+    promptAndSaveUnsavedChanges(actionLabel).then(function (canContinue) {
+      var pendingAction = _pendingNavigationAction;
+      _pendingNavigationAction = null;
+      if (canContinue && pendingAction) pendingAction();
+    });
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -4139,22 +4108,91 @@
     runValidation();
   }
 
+  function getValidationSourceSnapshot() {
+    stashCurrentEditorState();
+    var fileState = dirtyState.getFileState(state.filename);
+    var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
+    var hasDirtyBlocks = Boolean(fileState && fileState.dirtyBlockIds && fileState.dirtyBlockIds.length);
+    var options = {
+      rawYaml: state.rawYaml,
+      blocks: state.blocks,
+      blockReplacements: {},
+    };
+
+    if (hasDirtySource && state.fullYamlTab === 'full') {
+      if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'full')) {
+        throw new Error('The unsaved full source buffer is not available. Reopen source mode and try again.');
+      }
+      options.fullSource = state.fullYamlStash.full;
+    } else if (hasDirtySource && state.fullYamlTab === 'metadata') {
+      if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'metadata')) {
+        throw new Error('The unsaved metadata buffer is not available. Reopen source mode and try again.');
+      }
+      options.metadataSource = state.fullYamlStash.metadata;
+    }
+
+    if (state.orderDirty) {
+      throw new Error('Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.');
+    }
+
+    if (!hasDirtySource && hasDirtyBlocks) {
+      fileState.dirtyBlockIds.forEach(function (blockId) {
+        var block = getBlockById(blockId);
+        if (!block) throw new Error('Cannot find unsaved block ' + blockId + '.');
+        var isActiveBlock = blockId === state.selectedBlockId ||
+          (state.fullYamlTab === 'order' && blockId === state.activeOrderBlockId);
+        options.blockReplacements[blockId] = isActiveBlock
+          ? getBlockYamlForSave(block)
+          : block.yaml;
+      });
+    }
+
+    return {
+      rawYaml: window.ALWeaverValidationSource.buildValidationSource(options),
+      scope: (hasDirtySource || hasDirtyBlocks) ? 'unsaved_source' : 'saved_source',
+    };
+  }
+
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
     state.validationMode = 'validation';
+    state.validationBaseRevisionMatches = null;
+    var validationSnapshot;
+    try {
+      validationSnapshot = getValidationSourceSnapshot();
+    } catch (error) {
+      state.validationSourceScope = 'unsaved_source';
+      state.validationErrors = [{
+        level: 'error',
+        message: error && error.message ? error.message : 'Could not prepare the unsaved source for validation.',
+        filename: state.filename,
+      }];
+      renderValidationDrawer();
+      renderOutline();
+      return;
+    }
+    state.validationSourceScope = validationSnapshot.scope;
+    var validationSource = validationSnapshot.rawYaml;
     _validationInFlight = true;
-    apiGet('/api/weaver/validate?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    apiPost('/api/validate-source', {
+      project: state.project,
+      filename: state.filename,
+      raw_yaml: validationSource,
+      revision: state.revision,
+    })
       .then(function (res) {
         _validationInFlight = false;
         if (res.success && res.data) {
-          state.validationErrors = res.data.errors || [];
+          state.validationErrors = res.data.diagnostics || res.data.errors || [];
+          state.validationBaseRevisionMatches = res.data.base_revision_matches;
         } else {
           state.validationErrors = [];
         }
         renderValidationDrawer();
         renderOutline();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationErrors = [{ level: 'error', message: 'Could not run validation right now.' }];
         renderValidationDrawer();
@@ -4165,6 +4203,8 @@
   function runStyleCheck() {
     if (!state.project || !state.filename || _validationInFlight) return;
     state.validationMode = 'style';
+    state.validationSourceScope = 'saved_source';
+    state.validationBaseRevisionMatches = null;
     _validationInFlight = true;
     apiGet('/api/weaver/style-check?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename) + '&include_llm=1')
       .then(function (res) {
@@ -4177,7 +4217,8 @@
         renderValidationDrawer();
         renderOutline();
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationErrors = [{ level: 'error', message: 'Could not run style check right now.' }];
         renderValidationDrawer();
@@ -4241,8 +4282,17 @@
       return;
     }
     drawer.classList.add('open');
+    var scopeText = state.validationMode === 'style'
+      ? 'This style check covers the saved source.'
+      : (state.validationSourceScope === 'unsaved_source'
+        ? 'This validation covers the unsaved source currently in the editor.'
+        : 'This validation covers the saved source.');
+    var scopeHtml = '<div class="editor-validation-scope small text-muted mb-2">' + esc(scopeText) + '</div>';
+    if (state.validationBaseRevisionMatches === false) {
+      scopeHtml += '<div class="alert alert-warning py-1 px-2 small mb-2">The saved file changed after this editor buffer was loaded. These results still cover the local buffer; reload or merge before saving.</div>';
+    }
     if (count === 0) {
-      body.innerHTML = '<div class="text-muted small p-2">No errors or warnings found.</div>';
+      body.innerHTML = scopeHtml + '<div class="text-muted small p-2">No errors or warnings found.</div>';
       return;
     }
     var sortedErrors = (state.validationErrors || []).slice().sort(function (a, b) {
@@ -4252,7 +4302,7 @@
       if (rankDiff !== 0) return rankDiff;
       return Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0);
     });
-    var html = '<div class="editor-validation-summary small text-muted mb-2">'
+    var html = scopeHtml + '<div class="editor-validation-summary small text-muted mb-2">'
       + summary.error + ' errors, '
       + summary.warning + ' warnings, '
       + summary.info + ' infos'
@@ -4264,8 +4314,8 @@
       if (level === 'warning') icon = 'fa-triangle-exclamation';
       if (level === 'error') icon = 'fa-circle-xmark';
       var lineText = err.line_number ? ('Line ' + Number(err.line_number)) : '';
-      if (lineText && err.file_name) lineText += ' - ';
-      if (err.file_name) lineText += String(err.file_name).split('/').pop();
+      if (lineText && err.filename) lineText += ' - ';
+      if (err.filename) lineText += String(err.filename).split('/').pop();
       html += '<li class="editor-validation-item' + (err.block_id ? ' editor-validation-item-linked' : '') + '"' + (err.block_id ? ' data-block-id="' + esc(String(err.block_id)) + '"' : '') + '>';
       html += '<i class="fa-solid ' + icon + ' editor-validation-item-icon ' + esc(level) + '" aria-hidden="true"></i>';
       html += '<div class="editor-validation-item-msg">';
@@ -4280,7 +4330,7 @@
   }
 
   function renderCanvas() {
-    disposeMonacoEditors();
+    disposeSourceEditors();
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
@@ -4290,7 +4340,9 @@
       renderValidationDrawer();
       return;
     }
-    if (state.canvasMode === 'project-selector') {
+    if (state.canvasMode === 'runtime-inspector') {
+      runtimeInspector.render(canvasContent);
+    } else if (state.canvasMode === 'project-selector') {
       renderProjectSelector();
     } else if (state.canvasMode === 'new-project') {
       renderNewProject();
@@ -4332,6 +4384,34 @@
     } else {
       renderGenericBlock(block);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Account menu — the same destinations docassemble puts in its own navbar,
+  // built server-side from the signed-in user's roles and the site config.
+  // -------------------------------------------------------------------------
+  function renderAccountMenu() {
+    var nav = document.getElementById('editor-account-nav');
+    if (!nav) return;
+    if (!(authState.authenticated || BOOT.authenticated)) {
+      nav.innerHTML =
+        '<li class="nav-item"><a class="nav-link" href="' + esc(LOGIN_URL) + '">Sign in</a></li>';
+      return;
+    }
+    var designator = authState.designator || authState.email || 'Account';
+    var items = Array.isArray(authState.menuItems) && authState.menuItems.length
+      ? authState.menuItems
+      : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
+    var html = '<li class="nav-item dropdown">';
+    html += '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' + esc(designator) + '</a>';
+    // The navbar is dark, but its menus should read like every other menu in
+    // the editor (and like docassemble's own), so pin them to the light theme.
+    html += '<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="editor-account-menu">';
+    items.forEach(function (item) {
+      html += '<li><a class="dropdown-item" href="' + esc(item.url || '#') + '">' + esc(item.label || '') + '</a></li>';
+    });
+    html += '</ul></li>';
+    nav.innerHTML = html;
   }
 
   function renderLoginRequired() {
@@ -4650,6 +4730,12 @@
             });
             html += '</select>';
             html += '</div>';
+            if (hasChoices) {
+              html += '<div class="editor-field-choices-row">';
+              html += '<label class="editor-tiny" for="field-choices-' + fi + '">Options (one per line)</label>';
+              html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
+              html += '</div>';
+            }
             html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
           }
         });
@@ -4686,9 +4772,9 @@
       }
 
     } else {
-      // YAML edit mode — Monaco
+      // YAML source edit mode
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
@@ -4696,9 +4782,9 @@
     canvasContent.innerHTML = html;
 
     if (!isPreview) {
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
+          onChange: function () { markInterviewDirty(); }
         });
       });
     } else if (!isMdPreview) {
@@ -4779,12 +4865,12 @@
     html += '<div class="editor-shell">';
     if (isYaml) {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div></div>';
       canvasContent.innerHTML = html;
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
+          onChange: function () { markInterviewDirty(); }
         });
       });
       return;
@@ -4894,7 +4980,7 @@
     });
   }
 
-  // --- Code block: Monaco + advanced panel ---
+  // --- Code block: source editor + advanced panel ---
   function renderCodeBlock(block) {
     var data = block.data || {};
     var codeText = data.code || '';
@@ -4914,9 +5000,9 @@
     html += '<div class="editor-shell">';
 
     if (state.questionEditMode === 'preview') {
-      // Python editor via Monaco
+      // Python source editor
       html += '<div class="editor-card"><div class="editor-card-header">Python code</div><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="code-monaco" style="height:400px"></div>';
+      html += '<div class="editor-source-container" id="code-source-editor" style="height:400px"></div>';
       html += '</div></div>';
 
       // Advanced: id, if, sets, only sets, need, etc.
@@ -4924,21 +5010,21 @@
     } else {
       // Full YAML mode
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
     html += '</div>';
     canvasContent.innerHTML = html;
 
-    initMonaco(function () {
+    initSourceEditor(function () {
       if (state.questionEditMode === 'preview') {
-        createMonacoEditor('code-monaco', codeText, 'python', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+        createSourceEditor('code-source-editor', codeText, 'python', {
+          onChange: function () { markInterviewDirty(); }
         });
       } else {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
+          onChange: function () { markInterviewDirty(); }
         });
       }
     });
@@ -5019,7 +5105,7 @@
       html += renderAdvancedPanel(block);
     } else {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:400px"></div>';
+      html += '<div class="editor-source-container" id="block-source-editor" style="height:400px"></div>';
       html += '</div></div>';
     }
 
@@ -5027,9 +5113,9 @@
     canvasContent.innerHTML = html;
 
     if (state.questionEditMode !== 'preview') {
-      initMonaco(function () {
-        createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-          onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+      initSourceEditor(function () {
+        createSourceEditor('block-source-editor', block.yaml, 'yaml', {
+          onChange: function () { markInterviewDirty(); }
         });
       });
       return;
@@ -5053,15 +5139,15 @@
 
     html += '<div class="editor-shell">';
     html += '<div class="editor-card"><div class="editor-card-body">';
-    html += '<div class="editor-monaco-container" id="block-yaml-monaco" style="height:500px"></div>';
+    html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
     html += '</div></div>';
     html += '</div>';
 
     canvasContent.innerHTML = html;
 
-    initMonaco(function () {
-      createMonacoEditor('block-yaml-monaco', block.yaml, 'yaml', {
-        onChange: function () { state.dirty = true; updateTopbarSaveState(); }
+    initSourceEditor(function () {
+      createSourceEditor('block-source-editor', block.yaml, 'yaml', {
+        onChange: function () { markInterviewDirty(); }
       });
     });
   }
@@ -5097,7 +5183,9 @@
     var key = String(dtype || 'text').toLowerCase();
     var map = {
       text: 'fa-pencil',
+      textc: 'fa-pencil',
       area: 'fa-paragraph',
+      areac: 'fa-paragraph',
       raw: 'fa-code',
       number: 'fa-hashtag',
       integer: 'fa-hashtag',
@@ -5109,6 +5197,9 @@
       date: 'fa-calendar-day',
       time: 'fa-clock',
       datetime: 'fa-calendar-check',
+      threepartsdate: 'fa-calendar-days',
+      birthdate: 'fa-calendar-day',
+      al_international_phone: 'fa-phone',
       yesno: 'fa-toggle-on',
       yesnowide: 'fa-toggle-on',
       yesnoradio: 'fa-circle-dot',
@@ -5232,7 +5323,11 @@
 
     function renderBasicTab() {
       var out = '';
-      out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+      // Choice datatypes render their options below the field row so they
+      // remain available when the rest of field settings is collapsed.
+      if (CHOICE_TYPES.indexOf(dtype) === -1) {
+        out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+      }
       out += row('field-code-' + fi, 'code (Python expression)', '<textarea class="form-control editor-form-control font-monospace editor-field-code" id="field-code-' + fi + '" rows="3">' + esc(String(codeExpr || '')) + '</textarea>');
       out += row('fmod-default-' + fi, 'default', '<input class="form-control editor-form-control font-monospace" id="fmod-default-' + fi + '" data-fmod="default" data-field-idx="' + fi + '" value="' + esc(String(fmods['default'] || '')) + '">');
       out += row('fmod-input-type-' + fi, 'input type', '<select class="form-select editor-form-control" id="fmod-input-type-' + fi + '" data-fmod="input type" data-field-idx="' + fi + '"><option value="">(default)</option>' + ['area', 'radio', 'dropdown', 'combobox', 'ajax', 'datalist'].map(function (t) { return '<option value="' + t + '"' + (fmods['input type'] === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>');
@@ -5582,12 +5677,12 @@
   }
 
   // -------------------------------------------------------------------------
-  // Full YAML editor (Monaco)
+  // Full YAML source editor
   // -------------------------------------------------------------------------
   function _stashFullYamlContent() {
     if (state.canvasMode !== 'full-yaml') return;
-    var content = getMonacoValue('full-yaml-monaco');
-    if (content) {
+    var content = getSourceEditorValue('full-source-editor');
+    if (content !== undefined && content !== null) {
       state.fullYamlStash[state.fullYamlTab] = content;
     }
   }
@@ -5608,7 +5703,7 @@
     html += '</div>';
 
     html += '<div class="editor-card"><div class="editor-card-body">';
-    var editorId = 'full-yaml-monaco';
+    var editorId = 'full-source-editor';
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     if (state.fullYamlTab === 'order') {
       var orderTargets = getOrderTargets();
@@ -5624,7 +5719,7 @@
         html += '</div>';
       }
     }
-    html += '<div class="editor-monaco-container" id="' + editorId + '" style="height:600px"></div>';
+    html += '<div class="editor-source-container" id="' + editorId + '" style="height:600px"></div>';
     html += '</div></div>';
 
     html += '<div class="d-flex justify-content-end"><button class="btn btn-primary" id="save-full-yaml">Save</button></div>';
@@ -5644,15 +5739,13 @@
         content = '# No interview-order block selected';
       }
     } else {
-      var parts = [];
-      state.metadataIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      state.includeIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      state.defaultSpIndices.forEach(function (idx) { if (state.blocks[idx]) parts.push(state.blocks[idx].yaml); });
-      content = parts.join('\n---\n') || '# No metadata blocks found';
+      content = state.metadataRawYaml || '# No metadata blocks found';
     }
 
-    initMonaco(function () {
-      createMonacoEditor(editorId, content, 'yaml');
+    initSourceEditor(function () {
+      createSourceEditor(editorId, content, 'yaml', {
+        onChange: function () { markInterviewDirty(); }
+      });
     });
   }
 
@@ -6016,24 +6109,31 @@
     return new Promise(function (resolve, reject) {
       function tick() {
         attempts += 1;
-        fetchResponsePayload(jobUrl, { credentials: 'same-origin' })
+        apiGetDetailed(jobUrl, {
+          cancelPrevious: false,
+          staleKey: 'new-project-job:' + jobUrl,
+        })
           .then(function (response) {
             var payload = response.body || {};
-            if (!response.ok) {
-              reject(new Error(_fetchErrorMessage(response)));
-              return;
-            }
             var jobData = payload.data || {};
             var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
-            if (jobStatus === 'failed') {
-              reject(new Error(_fetchErrorMessage(response)));
+            if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
+              reject(new Error(
+                (payload.error && payload.error.message) ||
+                (jobData.error && jobData.error.message) ||
+                jobData.message ||
+                'Project creation failed.'
+              ));
               return;
             }
             if (jobStatus === 'succeeded') {
               resolve(payload);
               return;
             }
-            _setUploadProgressMessage(jobData.message || ('Creating project "' + (projectName || 'new project') + '"...'));
+            var progressPrefix = Number.isFinite(Number(jobData.progress))
+              ? String(Number(jobData.progress)) + '% — '
+              : '';
+            _setUploadProgressMessage(progressPrefix + (jobData.message || ('Creating project "' + (projectName || 'new project') + '"...')));
             if (attempts >= UPLOAD_JOB_MAX_ATTEMPTS) {
               reject(new Error('Timed out waiting for the background job to finish.'));
               return;
@@ -6104,7 +6204,8 @@
         }
         container.innerHTML = res.data.html;
       })
-      .catch(function () {
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
       });
   }
@@ -6145,7 +6246,7 @@
     if (editable) {
       html += '<div class="editor-card"><div class="editor-card-body">';
       html += '<div class="d-flex justify-content-between align-items-center mb-2"><div class="editor-tiny">Editing ' + esc(fileMeta.filename) + '</div><button class="btn btn-sm btn-primary" id="save-section-file"' + (!state.sectionDirty ? ' disabled' : '') + '>Save</button></div>';
-      html += '<div class="editor-monaco-container" id="section-file-monaco" style="height:620px"></div>';
+      html += '<div class="editor-source-container" id="section-file-source-editor" style="height:620px"></div>';
       html += '</div></div>';
     } else {
       html += renderSectionPreview(fileMeta);
@@ -6155,8 +6256,14 @@
     canvasContent.innerHTML = html;
 
     if (editable) {
+      // Remember which file this request belongs to. Clicking through tabs
+      // quickly can land the response after the editor has moved on, and
+      // recording this file's text under whatever is selected by then would
+      // corrupt the dirty-state snapshot for the other file.
+      var requestedSnapshotKey = sectionSnapshotKey();
       apiGet('/api/section-file?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename))
         .then(function (res) {
+          if (sectionSnapshotKey() !== requestedSnapshotKey) return;
           var text = (res && res.success && res.data) ? String(res.data.content || '') : '';
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
@@ -6168,17 +6275,21 @@
           else if (lowerName.endsWith('.json')) language = 'json';
           else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) language = 'yaml';
           else if (lowerName.endsWith('.csv')) language = 'plaintext';
-          initMonaco(function () {
-            createMonacoEditor('section-file-monaco', text, language, {
+          initSourceEditor(function () {
+            state.sectionSavedContent[sectionSnapshotKey()] = text;
+            createSourceEditor('section-file-source-editor', text, language, {
               onChange: function () {
                 state.sectionDirty = true;
                 var saveBtn = document.getElementById('save-section-file');
                 if (saveBtn) saveBtn.disabled = false;
+                updateTopbarSaveState();
               }
             });
             state.sectionDirty = false;
+            updateTopbarSaveState();
           });
-        });
+        })
+        .catch(swallowNavigationLoadError);
     } else if (fileMeta.preview_kind === 'docx') {
       loadDocxPreview(view, fileMeta.filename);
     }
@@ -6234,8 +6345,18 @@
 
   document.addEventListener('click', function (e) {
     var target = e.target;
+    // Clicking a button whose visible content is a Font Awesome <i> (or a badge
+    // <span>) makes that child the event target, so the many `target.id === ...`
+    // branches below never match. Resolve to the control that carries the id.
+    // Only descendants with no id of their own are promoted, so anything that
+    // identifies itself keeps its identity.
+    if (!target.id) {
+      var controlHost = target.closest('button, a, [role="button"]');
+      if (controlHost) target = controlHost;
+    }
+    var actionControl = target.closest('[data-action]');
+    var uiAction = actionControl ? actionControl.getAttribute('data-action') : null;
     var topTab = target.closest('.editor-top-tab');
-    var jumpItem = target.closest('.editor-jump-item') || target.closest('.editor-jump-more-menu [data-jump]');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
@@ -6359,7 +6480,7 @@
       renderValidationDrawer();
       return;
     }
-    if (target.id === 'btn-check-errors' || target.closest('#btn-check-errors')) {
+    if (uiAction === 'check-errors') {
       state.validationOpen = true;
       runValidation();
       return;
@@ -6379,84 +6500,67 @@
     if (validationItem) {
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
-        var validationBlock = getBlockById(validationBlockId);
-        if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
-          state.jumpTarget = 'all';
-          $$('.editor-jump-item').forEach(function (j) {
-            j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
-          });
+        function openValidationBlock() {
+          var validationBlock = getBlockById(validationBlockId);
+          if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
+            state.jumpTarget = 'all';
+            syncJumpSelect();
+          }
+          state.currentView = 'interview';
+          state.validationOpen = true;
+          state.selectedBlockId = validationBlockId;
+          dirtyState.setActiveBlock(validationBlockId);
+          var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+          if (interviewTab) setActiveTopTab(interviewTab);
+          renderOutline();
+          renderCanvas();
+          renderValidationDrawer();
         }
-        state.currentView = 'interview';
-        state.validationOpen = true;
-        state.selectedBlockId = validationBlockId;
-        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-        if (interviewTab) setActiveTopTab(interviewTab);
-        renderOutline();
-        renderCanvas();
-        renderValidationDrawer();
+        if (validationBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open the reported block', openValidationBlock)) return;
+        openValidationBlock();
       }
-      return;
-    }
-
-    // Hamburger menu toggle
-    if (target.id === 'topbar-hamburger' || target.closest('#topbar-hamburger')) {
-      var mobileMenu = document.getElementById('topbar-mobile-menu');
-      if (mobileMenu) mobileMenu.classList.toggle('d-none');
       return;
     }
 
     // View tabs
     if (topTab) {
-      if (topTab.getAttribute('data-view') !== state.currentView && blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.currentView = topTab.getAttribute('data-view');
-      setActiveTopTab(topTab);
-      if (state.currentView === 'interview') {
-        state.canvasMode = state.project ? 'question' : 'project-selector';
-        if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
-          state.selectedBlockId = getDefaultVisibleBlockId();
+      var nextView = topTab.getAttribute('data-view');
+      function changeTopView() {
+        stashCurrentEditorState();
+        state.currentView = nextView;
+        setActiveTopTab(topTab);
+        if (state.currentView === 'interview') {
+          state.canvasMode = state.project ? 'question' : 'project-selector';
+          if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+            state.selectedBlockId = getDefaultVisibleBlockId();
+          }
+          renderOutline();
+          renderCanvas();
+        } else {
+          renderOutline();
+          renderCanvas();
+          loadSectionFiles(state.currentView);
         }
-        renderOutline();
-        renderCanvas();
-      } else {
-        renderOutline();
-        renderCanvas();
-        loadSectionFiles(state.currentView);
       }
+      if (nextView !== state.currentView && deferNavigationForUnsavedChanges('switch views', changeTopView)) return;
+      changeTopView();
       return;
     }
 
     // Project selector cards
     if (projectCardBtn) {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      openProject(projectCardBtn.getAttribute('data-project-card'));
+      var cardProject = projectCardBtn.getAttribute('data-project-card');
+      function openCardProject() {
+        stashCurrentEditorState();
+        openProject(cardProject);
+      }
+      if (cardProject !== state.project && deferNavigationForUnsavedChanges('switch projects', openCardProject)) return;
+      openCardProject();
       return;
     }
     if (target.id === 'open-new-project-card') {
       state.canvasMode = 'new-project';
       renderCanvas();
-      return;
-    }
-
-    // Jump targets
-    if (jumpItem) {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      var jump = jumpItem.getAttribute('data-jump');
-      $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
-      // Only visually activate direct jump buttons, not dropdown items
-      if (jumpItem.classList.contains('editor-jump-item')) {
-        jumpItem.classList.add('active');
-      }
-      state.jumpTarget = jump;
-      state.canvasMode = 'question';
-      state.selectedBlockId = getDefaultVisibleBlockId();
-      state.currentView = 'interview';
-      var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab) setActiveTopTab(interviewTab);
-      renderCanvas();
-      renderOutline();
       return;
     }
 
@@ -6466,11 +6570,29 @@
       if (!isInterviewView()) {
         var viewForFile = state.currentView;
         var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
-        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && blockUnsavedSectionNavigation()) return;
+        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && deferNavigationForUnsavedChanges('open another file', function () {
+          state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+          renderOutline();
+          renderCanvas();
+        })) return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
       } else {
+        var nextBlockId = outlineItem.getAttribute('data-block-id');
+        if (nextBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open another block', function () {
+          state.selectedBlockId = nextBlockId;
+          dirtyState.setActiveBlock(nextBlockId);
+          state.canvasMode = 'question';
+          state.questionEditMode = 'preview';
+          state.questionBlockTab = 'screen';
+          state.advancedOpen = false;
+          state.advancedShowMore = false;
+          state.markdownPreviewMode = false;
+          renderOutline();
+          renderCanvas();
+        })) return;
         stashCurrentEditorState();
-        state.selectedBlockId = outlineItem.getAttribute('data-block-id');
+        state.selectedBlockId = nextBlockId;
+        dirtyState.setActiveBlock(nextBlockId);
         state.canvasMode = 'question';
         state.questionEditMode = 'preview';
         state.questionBlockTab = 'screen';
@@ -6500,14 +6622,10 @@
       var newYaml = makeNewBlockYaml(insertKind);
       if (insertKind === 'review') {
         state.jumpTarget = 'reviews';
-        $$('.editor-jump-item').forEach(function (j) {
-          j.classList.toggle('active', j.getAttribute('data-jump') === 'reviews');
-        });
+        syncJumpSelect();
       } else if (insertKind !== 'question' && state.jumpTarget === 'questions') {
         state.jumpTarget = 'all';
-        $$('.editor-jump-item').forEach(function (j) {
-          j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
-        });
+        syncJumpSelect();
       }
       apiPost('/api/insert-block', {
         project: state.project,
@@ -6543,6 +6661,7 @@
               markInterviewDirty();
               renderCanvas();
             }).catch(function (err) {
+              if (isSupersededRequest(err)) return;
               window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
             }).finally(function () {
               _setButtonLoading('ai-generate-screen', false, '');
@@ -6644,20 +6763,26 @@
     if (orderBlockBtn) {
       var nextOrderBlockId = orderBlockBtn.getAttribute('data-order-block-id');
       if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId) return;
+      if (deferNavigationForUnsavedChanges('open another order block', function () {
+        enterOrderBuilder(nextOrderBlockId, 'order-switcher');
+      })) return;
       stashCurrentEditorState();
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
     }
 
     // Top action buttons
-    if (target.id === 'btn-project-selector') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.canvasMode = 'project-selector';
-      state.currentView = 'interview';
-      var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab0) setActiveTopTab(interviewTab0);
-      renderCanvas();
+    if (uiAction === 'open-project-selector') {
+      function showProjectSelector() {
+        stashCurrentEditorState();
+        state.canvasMode = 'project-selector';
+        state.currentView = 'interview';
+        var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab0) setActiveTopTab(interviewTab0);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('open the project selector', showProjectSelector)) return;
+      showProjectSelector();
       return;
     }
 
@@ -6783,8 +6908,11 @@
       if (!state.project || !state.filename) return;
       apiGet('/api/file?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
         .then(function (res) {
-          if (!res.success || !res.data) return;
-          var content = res.data.content || '';
+          if (!res.success || !res.data || typeof res.data.raw_yaml !== 'string') {
+            window.alert((res.error && res.error.message) || 'Unable to download: the server returned an invalid file response.');
+            return;
+          }
+          var content = res.data.raw_yaml;
           var blob = new Blob([content], { type: 'text/yaml' });
           var url = URL.createObjectURL(blob);
           var a = document.createElement('a');
@@ -6794,6 +6922,9 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+        }).catch(function (error) {
+          if (isSupersededRequest(error)) return;
+          window.alert('Unable to download the file.');
         });
       return;
     }
@@ -6834,7 +6965,7 @@
       return;
     }
 
-    if (target.id === 'btn-standard-playground') {
+    if (uiAction === 'open-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
         promptAndSaveUnsavedChanges('open the playground').then(function (saved) {
@@ -6919,33 +7050,54 @@
     }
 
     if (target.id === 'btn-new-project') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      state.canvasMode = 'new-project';
-      state.currentView = 'interview';
-      var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab1) setActiveTopTab(interviewTab1);
-      renderCanvas();
+      function showNewProject() {
+        stashCurrentEditorState();
+        state.canvasMode = 'new-project';
+        state.currentView = 'interview';
+        var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab1) setActiveTopTab(interviewTab1);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('create another project', showNewProject)) return;
+      showNewProject();
       return;
     }
-    if (target.id === 'btn-full-yaml') {
-      if (blockUnsavedSectionNavigation()) return;
-      stashCurrentEditorState();
-      _stashFullYamlContent();
-      state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
-      state.currentView = 'interview';
-      var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
-      if (interviewTab2) setActiveTopTab(interviewTab2);
-      renderCanvas();
+    if (uiAction === 'open-full-yaml') {
+      function toggleFullYaml() {
+        stashCurrentEditorState();
+        _stashFullYamlContent();
+        state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
+        state.currentView = 'interview';
+        var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab2) setActiveTopTab(interviewTab2);
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('switch editors', toggleFullYaml)) return;
+      toggleFullYaml();
+      return;
+    }
+    if (uiAction === 'open-runtime-inspector') {
+      if (!state.project || !state.filename) return;
+      function openRuntimeInspector() {
+        stashCurrentEditorState();
+        state.canvasMode = 'runtime-inspector';
+        state.currentView = 'interview';
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('open the runtime inspector', openRuntimeInspector)) return;
+      openRuntimeInspector();
       return;
     }
     if (orderBuilderBtn) {
-      enterOrderBuilder(state.activeOrderBlockId || getDefaultOrderBlockId(), 'topbar-order-button');
+      var requestedOrderBlock = state.activeOrderBlockId || getDefaultOrderBlockId();
+      if (deferNavigationForUnsavedChanges('open the interview order', function () {
+        enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
+      })) return;
+      enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
       return;
     }
-    if (target.id === 'btn-save-file') {
-      if (!state.filename) return;
-      saveCurrentBlockIfDirty();
+    if (uiAction === 'save-file') {
+      saveCurrentFile();
       return;
     }
     if (target.id === 'gen-block-id') {
@@ -6986,9 +7138,9 @@
       }
       return;
     }
-    if (target.id === 'btn-preview-interview') {
+    if (uiAction === 'preview-interview') {
       if (!state.filename) return;
-      promptAndSaveUnsavedChanges('run the interview').then(function (saved) {
+      promptAndSaveUnsavedChanges('open the interview').then(function (saved) {
         if (!saved) return;
         apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
           .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
@@ -7021,6 +7173,7 @@
         markInterviewDirty();
         renderCanvas();
       }).catch(function (err) {
+        if (isSupersededRequest(err)) return;
         window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
       }).finally(function () {
         _setButtonLoading('ai-generate-screen', false, '');
@@ -7052,9 +7205,10 @@
           fields: res.data.fields,
           continue_button_field: currentQuestionBlock.data['continue button field'] || '',
         });
-        state.dirty = true;
+        markInterviewDirty('ai-generate-fields');
         renderCanvas();
       }).catch(function (err) {
+        if (isSupersededRequest(err)) return;
         window.alert('Unable to generate fields: ' + String((err && err.message) || err || 'Unknown error'));
       }).finally(function () {
         _setButtonLoading('ai-generate-fields', false, '');
@@ -7064,23 +7218,28 @@
     if (target.id === 'code-to-order-builder') {
       var selectedCodeBlock = getSelectedBlock();
       if (!selectedCodeBlock || selectedCodeBlock.type !== 'code') return;
-      syncActiveOrderStepMap();
-      loadOrderStepsForBlock(selectedCodeBlock.id).then(function () {
-        state.canvasMode = 'order-builder';
-        renderCanvas();
-      });
+      function openCodeOrderBuilder() {
+        syncActiveOrderStepMap();
+        loadOrderStepsForBlock(selectedCodeBlock.id).then(function () {
+          state.canvasMode = 'order-builder';
+          renderCanvas();
+        });
+      }
+      if (deferNavigationForUnsavedChanges('open the order builder', openCodeOrderBuilder)) return;
+      openCodeOrderBuilder();
       return;
     }
 
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
       var nextEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
-      saveCurrentBlockIfDirty().then(function (saved) {
-        if (!saved) return;
+      function changeEditMode() {
         state.questionEditMode = nextEditMode;
         state.markdownPreviewMode = false;
         renderCanvas();
-      });
+      }
+      if (deferNavigationForUnsavedChanges('switch editing modes', changeEditMode)) return;
+      changeEditMode();
       return;
     }
 
@@ -7091,16 +7250,16 @@
       var qTab = questionModeButton.getAttribute('data-question-tab');
       var isPreviewTab = questionModeButton.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
-        saveCurrentBlockIfDirty().then(function (saved) {
-          if (!saved) return;
+        function openQuestionYaml() {
           state.questionEditMode = 'yaml';
           state.markdownPreviewMode = false;
           renderCanvas();
-        });
+        }
+        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionYaml)) return;
+        openQuestionYaml();
         return;
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
-        saveCurrentBlockIfDirty().then(function (saved) {
-          if (!saved) return;
+        function openQuestionPreviewMode() {
           state.questionEditMode = 'preview';
           if (qTab === 'screen' || qTab === 'options') {
             state.questionBlockTab = qTab;
@@ -7113,7 +7272,9 @@
             state.markdownPreviewMode = true;
           }
           renderCanvas();
-        });
+        }
+        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionPreviewMode)) return;
+        openQuestionPreviewMode();
         return;
       }
       if (qMode === 'preview') {
@@ -7158,7 +7319,7 @@
             typeBlock.data.fields[typeFi].datatype = nextType;
           }
         }
-        state.dirty = true;
+        markInterviewDirty('set-field-datatype:' + typeFi);
         renderCanvas();
       }
       return;
@@ -7212,8 +7373,7 @@
           reviewBlock.data.review.push({ Edit: fieldName, button: '${ showifdef("' + fieldName.replace(/"/g, '\\"') + '") }' });
         }
         state.openReviewItemIndex = reviewBlock.data.review.length - 1;
-        state.dirty = true;
-        updateTopbarSaveState();
+        markInterviewDirty('add-review-item');
         renderCanvas();
       }
       return;
@@ -7227,8 +7387,7 @@
         stashReviewItemSnippets(removeReviewBlock);
         removeReviewBlock.data.review.splice(removeRi, 1);
         state.openReviewItemIndex = null;
-        state.dirty = true;
-        updateTopbarSaveState();
+        markInterviewDirty('remove-review-item:' + removeRi);
         renderCanvas();
       }
       return;
@@ -7261,24 +7420,24 @@
         if (_openFieldModsPanels[kFi]) modsPanel.removeAttribute('hidden'); else modsPanel.setAttribute('hidden', '');
       }
       kebabBtn.setAttribute('aria-expanded', _openFieldModsPanels[kFi] ? 'true' : 'false');
-      state.dirty = true;
       return;
     }
 
     if (target.id === 'save-block-btn') {
       var block = getSelectedBlock();
       if (!block) return;
+      var originalBlockId = block.id;
       var yamlVal = getBlockYamlForSave(block);
 
       apiPost('/api/block', {
         project: state.project,
         filename: state.filename,
-        block_id: block.id,
+        block_id: originalBlockId,
         block_yaml: yamlVal,
       }).then(function (res) {
         if (res.success && res.data) {
-          var keepBlockId = res.data.saved_block_id || block.id;
-          refreshFromFileResponse(res.data);
+          var keepBlockId = res.data.saved_block_id || originalBlockId;
+          refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
           state.selectedBlockId = keepBlockId;
           renderOutline();
           renderCanvas();
@@ -7308,23 +7467,32 @@
 
     // Full YAML tabs
     if (target.matches('[data-yaml-tab]')) {
-      _stashFullYamlContent();
-      state.fullYamlTab = target.getAttribute('data-yaml-tab');
-      renderCanvas();
+      var nextYamlTab = target.getAttribute('data-yaml-tab');
+      function switchYamlTab() {
+        _stashFullYamlContent();
+        state.fullYamlTab = nextYamlTab;
+        renderCanvas();
+      }
+      if (nextYamlTab !== state.fullYamlTab && deferNavigationForUnsavedChanges('switch source tabs', switchYamlTab)) return;
+      switchYamlTab();
       return;
     }
     if (target.id === 'back-to-question') {
-      _stashFullYamlContent();
-      var returnMode = state._prevCanvasMode || 'question';
-      state._prevCanvasMode = null;
-      state.canvasMode = returnMode;
-      renderOutline();
-      renderCanvas();
+      function leaveFullYaml() {
+        _stashFullYamlContent();
+        var returnMode = state._prevCanvasMode || 'question';
+        state._prevCanvasMode = null;
+        state.canvasMode = returnMode;
+        renderOutline();
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('return to graphical editing', leaveFullYaml)) return;
+      leaveFullYaml();
       return;
     }
     if (target.id === 'save-full-yaml') {
-      var yamlContent = getMonacoValue('full-yaml-monaco');
-      if (!yamlContent) return;
+      var yamlContent = getSourceEditorValue('full-source-editor');
+      if (yamlContent === undefined || yamlContent === null) return;
       state.fullYamlStash = {};
       if (state.fullYamlTab === 'order' && state.activeOrderBlockId) {
         apiPost('/api/block', {
@@ -7332,10 +7500,30 @@
           filename: state.filename,
           block_id: state.activeOrderBlockId,
           block_yaml: yamlContent,
-        }).then(function (res) { if (res.success && res.data) refreshFromFileResponse(res.data); });
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data, { savedBlockId: state.activeOrderBlockId });
+          }
+        });
+      } else if (state.fullYamlTab === 'metadata') {
+        apiPost('/api/file/metadata', {
+          project: state.project,
+          filename: state.filename,
+          raw_yaml: yamlContent,
+          expected_revision: state.revision,
+        }).then(function (res) {
+          if (res.success && res.data) {
+            refreshFromFileResponse(res.data);
+            return;
+          }
+          window.alert((res.error && res.error.message) || 'Unable to save metadata safely.');
+        }).catch(function (error) {
+          if (isSupersededRequest(error)) return;
+          window.alert('Unable to save metadata safely.');
+        });
       } else {
         apiPost('/api/file', { project: state.project, filename: state.filename, content: yamlContent })
-          .then(function (res) { if (res.success) { state.dirty = false; loadFile(); } });
+          .then(function (res) { if (res.success) loadFile(); });
       }
       return;
     }
@@ -7351,26 +7539,35 @@
       return;
     }
     if (target.id === 'order-to-raw') {
-      stashCurrentEditorState();
-      state._prevCanvasMode = 'order-builder';
-      state.canvasMode = 'full-yaml';
-      state.fullYamlTab = 'order';
-      renderCanvas();
+      function openRawOrder() {
+        stashCurrentEditorState();
+        state._prevCanvasMode = 'order-builder';
+        state.canvasMode = 'full-yaml';
+        state.fullYamlTab = 'order';
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('switch editing modes', openRawOrder)) return;
+      openRawOrder();
       return;
     }
     if (target.id === 'order-back-to-code') {
-      stashCurrentEditorState();
-      if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
-      state.canvasMode = 'question';
-      state.questionEditMode = 'preview';
-      renderOutline();
-      renderCanvas();
+      function returnToOrderCode() {
+        stashCurrentEditorState();
+        if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
+        dirtyState.setActiveBlock(state.selectedBlockId);
+        state.canvasMode = 'question';
+        state.questionEditMode = 'preview';
+        renderOutline();
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('return to the code block', returnToOrderCode)) return;
+      returnToOrderCode();
       return;
     }
     if (target.id === 'save-order-steps') {
       syncActiveOrderStepMap();
       apiPost('/api/order', { project: state.project, filename: state.filename, order_block_id: state.activeOrderBlockId, steps: state.orderSteps })
-        .then(function (res) { if (res.success) { state.orderDirty = false; state.dirty = false; loadFile(); } });
+        .then(function (res) { if (res.success) { state.orderDirty = false; loadFile(); } });
       return;
     }
 
@@ -7424,11 +7621,16 @@
       } else if (action === 'go-to-block') {
         var targetBlock = findBlockByInvoke(stepRecord.step);
         if (targetBlock) {
-          _inlineEditStepId = null;
-          state.canvasMode = 'question';
-          state.selectedBlockId = targetBlock.id;
-          renderOutline();
-          renderCanvas();
+          function openOrderTargetBlock() {
+            _inlineEditStepId = null;
+            state.canvasMode = 'question';
+            state.selectedBlockId = targetBlock.id;
+            dirtyState.setActiveBlock(targetBlock.id);
+            renderOutline();
+            renderCanvas();
+          }
+          if (deferNavigationForUnsavedChanges('open the referenced block', openOrderTargetBlock)) return;
+          openOrderTargetBlock();
         } else {
           var invokeLabel = stepRecord.step.invoke || stepRecord.step.value || stepRecord.step.summary || '';
           var inOther = invokeLabel && state.symbolCatalog && state.symbolCatalog.all.indexOf(invokeLabel) !== -1;
@@ -7457,7 +7659,7 @@
         if (!blk.data.fields) blk.data.fields = [];
         blk.data.fields.push({ label: 'New field', field: 'new_variable' });
         _openFieldModsPanels = {};
-        state.dirty = true;
+        markInterviewDirty('add-field');
         renderCanvas();
       }
       return;
@@ -7471,7 +7673,7 @@
         syncFieldsToData(blk2);
         blk2.data.fields.splice(fi, 1);
         _openFieldModsPanels = {};
-        state.dirty = true;
+        markInterviewDirty('remove-field:' + fi);
         renderCanvas();
       }
       return;
@@ -7493,7 +7695,7 @@
           using_args: '',
           is_document_bundle: false,
         });
-        state.dirty = true;
+        markInterviewDirty('add-object');
         renderCanvas();
       }
       return;
@@ -7506,7 +7708,7 @@
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
         if (Array.isArray(blk4.editor_objects)) blk4.editor_objects.splice(oi, 1);
-        state.dirty = true;
+        markInterviewDirty('remove-object:' + oi);
         renderCanvas();
       }
       return;
@@ -7549,12 +7751,9 @@
         formData.append('help_page_title', helpPageTitle);
         formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
-        fetchResponsePayload(API + '/api/new-project', { method: 'POST', credentials: 'same-origin', body: formData })
+        apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {
             var payload = response.body || {};
-            if (!response.ok) {
-              throw new Error(_fetchErrorMessage(response));
-            }
             if (String(payload.status || '').toLowerCase() === 'queued' || response.status === 202) {
               var queuedData = payload.data || {};
               var queuedProject = queuedData.project || projectName;
@@ -7591,9 +7790,12 @@
                 loadFiles();
               });
             }
-            throw new Error(_fetchErrorMessage(response));
+            throw new Error('The server did not confirm project creation.');
           })
-          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) {
+            if (isSupersededRequest(err)) return;
+            _showUploadError(err.message || 'Network error');
+          });
       } else {
         apiPost('/api/new-project', {
           project_name: projectName,
@@ -7613,7 +7815,10 @@
               apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
           })
-          .catch(function (err) { _showUploadError(err.message || 'Network error'); });
+          .catch(function (err) {
+            if (isSupersededRequest(err)) return;
+            _showUploadError(err.message || 'Network error');
+          });
       }
       return;
     }
@@ -7660,17 +7865,15 @@
         target.id === 'order-inline-edit-value' || target.id === 'order-add-invoke' ||
         target.id === 'order-add-condition' || target.id === 'order-add-value' ||
         target.id === 'order-add-code') {
-      state.dirty = true;
+      markInterviewDirty();
       if (target.id && target.id.indexOf('order-') === 0) state.orderDirty = true;
-      updateTopbarSaveState();
     }
   });
 
   document.addEventListener('change', function (e) {
     var target = e.target;
     if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
-      state.dirty = true;
-      updateTopbarSaveState();
+      markInterviewDirty();
       return;
     }
     if (target.id === 'section-upload-input') {
@@ -7681,11 +7884,7 @@
       for (var i = 0; i < target.files.length; i++) {
         formData.append('files', target.files[i], target.files[i].name);
       }
-      fetch(API + '/api/section-file/upload', {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: formData,
-      }).then(function (res) { return res.json(); })
+      apiUpload('/api/section-file/upload', formData)
         .then(function (res) {
           if (!res.success) {
             window.alert((res.error && res.error.message) || 'Upload failed.');
@@ -7730,7 +7929,7 @@
       var blk = getSelectedBlock();
       if (blk) {
         syncFieldsToData(blk);
-        state.dirty = true;
+        markInterviewDirty('set-field-type');
         renderCanvas();
       }
       return;
@@ -7739,7 +7938,7 @@
       var blk2 = getSelectedBlock();
       if (blk2) {
         syncFieldsToData(blk2);
-        state.dirty = true;
+        markInterviewDirty('set-enable-if');
         renderCanvas();
       }
       return;
@@ -7762,6 +7961,12 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') hideTypeaheadMenu();
+    // Ctrl/Cmd+S saves, so authors do not have to find the topbar button or
+    // discover unsaved work only when a navigation prompt stops them.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 's') {
+      e.preventDefault();
+      saveCurrentFile();
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -7950,27 +8155,42 @@
   // -------------------------------------------------------------------------
   projectSelect.addEventListener('change', function () {
     var nextProject = projectSelect.value;
-    if (nextProject !== state.project && blockUnsavedSectionNavigation()) {
+    function changeProject() {
+      projectSelect.value = nextProject;
+      stashCurrentEditorState();
+      state.project = nextProject || null;
+      state.selectedBlockId = null;
+      dirtyState.activate(null, null);
+      if (!state.project) {
+        state.canvasMode = 'project-selector';
+        renderCanvas();
+        return;
+      }
+      state.canvasMode = 'question';
+      loadFiles();
+    }
+    if (nextProject !== state.project && deferNavigationForUnsavedChanges('switch projects', changeProject)) {
       projectSelect.value = state.project || '';
       return;
     }
-    stashCurrentEditorState();
-    state.project = nextProject || null;
-    state.selectedBlockId = null;
-    if (!state.project) {
-      state.canvasMode = 'project-selector';
-      renderCanvas();
-      return;
-    }
-    state.canvasMode = 'question';
-    loadFiles();
+    changeProject();
   });
 
   fileSelect.addEventListener('change', function () {
-    stashCurrentEditorState();
-    state.filename = fileSelect.value;
-    state.selectedBlockId = null;
-    loadFile();
+    var nextFilename = fileSelect.value;
+    function changeFile() {
+      fileSelect.value = nextFilename;
+      stashCurrentEditorState();
+      state.filename = nextFilename;
+      state.selectedBlockId = null;
+      dirtyState.activate(state.filename, null);
+      loadFile();
+    }
+    if (nextFilename !== state.filename && deferNavigationForUnsavedChanges('open another file', changeFile)) {
+      fileSelect.value = state.filename || '';
+      return;
+    }
+    changeFile();
   });
 
   searchInput.addEventListener('input', function () {
@@ -7985,16 +8205,61 @@
     renderOutline();
   });
 
+  if (jumpSelect) {
+    jumpSelect.addEventListener('change', function () {
+      var jump = jumpSelect.value;
+      if (jump === state.jumpTarget) return;
+      function changeJumpTarget() {
+        stashCurrentEditorState();
+        state.jumpTarget = jump;
+        state.canvasMode = 'question';
+        state.selectedBlockId = getDefaultVisibleBlockId();
+        state.currentView = 'interview';
+        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab) setActiveTopTab(interviewTab);
+        syncJumpSelect();
+        renderCanvas();
+        renderOutline();
+      }
+      if (deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) {
+        // The prompt can still end in "stay", so put the control back to the
+        // filter that is actually applied until the change really goes through.
+        syncJumpSelect();
+        return;
+      }
+      changeJumpTarget();
+    });
+  }
+
+  // On narrow screens the navbar actions live inside a collapse. Close it once
+  // the user picks something, so the editor isn't left behind a full-height menu.
+  document.addEventListener('click', function (e) {
+    var host = e.target && e.target.closest ? e.target.closest('#editor-navbar-collapse') : null;
+    if (!host) return;
+    if (!e.target.closest('[data-action], .editor-top-tab, .dropdown-item')) return;
+    if (!host.classList.contains('show')) return;
+    var Collapse = window.bootstrap && window.bootstrap.Collapse;
+    if (Collapse) Collapse.getOrCreateInstance(host).hide();
+  });
+
   // -------------------------------------------------------------------------
   // Init
   // -------------------------------------------------------------------------
   function init() {
     var isAuthenticated = Boolean(authState.authenticated || BOOT.authenticated);
+    renderAccountMenu();
     if (!isAuthenticated) {
       renderLoginRequired();
       return;
     }
-    initMonaco(function () {
+    renderSystemChecks();
+    document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
+      // The control now lives inside a dropdown, so hide the whole <li>;
+      // hiding only the button would leave a blank row in the menu.
+      var host = control.closest('li') || control;
+      host.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
+    });
+    initSourceEditor(function () {
       populateProjects();
       state.canvasMode = 'project-selector';
       renderCanvas();
@@ -8005,7 +8270,7 @@
   document.addEventListener('scroll', hideTypeaheadMenu, true);
   window.addEventListener('beforeunload', function (e) {
     stashCurrentEditorState();
-    if (!state.dirty && !state.sectionDirty) return;
+    if (!dirtyState.hasDirty(state.filename) && !state.sectionDirty) return;
     e.preventDefault();
     e.returnValue = '';
   });

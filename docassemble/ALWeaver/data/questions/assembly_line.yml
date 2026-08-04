@@ -594,7 +594,7 @@ subquestion: |
   Please wait while Weaver generates field label suggestions in the background.
 
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Working in the background...
@@ -2072,9 +2072,8 @@ validation code: |
 continue button label: Save
 back button label: Cancel
 ---
-# The drag-and-drop helper fields are not user-facing inputs and intentionally
-# have no labels; the visible table and screen title provide their context.
-# no-dayc-block: EA502
+# The drag-and-drop helper fields are visually hidden by draggable_table.js, but
+# still need labels for screen readers and validation tools.
 continue button field: interview.questions[i].edit_question
 scan for variables: False
 sets: interview.questions[i].edit_question
@@ -2090,10 +2089,10 @@ fields:
       Click and drag to rearrange fields on this screen.
 
       ${ interview.questions[i].draggable_fld_table }   
-  - no label: interview.questions[i].fld_order_list 
+  - Field order: interview.questions[i].fld_order_list
     datatype: draggable_tbl_order_list    
     required: False
-  - no label: interview.questions[i].table_data 
+  - Field table data: interview.questions[i].table_data
     datatype: draggable_tbl_json_string
     required: False
 ---
@@ -2205,9 +2204,8 @@ data:
   - signature: Signature
   - download: Download and next steps  
 ---
-# The drag-and-drop helper fields are not user-facing inputs and intentionally
-# have no labels; the visible table provides their context.
-# no-dayc-block: EA502
+# The drag-and-drop helper fields are visually hidden by draggable_table.js, but
+# still need labels for screen readers and validation tools.
 continue button field: show_screen_order
 id: review screen order
 question: |
@@ -2218,10 +2216,10 @@ subquestion: |
   ${ draggable_scr_table } 
   
 fields:
-  - no label: scr_order_list 
+  - Screen order: scr_order_list
     datatype: draggable_tbl_order_list
     required: False
-  - no label: scr_table_data
+  - Screen table data: scr_table_data
     datatype: draggable_tbl_json_string    
     required: False
 ---
@@ -2509,7 +2507,7 @@ question: |
   Please wait while the package is installed
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Installing package in the background...
@@ -2523,7 +2521,7 @@ question: |
   Package is being uninstalled, please wait here
 subquestion: |
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Uninstalling package in the background...
@@ -2878,7 +2876,7 @@ subquestion: |
   Please wait while we generate a draft. This can take up to a minute.
 
   <div class="my-3 text-center">
-    <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
     <div class="mt-2">
       <span class="visually-hidden">Loading...</span>
       Drafting in the background...

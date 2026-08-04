@@ -57,6 +57,7 @@ import docassemble.base.pdftk
 import formfyxer
 import importlib
 import json
+import keyword
 import mako.runtime
 import mako.template
 import more_itertools
@@ -254,6 +255,10 @@ def varname(var_name: str) -> str:
         var_name = spaces.sub(r"_", var_name)
         var_name = invalid_var_characters.sub(r"", var_name)
         var_name = digit_start.sub(r"", var_name)
+        # A label like "from" or "class" is a valid PDF field name but not a
+        # usable Python identifier, so trailing-underscore it
+        if keyword.iskeyword(var_name):
+            var_name = var_name + "_"
         return var_name
     return var_name
 
@@ -1323,6 +1328,13 @@ class DAFieldList(DAList):
                         # currently this is only trial_court
                         # strip trailing numbers so we end up with just the people object, i.e. `users`
                         people.add(re.sub(r"\d+$", "", matches.groups()[0]))
+        # A prefix like `from` (from a `from_phone` PDF field) is a Python
+        # keyword, so it can never be the name of a person list
+        people = {
+            person
+            for person in people
+            if person.isidentifier() and not keyword.iskeyword(person)
+        }
         if custom_only:
             return people - set(reserved_pluralizers_map.values())
         else:
@@ -1895,7 +1907,7 @@ class DAInterview(DAObject):
         output_file: Optional[DAFile] = None,
     ) -> DAFile:
         # 2. Build data for folders_and_files and package_info
-        folders_and_files = {
+        folders_and_files: Dict[str, List[Any]] = {
             "questions": [interview_mako_output],
             "modules": [],
             "static": [],
@@ -1908,7 +1920,7 @@ class DAInterview(DAObject):
                     self.instructions
                 ] + self.uploaded_templates
             else:
-                folders_and_files["templates"] = self.uploaded_templates
+                folders_and_files["templates"] = list(self.uploaded_templates)
         else:
             folders_and_files["templates"] = []
 
@@ -4059,12 +4071,12 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
 
 
 def reflect_fields(
-    pdf_field_tuples: List[Tuple], image_placeholder: DAFile = None
-) -> List[Dict[str, str]]:
+    pdf_field_tuples: List[Tuple], image_placeholder: Optional[DAFile] = None
+) -> List[Dict[str, Any]]:
     """Return a mapping between the field names and either the same name, or "yes"
     if the field is a checkbox value, in order to visually capture the location of
     labeled fields on the PDF."""
-    mapping = []
+    mapping: List[Dict[str, Any]] = []
     for field in pdf_field_tuples:
         if field[4] == "/Btn":
             export_val = field[5] if len(field) >= 6 else ""
@@ -4103,7 +4115,7 @@ def create_package_zip(
     info: dict,
     author_info: dict,
     folders_and_files: dict,
-    fileobj: DAFile = None,
+    fileobj: Optional[DAFile] = None,
 ) -> DAFile:
     """
     Given a dictionary of lists, with the keys representing folders and the values
@@ -5582,6 +5594,15 @@ def generate_interview_from_path(
 ) -> WeaverGenerationResult:
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
+    if isinstance(interview_overrides, str):
+        try:
+            interview_overrides = json.loads(interview_overrides)
+        except (json.JSONDecodeError, TypeError):
+            raise ValueError("interview_overrides must be a dict, not a string")
+    if interview_overrides is not None and not isinstance(interview_overrides, dict):
+        raise TypeError(
+            f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
+        )
     _ensure_current_question_package()
     resolved_exact_name = os.path.basename(
         str(exact_name or os.path.basename(input_path) or input_path).strip()
@@ -5594,11 +5615,19 @@ def generate_interview_from_path(
             screen_definitions, field_definitions
         )
 
+    dependency_jurisdiction = jurisdiction
+    if dependency_jurisdiction is None and interview_overrides:
+        dependency_jurisdiction = interview_overrides.get("state")
+        if dependency_jurisdiction is None:
+            dependency_jurisdiction = interview_overrides.get("jurisdiction")
+    if isinstance(dependency_jurisdiction, str) and "+" in dependency_jurisdiction:
+        dependency_jurisdiction = dependency_jurisdiction.rsplit("+", 1)[-1]
+
     interview = DAInterview()
     interview.auto_assign_attributes(
         input_file=da_file,
         title=title,
-        jurisdiction=jurisdiction,
+        jurisdiction=dependency_jurisdiction,
         categories=categories,
         default_country_code=default_country_code,
         screens=merged_screens,
@@ -5616,15 +5645,6 @@ def generate_interview_from_path(
 
     override_title_requested = False
     if interview_overrides:
-        if isinstance(interview_overrides, str):
-            try:
-                interview_overrides = json.loads(interview_overrides)
-            except (json.JSONDecodeError, TypeError):
-                raise ValueError("interview_overrides must be a dict, not a string")
-        if not isinstance(interview_overrides, dict):
-            raise TypeError(
-                f"interview_overrides must be a dict, got {type(interview_overrides).__name__}"
-            )
         override_title_requested = bool(
             str(interview_overrides.get("title", "") or "").strip()
         )

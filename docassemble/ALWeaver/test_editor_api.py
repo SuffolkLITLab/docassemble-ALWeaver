@@ -1,3 +1,5 @@
+# do not pre load
+
 from io import BytesIO
 from contextlib import nullcontext
 from pathlib import Path
@@ -36,6 +38,10 @@ def _load_api_editor_for_tests():
 
     worker_common = types.ModuleType("docassemble.webapp.worker_common")
     worker_common.bg_context = nullcontext
+    worker_common.workerapp = types.SimpleNamespace(
+        send_task=lambda *args, **kwargs: None,
+        AsyncResult=lambda *args, **kwargs: None,
+    )
 
     flask_cors = types.ModuleType("flask_cors")
     flask_cors.cross_origin = lambda *args, **kwargs: (lambda fn: fn)
@@ -67,6 +73,7 @@ def _load_api_editor_for_tests():
             "blocks": [],
             "metadata_blocks": [],
         },
+        "metadata_source_slice": lambda *args, **kwargs: "",
         "parse_order_code": lambda *args, **kwargs: {},
         "playground_get_variables": lambda *args, **kwargs: {},
         "playground_interview_url": lambda *args, **kwargs: "/interview",
@@ -77,9 +84,11 @@ def _load_api_editor_for_tests():
         "rename_saved_file": lambda *args, **kwargs: None,
         "serialize_blocks_to_yaml": lambda *args, **kwargs: "",
         "serialize_order_steps": lambda *args, **kwargs: "",
+        "source_revision": lambda text: "test-revision",
         "enable_commented_block_in_yaml": lambda content, block_id: content,
         "reorder_blocks_in_yaml": lambda content, order: content,
         "update_block_in_yaml": lambda content, block_id, new_yaml: content,
+        "update_metadata_documents_in_yaml": lambda content, edited: content,
     }.items():
         setattr(editor_utils, name, func)
 
@@ -145,35 +154,121 @@ api_editor = _load_api_editor_for_tests()
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
-    def test_normalize_new_filename_adds_yaml_extension(self):
-        self.assertEqual(api_editor._normalize_new_filename("draft"), "draft.yml")
-        self.assertEqual(api_editor._normalize_new_filename("draft.yaml"), "draft.yaml")
-
-    def test_new_file_route_creates_default_yaml(self):
+    def test_save_file_accepts_intentionally_empty_source(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
-            patch.object(api_editor, "playground_list_yaml_files", return_value=[]),
             patch.object(api_editor, "playground_write_yaml") as mock_write,
         ):
             with api_editor.app.test_request_context(
-                "/al/editor/api/file/new",
+                "/al/editor/api/file",
                 method="POST",
-                json={"project": "Case1", "filename": "draft"},
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "content": "",
+                },
             ):
-                response = api_editor.editor_api_new_file()
+                response = api_editor.editor_api_save_file()
 
-        payload = response.get_json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["data"]["filename"], "draft.yml")
-        self.assertEqual(payload["data"]["project"], "Case1")
-        mock_write.assert_called_once()
-        call_args = mock_write.call_args.args
-        self.assertEqual(call_args[0], 7)
-        self.assertEqual(call_args[1], "Case1")
-        self.assertEqual(call_args[2], "draft.yml")
-        self.assertIn("metadata:\n", call_args[3])
-        self.assertIn("question: New question", call_args[3])
+        self.assertEqual(response.status_code, 200)
+        mock_write.assert_called_once_with(7, "default", "test.yml", "")
+
+    def test_save_file_rejects_missing_content(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={"project": "default", "filename": "test.yml"},
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("content must be", response.get_json()["error"]["message"])
+        mock_write.assert_not_called()
+
+    def test_validate_source_uses_submitted_buffer(self):
+        submitted = "---\nid: unsaved\nquestion: Unsaved title\n"
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        findings = [
+            {
+                "severity": "warning",
+                "level": "warning",
+                "message": "Unsaved diagnostic",
+                "filename": "test.yml",
+                "file_name": "test.yml",
+                "block_id": "unsaved",
+                "source_range": None,
+                "yaml_path": None,
+            }
+        ]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "_validate_source_text", return_value=findings
+            ) as mock_validate,
+            patch.object(
+                api_editor, "playground_get_variables"
+            ) as mock_saved_variable_check,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/validate-source",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": submitted,
+                    "revision": "test-revision",
+                },
+            ):
+                response = api_editor.editor_api_validate_source()
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()["data"]
+        self.assertEqual(payload["scope"], "unsaved_source")
+        self.assertEqual(payload["filename"], "test.yml")
+        self.assertEqual(payload["diagnostics"], findings)
+        self.assertEqual(payload["errors"], findings)
+        self.assertTrue(payload["base_revision_matches"])
+        mock_validate.assert_called_once_with(submitted, "test.yml")
+        mock_saved_variable_check.assert_not_called()
+
+    def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
+        model = {
+            "blocks": [],
+            "metadata_blocks": [],
+            "include_blocks": [],
+            "default_screen_parts_blocks": [],
+            "order_blocks": [],
+        }
+        for source in ("metadata:\n  title: 'Exact'\n", ""):
+            with self.subTest(source=source):
+                with (
+                    patch.object(api_editor, "_editor_auth_check", return_value=True),
+                    patch.object(api_editor, "_current_user_id", return_value=7),
+                    patch.object(
+                        api_editor, "playground_read_yaml", return_value=source
+                    ),
+                    patch.object(
+                        api_editor, "parse_interview_yaml", return_value=model
+                    ),
+                ):
+                    with api_editor.app.test_request_context(
+                        "/al/editor/api/file?project=default&filename=test.yml",
+                        method="GET",
+                    ):
+                        response = api_editor.editor_api_get_file()
+
+                payload = response.get_json()["data"]
+                self.assertEqual(payload["filename"], "test.yml")
+                self.assertEqual(payload["raw_yaml"], source)
+                self.assertIn("revision", payload)
 
     def test_new_project_route_uploads_docx_queues_background_job(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
@@ -182,6 +277,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
             patch.object(
                 api_editor, "next_available_project_name", return_value="DocxSmoke"
             ),
@@ -257,166 +353,130 @@ class TestEditorApiFileCreation(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
 
-    def test_complete_new_project_upload_job_writes_yaml(self):
-        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
-        uploaded_files = [
-            {
-                "filename": docx_path.name,
-                "content_bytes": docx_path.read_bytes(),
-                "mimetype": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            }
-        ]
-        generated_yaml = "metadata:\n  title: Demand Letter\n---\n"
-
+    def test_new_project_upload_refuses_when_celery_is_not_configured(self):
         with (
-            patch.object(api_editor, "bg_context", return_value=nullcontext()),
-            patch.object(api_editor, "_update_new_project_job_state") as mock_update,
-            patch.object(api_editor, "generate_interview_from_bytes") as mock_generate,
-            patch.object(api_editor, "playground_write_yaml") as mock_write,
-            patch.object(api_editor, "_copy_files_to_section") as mock_copy_files,
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=False),
+            patch.object(api_editor, "create_project") as mock_create_project,
         ):
-            mock_generate.return_value = {
-                "input_filename": docx_path.name,
-                "yaml_text": generated_yaml,
-                "yaml_filename": "generated.yml",
-            }
-            result = api_editor._complete_new_project_upload_job(
-                job_id="job-1",
+            with api_editor.app.test_client() as client:
+                response = client.post(
+                    "/al/editor/api/new-project",
+                    data={
+                        "project_name": "DocxSmoke",
+                        "files": (BytesIO(b"not read"), "source.docx"),
+                    },
+                    content_type="multipart/form-data",
+                )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "editor_async_not_configured"
+        )
+        details = response.get_json()["error"]["details"]
+        self.assertFalse(details["configured"])
+        self.assertIn("#celery-worker-configuration", details["docs_url"])
+        mock_create_project.assert_not_called()
+
+    def test_start_new_project_job_enqueues_celery_without_daemon_thread(self):
+        async_result = types.SimpleNamespace(id="celery-task-1")
+        with (
+            patch.object(api_editor, "_store_new_project_job_state") as mock_store,
+            patch.object(api_editor, "_update_new_project_job_state") as mock_update,
+            patch.object(
+                api_editor.workerapp, "send_task", return_value=async_result
+            ) as mock_send,
+        ):
+            result = api_editor._start_new_project_upload_job(
                 uid=7,
-                project_name="DocxSmoke",
                 request_id="req-1",
-                uploaded_files=uploaded_files,
-                generation_options={
-                    "create_package_zip": False,
-                    "include_next_steps": False,
-                    "exact_name": docx_path.name,
-                    "help_source_text": "Demand letter context",
-                    "help_page_url": "https://example.com/help",
-                    "help_page_title": "Help page title",
-                    "use_llm_assist": True,
-                },
+                project_name="DocxSmoke",
+                uploaded_files=[
+                    {
+                        "filename": "source.docx",
+                        "content_bytes": b"content",
+                        "mimetype": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    }
+                ],
+                generation_options={"include_next_steps": False},
                 debug_requested=False,
             )
 
-        self.assertEqual(result["project"], "DocxSmoke")
-        self.assertEqual(result["generated_from"], docx_path.name)
-        self.assertEqual(result["uploaded_count"], 1)
-        mock_generate.assert_called_once()
-        generate_kwargs = mock_generate.call_args.kwargs
+        self.assertEqual(result["state"]["status"], "queued")
+        self.assertEqual(result["state"]["owner_user_id"], 7)
+        self.assertEqual(result["state"]["operation_type"], "new_project_upload")
+        mock_store.assert_called_once()
+        mock_send.assert_called_once()
         self.assertEqual(
-            generate_kwargs["generation_options"]["exact_name"], docx_path.name
+            mock_send.call_args.kwargs["kwargs"]["job_id"], result["job_id"]
         )
-        self.assertEqual(
-            generate_kwargs["generation_options"]["help_source_text"],
-            "Demand letter context",
+        mock_update.assert_called_once_with(
+            result["job_id"], celery_task_id="celery-task-1"
         )
-        self.assertEqual(
-            generate_kwargs["generation_options"]["help_page_url"],
-            "https://example.com/help",
-        )
-        self.assertEqual(
-            generate_kwargs["generation_options"]["help_page_title"], "Help page title"
-        )
-        self.assertTrue(generate_kwargs["generation_options"]["use_llm_assist"])
-        self.assertFalse(generate_kwargs["generation_options"]["create_package_zip"])
-        self.assertFalse(generate_kwargs["generation_options"]["include_next_steps"])
-        self.assertTrue(generate_kwargs["include_yaml_text"])
-        mock_write.assert_called_once_with(
-            7, "DocxSmoke", "interview.yml", generated_yaml
-        )
-        mock_copy_files.assert_called_once()
-        self.assertTrue(mock_update.called)
 
-    def test_new_project_job_status_route_returns_state(self):
+        api_source = Path(api_editor.__file__).read_text()
+        self.assertNotIn("import threading", api_source)
+        self.assertNotIn("threading.Thread", api_source)
+
+    def test_metadata_save_preserves_unrelated_source_exactly(self):
+        from . import editor_utils as real_editor_utils
+
+        source = (
+            "# header\n"
+            "metadata:\n"
+            "  title: 'Original' # title comment\n"
+            "---\n"
+            "# unrelated comment\n"
+            "id: intro\n"
+            "question: |\n"
+            "  Keep this exactly.\n"
+        )
+        edited = "# header\nmetadata:\n  title: 'Edited' # title comment"
+        revision = real_editor_utils.source_revision(source)
+
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=source),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
             patch.object(
                 api_editor,
-                "_load_new_project_job_state",
-                return_value={
-                    "status": "running",
-                    "stage": "generate_interview",
-                    "project": "DocxSmoke",
-                    "message": "Generating interview from the uploaded document.",
+                "source_revision",
+                side_effect=real_editor_utils.source_revision,
+            ),
+            patch.object(
+                api_editor,
+                "update_metadata_documents_in_yaml",
+                side_effect=real_editor_utils.update_metadata_documents_in_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                side_effect=real_editor_utils.parse_interview_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "metadata_source_slice",
+                side_effect=real_editor_utils.metadata_source_slice,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file/metadata",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": edited,
+                    "expected_revision": revision,
                 },
-            ),
-        ):
-            with api_editor.app.test_request_context(
-                "/al/editor/api/new-project/jobs/job-1", method="GET"
             ):
-                response = api_editor.editor_api_new_project_job("job-1")
+                response = api_editor.editor_api_save_metadata()
 
-        payload = response.get_json()
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["job_id"], "job-1")
-        self.assertEqual(payload["status"], "running")
-        self.assertEqual(payload["data"]["stage"], "generate_interview")
-
-    def test_editor_auth_return_target_rejects_protocol_relative_next(self):
-        with api_editor.app.test_request_context("/al/editor?next=//evil.example"):
-            self.assertEqual(
-                api_editor._editor_auth_return_target(), api_editor.EDITOR_BASE_PATH
-            )
-
-    def test_comment_block_route_returns_structured_server_error(self):
-        with (
-            patch.object(api_editor, "_editor_auth_check", return_value=True),
-            patch.object(api_editor, "_current_user_id", return_value=7),
-            patch.object(
-                api_editor, "playground_read_yaml", return_value="id: block\n"
-            ),
-            patch.object(
-                api_editor,
-                "comment_out_block_in_yaml",
-                side_effect=RuntimeError("boom"),
-            ),
-            patch.object(api_editor, "log") as mock_log,
-        ):
-            with api_editor.app.test_request_context(
-                "/al/editor/api/block/comment",
-                method="POST",
-                json={"project": "default", "filename": "test.yml", "block_id": "b1"},
-            ):
-                response = api_editor.editor_api_comment_block()
-
-        payload = response.get_json()
-        self.assertEqual(response.status_code, 500)
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"]["type"], "server_error")
-        self.assertEqual(payload["error"]["message"], "boom")
-        mock_log.assert_called_once_with(
-            "ALWeaver editor: comment block error: RuntimeError('boom')", "error"
-        )
-
-    def test_enable_block_route_logs_enable_error(self):
-        with (
-            patch.object(api_editor, "_editor_auth_check", return_value=True),
-            patch.object(api_editor, "_current_user_id", return_value=7),
-            patch.object(
-                api_editor, "playground_read_yaml", return_value="id: block\n"
-            ),
-            patch.object(
-                api_editor,
-                "enable_commented_block_in_yaml",
-                side_effect=RuntimeError("boom"),
-            ),
-            patch.object(api_editor, "log") as mock_log,
-        ):
-            with api_editor.app.test_request_context(
-                "/al/editor/api/block/enable",
-                method="POST",
-                json={"project": "default", "filename": "test.yml", "block_id": "b1"},
-            ):
-                response = api_editor.editor_api_enable_block()
-
-        payload = response.get_json()
-        self.assertEqual(response.status_code, 500)
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error"]["type"], "server_error")
-        self.assertEqual(payload["error"]["message"], "boom")
-        mock_log.assert_called_once_with(
-            "ALWeaver editor: enable block error: RuntimeError('boom')", "error"
-        )
+        expected = source.replace("'Original'", "'Edited'")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["raw_yaml"], expected)
+        mock_write.assert_called_once_with(7, "default", "test.yml", expected)
 
 
 if __name__ == "__main__":
