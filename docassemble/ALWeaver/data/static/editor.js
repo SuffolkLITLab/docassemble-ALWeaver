@@ -134,6 +134,15 @@
     return url;
   }
 
+  // Keep the outline filter control showing whatever the editor decided the
+  // filter should be — inserting a review screen, or opening a reported block
+  // that the current filter hides, both move it without the user touching it.
+  function syncJumpSelect() {
+    if (jumpSelect && jumpSelect.value !== state.jumpTarget) {
+      jumpSelect.value = state.jumpTarget;
+    }
+  }
+
   function updateLeftSearchPlaceholder() {
     if (!searchInput) return;
     searchInput.placeholder = isInterviewView() ? 'Type to filter...' : 'Search files...';
@@ -593,8 +602,11 @@
     $$('.editor-top-tab').forEach(function (tab) {
       var isActive = tab === targetTab;
       tab.classList.toggle('active', isActive);
-      tab.classList.toggle('btn-light', isActive);
-      tab.classList.toggle('btn-outline-light', !isActive);
+      if (isActive) {
+        tab.setAttribute('aria-current', 'page');
+      } else {
+        tab.removeAttribute('aria-current');
+      }
     });
   }
 
@@ -607,6 +619,7 @@
   var projectSelect = $('#project-select');
   var fileSelect = $('#file-select');
   var searchInput = $('#search-input');
+  var jumpSelect = $('#jump-select');
   var outlineList = $('#outline-list');
   var canvasContent = $('#canvas-content');
 
@@ -4367,6 +4380,34 @@
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Account menu — the same destinations docassemble puts in its own navbar,
+  // built server-side from the signed-in user's roles and the site config.
+  // -------------------------------------------------------------------------
+  function renderAccountMenu() {
+    var nav = document.getElementById('editor-account-nav');
+    if (!nav) return;
+    if (!(authState.authenticated || BOOT.authenticated)) {
+      nav.innerHTML =
+        '<li class="nav-item"><a class="nav-link" href="' + esc(LOGIN_URL) + '">Sign in</a></li>';
+      return;
+    }
+    var designator = authState.designator || authState.email || 'Account';
+    var items = Array.isArray(authState.menuItems) && authState.menuItems.length
+      ? authState.menuItems
+      : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
+    var html = '<li class="nav-item dropdown">';
+    html += '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' + esc(designator) + '</a>';
+    // The navbar is dark, but its menus should read like every other menu in
+    // the editor (and like docassemble's own), so pin them to the light theme.
+    html += '<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="editor-account-menu">';
+    items.forEach(function (item) {
+      html += '<li><a class="dropdown-item" href="' + esc(item.url || '#') + '">' + esc(item.label || '') + '</a></li>';
+    });
+    html += '</ul></li>';
+    nav.innerHTML = html;
+  }
+
   function renderLoginRequired() {
     var html = '';
     html += '<div class="editor-login-shell">';
@@ -6295,7 +6336,6 @@
     var actionControl = target.closest('[data-action]');
     var uiAction = actionControl ? actionControl.getAttribute('data-action') : null;
     var topTab = target.closest('.editor-top-tab');
-    var jumpItem = target.closest('.editor-jump-item') || target.closest('.editor-jump-more-menu [data-jump]');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
@@ -6443,9 +6483,7 @@
           var validationBlock = getBlockById(validationBlockId);
           if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
             state.jumpTarget = 'all';
-            $$('.editor-jump-item').forEach(function (j) {
-              j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
-            });
+            syncJumpSelect();
           }
           state.currentView = 'interview';
           state.validationOpen = true;
@@ -6460,13 +6498,6 @@
         if (validationBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open the reported block', openValidationBlock)) return;
         openValidationBlock();
       }
-      return;
-    }
-
-    // Hamburger menu toggle
-    if (target.id === 'topbar-hamburger' || target.closest('#topbar-hamburger')) {
-      var mobileMenu = document.getElementById('topbar-mobile-menu');
-      if (mobileMenu) mobileMenu.classList.toggle('d-none');
       return;
     }
 
@@ -6509,30 +6540,6 @@
     if (target.id === 'open-new-project-card') {
       state.canvasMode = 'new-project';
       renderCanvas();
-      return;
-    }
-
-    // Jump targets
-    if (jumpItem) {
-      var jump = jumpItem.getAttribute('data-jump');
-      function changeJumpTarget() {
-        stashCurrentEditorState();
-        $$('.editor-jump-item').forEach(function (j) { j.classList.remove('active'); });
-        // Only visually activate direct jump buttons, not dropdown items
-        if (jumpItem.classList.contains('editor-jump-item')) {
-          jumpItem.classList.add('active');
-        }
-        state.jumpTarget = jump;
-        state.canvasMode = 'question';
-        state.selectedBlockId = getDefaultVisibleBlockId();
-        state.currentView = 'interview';
-        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-        if (interviewTab) setActiveTopTab(interviewTab);
-        renderCanvas();
-        renderOutline();
-      }
-      if (jump !== state.jumpTarget && deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) return;
-      changeJumpTarget();
       return;
     }
 
@@ -6594,14 +6601,10 @@
       var newYaml = makeNewBlockYaml(insertKind);
       if (insertKind === 'review') {
         state.jumpTarget = 'reviews';
-        $$('.editor-jump-item').forEach(function (j) {
-          j.classList.toggle('active', j.getAttribute('data-jump') === 'reviews');
-        });
+        syncJumpSelect();
       } else if (insertKind !== 'question' && state.jumpTarget === 'questions') {
         state.jumpTarget = 'all';
-        $$('.editor-jump-item').forEach(function (j) {
-          j.classList.toggle('active', j.getAttribute('data-jump') === 'all');
-        });
+        syncJumpSelect();
       }
       apiPost('/api/insert-block', {
         project: state.project,
@@ -8181,18 +8184,59 @@
     renderOutline();
   });
 
+  if (jumpSelect) {
+    jumpSelect.addEventListener('change', function () {
+      var jump = jumpSelect.value;
+      if (jump === state.jumpTarget) return;
+      function changeJumpTarget() {
+        stashCurrentEditorState();
+        state.jumpTarget = jump;
+        state.canvasMode = 'question';
+        state.selectedBlockId = getDefaultVisibleBlockId();
+        state.currentView = 'interview';
+        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab) setActiveTopTab(interviewTab);
+        syncJumpSelect();
+        renderCanvas();
+        renderOutline();
+      }
+      if (deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) {
+        // The prompt can still end in "stay", so put the control back to the
+        // filter that is actually applied until the change really goes through.
+        syncJumpSelect();
+        return;
+      }
+      changeJumpTarget();
+    });
+  }
+
+  // On narrow screens the navbar actions live inside a collapse. Close it once
+  // the user picks something, so the editor isn't left behind a full-height menu.
+  document.addEventListener('click', function (e) {
+    var host = e.target && e.target.closest ? e.target.closest('#editor-navbar-collapse') : null;
+    if (!host) return;
+    if (!e.target.closest('[data-action], .editor-top-tab, .dropdown-item')) return;
+    if (!host.classList.contains('show')) return;
+    var Collapse = window.bootstrap && window.bootstrap.Collapse;
+    if (Collapse) Collapse.getOrCreateInstance(host).hide();
+  });
+
   // -------------------------------------------------------------------------
   // Init
   // -------------------------------------------------------------------------
   function init() {
     var isAuthenticated = Boolean(authState.authenticated || BOOT.authenticated);
+    renderAccountMenu();
     if (!isAuthenticated) {
       renderLoginRequired();
       return;
     }
     renderSystemChecks();
     document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
-      control.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
+      // The control now lives inside a dropdown, so hide the whole <li>;
+      // hiding only the button would leave a blank row in the menu.
+      var host = control.closest('li') || control;
+      host.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
     });
     initSourceEditor(function () {
       populateProjects();

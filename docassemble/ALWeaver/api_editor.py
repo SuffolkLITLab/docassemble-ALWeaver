@@ -44,7 +44,7 @@ from urllib.parse import quote
 from typing import Any, Dict, List, Optional, cast
 
 import yaml
-from flask import Response, jsonify, redirect, request
+from flask import Response, jsonify, redirect, request, url_for
 from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
@@ -295,6 +295,122 @@ def _editor_auth_urls() -> tuple[str, str]:
         f"/user/sign-in?next={quote(next_target, safe='')}",
         f"/user/sign-out?next={quote(next_target, safe='')}",
     )
+
+
+def _editor_current_language() -> Optional[str]:
+    """Return the active interview language, if docassemble can tell us."""
+    try:
+        import docassemble.base.functions
+
+        return docassemble.base.functions.get_language()
+    except Exception:
+        return None
+
+
+def _resolve_endpoint(*candidates: str) -> str:
+    """Return the URL for the first endpoint name that this server registers.
+
+    Docassemble moved its views onto blueprints (``develop.playground_page``)
+    but older releases registered them bare (``playground_page``), so each menu
+    entry is looked up under every name it has ever had. An unknown name means
+    the feature is absent from this server, not an error.
+    """
+    for candidate in candidates:
+        try:
+            return str(url_for(candidate))
+        except Exception:
+            continue
+    return ""
+
+
+def _editor_account_menu_items(logout_url: str) -> List[Dict[str, str]]:
+    """Build docassemble's own account menu for the signed-in user.
+
+    Mirrors the dropdown in docassemble's ``base_templates/base.html`` so the
+    editor's navbar offers the same destinations, gated by the same roles and
+    configuration flags, as every native docassemble page.
+    """
+    try:
+        if not current_user.is_authenticated:
+            return []
+    except Exception:
+        return []
+
+    items: List[Dict[str, str]] = []
+
+    def add_item(label: str, *endpoints: str, href: Optional[str] = None) -> None:
+        target = href or _resolve_endpoint(*endpoints)
+        if target:
+            items.append({"label": str(label), "url": str(target)})
+
+    def has_roles(*roles: str) -> bool:
+        try:
+            return bool(current_user.has_roles(list(roles)))
+        except Exception:
+            try:
+                return bool(current_user.has_role(*roles))
+            except Exception:
+                return False
+
+    def can_do(permission: str) -> bool:
+        try:
+            return bool(current_user.can_do(permission))
+        except Exception:
+            return False
+
+    if has_roles("admin", "advocate") and app.config.get("ENABLE_MONITOR"):
+        add_item("Monitor", "monitor.monitor", "monitor")
+    if has_roles("admin", "developer", "trainer") and app.config.get("ENABLE_TRAINING"):
+        add_item("Train", "ml.train", "train")
+    if has_roles("admin", "developer"):
+        if app.config.get("ALLOW_UPDATES") and (
+            app.config.get("DEVELOPER_CAN_INSTALL") or has_roles("admin")
+        ):
+            add_item("Package Management", "packages.update_package", "update_package")
+        if app.config.get("ALLOW_LOG_VIEWING"):
+            add_item("Logs", "logs.logs", "logs")
+        if app.config.get("ENABLE_PLAYGROUND"):
+            add_item("Playground", "develop.playground_page", "playground_page")
+            add_item("Utilities", "develop.utilities", "utilities")
+    if has_roles("admin", "advocate") or can_do("access_user_info"):
+        add_item("User List", "users.user_list", "user_list")
+    if has_roles("admin") and app.config.get("ALLOW_CONFIGURATION_EDITING"):
+        add_item("Configuration", "admin.config_page", "config_page")
+    if app.config.get("SHOW_DISPATCH"):
+        add_item("Available Interviews", "admin.interview_start", "interview_start")
+
+    for item in app.config.get("ADMIN_INTERVIEWS", []) or []:
+        try:
+            if item.can_use():
+                add_item(
+                    item.get_title(_editor_current_language()),
+                    href=item.get_url(),
+                )
+        except Exception:  # nosec B112
+            continue
+
+    if app.config.get("SHOW_MY_INTERVIEWS") or has_roles("admin"):
+        add_item("My Interviews", "admin.interview_list", "interview_list")
+    if app.config.get("SHOW_PROFILE") or has_roles("admin", "developer"):
+        add_item("Profile", "users.user_profile_page", "user_profile_page")
+    else:
+        social_id = str(getattr(current_user, "social_id", "") or "")
+        if social_id.startswith("local") and app.config.get("ALLOW_CHANGING_PASSWORD"):
+            add_item("Change Password", "user.change_password")
+
+    add_item("Sign Out", href=logout_url)
+    return items
+
+
+def _editor_user_designator() -> str:
+    """Return the label docassemble would print for the current user."""
+    for attribute in ("first_name", "last_name"):
+        # docassemble shows "First Last" when a name is on file, email otherwise.
+        if str(getattr(current_user, attribute, "") or "").strip():
+            first = str(getattr(current_user, "first_name", "") or "").strip()
+            last = str(getattr(current_user, "last_name", "") or "").strip()
+            return " ".join(part for part in (first, last) if part)
+    return str(getattr(current_user, "email", "") or "").strip() or "Account"
 
 
 # ---------------------------------------------------------------------------
@@ -805,6 +921,8 @@ def _render_editor_page() -> str:
             "authenticated": False,
             "loginUrl": login_url,
             "logoutUrl": logout_url,
+            "designator": "",
+            "menuItems": [],
         },
     }
     try:
@@ -814,6 +932,8 @@ def _render_editor_page() -> str:
             bootstrap["authenticated"] = True
             bootstrap["auth"]["authenticated"] = True
             bootstrap["auth"]["email"] = getattr(current_user, "email", None)
+            bootstrap["auth"]["designator"] = _editor_user_designator()
+            bootstrap["auth"]["menuItems"] = _editor_account_menu_items(logout_url)
         else:
             bootstrap["authenticated"] = False
             bootstrap["auth"]["authenticated"] = False

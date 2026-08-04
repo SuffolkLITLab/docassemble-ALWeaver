@@ -13,50 +13,43 @@
 <div id="editor-app">
 
   <!-- ===== TOP BAR ===== -->
-  <header class="editor-topbar" id="topbar">
-    <div class="editor-topbar-inner">
-      <div class="editor-brand">
+  <nav class="navbar navbar-expand-lg editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
+    <div class="container-fluid">
+      <button type="button" class="navbar-brand editor-brand" data-action="open-project-selector" title="Choose a different project">
         <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
         <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
-      </div>
-      <nav class="editor-top-tabs d-none d-lg-flex" id="view-tabs">
-        <button type="button" class="editor-top-tab btn btn-sm btn-light active" data-view="interview"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Interview</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="templates"><i class="fa-solid fa-file-word me-1" aria-hidden="true"></i>Templates</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="modules"><i class="fa-solid fa-cube me-1" aria-hidden="true"></i>Modules</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="static"><i class="fa-solid fa-image me-1" aria-hidden="true"></i>Static</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="data"><i class="fa-solid fa-database me-1" aria-hidden="true"></i>Data Sources</button>
-      </nav>
-      <div class="editor-top-actions d-none d-lg-flex">
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-project-selector">Projects</button>
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-full-yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button>
-        <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
-        <button type="button" class="btn btn-sm btn-outline-light d-none" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart me-1" aria-hidden="true"></i>Inspect</button>
-        <button type="button" class="btn btn-sm btn-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
-        <button type="button" class="btn btn-sm btn-outline-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
-      </div>
-      <button type="button" class="btn btn-sm btn-outline-light d-lg-none ms-auto" id="topbar-hamburger" aria-label="Menu"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
-    </div>
-    <!-- Mobile dropdown menu -->
-    <div class="editor-mobile-menu d-none" id="topbar-mobile-menu">
-      <nav class="editor-mobile-tabs">
-        <button type="button" class="editor-top-tab btn btn-sm btn-light active" data-view="interview"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Interview</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="templates"><i class="fa-solid fa-file-word me-1" aria-hidden="true"></i>Templates</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="modules"><i class="fa-solid fa-cube me-1" aria-hidden="true"></i>Modules</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="static"><i class="fa-solid fa-image me-1" aria-hidden="true"></i>Static</button>
-        <button type="button" class="editor-top-tab btn btn-sm btn-outline-light" data-view="data"><i class="fa-solid fa-database me-1" aria-hidden="true"></i>Data Sources</button>
-      </nav>
-      <div class="editor-mobile-actions">
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-project-selector">Projects</button>
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-full-yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button>
-        <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span> <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-standard-playground"><i class="fa-solid fa-flask me-1" aria-hidden="true"></i>Open playground</button>
-        <button type="button" class="btn btn-sm btn-outline-light d-none" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart me-1" aria-hidden="true"></i>Inspect</button>
-        <button type="button" class="btn btn-sm btn-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
-        <button type="button" class="btn btn-sm btn-outline-light js-save-file-btn" data-action="save-file" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
+        <i class="fa-solid fa-angle-down editor-brand-caret" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#editor-navbar-collapse" aria-controls="editor-navbar-collapse" aria-expanded="false" aria-label="Show the menu">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="editor-navbar-collapse">
+        <ul class="navbar-nav nav-underline me-auto" id="view-tabs">
+          <li class="nav-item"><button type="button" class="nav-link editor-top-tab active" data-view="interview" aria-current="page">Interview</button></li>
+          <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="templates">Templates</button></li>
+          <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="modules">Modules</button></li>
+          <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="static">Static</button></li>
+          <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>
+        </ul>
+        <div class="editor-top-actions">
+          <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
+          <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
+          <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
+          <div class="dropdown">
+            <button type="button" class="btn btn-sm btn-outline-light dropdown-toggle" id="topbar-more-menu" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="More editor tools">More</button>
+            <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="topbar-more-menu">
+              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
+              <li class="d-none"><button type="button" class="dropdown-item" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart fa-fw me-2" aria-hidden="true"></i>Inspect variables</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
+            </ul>
+          </div>
+        </div>
+        <ul class="navbar-nav editor-account-nav" id="editor-account-nav"></ul>
       </div>
     </div>
-  </header>
+  </nav>
 
   <div class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 d-none"
        id="editor-celery-warning" role="status" aria-live="polite">
@@ -73,54 +66,59 @@
       <div class="editor-section">
         <label class="editor-tiny" for="project-select">Project</label>
         <select class="form-select form-select-sm mt-1" id="project-select"></select>
-      </div>
-      <div class="editor-section" id="editor-file-section">
-        <label class="editor-tiny" for="file-select">File</label>
-        <div class="d-flex gap-2 align-items-center mt-1">
-          <select class="form-select form-select-sm" id="file-select"></select>
-          <div class="dropdown">
-            <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
-            <ul class="dropdown-menu dropdown-menu-end">
-              <li><button type="button" class="dropdown-item" id="btn-new-interview-file"><i class="fa-solid fa-plus me-2" aria-hidden="true"></i>New file</button></li>
-              <li><button type="button" class="dropdown-item" id="btn-upload-interview-file"><i class="fa-solid fa-upload me-2" aria-hidden="true"></i>Upload file</button></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" id="btn-rename-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>
-              <li><button type="button" class="dropdown-item" id="btn-download-file"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download file</button></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item text-danger" id="btn-delete-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>
-            </ul>
-            <input type="file" id="interview-upload-input" style="display:none" accept=".yml,.yaml">
+        <div class="mt-2" id="editor-file-section">
+          <label class="editor-tiny" for="file-select">File</label>
+          <div class="d-flex gap-2 align-items-center mt-1">
+            <select class="form-select form-select-sm" id="file-select"></select>
+            <div class="dropdown">
+              <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item" id="btn-new-interview-file"><i class="fa-solid fa-plus me-2" aria-hidden="true"></i>New file</button></li>
+                <li><button type="button" class="dropdown-item" id="btn-upload-interview-file"><i class="fa-solid fa-upload me-2" aria-hidden="true"></i>Upload file</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><button type="button" class="dropdown-item" id="btn-rename-file"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename file</button></li>
+                <li><button type="button" class="dropdown-item" id="btn-download-file"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download file</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><button type="button" class="dropdown-item text-danger" id="btn-delete-file"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete file</button></li>
+              </ul>
+              <input type="file" id="interview-upload-input" style="display:none" accept=".yml,.yaml">
+            </div>
           </div>
         </div>
       </div>
       <div class="editor-section editor-section-search" id="editor-quick-jump-section">
-        <div class="editor-jump-list mb-2" id="jump-targets">
-          <button type="button" class="editor-jump-item active" data-jump="questions">Questions</button>
-          <button type="button" class="editor-jump-item" data-jump="reviews">Reviews</button>
-          <button type="button" class="editor-jump-item" data-jump="all">All blocks</button>
-          <button type="button" class="editor-jump-item" data-jump="code">Code</button>
-          <button type="button" class="editor-jump-item" data-jump="objects">Objects</button>
-          <button type="button" class="editor-jump-item" data-jump="attachments">Attachments</button>
-          <div class="dropdown d-inline-block">
-            <button type="button" class="editor-jump-item editor-jump-more-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More block types"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
-            <ul class="dropdown-menu editor-jump-more-menu">
-              <li><button type="button" class="dropdown-item" data-jump="meta">Metadata &amp; config</button></li>
-              <li><button type="button" class="dropdown-item" data-jump="templates">Templates</button></li>
-              <li><button type="button" class="dropdown-item" data-jump="tables">Tables</button></li>
-              <li><button type="button" class="dropdown-item" data-jump="events">Events</button></li>
-              <li><button type="button" class="dropdown-item" data-jump="modules">Modules &amp; imports</button></li>
-              <li><button type="button" class="dropdown-item" data-jump="sections">Sections</button></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" data-jump="commented">Disabled blocks</button></li>
-            </ul>
-          </div>
+        <div class="mb-2" id="jump-targets">
+          <label class="editor-tiny" for="jump-select">Show</label>
+          <select class="form-select form-select-sm mt-1" id="jump-select">
+            <optgroup label="Screens">
+              <option value="questions" selected>Questions &amp; reviews</option>
+              <option value="reviews">Review screens</option>
+              <option value="attachments">Attachments</option>
+            </optgroup>
+            <optgroup label="Logic">
+              <option value="code">Code</option>
+              <option value="objects">Objects</option>
+              <option value="events">Events</option>
+              <option value="sections">Sections</option>
+            </optgroup>
+            <optgroup label="Setup">
+              <option value="meta">Metadata &amp; config</option>
+              <option value="modules">Modules &amp; imports</option>
+              <option value="templates">Templates</option>
+              <option value="tables">Tables</option>
+            </optgroup>
+            <optgroup label="Everything">
+              <option value="all">All blocks</option>
+              <option value="commented">Disabled blocks</option>
+            </optgroup>
+          </select>
         </div>
         <input class="form-control form-control-sm" id="search-input"
                placeholder="Type to filter&hellip;">
       </div>
-      <div class="editor-outline-header d-flex align-items-center justify-content-between">
+      <div class="editor-outline-header d-flex align-items-center justify-content-between gap-2">
         <span class="editor-tiny">Block outline</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary editor-order-builder-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Interview order...</span></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-order-builder-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Interview order</span></button>
       </div>
       <div class="editor-outline-list" id="outline-list"></div>
     </aside>

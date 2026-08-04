@@ -93,21 +93,56 @@ class TestEditorFrontend(unittest.TestCase):
         """The topbar Save button used to be icon-only and matched on
         `target.id`, but a click on a button's Font Awesome <i> makes the icon
         the event target, so the button did nothing. It also had no text label,
-        no accessible name and no mobile equivalent, which left navigating away
-        and hitting the unsaved-changes prompt as the only way to notice
-        unsaved work."""
+        no accessible name and no narrow-screen equivalent, which left
+        navigating away and hitting the unsaved-changes prompt as the only way
+        to notice unsaved work.
+
+        There is now one Save button rather than a desktop copy and a
+        hand-rolled mobile copy, so what has to hold is that the single button
+        sits inside the Bootstrap collapse the navbar toggler opens — that is
+        what keeps it reachable once the navbar collapses."""
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
-        # Present in both the desktop bar and the mobile menu.
-        self.assertEqual(template.count('data-action="save-file"'), 2)
-        self.assertEqual(template.count("js-save-file-btn"), 2)
+        self.assertEqual(template.count('data-action="save-file"'), 1)
+        self.assertEqual(template.count("js-save-file-btn"), 1)
         self.assertIn('aria-label="Save your changes"', template)
+
+        collapse_start = template.index('id="editor-navbar-collapse"')
+        collapse_end = template.index("</nav>", collapse_start)
+        collapsible_markup = template[collapse_start:collapse_end]
+        self.assertIn('data-action="save-file"', collapsible_markup)
+        self.assertIn(
+            'data-bs-target="#editor-navbar-collapse"',
+            template[: template.index('id="editor-navbar-collapse"')],
+        )
 
         # Routed by data-action, not by an id that icon clicks never match.
         self.assertIn("uiAction === 'save-file'", editor)
         self.assertNotIn("target.id === 'btn-save-file'", editor)
         self.assertIn("saveCurrentFile", editor)
+
+    def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
+        """The editor is a full-page app that sits where a native docassemble
+        page would, so its bar has to be a real Bootstrap navbar at
+        docassemble's own height and has to offer the same account menu.
+        A hand-rolled bar drifts from both."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('class="navbar navbar-expand-lg editor-navbar"', template)
+        self.assertIn('data-bs-theme="dark"', template)
+        self.assertIn('class="navbar-toggler"', template)
+        self.assertNotIn("editor-topbar-inner", template)
+        self.assertNotIn("topbar-mobile-menu", template)
+
+        # docassemble pads its body by 66px for a navbar that renders at 56px.
+        self.assertIn("--editor-navbar-height: 56px;", css)
+
+        self.assertIn('id="editor-account-nav"', template)
+        self.assertIn("function renderAccountMenu()", editor)
+        self.assertIn("authState.menuItems", editor)
 
     def test_docassemble_codemirror_contract_on_supported_tags(self):
         checkout = Path(
