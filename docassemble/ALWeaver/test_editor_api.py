@@ -14,6 +14,7 @@ from flask import Flask, jsonify
 
 def _load_api_editor_for_tests():
     module_path = Path(__file__).with_name("api_editor.py")
+    package_name = __package__ or "docassemble.ALWeaver"
     app = Flask("alweaver-api-editor-tests")
 
     class _CSRF:
@@ -52,7 +53,7 @@ def _load_api_editor_for_tests():
     base_util = types.ModuleType("docassemble.base.util")
     base_util.log = lambda *args, **kwargs: None
 
-    api_utils = types.ModuleType("docassemble.ALWeaver.api_utils")
+    api_utils = types.ModuleType(f"{package_name}.api_utils")
     api_utils.generate_interview_from_bytes = lambda *args, **kwargs: {}
     api_utils.parse_bool = lambda value, default=False: (
         default
@@ -61,7 +62,7 @@ def _load_api_editor_for_tests():
     )
     api_utils.validate_upload_metadata = lambda **kwargs: (kwargs["filename"], ".docx")
 
-    editor_utils = types.ModuleType("docassemble.ALWeaver.editor_utils")
+    editor_utils = types.ModuleType(f"{package_name}.editor_utils")
     for name, func in {
         "canonical_block_yaml": lambda block: "id: block\n",
         "canonicalize_block_yaml": lambda yaml_text: yaml_text.strip(),
@@ -92,7 +93,7 @@ def _load_api_editor_for_tests():
     }.items():
         setattr(editor_utils, name, func)
 
-    editor_ai_utils = types.ModuleType("docassemble.ALWeaver.editor_ai_utils")
+    editor_ai_utils = types.ModuleType(f"{package_name}.editor_ai_utils")
     editor_ai_utils.DEFAULT_FIELD_TYPES = []
     editor_ai_utils.normalize_generated_fields = lambda *args, **kwargs: []
     editor_ai_utils.normalize_generated_screen = lambda *args, **kwargs: {}
@@ -102,7 +103,7 @@ def _load_api_editor_for_tests():
         "",
     )
 
-    playground_publish = types.ModuleType("docassemble.ALWeaver.playground_publish")
+    playground_publish = types.ModuleType(f"{package_name}.playground_publish")
     playground_publish.SECTION_TO_STORAGE = {
         "templates": "templates",
         "modules": "modules",
@@ -126,13 +127,13 @@ def _load_api_editor_for_tests():
         "docassemble.webapp.worker_common": worker_common,
         "flask_cors": flask_cors,
         "flask_login": flask_login,
-        "docassemble.ALWeaver.api_utils": api_utils,
-        "docassemble.ALWeaver.editor_utils": editor_utils,
-        "docassemble.ALWeaver.editor_ai_utils": editor_ai_utils,
-        "docassemble.ALWeaver.playground_publish": playground_publish,
+        f"{package_name}.api_utils": api_utils,
+        f"{package_name}.editor_utils": editor_utils,
+        f"{package_name}.editor_ai_utils": editor_ai_utils,
+        f"{package_name}.playground_publish": playground_publish,
     }
     previous = {name: sys.modules.get(name) for name in stubs}
-    module_name = "docassemble.ALWeaver._test_api_editor"
+    module_name = f"{package_name}._test_api_editor"
     try:
         sys.modules.update(stubs)
         spec = importlib.util.spec_from_file_location(module_name, module_path)
