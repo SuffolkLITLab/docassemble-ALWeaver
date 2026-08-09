@@ -1,4 +1,10 @@
-/* Compose a validation-only project source snapshot from narrow editor buffers. */
+/* Compose a working-source snapshot of the file from narrow editor buffers.
+ *
+ * Validation, the editing assistant and any future preview operation all need
+ * the same thing: the source the developer is currently looking at, including
+ * unsaved edits. When a dirty subsystem cannot be mapped onto the source file
+ * safely, these helpers throw rather than quietly fall back to the saved file.
+ */
 (function (root, factory) {
   'use strict';
   var api = factory();
@@ -94,7 +100,38 @@
     return applyOperations(source, operations);
   }
 
+  function hasUnsavedEdits(options) {
+    if (typeof options.fullSource === 'string') return true;
+    if (typeof options.metadataSource === 'string') return true;
+    if (options.blockReplacements && Object.keys(options.blockReplacements).length) return true;
+    return Boolean(options.hasUnsavedChanges);
+  }
+
+  /* Build the snapshot every server-side source operation should be given.
+   *
+   * `working_revision` is intentionally left to the server: the browser has no
+   * synchronous SHA-256, and the server already hashes whatever it receives.
+   */
+  function buildWorkingSourceSnapshot(options) {
+    options = options || {};
+    if (options.orderDirty) {
+      throw new Error(options.orderDirtyMessage ||
+        'Unsaved order-builder changes cannot be represented safely. ' +
+        'Save them or discard them before using the assistant.');
+    }
+    var rawYaml = buildValidationSource(options);
+    var unsaved = hasUnsavedEdits(options);
+    return {
+      raw_yaml: rawYaml,
+      base_revision: options.baseRevision || null,
+      working_revision: options.workingRevision || null,
+      has_unsaved_changes: unsaved,
+      source_scope: unsaved ? 'working_source' : 'saved_source',
+    };
+  }
+
   return {
     buildValidationSource: buildValidationSource,
+    buildWorkingSourceSnapshot: buildWorkingSourceSnapshot,
   };
 });

@@ -58,15 +58,40 @@ documents cannot be identified safely, the scoped save is rejected and the user
 must use full source mode. This is an interim safeguard pending the general
 revisioned source-patch model.
 
-The general patch beta is implemented at `POST /al/editor/api/file/patch` and is
-disabled by default behind `WEAVER_ENABLE_PATCH_MODEL`. A request supplies the
+Weaver's editor settings use Docassemble's own key style — lowercase words,
+grouped under one heading:
+
+```yaml
+weaver:
+  assistant: True            # the editing assistant; on unless set to False
+  assistant model: gpt-5-mini
+  runtime inspector: False   # opt-in
+  source patch api: False    # opt-in
+```
+
+A flat `weaver assistant:` key works too, and the older `WEAVER_ENABLE_*`
+spellings — plus the matching environment variables — are still honoured so
+existing installs keep working.
+
+The general patch beta ("source patch api") is implemented at
+`POST /al/editor/api/file/patch` and is disabled by default. A request supplies the
 expected SHA-256 source revision and one or more non-overlapping
 `replace-range` operations. Weaver validates every range, applies the full set in
-memory, reparses the result, and performs one Playground write only if the result
-is structurally valid. The response includes the exact resulting text, new
-revision, applied operations, diagnostics, and a unified source diff. A stale
-revision returns HTTP 409 with current and optional base source for a three-way
-merge; it never overwrites the newer file.
+memory, runs the whole result through `validate_candidate_source()`, and performs
+one Playground write only if no diagnostic is an error. The response includes the
+exact resulting text, new revision, applied operations, diagnostics, and a
+unified source diff; a rejected patch returns HTTP 422 with the same diagnostic
+list. A stale revision returns HTTP 409 with current and optional base source for
+a three-way merge; it never overwrites the newer file.
+
+`editor_agent_validation.py` owns the single answer to "may Weaver present this
+source as a valid edit?". Its pipeline is `parse_source_document()` → YAML stream
+check → `parse_interview_yaml()` → Weaver source diagnostics → DAYamlChecker →
+an optional deterministic ALDashboard lint that always passes `include_llm=False`.
+An error-severity diagnostic blocks acceptance; warnings and infos are reported
+to both the developer and the agent without blocking. The patch API, the agent's
+tools and the editor's unsaved-source check all call it, so agent editing can
+never acquire a weaker standard than ordinary editing.
 
 `source_document.py` retains the original text and exact document offsets as the
 authoritative representation. Parsed mappings and top-level property ranges are
@@ -91,6 +116,77 @@ Docassemble admin or developer. The editor page injects a per-session Flask-WTF
 token into bootstrap state, and the centralized client sends it on every write.
 No editor route is CSRF-exempt and no wildcard CORS policy is installed. Any
 separate API-key integration remains outside the browser editor route family.
+
+The editing assistant is on unless `weaver: assistant: False` turns it off. It
+does not depend on the source-patch API: the agent compiles its own range
+operations in process and never calls that endpoint. What it does need is a
+language model, so the page bootstrap carries an `assistant_status` saying
+whether one is reachable — ALToolbox leaves its client as `None` when it finds
+no credentials, which is the signal used rather than a guess at config key
+names. When no model is configured the panel is still offered but explains what
+is missing instead of showing a composer that would fail on submit, and the
+endpoints answer 503 rather than pretending the feature does not exist.
+
+Its fundamental invariant is that the LLM proposes semantic
+actions, while Weaver produces source, validates source and controls
+persistence. The browser sends a working-source snapshot — the saved file with
+every unsaved buffer folded in, built by `editor_validation_source.js` — and the
+server binds the resulting session to one owner, project and filename. No tool
+argument can change that target; unknown properties in a tool call are a schema
+error precisely so a model cannot smuggle in a `project` or `filename`.
+
+Each turn runs a bounded server-side loop: the model returns one JSON action,
+`editor_agent_tools.py` compiles it into an exact source replacement against an
+in-memory candidate, and the whole candidate is validated before the mutation is
+kept. Rejected mutations return structured diagnostics to the model and leave the
+candidate at its last valid revision, so candidate validity is monotonic. Only
+low-risk tools and a small set of deliberately implemented medium-risk ones are
+registered; blocks that `source_document.py` marks unsupported are readable but
+never rewritten. Runtime tools require `WEAVER_ENABLE_RUNTIME_INSPECTOR`, wrap
+the existing allowlisted `al_weaver.inspect_*` actions, and label their results
+`observed_runtime` so the model cannot present a static prediction — or a seeded
+scenario fixture — as observed behaviour.
+
+Two deterministic operations are worth calling out because neither is safe as
+free-text editing. `editor_agent_repair.py` fixes the two blocking diagnostics
+that dominate real files — a question block with no `id`, and two blocks sharing
+one — by patching exact ranges and re-validating; a repair pass is kept only if
+it leaves strictly fewer blocking diagnostics. It is offered at session creation
+behind an explicit `auto_heal` flag, the repairs become part of the candidate so
+they appear in the diff, and Reset returns to the repaired baseline rather than
+to source the validator would reject. `editor_agent_rename.py` renames variables
+by classifying every appearance of a name: a reference it recognises is
+rewritten, prose is left alone and reported, and anything it cannot tell apart
+from a reference — a name inside a string, a call, a longer path built on the
+name, an `objects:` declaration that would become an attribute path — refuses
+the whole batch. `suggest_object_conversion` maps a flat family such as
+`persons1_name` onto `persons[0].name.first` using the same table the Weaver
+uses for PDF fields, skipping targets that are display expressions or that would
+collapse two variables into one.
+
+A turn outlives any HTTP request — the editor's own client gives up first, and
+nginx closes an idle upstream read at sixty seconds by default — so it runs as
+the named `weaver_editor_agent_turn_task` in Docassemble's Celery worker,
+alongside project generation, and never in an in-process thread. Starting a turn
+returns 202 immediately. The loop publishes each event to a short-lived,
+owner-scoped progress record as it happens, and the finished turn's result lands
+there too, because that is the only place the browser can still read it. That
+record has its own Redis key rather than living in the session, because Stop and
+the polling reads touch the session concurrently and would otherwise clobber the
+turn's own writes. A record nothing has written to for two minutes is treated as
+abandoned rather than believed forever.
+
+The assistant is for small, discrete edits, so a chat is capped at ten requests
+and counts down toward a prompt to apply and start a fresh one; a long
+conversation makes each turn slower and vaguer and its candidate harder to
+review as a single diff.
+
+No agent step writes to the Playground. Apply re-checks that the saved file has
+not moved on, re-validates the candidate, and hands the source back to the
+browser as unsaved editor state that stays dirty against the revision actually on
+disk; the existing Save path is what persists it. Sessions live in owner-scoped
+expiring Redis records, and server logs record tool names, revisions and
+validator counts but never interview text, prompts or runtime variable values.
 
 Unsaved interview edits are tracked by `editor_dirty_state.js` per filename and
 block ID, with separate source-dirty and pending-command state. Each loaded file
@@ -172,6 +268,14 @@ kinds of interviews that the Weaver can produce.
 - `draggable_table.py` is used by the Weaver frontend to allow rearranging long lists of fields
 - `field_grouping.py` is a copy of some features from [FormyFyxer](https://github.com/SuffolkLITLab/FormFyxer) that power the "I'm feeling lucky" button (should be deprecated)
 - `generator_constants.py` contains several lists of rules for how to transform PDF field names like `users_name_full` into Docassemble objects like `users[0].name`, as well as indicating reserved DOCX variable names that are handled by questions in the AssemblyLine's question library
+- `api_editor.py` is HTTP orchestration for the graphical editor; the editing business logic lives in the modules below
+- `editor_agent_validation.py` is the one whole-candidate validator, plus the diagnostic normalisation the editor's error drawer consumes
+- `editor_agent_models.py` holds the agent session, candidate, turn and tool-result records and their owner-scoped Redis persistence
+- `editor_agent_tools.py` is the semantic tool registry — the security and accuracy boundary for everything the model can do
+- `editor_agent_repair.py` deterministically fixes missing and duplicate block ids so a mechanical problem does not stop the assistant from starting
+- `editor_agent_rename.py` classifies every appearance of a variable name and renames only the references it can positively recognise
+- `editor_agent_context.py` assembles the compact interview context a turn is given, fencing untrusted reference material
+- `editor_agent.py` runs the bounded agent loop and the explicit final validation pass
 
 ## Testing
 

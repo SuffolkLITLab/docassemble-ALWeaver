@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import textwrap
 
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -61,9 +62,65 @@ def pick_small_model_name(llms_module: Any) -> str:
 
 
 def _safe_text(value: Any) -> str:
+    """Normalise a value that must stay on one line.
+
+    Use this for identifiers and datatypes — anything where a newline would be
+    meaningless. Prose belongs in :func:`_safe_prose`.
+    """
     if value is None:
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+_BLOCK_SCALAR_MARKER = re.compile(r"^[|>][+-]?\d*[ \t]*\n")
+
+
+def _strip_block_scalar_marker(text: str) -> str:
+    """Drop a YAML block-scalar indicator a generator put inside the value.
+
+    Models routinely hand back ``"|\\n  Some text"`` for a field that Weaver is
+    going to serialise as a block scalar anyway. Left alone it is emitted as
+    literal text, producing a doubled ``question: |`` / ``|`` in the source.
+    Weaver owns scalar style, so the stray marker is simply removed.
+    """
+    if not _BLOCK_SCALAR_MARKER.match(text):
+        return text
+    body = text.split("\n", 1)[1]
+    return textwrap.dedent(body)
+
+
+def _safe_prose(value: Any) -> str:
+    """Normalise author-facing text without destroying its line structure.
+
+    Question text, subquestions and field labels are Markdown. Collapsing every
+    run of whitespace flattens paragraph breaks, bullet lists and indented
+    blocks into one unreadable line, so only the things that are always safe to
+    normalise are touched: line endings, trailing spaces on each line, runs of
+    blank lines, and blank lines at either end. Leading indentation is left
+    alone because Markdown gives it meaning.
+    """
+    if value is None:
+        return ""
+    text = _strip_block_scalar_marker(
+        str(value).replace("\r\n", "\n").replace("\r", "\n")
+    )
+    lines: List[str] = []
+    blank_run = 0
+    for line in text.split("\n"):
+        stripped = line.rstrip()
+        if stripped:
+            blank_run = 0
+            lines.append(stripped)
+            continue
+        blank_run += 1
+        # One blank line is a paragraph break; more than one adds nothing.
+        if blank_run == 1:
+            lines.append("")
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
 
 
 def _varname_like(label: str, fallback: str) -> str:
@@ -113,7 +170,7 @@ def normalize_generated_fields(
         if not isinstance(item, dict):
             continue
 
-        label = _safe_text(
+        label = _safe_prose(
             item.get("label")
             or item.get("question")
             or item.get("name")
@@ -175,10 +232,10 @@ def normalize_generated_screen(
         fields = fields[:7]
 
     question = (
-        _safe_text(raw_screen.get("question"))
+        _safe_prose(raw_screen.get("question"))
         or "Please answer the following questions."
     )
-    subquestion = _safe_text(raw_screen.get("subquestion"))
+    subquestion = _safe_prose(raw_screen.get("subquestion"))
 
     continue_button_field = _safe_text(raw_screen.get("continue_button_field"))
     if not continue_button_field and fields:

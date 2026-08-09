@@ -23,6 +23,13 @@ Provides:
     GET  /al/editor/api/preview-url — get the interview preview URL
     GET  /al/editor/api/weaver/validate — validate a saved YAML file
     POST /al/editor/api/validate-source — validate a submitted source buffer
+    POST /al/editor/api/agent/sessions — start an editing-assistant session
+    GET  /al/editor/api/agent/sessions/<id> — read assistant session state
+    DELETE /al/editor/api/agent/sessions/<id> — end an assistant session
+    POST /al/editor/api/agent/sessions/<id>/turn — run one assistant turn
+    POST /al/editor/api/agent/sessions/<id>/cancel — stop a running turn
+    POST /al/editor/api/agent/sessions/<id>/reset — restore the original candidate
+    POST /al/editor/api/agent/sessions/<id>/apply — return the candidate source
 """
 
 from __future__ import annotations
@@ -122,6 +129,37 @@ from .source_document import (
     apply_range_operations,
     parse_source_document,
     unified_source_diff,
+)
+from .editor_agent import (
+    AgentConfigurationError,
+    pick_agent_model_name,
+    record_turn,
+    run_agent_turn,
+)
+from .editor_agent_repair import auto_heal_source, describe_repair_offer
+from .editor_agent_models import (
+    MAX_CANDIDATE_SOURCE_BYTES,
+    MAX_CHAT_MESSAGE_CHARS,
+    MAX_TURNS_PER_SESSION,
+    WeaverAgentSession,
+    clear_progress,
+    delete_agent_session,
+    load_agent_session,
+    load_progress,
+    progress_is_live,
+    store_agent_session,
+    store_progress,
+)
+from .editor_agent_validation import (
+    annotate_lint_findings,
+    block_line_span,
+    block_lookup_map,
+    lint_level_from_severity,
+    lint_summary_for_findings,
+    resolve_lint_block_id,
+    source_range_for_line,
+    validate_candidate_source,
+    validate_source_text,
 )
 from .runtime_sessions import (
     append_runtime_event,
@@ -546,250 +584,18 @@ def _build_file_response_data(
     }
 
 
-def _lint_level_from_severity(severity: Any) -> str:
-    value = str(severity or "").strip().lower()
-    if value == "red":
-        return "error"
-    if value == "yellow":
-        return "warning"
-    if value == "green":
-        return "info"
-    if value in {"error", "warning", "info"}:
-        return value
-    return "error"
-
-
-def _block_lookup_map(blocks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    lookup: Dict[str, Dict[str, Any]] = {}
-    for block in blocks:
-        block_id = str(block.get("id") or "").strip()
-        if block_id:
-            lookup[block_id] = block
-    return lookup
-
-
-def _block_line_span(block: Dict[str, Any]) -> Optional[tuple[int, int]]:
-    try:
-        line_start = int(block.get("line_start") or 0)
-        line_end = int(block.get("line_end") or 0)
-    except Exception:
-        return None
-    if line_start <= 0 or line_end < line_start:
-        return None
-    return (line_start, line_end)
-
-
-def _resolve_lint_block_id(
-    finding: Dict[str, Any],
-    blocks: List[Dict[str, Any]],
-    block_lookup: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> Optional[str]:
-    block_lookup = block_lookup or _block_lookup_map(blocks)
-
-    for key in ("block_id", "screen_id"):
-        candidate = str(finding.get(key) or "").strip()
-        if candidate and candidate in block_lookup:
-            return candidate
-
-    screen_link = str(finding.get("screen_link") or "").strip()
-    if screen_link.startswith("#screen-"):
-        candidate = screen_link[len("#screen-") :].strip()
-        if candidate and candidate in block_lookup:
-            return candidate
-
-    line_number = finding.get("line_number")
-    numeric_line: Optional[int]
-    if isinstance(line_number, int):
-        numeric_line = line_number
-    elif isinstance(line_number, str):
-        try:
-            numeric_line = int(line_number.strip())
-        except ValueError:
-            numeric_line = None
-    else:
-        numeric_line = None
-    if numeric_line:
-        for block in blocks:
-            span = _block_line_span(block)
-            if not span:
-                continue
-            if span[0] <= numeric_line <= span[1]:
-                return str(block.get("id") or "").strip() or None
-
-    rule_id = str(finding.get("rule_id") or "").strip()
-    if rule_id in {"missing-metadata-fields", "missing-custom-theme"}:
-        for block in blocks:
-            if block.get("type") == "metadata":
-                return str(block.get("id") or "").strip() or None
-
-    problematic_text = str(finding.get("problematic_text") or "").strip()
-    if problematic_text:
-        for block in blocks:
-            if problematic_text in str(block.get("yaml") or ""):
-                return str(block.get("id") or "").strip() or None
-            if problematic_text in str(block.get("title") or ""):
-                return str(block.get("id") or "").strip() or None
-
-    return None
-
-
-def _annotate_lint_findings(
-    findings: List[Dict[str, Any]],
-    blocks: List[Dict[str, Any]],
-    *,
-    source_name: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    block_lookup = _block_lookup_map(blocks)
-    annotated: List[Dict[str, Any]] = []
-    for finding in findings:
-        item = dict(finding)
-        if item.get("severity") is not None:
-            item["level"] = _lint_level_from_severity(item.get("severity"))
-        else:
-            item["level"] = _lint_level_from_severity(item.get("level"))
-        block_id = _resolve_lint_block_id(item, blocks, block_lookup)
-        if block_id:
-            item["block_id"] = block_id
-            block = block_lookup.get(block_id)
-            if block:
-                item.setdefault("block_title", block.get("title"))
-                item.setdefault("block_type", block.get("type"))
-                item.setdefault("line_start", block.get("line_start"))
-                item.setdefault("line_end", block.get("line_end"))
-        if source_name:
-            item.setdefault("source_name", source_name)
-        annotated.append(item)
-    return annotated
-
-
-def _lint_summary_for_findings(findings: List[Dict[str, Any]]) -> Dict[str, int]:
-    summary = {"error": 0, "warning": 0, "info": 0}
-    for finding in findings:
-        level = _lint_level_from_severity(
-            finding.get("level") or finding.get("severity")
-        )
-        if level not in summary:
-            level = "error"
-        summary[level] += 1
-    return summary
-
-
-def _source_range_for_line(
-    raw_yaml: str, line_number: Any, column_number: Any = 1
-) -> Optional[Dict[str, Any]]:
-    """Return a one-line source range with line, column, and character offsets."""
-    try:
-        line = int(line_number)
-        column = max(1, int(column_number or 1))
-    except (TypeError, ValueError):
-        return None
-    source_lines = raw_yaml.splitlines(keepends=True)
-    if line == len(source_lines) + 1 and raw_yaml.endswith(("\n", "\r")):
-        return {
-            "start": {"line": line, "column": column, "offset": len(raw_yaml)},
-            "end": {"line": line, "column": column, "offset": len(raw_yaml)},
-        }
-    if line < 1 or line > len(source_lines):
-        return None
-    line_text = source_lines[line - 1]
-    line_content = line_text.rstrip("\r\n")
-    start_of_line = sum(len(item) for item in source_lines[: line - 1])
-    start_offset = start_of_line + min(column - 1, len(line_content))
-    end_offset = start_of_line + len(line_content)
-    return {
-        "start": {
-            "line": line,
-            "column": column,
-            "offset": start_offset,
-        },
-        "end": {
-            "line": line,
-            "column": len(line_content) + 1,
-            "offset": end_offset,
-        },
-    }
-
-
-def _validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
-    """Validate exactly ``raw_yaml`` and return Weaver-owned diagnostics."""
-    findings: List[Dict[str, Any]] = []
-
-    try:
-        list(yaml.compose_all(raw_yaml))
-    except yaml.MarkedYAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        line_number = getattr(mark, "line", None)
-        column_number = getattr(mark, "column", None)
-        line_number = line_number + 1 if isinstance(line_number, int) else None
-        column_number = column_number + 1 if isinstance(column_number, int) else 1
-        message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
-        findings.append(
-            {
-                "level": "error",
-                "message": message,
-                "filename": filename,
-                "line_number": line_number,
-                "source_range": _source_range_for_line(
-                    raw_yaml, line_number, column_number
-                ),
-                "yaml_path": None,
-                "source": "yaml-parser",
-            }
-        )
-
-    from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
-
-    checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-    for checker_error in checker_errors:
-        message = str(getattr(checker_error, "err_str", "") or checker_error).strip()
-        lowered = message.lower()
-        level = "error"
-        if lowered.startswith("warning:"):
-            level = "warning"
-            message = message[len("warning:") :].strip()
-        elif lowered.startswith("info:"):
-            level = "info"
-            message = message[len("info:") :].strip()
-        line_number = getattr(checker_error, "line_number", None)
-        variable = ""
-        qmatch = re.search(r'"([^"]+)"', message) or re.search(r"'([^']+)'", message)
-        if qmatch:
-            variable = qmatch.group(1)
-        yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
-            checker_error, "path", None
-        )
-        if yaml_path is not None:
-            yaml_path = str(yaml_path)
-        findings.append(
-            {
-                "level": level,
-                "message": message,
-                "variable": variable,
-                "filename": filename,
-                "line_number": line_number,
-                "source_range": _source_range_for_line(raw_yaml, line_number),
-                "yaml_path": yaml_path,
-                "source": "dayamlchecker",
-            }
-        )
-
-    deduped: List[Dict[str, Any]] = []
-    seen: set = set()
-    for finding in findings:
-        key = (
-            str(finding.get("level") or ""),
-            str(finding.get("message") or ""),
-            str(finding.get("line_number") or ""),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(finding)
-
-    model = parse_interview_yaml(raw_yaml)
-    return _annotate_lint_findings(
-        deduped, model.get("blocks", []), source_name="unsaved-source"
-    )
+# Diagnostic normalisation and whole-source validation live in
+# editor_agent_validation so that the agent, the patch API and the editor's own
+# unsaved-source check cannot drift apart. These aliases keep the existing
+# module-level names that call sites and tests already patch.
+_lint_level_from_severity = lint_level_from_severity
+_block_lookup_map = block_lookup_map
+_block_line_span = block_line_span
+_resolve_lint_block_id = resolve_lint_block_id
+_annotate_lint_findings = annotate_lint_findings
+_lint_summary_for_findings = lint_summary_for_findings
+_source_range_for_line = source_range_for_line
+_validate_source_text = validate_source_text
 
 
 def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
@@ -900,6 +706,33 @@ def _get_static_content(filename: str) -> str:
     return ""
 
 
+def _editor_feature_bootstrap() -> Dict[str, Any]:
+    """Publish the editor's feature state to the browser.
+
+    ``agent_editor`` says whether the assistant may be offered at all;
+    ``assistant_status`` says whether it can actually run. The panel is shown
+    for the first and explains itself for the second, so a missing API key
+    produces an explanation rather than a chat box that fails on submit.
+
+    Both spellings are emitted: editor.js already reads the camelCase keys, and
+    the agent contract is specified in snake_case.
+    """
+    patch_model = _patch_model_enabled()
+    runtime_inspector = _runtime_inspector_enabled()
+    agent_editor = _agent_editor_enabled()
+    status = _assistant_status()
+    return {
+        "patch_model": patch_model,
+        "runtime_inspector": runtime_inspector,
+        "agent_editor": agent_editor,
+        "assistant_status": status,
+        "patchModel": patch_model,
+        "runtimeInspector": runtime_inspector,
+        "agentEditor": agent_editor,
+        "assistantStatus": status,
+    }
+
+
 def _render_editor_page() -> str:
     """Build the editor HTML, injecting bootstrap JSON for the logged-in user."""
     html = _get_template_content("editor.html")
@@ -909,11 +742,7 @@ def _render_editor_page() -> str:
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
         "csrfToken": generate_csrf(),
-        "features": {
-            "runtimeInspector": _editor_feature_enabled(
-                "WEAVER_ENABLE_RUNTIME_INSPECTOR"
-            ),
-        },
+        "features": _editor_feature_bootstrap(),
         "systemChecks": {
             "celery": get_worker_configuration_status(),
         },
@@ -2161,21 +1990,199 @@ def editor_api_save_file() -> Response:
         )
 
 
-def _editor_feature_enabled(name: str) -> bool:
-    """Read an opt-in editor feature flag from environment or DA config."""
+# Weaver's editor settings, in the form Docassemble configuration normally
+# takes: lowercase words separated by spaces, grouped under one heading.
+#
+#     weaver:
+#       assistant: False
+#       assistant model: gpt-5-mini
+#       runtime inspector: True
+#
+# Each setting maps to the older UPPER_SNAKE spelling as well, so installs that
+# already set one of those keys — or the matching environment variable — keep
+# working without edits.
+WEAVER_CONFIG_SECTION = "weaver"
+
+WEAVER_SETTING_LEGACY_NAMES: Dict[str, str] = {
+    "assistant": "WEAVER_ENABLE_AGENT_EDITOR",
+    "assistant model": "WEAVER_AGENT_MODEL",
+    "runtime inspector": "WEAVER_ENABLE_RUNTIME_INSPECTOR",
+    "source patch api": "WEAVER_ENABLE_PATCH_MODEL",
+}
+
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
+
+
+def _daconfig() -> Dict[str, Any]:
+    try:
+        from docassemble.base.config import daconfig
+
+        return daconfig if isinstance(daconfig, dict) else {}
+    except (ImportError, AttributeError):
+        return {}
+
+
+def _legacy_config_spellings(legacy: str) -> List[str]:
+    """Every form a legacy UPPER_SNAKE key can take in the configuration.
+
+    Docassemble rejects underscores in configuration keys and rewrites them to
+    spaces on load, so a config file saying ``WEAVER_ENABLE_AGENT_EDITOR``
+    actually yields the key ``WEAVER ENABLE AGENT EDITOR``. Looking only for
+    the underscore form silently misses a setting the author did write.
+    """
+    spaced = legacy.replace("_", " ")
+    return [legacy, spaced, spaced.lower(), legacy.lower()]
+
+
+def _weaver_setting(name: str) -> Any:
+    """Read one Weaver editor setting, newest spelling first."""
+    legacy = WEAVER_SETTING_LEGACY_NAMES.get(name)
+    if legacy:
+        from_env = os.environ.get(legacy)
+        if from_env is not None:
+            return from_env
+
+    config = _daconfig()
+    section = config.get(WEAVER_CONFIG_SECTION)
+    if isinstance(section, dict) and name in section:
+        return section[name]
+    flat = f"{WEAVER_CONFIG_SECTION} {name}"
+    if flat in config:
+        return config[flat]
+    if legacy:
+        for spelling in _legacy_config_spellings(legacy):
+            if spelling in config:
+                return config[spelling]
+    return None
+
+
+def _weaver_flag(name: str, default: bool) -> bool:
+    """Read a boolean Weaver setting, falling back to ``default``."""
+    value = _weaver_setting(name)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in _TRUTHY:
+        return True
+    if text in _FALSY:
+        return False
+    return default
+
+
+def _weaver_text(name: str) -> Optional[str]:
+    value = _weaver_setting(name)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _editor_config_value(name: str) -> Optional[str]:
+    """Read a raw environment or Docassemble configuration value by name."""
     configured = os.environ.get(name)
     if configured is None:
-        try:
-            from docassemble.base.config import daconfig
+        configured = _daconfig().get(name)
+    if configured is None:
+        return None
+    text = str(configured).strip()
+    return text or None
 
-            configured = daconfig.get(name)
-        except (ImportError, AttributeError):
-            configured = None
-    return str(configured or "").strip().lower() in {"1", "true", "yes", "on"}
+
+def _editor_feature_enabled(name: str) -> bool:
+    """Read an opt-in editor feature flag from environment or DA config."""
+    return str(_editor_config_value(name) or "").lower() in _TRUTHY
 
 
 def _patch_model_enabled() -> bool:
-    return _editor_feature_enabled("WEAVER_ENABLE_PATCH_MODEL")
+    """The revisioned source-patch API at POST /al/editor/api/file/patch."""
+    return _weaver_flag("source patch api", False)
+
+
+def _agent_editor_enabled() -> bool:
+    """The editing assistant is on unless an administrator turns it off.
+
+    It does not depend on the source-patch API: the agent compiles its own
+    range operations in process and never calls that endpoint.
+    """
+    return _weaver_flag("assistant", True)
+
+
+ASSISTANT_STATUS_READY = "ready"
+ASSISTANT_STATUS_DISABLED = "disabled"
+ASSISTANT_STATUS_NO_TOOLBOX = "toolbox_unavailable"
+ASSISTANT_STATUS_NO_MODEL = "model_not_configured"
+ASSISTANT_STATUS_NO_WORKER = "worker_not_configured"
+
+_ASSISTANT_STATUS_MESSAGES = {
+    ASSISTANT_STATUS_DISABLED: (
+        "The editing assistant is turned off in this server's configuration."
+    ),
+    ASSISTANT_STATUS_NO_TOOLBOX: (
+        "The editing assistant needs the ALToolbox package, which this server "
+        "does not have installed. Ask your server administrator to install "
+        "docassemble.ALToolbox."
+    ),
+    ASSISTANT_STATUS_NO_MODEL: (
+        "The editing assistant needs a language model, and this server has no "
+        "API key configured. Ask your server administrator to add an "
+        "`openai api key` (or an `open ai:` block) to the Configuration."
+    ),
+    ASSISTANT_STATUS_NO_WORKER: (
+        "The editing assistant runs in this server's background worker, which "
+        "is not configured. Ask your server administrator to set up the "
+        "Celery worker."
+    ),
+}
+
+
+def _assistant_status() -> Dict[str, Any]:
+    """Report whether the assistant can actually run, and why not if it cannot.
+
+    An unconfigured model is the common case on a fresh server, and a chat box
+    that accepts a request and then fails is worse than one that explains what
+    is missing. ALToolbox sets its client to None when it finds no credentials,
+    so that is the honest signal rather than a guess at config key names.
+    """
+    if not _agent_editor_enabled():
+        code = ASSISTANT_STATUS_DISABLED
+        return {
+            "available": False,
+            "code": code,
+            "message": _ASSISTANT_STATUS_MESSAGES[code],
+        }
+    llms = _load_llms_module()
+    if llms is None:
+        code = ASSISTANT_STATUS_NO_TOOLBOX
+        return {
+            "available": False,
+            "code": code,
+            "message": _ASSISTANT_STATUS_MESSAGES[code],
+        }
+    if getattr(llms, "client", None) is None:
+        code = ASSISTANT_STATUS_NO_MODEL
+        return {
+            "available": False,
+            "code": code,
+            "message": _ASSISTANT_STATUS_MESSAGES[code],
+        }
+    # A turn runs in the worker, so no worker means no assistant. Better to say
+    # so up front than to accept a request that can never be picked up.
+    if not worker_configuration_is_ready():
+        code = ASSISTANT_STATUS_NO_WORKER
+        return {
+            "available": False,
+            "code": code,
+            "message": _ASSISTANT_STATUS_MESSAGES[code],
+            "details": {"docs_url": CELERY_CONFIGURATION_DOCS_URL},
+        }
+    return {"available": True, "code": ASSISTANT_STATUS_READY, "message": ""}
+
+
+def _agent_editor_available() -> bool:
+    return bool(_assistant_status()["available"])
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/patch", methods=["POST"])
@@ -2243,9 +2250,14 @@ def editor_api_patch_file() -> Response:
         updated_content, applied_operations = apply_range_operations(
             current_content, operations
         )
-        source_document = parse_source_document(filename, updated_content)
-        diagnostics = [item.to_dict() for item in source_document.diagnostics]
-        if not source_document.structurally_valid:
+        # The whole patched candidate goes through the same validator the agent
+        # uses, so a source patch can never hold a weaker standard than an
+        # agent edit. Nothing is written until it comes back non-blocking.
+        validation = validate_candidate_source(
+            filename=filename, raw_yaml=updated_content
+        )
+        diagnostics = validation.diagnostics
+        if validation.blocking:
             return jsonify_with_status(
                 {
                     "success": False,
@@ -2253,16 +2265,14 @@ def editor_api_patch_file() -> Response:
                     "error": {
                         "type": "invalid_patched_source",
                         "code": "invalid_patched_source",
-                        "message": "The patch would produce structurally invalid YAML.",
+                        "message": "The patch would produce an invalid interview.",
                         "details": {"diagnostics": diagnostics},
                     },
                 },
                 422,
             )
 
-        # Reparse before the single write. Parsed values are returned for
-        # analysis only; the original patched text remains authoritative.
-        model = parse_interview_yaml(updated_content)
+        model = validation.model or parse_interview_yaml(updated_content)
         source_diff = unified_source_diff(current_content, updated_content, filename)
         playground_write_yaml(uid, project, filename, updated_content)
         return jsonify(
@@ -2273,9 +2283,10 @@ def editor_api_patch_file() -> Response:
                     "project": project,
                     "filename": filename,
                     "raw_yaml": updated_content,
-                    "revision": source_document.revision,
+                    "revision": validation.revision,
                     "applied_operations": applied_operations,
                     "diagnostics": diagnostics,
+                    "summary": validation.public_summary(),
                     "diff": source_diff,
                     "blocks": model["blocks"],
                 },
@@ -2403,7 +2414,7 @@ RUNTIME_VARIABLE_RESULT_LIMIT = 1024 * 1024
 
 
 def _runtime_inspector_enabled() -> bool:
-    return _editor_feature_enabled("WEAVER_ENABLE_RUNTIME_INSPECTOR")
+    return _weaver_flag("runtime inspector", False)
 
 
 def _runtime_disabled(request_id: str) -> Response:
@@ -2849,6 +2860,886 @@ def editor_api_runtime_action(weaver_session_id: str, action_name: str) -> Respo
             },
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent editing sessions
+#
+# The browser hands over a working source snapshot; the server binds the
+# session to one project and filename and never lets a model change either.
+# Nothing in this section writes to the Playground: Apply hands the candidate
+# back to the editor as unsaved state, and the existing Save path persists it.
+# ---------------------------------------------------------------------------
+
+
+def _agent_disabled(request_id: str) -> Response:
+    """Explain why the assistant cannot serve this request.
+
+    A feature an administrator switched off is a 404; a feature that is on but
+    has nothing to talk to is a 503, because the fix is configuration rather
+    than a different request.
+    """
+    status = _assistant_status()
+    turned_off = status["code"] == ASSISTANT_STATUS_DISABLED
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "feature_disabled" if turned_off else "assistant_unavailable",
+                "code": (
+                    "agent_editor_disabled" if turned_off else "assistant_unavailable"
+                ),
+                "message": status["message"],
+                "details": {"status": status},
+            },
+        },
+        404 if turned_off else 503,
+    )
+
+
+def _agent_not_found(request_id: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "not_found",
+                "code": "agent_session_not_found",
+                "message": "The assistant session was not found or has expired.",
+            },
+        },
+        404,
+    )
+
+
+def _agent_validation_error(request_id: str, exc: Exception) -> Response:
+    status = 404 if isinstance(exc, FileNotFoundError) else 400
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "validation_error",
+                "code": "invalid_agent_request",
+                "message": str(exc),
+            },
+        },
+        status,
+    )
+
+
+def _agent_stale(request_id: str, session: Any, current_revision: str) -> Response:
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "stale_source",
+                "code": "agent_session_stale",
+                "message": (
+                    "Source changed since this agent session began. Restart the "
+                    "assistant against the current interview."
+                ),
+                "details": {
+                    "base_revision": session.base_saved_revision,
+                    "current_revision": current_revision,
+                },
+            },
+        },
+        409,
+    )
+
+
+def _log_agent_event(**fields: Any) -> None:
+    """Record an agent operation without ever logging interview content.
+
+    Prompts, interview text, uploaded document text and runtime variable values
+    stay out of the server log; the detailed conversation lives in the
+    owner-scoped Redis record for the session lifetime instead.
+    """
+    log(
+        "ALWeaver editor agent: "
+        + " ".join(
+            f"{key}={value}" for key, value in fields.items() if value is not None
+        ),
+        "info",
+    )
+
+
+class _AgentRuntimeBridge:
+    """Read-only access to the existing runtime inspector, for agent tools.
+
+    This does not reimplement Docassemble runtime execution: it drives the same
+    server-owned target session records the inspector UI already uses, and only
+    ever runs allowlisted ``al_weaver.inspect_*`` actions.
+    """
+
+    def __init__(self, user_id: int, project: str, filename: str):
+        self._user_id = user_id
+        self._project = project
+        self._filename = filename
+        self._record: Any = None
+
+    def _target(self) -> Any:
+        if self._record is None:
+            raise ValueError("No runtime session has been started")
+        return self._record.target()
+
+    def start_session(self) -> Dict[str, Any]:
+        playground_read_yaml(self._user_id, self._project, self._filename)
+        yaml_filename = playground_yaml_filename(
+            self._user_id, self._project, self._filename
+        )
+        target = create_target_session(yaml_filename, secret=None, url_args=None)
+        if target.secret is not None:
+            raise ValueError("Encrypted target sessions are not currently supported")
+        record = create_runtime_record(
+            weaver_session_id=str(uuid.uuid4()),
+            owner_user_id=self._user_id,
+            project=self._project,
+            filename=self._filename,
+            yaml_filename=yaml_filename,
+            target=target,
+            purpose="inspection",
+        )
+        store_runtime_record(r, record)
+        self._record = record
+        return {
+            "weaver_session_id": record.weaver_session_id,
+            "target_url": _runtime_target_url(record),
+        }
+
+    def current_question(self) -> Dict[str, Any]:
+        question = get_target_question(self._target())
+        append_runtime_event(r, self._record, "question_returned")
+        return {"question": question}
+
+    def variables(self) -> Dict[str, Any]:
+        values = get_target_variables(self._target(), simplify=True)
+        values = {
+            key: value
+            for key, value in values.items()
+            if not str(key).startswith("_internal")
+        }
+        serialized = json.dumps(values, default=str)
+        if len(serialized.encode("utf-8")) > RUNTIME_VARIABLE_RESULT_LIMIT:
+            raise ValueError("The runtime variable result is too large to inspect")
+        append_runtime_event(r, self._record, "variables_refreshed")
+        return {"variables": values}
+
+    def apply_scenario(
+        self, variables: Dict[str, Any], delete: List[str]
+    ) -> Dict[str, Any]:
+        if not isinstance(variables, dict):
+            raise ValueError("variables must be an object")
+        delete_names = [str(name) for name in (delete or []) if str(name).strip()]
+        serialized = json.dumps(
+            {"variables": variables, "delete": delete_names}, default=str
+        )
+        if len(serialized.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+            raise ValueError("Variable payload is too large")
+        set_target_variables(
+            self._target(),
+            variables,
+            delete=delete_names,
+            overwrite=False,
+            process_objects=False,
+        )
+        append_runtime_event(
+            r,
+            self._record,
+            "scenario_applied",
+            set_count=len(variables),
+            delete_count=len(delete_names),
+        )
+        return {"updated": True}
+
+    def back(self) -> Dict[str, Any]:
+        go_back_target_session(self._target())
+        append_runtime_event(r, self._record, "back_invoked")
+        return {"went_back": True}
+
+    def inspect(self, action_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if action_name not in RUNTIME_INSPECTION_ACTIONS:
+            raise ValueError("That runtime inspection action is not allowlisted")
+        result = run_target_action_raw(
+            self._target(), action_name, arguments=arguments or {}, read_only=True
+        )
+        data = result.data
+        if isinstance(data, (bytes, bytearray)) or (
+            isinstance(data, str)
+            and data.lstrip().lower().startswith(("<!doctype html", "<html"))
+        ):
+            raise ValueError("The inspection action returned an unsupported response")
+        serialized = json.dumps({"status": result.status, "data": data}, default=str)
+        if len(serialized.encode("utf-8")) > RUNTIME_ACTION_RESULT_LIMIT:
+            raise ValueError("The inspection action response is too large")
+        append_runtime_event(r, self._record, "action_invoked", action=action_name)
+        return {"status": result.status, "data": data}
+
+
+def _load_owned_agent_session(session_id: str) -> Any:
+    return load_agent_session(r, session_id, _current_user_id())
+
+
+def _agent_session_payload(
+    session: Any, *, current_revision: Optional[str] = None
+) -> Dict[str, Any]:
+    payload = session.public_dict()
+    payload["saved_revision"] = current_revision
+    payload["stale"] = (
+        current_revision is not None and current_revision != session.base_saved_revision
+    )
+    return payload
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/agent/sessions", methods=["POST"])
+def editor_api_agent_create_session() -> Response:
+    """Start an agent conversation bound to one Playground file."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        raw_yaml = post_data.get("raw_yaml")
+        if not isinstance(raw_yaml, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        if len(raw_yaml.encode("utf-8")) > MAX_CANDIDATE_SOURCE_BYTES:
+            raise ValueError("This interview is too large for the editing assistant")
+        base_revision = post_data.get("base_revision")
+        if not isinstance(base_revision, str) or not base_revision:
+            raise ValueError("base_revision is required")
+
+        # Reading the target proves this developer owns the Playground file.
+        saved_yaml = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(saved_yaml)
+        if base_revision != current_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "stale_source",
+                        "code": "agent_base_revision_stale",
+                        "message": (
+                            "The saved file changed after this editor buffer was "
+                            "loaded. Reload the interview before starting the "
+                            "assistant."
+                        ),
+                        "details": {
+                            "base_revision": base_revision,
+                            "current_revision": current_revision,
+                        },
+                    },
+                },
+                409,
+            )
+
+        auto_heal = bool(post_data.get("auto_heal", False))
+        candidate_source = raw_yaml
+        repaired_source: Optional[str] = None
+        repairs: List[Dict[str, Any]] = []
+        validation = validate_candidate_source(filename=filename, raw_yaml=raw_yaml)
+
+        if validation.blocking and auto_heal:
+            # Mechanical id problems are repaired deterministically, never by a
+            # model. The repairs are part of the candidate, so they show up in
+            # the diff the developer reviews before saving.
+            repair_result = auto_heal_source(filename=filename, raw_yaml=raw_yaml)
+            if repair_result.healed:
+                candidate_source = repair_result.raw_yaml
+                repaired_source = repair_result.raw_yaml
+                repairs = [item.public_dict() for item in repair_result.repairs]
+                validation = repair_result.validation or validate_candidate_source(
+                    filename=filename, raw_yaml=candidate_source
+                )
+                _log_agent_event(
+                    request_id=request_id,
+                    user=uid,
+                    project=project,
+                    filename=filename,
+                    event="working_source_repaired",
+                    repairs=len(repairs),
+                )
+
+        if validation.blocking:
+            offer = describe_repair_offer(filename=filename, raw_yaml=raw_yaml)
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "invalid_working_source",
+                        "code": "invalid_working_source",
+                        "message": (
+                            "The assistant needs a valid interview to start from. "
+                            "Fix the errors below, then try again."
+                        ),
+                        "details": {
+                            "diagnostics": validation.blocking_diagnostics(),
+                            **offer,
+                        },
+                    },
+                },
+                422,
+            )
+
+        session = WeaverAgentSession(
+            session_id=str(uuid.uuid4()),
+            owner_user_id=uid,
+            project=project,
+            filename=filename,
+            base_saved_revision=current_revision,
+            # The diff base stays the developer's own source so any repair is
+            # visible; Reset returns to the repaired baseline instead.
+            original_working_source=raw_yaml,
+            candidate_source=candidate_source,
+            candidate_revision=validation.revision,
+            repaired_working_source=repaired_source,
+            repairs=repairs,
+        )
+        store_agent_session(r, session)
+        _log_agent_event(
+            request_id=request_id,
+            agent_session=session.session_id,
+            user=uid,
+            project=project,
+            filename=filename,
+            event="session_created",
+            repairs=len(repairs) or None,
+        )
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _agent_session_payload(
+                    session, current_revision=current_revision
+                ),
+            },
+            201,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        return _agent_validation_error(request_id, exc)
+    except Exception as exc:
+        log(f"ALWeaver editor: agent session creation failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "agent_session_creation_failed",
+                    "message": "The assistant session could not be created.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>", methods=["GET", "DELETE"]
+)
+def editor_api_agent_session(session_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    session = _load_owned_agent_session(session_id)
+    if session is None:
+        return _agent_not_found(request_id)
+    if request.method == "DELETE":
+        delete_agent_session(r, session_id, _current_user_id())
+        clear_progress(r, session_id)
+        return jsonify(
+            {"success": True, "request_id": request_id, "data": {"deleted": True}}
+        )
+    try:
+        current_revision = source_revision(
+            playground_read_yaml(
+                session.owner_user_id, session.project, session.filename
+            )
+        )
+    except (ValueError, FileNotFoundError):
+        current_revision = None
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": _agent_session_payload(session, current_revision=current_revision),
+        }
+    )
+
+
+def _run_agent_turn_in_background(
+    *,
+    session_id: str,
+    owner_user_id: int,
+    message: str,
+    selected_block_id: Optional[str],
+    runtime_enabled: bool,
+    request_id: str,
+    started_at: float,
+) -> None:
+    """Run one turn to completion outside the request that asked for it.
+
+    Everything needed is looked up fresh here, so the thread holds no Flask
+    request state. Whatever happens — success, refusal or crash — the outcome
+    lands in the progress record, because that is the only place the browser
+    can still read it once the original request is gone.
+    """
+    live_events: List[Dict[str, Any]] = [
+        {"type": "status", "label": "Starting", "status": "thinking"}
+    ]
+
+    def publish_progress(
+        running: bool,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        store_progress(
+            r,
+            session_id,
+            owner_user_id,
+            running=running,
+            events=live_events,
+            started_at=started_at,
+            result=result,
+            error=error,
+        )
+
+    model_name = ""
+    try:
+        session = load_agent_session(r, session_id, owner_user_id)
+        if session is None:
+            publish_progress(
+                False,
+                error={
+                    "code": "agent_session_not_found",
+                    "message": "The assistant session expired before the request ran.",
+                },
+            )
+            return
+
+        llms = _load_llms_module()
+        if llms is None:
+            raise AgentConfigurationError("docassemble.ALToolbox.llms is not available")
+        model_name = pick_agent_model_name(llms, _weaver_text("assistant model"))
+        runtime = (
+            _AgentRuntimeBridge(
+                session.owner_user_id, session.project, session.filename
+            )
+            if runtime_enabled
+            else None
+        )
+
+        def should_cancel() -> bool:
+            latest = load_agent_session(r, session_id, owner_user_id)
+            return bool(latest and latest.cancelled)
+
+        def on_event(event: Dict[str, Any]) -> None:
+            live_events.append(event)
+            publish_progress(True)
+
+        candidate = session.candidate()
+        result = run_agent_turn(
+            session=session,
+            candidate=candidate,
+            user_message=message,
+            llms_module=llms,
+            model_name=model_name,
+            runtime_enabled=runtime_enabled,
+            runtime=runtime,
+            selected_block_id=selected_block_id,
+            should_cancel=should_cancel,
+            on_event=on_event,
+        )
+        record_turn(session, result)
+        store_agent_session(r, session)
+
+        for command in candidate.applied_commands:
+            _log_agent_event(
+                request_id=request_id,
+                agent_session=session_id,
+                user=owner_user_id,
+                project=session.project,
+                filename=session.filename,
+                model=model_name,
+                tool=command.get("tool"),
+                status=command.get("status"),
+                before_revision=command.get("before_revision"),
+                after_revision=command.get("after_revision"),
+            )
+        _log_agent_event(
+            request_id=request_id,
+            agent_session=session_id,
+            user=owner_user_id,
+            model=model_name,
+            event="turn_finished",
+            status=result.status,
+            stop_reason=result.stop_reason,
+            errors=len(
+                [
+                    item
+                    for item in result.diagnostics
+                    if str(item.get("level")) == "error"
+                ]
+            ),
+            latency_ms=int((time.time() - started_at) * 1000),
+        )
+        payload = dict(result.public_dict())
+        payload["session"] = _agent_session_payload(session)
+        publish_progress(False, result=payload)
+    except AgentConfigurationError as exc:
+        publish_progress(
+            False, error={"code": "agent_model_unavailable", "message": str(exc)}
+        )
+    except Exception as exc:  # noqa: BLE001 - a lost thread must not hang the UI
+        log(f"ALWeaver editor: agent turn failed: {exc!r}", "error")
+        _log_agent_event(
+            request_id=request_id,
+            agent_session=session_id,
+            user=owner_user_id,
+            model=model_name or None,
+            event="turn_failed",
+            error_type=type(exc).__name__,
+        )
+        publish_progress(
+            False,
+            error={
+                "code": "agent_turn_failed",
+                "message": "The assistant could not complete that request.",
+            },
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>/turn", methods=["POST"])
+def editor_api_agent_turn(session_id: str) -> Response:
+    """Start one bounded agent turn and return immediately.
+
+    A turn routinely outlives any HTTP request: the browser client gives up
+    after its own timeout and nginx closes an idle upstream read at sixty
+    seconds by default, while a multi-step edit takes longer than that. So the
+    work runs in the background and the browser follows it through the progress
+    endpoint instead of holding a request open.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    session = _load_owned_agent_session(session_id)
+    if session is None:
+        return _agent_not_found(request_id)
+    started_at = time.time()
+    try:
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        message = post_data.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("message must be a non-empty string")
+        if len(message) > MAX_CHAT_MESSAGE_CHARS:
+            raise ValueError(
+                f"A chat message may be at most {MAX_CHAT_MESSAGE_CHARS} characters"
+            )
+        selected_block_id = post_data.get("selected_block_id")
+        if selected_block_id is not None and not isinstance(selected_block_id, str):
+            raise ValueError("selected_block_id must be a string or null")
+
+        if session.is_exhausted:
+            # This assistant is for small, discrete edits. Rather than letting a
+            # conversation sprawl until each turn is slow and vague, it stops and
+            # asks for the work so far to be applied and a fresh chat started.
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "conflict",
+                        "code": "turn_limit_reached",
+                        "message": (
+                            f"This chat has reached its {MAX_TURNS_PER_SESSION}-request "
+                            "limit. Apply what you have, then start a new chat for the "
+                            "next change — the assistant works best on one task at a time."
+                        ),
+                        "details": {"max_turns": MAX_TURNS_PER_SESSION},
+                    },
+                },
+                409,
+            )
+
+        if progress_is_live(load_progress(r, session_id, session.owner_user_id)):
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "conflict",
+                        "code": "turn_in_progress",
+                        "message": "This assistant is still working on the previous request.",
+                    },
+                },
+                409,
+            )
+
+        session.cancelled = False
+        session.turn_count = int(session.turn_count) + 1
+        store_agent_session(r, session)
+        store_progress(
+            r,
+            session_id,
+            session.owner_user_id,
+            running=True,
+            events=[{"type": "status", "label": "Starting", "status": "thinking"}],
+            started_at=started_at,
+        )
+
+        try:
+            workerapp.send_task(
+                AGENT_TURN_CELERY_TASK,
+                kwargs={
+                    "session_id": session_id,
+                    "owner_user_id": session.owner_user_id,
+                    "message": message,
+                    "selected_block_id": selected_block_id,
+                    "runtime_enabled": _runtime_inspector_enabled(),
+                    "request_id": request_id,
+                    "started_at": started_at,
+                },
+            )
+        except Exception as exc:
+            log(f"ALWeaver editor: could not queue agent turn: {exc!r}", "error")
+            clear_progress(r, session_id)
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "server_error",
+                        "code": "agent_turn_not_queued",
+                        "message": (
+                            "The assistant could not be started. Check that this "
+                            "server's background worker is running."
+                        ),
+                    },
+                },
+                503,
+            )
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "started": True,
+                    "started_at": started_at,
+                    "session": _agent_session_payload(session),
+                },
+            },
+            202,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        clear_progress(r, session_id)
+        return _agent_validation_error(request_id, exc)
+    except AgentConfigurationError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "agent_model_unavailable",
+                    "message": str(exc),
+                },
+            },
+            503,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: agent turn failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "agent_turn_failed",
+                    "message": "The assistant could not complete that request.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>/progress", methods=["GET"]
+)
+def editor_api_agent_progress(session_id: str) -> Response:
+    """Report what the running turn has done so far.
+
+    Polled by the browser while a turn is in flight. Reads a dedicated record
+    rather than the session, so it never races the turn's own writes.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    uid = _current_user_id()
+    if load_agent_session(r, session_id, uid) is None:
+        return _agent_not_found(request_id)
+    progress = load_progress(r, session_id, uid) or {
+        "running": False,
+        "events": [],
+        "started_at": None,
+    }
+    return jsonify({"success": True, "request_id": request_id, "data": progress})
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>/cancel", methods=["POST"]
+)
+def editor_api_agent_cancel(session_id: str) -> Response:
+    """Ask a running turn to stop before its next model or tool step."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    session = _load_owned_agent_session(session_id)
+    if session is None:
+        return _agent_not_found(request_id)
+    session.cancelled = True
+    store_agent_session(r, session)
+    return jsonify(
+        {"success": True, "request_id": request_id, "data": {"cancelled": True}}
+    )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>/reset", methods=["POST"]
+)
+def editor_api_agent_reset(session_id: str) -> Response:
+    """Return the candidate to the working source the session started with."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    session = _load_owned_agent_session(session_id)
+    if session is None:
+        return _agent_not_found(request_id)
+    session.reset_candidate()
+    store_agent_session(r, session)
+    clear_progress(r, session_id)
+    _log_agent_event(
+        request_id=request_id,
+        agent_session=session.session_id,
+        user=session.owner_user_id,
+        event="session_reset",
+    )
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": _agent_session_payload(session),
+        }
+    )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/agent/sessions/<session_id>/apply", methods=["POST"]
+)
+def editor_api_agent_apply(session_id: str) -> Response:
+    """Hand the candidate back to the browser as unsaved editor state.
+
+    This endpoint never writes to the Playground. The developer applies, looks
+    at the result, and then saves through the editor's existing Save path.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _agent_editor_available():
+        return _agent_disabled(request_id)
+    session = _load_owned_agent_session(session_id)
+    if session is None:
+        return _agent_not_found(request_id)
+    try:
+        saved_yaml = playground_read_yaml(
+            session.owner_user_id, session.project, session.filename
+        )
+        current_revision = source_revision(saved_yaml)
+        if current_revision != session.base_saved_revision:
+            return _agent_stale(request_id, session, current_revision)
+
+        validation = validate_candidate_source(
+            filename=session.filename, raw_yaml=session.candidate_source
+        )
+        if validation.blocking:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "invalid_candidate",
+                        "code": "invalid_candidate",
+                        "message": "This candidate has validation errors and cannot be applied.",
+                        "details": {"diagnostics": validation.blocking_diagnostics()},
+                    },
+                },
+                422,
+            )
+
+        candidate = session.candidate()
+        _log_agent_event(
+            request_id=request_id,
+            agent_session=session.session_id,
+            user=session.owner_user_id,
+            project=session.project,
+            filename=session.filename,
+            event="candidate_applied",
+            candidate_revision=session.candidate_revision,
+            commands=len(session.command_history),
+        )
+        payload = _build_file_response_data(
+            session.candidate_source, session.project, session.filename
+        )
+        payload.update(
+            {
+                "candidate_revision": session.candidate_revision,
+                # The revision the editor stays dirty against: applying hands
+                # the candidate to the browser and writes nothing to disk.
+                "saved_revision": current_revision,
+                "metadata_raw_yaml": metadata_source_slice(session.candidate_source),
+                "diff": candidate.diff(session.filename),
+                "diagnostics": validation.diagnostics,
+                "summary": validation.public_summary(),
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": payload})
+    except (ValueError, FileNotFoundError) as exc:
+        return _agent_validation_error(request_id, exc)
+    except Exception as exc:
+        log(f"ALWeaver editor: agent apply failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "agent_apply_failed",
+                    "message": "The candidate could not be applied.",
+                },
+            },
+            500,
+        )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/file/rename", methods=["POST"])
@@ -3950,6 +4841,9 @@ def editor_api_preview_url() -> Response:
 NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
 NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
 NEW_PROJECT_CELERY_MODULE = CELERY_MODULE
+AGENT_TURN_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_agent_turn_task"
+)
 NEW_PROJECT_CELERY_TASK = (
     "docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
 )
