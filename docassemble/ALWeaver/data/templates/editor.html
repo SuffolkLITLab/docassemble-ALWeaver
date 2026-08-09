@@ -35,6 +35,7 @@
           <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
           <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
           <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
+          <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" id="btn-toggle-assistant" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Assistant</button>
           <div class="dropdown">
             <button type="button" class="btn btn-sm btn-outline-light dropdown-toggle" id="topbar-more-menu" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="More editor tools">More</button>
             <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="topbar-more-menu">
@@ -131,6 +132,17 @@
         </div>
       </div>
     </main>
+
+    <!-- ASSISTANT DRAWER (opt-in; hidden unless the agent editor is enabled) -->
+    <aside class="editor-assistant d-none" id="editor-assistant" aria-label="Editing assistant">
+      <div class="editor-assistant-bar">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="close-assistant"
+                aria-label="Close the assistant panel">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="editor-assistant-body" id="editor-assistant-body"></div>
+    </aside>
 
   </div>
 
@@ -328,6 +340,7 @@
 <script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>
+<script src="/al/editor/static/editor_agent_chat.js"></script>
 <script src="/al/editor/static/editor.js"></script>
 </body>
 </html>

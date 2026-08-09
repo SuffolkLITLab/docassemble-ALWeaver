@@ -29,6 +29,39 @@ def weaver_generate_task(
 
 
 @workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_agent_turn_task"
+)
+def weaver_editor_agent_turn_task(
+    *,
+    session_id: str,
+    owner_user_id: int,
+    message: str,
+    selected_block_id: Optional[str],
+    runtime_enabled: bool,
+    request_id: str,
+    started_at: float,
+) -> None:
+    """Run one editing-assistant turn in Docassemble's Celery worker.
+
+    A turn outlives any HTTP request — the browser gives up first, and nginx
+    closes an idle upstream read well before a multi-step edit finishes — so it
+    belongs in the worker, alongside project generation.
+    """
+    with bg_context():
+        from .api_editor import _run_agent_turn_in_background
+
+        _run_agent_turn_in_background(
+            session_id=session_id,
+            owner_user_id=owner_user_id,
+            message=message,
+            selected_block_id=selected_block_id,
+            runtime_enabled=runtime_enabled,
+            request_id=request_id,
+            started_at=started_at,
+        )
+
+
+@workerapp.task(
     name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
 )
 def weaver_editor_new_project_task(

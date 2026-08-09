@@ -11,6 +11,7 @@ NODE_TESTS = (
     "test_editor_api_client.js",
     "test_editor_serializers.js",
     "test_editor_validation_source.js",
+    "test_editor_agent_chat.js",
 )
 
 
@@ -64,10 +65,42 @@ class TestEditorFrontend(unittest.TestCase):
             "editor_dirty_state.js",
             "editor_serializers.js",
             "editor_validation_source.js",
+            "editor_agent_chat.js",
         ):
             self.assertLess(template.index(module), template.index("editor.js"))
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
+
+    def test_the_assistant_is_absent_until_its_feature_flag_is_on(self):
+        """The assistant drawer ships in the template but must not be reachable
+        on an installation that has not opted in. The toggle is hidden and the
+        panel markup is removed outright, so there is no partly-wired UI for a
+        developer to find."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="editor-assistant"', template)
+        self.assertIn('class="editor-assistant d-none"', template)
+        self.assertIn("js-assistant-toggle", template)
+        self.assertIn('data-action="toggle-assistant"', template)
+        self.assertIn('aria-controls="editor-assistant"', template)
+
+        self.assertIn("BOOT.features && BOOT.features.agent_editor", editor)
+        self.assertIn("if (!agentEditorEnabled()) {", editor)
+        self.assertIn("assistantPanel.remove()", editor)
+
+    def test_applying_an_agent_candidate_leaves_the_editor_dirty(self):
+        """Apply is not Save. The candidate already contains the developer's
+        earlier unsaved edits, so treating the result as saved would drop that
+        work on the next reload; the editor must stay dirty against the
+        revision that is actually on disk."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        start = editor.index("function applyAgentCandidate(")
+        body = editor[start : editor.index("\n  function ", start + 1)]
+        self.assertIn("state.revision = data.saved_revision", body)
+        self.assertIn("dirtyState.markSourceDirty(", body)
+        self.assertNotIn("setFileSaved", body)
 
     def test_unsaved_changes_modal_cannot_trap_the_page(self):
         """The unsaved-changes modal is opened by every navigation gesture and

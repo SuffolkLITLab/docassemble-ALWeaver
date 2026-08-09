@@ -2870,3 +2870,397 @@ code.md-mako-expr {
 .js-check-errors-btn .js-check-errors-icon {
   margin-right: 4px;
 }
+
+/* ===== Editing assistant drawer ===== */
+
+:root {
+  --editor-assistant-width: 380px;
+}
+
+/* The drawer is a third grid column on wide screens and a slide-over on
+   narrow ones, so opening it never reflows the editor out from under a
+   developer who is mid-edit. */
+.editor-layout.editor-layout-assistant-open {
+  grid-template-columns: var(--editor-left-width) minmax(0, 1fr) var(--editor-assistant-width);
+}
+
+.editor-assistant {
+  background: #fff;
+  border-left: 1px solid var(--editor-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  min-width: 0;
+}
+
+.editor-assistant-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--editor-border);
+  flex-shrink: 0;
+}
+
+.editor-assistant-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-agent-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.editor-agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+  flex-shrink: 0;
+}
+
+.editor-agent-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.editor-agent-status {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 0.8rem;
+  color: var(--editor-muted);
+  flex-shrink: 0;
+}
+
+.editor-agent-status-error {
+  color: var(--editor-accent);
+  font-weight: 600;
+}
+
+.editor-agent-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+}
+
+.editor-agent-empty {
+  font-size: 0.85rem;
+  color: var(--editor-muted);
+}
+
+.editor-agent-message {
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.editor-agent-message-user {
+  background: var(--editor-primary-bg);
+}
+
+.editor-agent-message-error {
+  border-color: var(--editor-accent);
+}
+
+.editor-agent-message-role {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--editor-muted);
+  margin: 0 0 4px;
+}
+
+.editor-agent-message-body {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-agent-steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+.editor-agent-step {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+.editor-agent-step-icon {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.editor-agent-step-success .editor-agent-step-icon { color: #1a7f4b; }
+.editor-agent-step-rejected .editor-agent-step-icon,
+.editor-agent-step-error .editor-agent-step-icon { color: #b45309; }
+
+.editor-agent-stop-reason {
+  font-size: 0.78rem;
+  color: var(--editor-muted);
+  margin: 6px 0 0;
+}
+
+.editor-agent-diagnostics {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+}
+
+.editor-agent-diagnostic {
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--editor-border);
+  overflow-wrap: anywhere;
+}
+
+.editor-agent-diagnostic-error { border-left-color: #b91c1c; }
+.editor-agent-diagnostic-warning { border-left-color: #b45309; }
+
+.editor-agent-diff {
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
+
+.editor-agent-diff > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.editor-agent-diff-body {
+  max-height: 320px;
+  overflow: auto;
+  background: var(--editor-bg);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  white-space: pre;
+}
+
+.editor-agent-diff-note {
+  font-size: 0.75rem;
+  color: var(--editor-muted);
+  margin: 4px 0 0;
+}
+
+.editor-agent-composer {
+  flex-shrink: 0;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--editor-border);
+}
+
+@media (max-width: 1200px) {
+  /* Not enough room for a third column: slide the panel over the canvas. */
+  .editor-layout.editor-layout-assistant-open {
+    grid-template-columns: var(--editor-left-width) minmax(0, 1fr);
+  }
+
+  .editor-assistant {
+    position: fixed;
+    top: var(--editor-navbar-height);
+    right: 0;
+    bottom: 0;
+    width: min(420px, 100vw);
+    z-index: 1045;
+    box-shadow: -4px 0 16px rgba(13, 57, 112, 0.18);
+  }
+}
+
+@media (max-width: 900px) {
+  .editor-layout.editor-layout-assistant-open {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-assistant {
+    width: 100vw;
+  }
+}
+
+/* ===== Assistant: deterministic source repairs ===== */
+
+.editor-agent-repair-offer {
+  border: 1px solid var(--editor-border);
+  border-left: 3px solid var(--editor-primary);
+  border-radius: var(--editor-radius);
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--editor-primary-bg);
+}
+
+.editor-agent-repair-offer-text {
+  font-size: 0.85rem;
+  margin: 0 0 6px;
+}
+
+.editor-agent-repairs {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 0.78rem;
+}
+
+.editor-agent-repair {
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--editor-border);
+  overflow-wrap: anywhere;
+}
+
+/* ===== Assistant: not configured on this server ===== */
+
+.editor-agent-unavailable {
+  padding: 12px;
+  margin: 0 12px;
+  border: 1px solid var(--editor-border);
+  border-left: 3px solid var(--editor-accent);
+  border-radius: var(--editor-radius);
+  background: #fff;
+}
+
+.editor-agent-unavailable-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 6px;
+}
+
+.editor-agent-unavailable-detail {
+  font-size: 0.85rem;
+  color: var(--editor-muted);
+  margin: 0;
+}
+
+/* ===== Assistant: work-in-progress indicator =====
+   A turn can run for a minute. It sits above the composer, animates, counts
+   elapsed time and lists steps as they land, so it is never ambiguous whether
+   the assistant is still working. */
+
+.editor-agent-working {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--editor-primary);
+  border-radius: var(--editor-radius);
+  background: var(--editor-primary-bg);
+}
+
+.editor-agent-working-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-agent-working-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--editor-primary);
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-agent-working-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--editor-muted);
+}
+
+.editor-agent-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid rgba(13, 57, 112, 0.25);
+  border-top-color: var(--editor-primary);
+  border-radius: 50%;
+  animation: editor-agent-spin 0.8s linear infinite;
+}
+
+.editor-agent-working-bar {
+  position: relative;
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(13, 57, 112, 0.15);
+  overflow: hidden;
+}
+
+.editor-agent-working-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--editor-primary);
+  animation: editor-agent-slide 1.4s ease-in-out infinite;
+}
+
+.editor-agent-steps-live {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+@keyframes editor-agent-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes editor-agent-slide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-agent-spinner,
+  .editor-agent-working-bar::after {
+    animation: none;
+  }
+  .editor-agent-working-bar::after { width: 100%; }
+}
+
+/* The toolbar button pulses while a turn runs, so a closed drawer still shows
+   that the assistant is busy. */
+.editor-assistant-working {
+  animation: editor-assistant-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes editor-assistant-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-assistant-working { animation: none; text-decoration: underline; }
+}
+
+/* ===== Assistant: one task per chat =====
+   A long conversation makes each turn slower and the candidate harder to
+   review in one diff, so the panel counts down and offers a fresh start. */
+
+.editor-agent-nudge {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--editor-border);
+  border-radius: var(--editor-radius);
+  background: var(--editor-bg);
+}
+
+.editor-agent-nudge-text {
+  font-size: 0.8rem;
+  color: var(--editor-muted);
+  margin: 0 0 6px;
+}

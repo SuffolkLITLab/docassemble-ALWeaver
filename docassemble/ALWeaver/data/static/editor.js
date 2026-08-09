@@ -48,6 +48,7 @@
     rawYaml: '',
     revision: null,
     metadataRawYaml: '',
+    assistantOpen: false,
     selectedBlockId: null,
     currentView: 'interview',
     canvasMode: 'project-selector',
@@ -598,6 +599,49 @@
     runCurrentValidationCheck();
   }
 
+  // Applying an assistant candidate replaces the working buffer only.
+  //
+  // The candidate was built on top of whatever was already unsaved, so those
+  // edits come back with it — but nothing has been written to the Playground,
+  // which is still at `saved_revision`. The editor therefore has to come out of
+  // this dirty; treating it as saved would silently drop the developer's work
+  // on the next reload.
+  function applyAgentCandidate(data) {
+    if (!data || typeof data.raw_yaml !== 'string') return;
+    state.blocks = data.blocks || [];
+    state.metadataIndices = data.metadata_blocks || [];
+    state.includeIndices = data.include_blocks || [];
+    state.defaultSpIndices = data.default_screen_parts_blocks || [];
+    state.orderIndices = data.order_blocks || [];
+    state.orderStepMap = data.order_step_map || {};
+    state.rawYaml = data.raw_yaml;
+    state.revision = data.saved_revision || state.revision;
+    state.metadataRawYaml = data.metadata_raw_yaml || '';
+    state.fullYamlStash = {};
+    state.orderDirty = false;
+    state.canvasMode = 'question';
+    state.questionEditMode = 'preview';
+    var nextOrderBlockId = getDefaultOrderBlockId();
+    setActiveOrderBlock(
+      nextOrderBlockId,
+      nextOrderBlockId ? state.orderStepMap[nextOrderBlockId] : (data.order_steps || [])
+    );
+    var selected = getBlockById(state.selectedBlockId);
+    if (!selected || !isBlockVisibleInOutline(selected)) {
+      state.selectedBlockId = getDefaultVisibleBlockId();
+    }
+    dirtyState.activate(state.filename, state.selectedBlockId);
+    dirtyState.markSourceDirty(
+      'agent-apply:' + (data.candidate_revision || ''),
+      state.filename
+    );
+    loadAvailableSymbols(true);
+    renderOutline();
+    renderCanvas();
+    updateTopbarSaveState();
+    runCurrentValidationCheck();
+  }
+
   function setActiveTopTab(targetTab) {
     $$('.editor-top-tab').forEach(function (tab) {
       var isActive = tab === targetTab;
@@ -804,6 +848,66 @@
       state.runtimeTargetSession = session;
     },
   });
+
+  var agentChat = window.ALWeaverAgentChat ? window.ALWeaverAgentChat.createAgentChat({
+    api: {
+      get: apiGet,
+      post: apiPost,
+      delete: apiDelete,
+    },
+    getContext: function () {
+      return {
+        project: state.project,
+        filename: state.filename,
+        selectedBlockId: state.selectedBlockId,
+      };
+    },
+    getWorkingSource: function () { return getWorkingSourceSnapshot(); },
+    getAvailability: function () {
+      return (BOOT.features && BOOT.features.assistant_status) ||
+        { available: true, code: 'ready', message: '' };
+    },
+    onApply: function (data) { applyAgentCandidate(data); },
+    onStateChange: function (chatState) {
+      updateTopbarSaveState();
+      // The drawer may be closed while a turn runs, so the toolbar button
+      // carries the same signal.
+      var working = ['starting', 'thinking', 'inspecting', 'editing', 'validating', 'testing']
+        .indexOf(chatState) !== -1;
+      document.querySelectorAll('.js-assistant-toggle').forEach(function (control) {
+        control.classList.toggle('editor-assistant-working', working);
+      });
+    },
+  }) : null;
+
+  function agentEditorEnabled() {
+    return Boolean(agentChat && BOOT.features && BOOT.features.agent_editor);
+  }
+
+  function setAssistantOpen(open) {
+    if (!agentEditorEnabled()) return;
+    state.assistantOpen = Boolean(open);
+    var panel = document.getElementById('editor-assistant');
+    var layout = document.getElementById('editor-layout');
+    var toggle = document.getElementById('btn-toggle-assistant');
+    if (panel) panel.classList.toggle('d-none', !state.assistantOpen);
+    if (layout) layout.classList.toggle('editor-layout-assistant-open', state.assistantOpen);
+    if (toggle) toggle.setAttribute('aria-expanded', state.assistantOpen ? 'true' : 'false');
+    if (!state.assistantOpen) return;
+    agentChat.render(document.getElementById('editor-assistant-body'));
+    var input = document.getElementById('editor-agent-input');
+    if (input) input.focus();
+  }
+
+  // An assistant session is bound server-side to one project and file, so
+  // moving to another file has to end it rather than quietly retarget it.
+  function endAssistantSessionForFileChange() {
+    if (!agentChat) return;
+    agentChat.endSession();
+    if (state.assistantOpen) {
+      agentChat.render(document.getElementById('editor-assistant-body'));
+    }
+  }
 
   function isSupersededRequest(error) {
     return Boolean(error && (
@@ -3343,6 +3447,7 @@
 
   function loadFile() {
     if (!state.filename) return Promise.resolve();
+    endAssistantSessionForFileChange();
     return apiGet(
       '/api/file?project=' + encodeURIComponent(state.project) +
       '&filename=' + encodeURIComponent(state.filename)
@@ -4108,7 +4213,11 @@
     runValidation();
   }
 
-  function getValidationSourceSnapshot() {
+  // Collect every dirty editor buffer into one description of "what the
+  // developer is looking at right now". Validation and the assistant both
+  // consume this; neither may fall back to the saved file behind the
+  // developer's back, so an unmappable buffer throws instead.
+  function describeWorkingSource(orderDirtyMessage) {
     stashCurrentEditorState();
     var fileState = dirtyState.getFileState(state.filename);
     var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
@@ -4117,6 +4226,10 @@
       rawYaml: state.rawYaml,
       blocks: state.blocks,
       blockReplacements: {},
+      baseRevision: state.revision || null,
+      orderDirty: Boolean(state.orderDirty),
+      orderDirtyMessage: orderDirtyMessage,
+      hasUnsavedChanges: hasDirtySource || hasDirtyBlocks,
     };
 
     if (hasDirtySource && state.fullYamlTab === 'full') {
@@ -4131,10 +4244,6 @@
       options.metadataSource = state.fullYamlStash.metadata;
     }
 
-    if (state.orderDirty) {
-      throw new Error('Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.');
-    }
-
     if (!hasDirtySource && hasDirtyBlocks) {
       fileState.dirtyBlockIds.forEach(function (blockId) {
         var block = getBlockById(blockId);
@@ -4147,9 +4256,24 @@
       });
     }
 
+    return options;
+  }
+
+  function getWorkingSourceSnapshot() {
+    return window.ALWeaverValidationSource.buildWorkingSourceSnapshot(
+      describeWorkingSource()
+    );
+  }
+
+  function getValidationSourceSnapshot() {
+    var snapshot = window.ALWeaverValidationSource.buildWorkingSourceSnapshot(
+      describeWorkingSource(
+        'Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.'
+      )
+    );
     return {
-      rawYaml: window.ALWeaverValidationSource.buildValidationSource(options),
-      scope: (hasDirtySource || hasDirtyBlocks) ? 'unsaved_source' : 'saved_source',
+      rawYaml: snapshot.raw_yaml,
+      scope: snapshot.has_unsaved_changes ? 'unsaved_source' : 'saved_source',
     };
   }
 
@@ -7100,6 +7224,14 @@
       saveCurrentFile();
       return;
     }
+    if (uiAction === 'toggle-assistant') {
+      setAssistantOpen(!state.assistantOpen);
+      return;
+    }
+    if (uiAction === 'close-assistant') {
+      setAssistantOpen(false);
+      return;
+    }
     if (target.id === 'gen-block-id') {
       var titleEl = document.getElementById('q-title');
       var idEl = document.getElementById('adv-id');
@@ -8259,6 +8391,14 @@
       var host = control.closest('li') || control;
       host.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
     });
+    // No assistant control and no assistant markup unless the flag is on.
+    document.querySelectorAll('.js-assistant-toggle').forEach(function (control) {
+      control.classList.toggle('d-none', !agentEditorEnabled());
+    });
+    if (!agentEditorEnabled()) {
+      var assistantPanel = document.getElementById('editor-assistant');
+      if (assistantPanel) assistantPanel.remove();
+    }
     initSourceEditor(function () {
       populateProjects();
       state.canvasMode = 'project-selector';

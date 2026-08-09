@@ -225,6 +225,21 @@ def parse_source_document(filename: str, raw_text: str) -> SourceDocument:
     )
 
 
+def document_content_offset(body: str) -> int:
+    """Offset within a document body of the first line that carries content.
+
+    Editing a block by replacing its whole body would take any comment written
+    above the first key with it, so callers start their replacement here.
+    """
+    offset = 0
+    for line in body.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return offset
+        offset += len(line)
+    return 0
+
+
 def apply_range_operations(
     raw_text: str, operations: Sequence[Dict[str, Any]]
 ) -> Tuple[str, List[Dict[str, Any]]]:
