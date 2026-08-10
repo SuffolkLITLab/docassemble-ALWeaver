@@ -1310,8 +1310,7 @@ html, body {
 }
 
 .editor-order-timeline {
-  display: grid;
-  gap: 6px;
+  display: block;
 }
 
 .editor-order-block-switcher {
@@ -1328,64 +1327,66 @@ html, body {
 }
 
 .editor-order-step-shell {
-  margin-left: calc(var(--order-depth, 0) * 20px);
+  min-width: 0;
 }
 
 .editor-order-step {
   background: #fff;
-  border: 1px solid #e8ecf1;
-  border-radius: 8px;
-  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  height: 32px;
+  padding: 0 8px;
   overflow: visible;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
 }
 
-.editor-order-step:hover {
-  border-color: #cdd5df;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+.editor-order-step:hover,
+.editor-order-step:focus-visible,
+.editor-order-step:focus-within {
+  background: #f5f7fa;
 }
 
-.editor-order-step-condition {
-  background: #fafaff;
-  border-color: #e0e4f0;
+.editor-order-step:focus-visible {
+  outline: 2px solid rgba(13, 57, 112, 0.18);
+  outline-offset: -2px;
 }
 
-.editor-order-step-condition:hover {
-  border-color: #c5cbe0;
-}
-
-/* Nested children use dashed border */
-.editor-order-step-shell[style*="--order-depth: 1"] .editor-order-step,
-.editor-order-step-shell[style*="--order-depth: 2"] .editor-order-step,
-.editor-order-step-shell[style*="--order-depth: 3"] .editor-order-step {
-  border-style: dashed;
-  background: #fafbfc;
+.editor-order-step:has(.editor-order-select:checked) {
+  background: #f1f5fa;
 }
 
 .editor-order-step-top {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
   align-items: center;
-  flex-wrap: nowrap;
+  gap: 10px;
+  height: 100%;
+  min-width: 0;
 }
 
 .editor-order-step-main {
-  flex: 1 1 320px;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .editor-order-title {
   font-weight: 500;
   font-size: 13px;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
+  color: var(--editor-fg);
+  line-height: 1.3;
+}
+
+.editor-order-title-meta {
+  color: #526174;
 }
 
 .editor-order-title[data-editable] {
@@ -1396,15 +1397,51 @@ html, body {
 }
 
 .editor-order-title[data-editable]:hover {
-  background: #f0f4fa;
+  background: #e9eef5;
 }
 
 .editor-order-detail {
-  color: var(--editor-muted);
-  font-size: 11px;
+  color: #758195;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.editor-order-spacer {
+  flex: 1 1 auto;
+}
+
+.editor-order-type {
+  flex: 0 0 74px;
+  color: #7a8595;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.065em;
+  line-height: 1;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.editor-order-type-section { color: #766584; }
+.editor-order-type-condition { color: #596b87; }
+.editor-order-type-gather,
+.editor-order-type-function,
+.editor-order-type-raw { color: #836f5d; }
+
+.editor-order-meter {
+  flex: 0 0 96px;
+  height: 3px;
+  border-radius: 2px;
+  background: #e8ecf1;
+  overflow: hidden;
+}
+
+.editor-order-meter i {
+  display: block;
+  height: 3px;
+  border-radius: inherit;
+  background: #8195ad;
 }
 
 .editor-order-step-actions {
@@ -1412,12 +1449,16 @@ html, body {
   gap: 4px;
   flex-wrap: nowrap;
   justify-content: flex-end;
-  flex: 0 0 auto;
-  opacity: 0.5;
+  align-items: center;
+  flex: 0 0 52px;
+  opacity: 0;
   transition: opacity 0.15s ease;
 }
 
-.editor-order-step:hover .editor-order-step-actions {
+.editor-order-step:hover .editor-order-step-actions,
+.editor-order-step:focus-visible .editor-order-step-actions,
+.editor-order-step:focus-within .editor-order-step-actions,
+.editor-order-step:has(.editor-order-select:checked) .editor-order-step-actions {
   opacity: 1;
 }
 
@@ -1425,91 +1466,40 @@ html, body {
   margin: 0;
 }
 
-.editor-order-collapse,
-.editor-order-collapse-spacer {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.editor-order-collapse {
-  border: none;
-  background: transparent;
-  color: var(--editor-muted);
-  border-radius: 4px;
-}
-
-.editor-order-collapse:hover,
-.editor-order-collapse:focus-visible {
-  background: #eef3fa;
-  color: var(--editor-primary);
-  outline: none;
-}
-
-.editor-order-indent {
-  width: 14px;
-  align-self: stretch;
-  border-left: 1px solid #e5ebf3;
-}
-
 .editor-order-children {
-  display: grid;
-  gap: 6px;
-  margin-top: 8px;
+  display: block;
+  margin: 2px 0 0 32px;
+  padding-left: 14px;
+  border-left: 2px solid #d9e0e9;
 }
 
 .editor-order-branch {
-  display: grid;
-  gap: 4px;
+  display: block;
 }
 
 .editor-order-branch-label {
-  margin-left: 34px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--editor-muted);
-  display: none; /* hide THEN/ELSE labels — children are visually nested */
-}
-
-.editor-order-empty {
-  margin-left: 34px;
-  padding: 8px 10px;
-  border: 1px dashed #d5dce8;
-  border-radius: 6px;
-  color: var(--editor-muted);
-  font-size: 12px;
-}
-
-.editor-order-badge {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 4px;
-  border: 1px solid #cdd8ea;
-  background: #f4f7fc;
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  color: var(--editor-primary);
-  font-weight: 600;
-  flex-shrink: 0;
+  gap: 8px;
+  height: 22px;
+  margin-left: -14px;
+  padding-left: 6px;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #66778f;
 }
 
-/* Color-coded badges by step kind */
-.editor-order-badge-screen   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
-.editor-order-badge-gather   { background: #fffbeb; color: #b45309; border-color: #fde68a; }
-.editor-order-badge-if       { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
-.editor-order-badge-sec      { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-.editor-order-badge-progress { background: #fdf2f8; color: #be185d; border-color: #fbcfe8; }
-.editor-order-badge-func     { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
-.editor-order-badge-raw      { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
-.editor-order-badge-var      { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.editor-order-branch-label i {
+  flex: 1;
+  height: 1px;
+  background: #e6eaf0;
+}
+
+.drag-handle {
+  flex: 0 0 20px;
+  width: 20px;
+}
 
 .editor-order-actions {
   display: flex;
@@ -1523,59 +1513,105 @@ html, body {
   padding: 2px 8px;
 }
 
-.editor-order-actions-hint {
-  color: var(--editor-muted);
+.editor-order-list-card {
+  border-color: #e0e5ec;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(31, 43, 61, 0.05);
+  overflow: visible;
+}
+
+.editor-order-list-card > .editor-card-body {
+  padding: 6px 8px 10px;
+}
+
+.editor-order-list-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-color: #e9edf2;
+  border-radius: 10px 10px 0 0;
+  background: #fff;
+  font-weight: 400;
+}
+
+.editor-order-block-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-order-filter.form-control {
+  flex: 0 0 150px;
+  width: 150px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border-color: #dfe5ec;
+  border-radius: 6px;
   font-size: 12px;
 }
 
 .editor-order-insert {
   display: flex;
-  justify-content: flex-start;
-  padding: 0;
-  height: 14px;
   align-items: center;
-  padding-left: 4px;
+  height: 16px;
+  margin: -1px 8px;
 }
 
-.editor-order-insert-controls {
-  display: none; /* wrapper no longer used */
-}
-
-/* Compact dashed "+ Add" insert button */
 .editor-order-insert-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  border: 1px dashed #d0d9e7;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--editor-muted);
-  cursor: pointer;
-  font-size: 11px;
-  gap: 4px;
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-
-.editor-order-insert-line {
-  display: none;
-}
-
-.editor-order-insert-icon {
-  display: inline-flex;
+  display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 300;
-  color: inherit;
+  gap: 8px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: color 140ms ease;
+}
+
+.editor-order-insert-btn::before,
+.editor-order-insert-btn::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed currentColor;
+}
+
+.editor-order-insert-btn span {
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 20px;
+  white-space: nowrap;
 }
 
 .editor-order-insert-btn:hover,
-.editor-order-insert-btn:focus-visible {
-  border-color: #9aa8bc;
+.editor-order-insert-btn:focus-visible,
+.editor-order-insert:has(+ .editor-order-step-shell > .editor-order-step:focus-visible) .editor-order-insert-btn,
+.editor-order-step-shell:has(> .editor-order-step:focus-visible) + .editor-order-insert .editor-order-insert-btn {
   color: var(--editor-primary);
   outline: none;
+}
+
+.editor-order-timeline-filtering .editor-order-insert {
+  display: none;
+}
+
+.editor-order-filter-hidden {
+  display: none !important;
+}
+
+.editor-order-timeline-filtering .editor-order-children.d-none {
+  display: block !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1585,7 +1621,7 @@ html, body {
 }
 
 .editor-order-inline-edit {
-  margin: 2px 8px 6px calc(var(--order-depth, 0) * 24px + 8px);
+  margin: 2px 8px 6px 34px;
   padding: 8px 10px;
   background: var(--bs-body-bg, #fff);
   border: 1px solid var(--bs-primary, #0d6efd);
@@ -1606,6 +1642,30 @@ html, body {
     box-shadow: 0 0 0 12px rgba(13, 57, 112, 0);
     border-color: var(--editor-border);
     transform: translateY(0);
+  }
+}
+
+.editor-order-empty-message {
+  margin: 8px;
+}
+
+.editor-order-filter-empty {
+  margin: 10px 8px 6px;
+}
+
+@media (max-width: 640px) {
+  .editor-order-filter.form-control {
+    flex-basis: 120px;
+    width: 120px;
+  }
+
+  .editor-order-detail,
+  .editor-order-meter {
+    display: none;
+  }
+
+  .editor-order-type {
+    flex-basis: 58px;
   }
 }
 
@@ -2072,10 +2132,14 @@ html, body {
 /* ===== Drag handle (order builder) ===== */
 
 .drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
   cursor: grab;
-  color: #adb5bd;
-  font-size: 14px;
-  padding: 0 4px;
+  color: #9aa6b5;
+  font-size: 15px;
+  padding: 0;
   user-select: none;
 }
 
