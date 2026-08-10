@@ -9023,8 +9023,11 @@
     _pendingOrderInsert = null;
     syncActiveOrderStepMap();
     markOrderDirty();
-    closeBootstrapModal('order-add-modal');
     renderCanvas();
+    // Re-rendering nested branches can replace the order-builder subtree while
+    // the modal is open. Hide the live modal instance after that render so
+    // nested inserts do not leave a stale backdrop and dialog behind.
+    closeBootstrapModal('order-add-modal');
     clearInsertedStepHighlightSoon(newStep.id);
   });
 
