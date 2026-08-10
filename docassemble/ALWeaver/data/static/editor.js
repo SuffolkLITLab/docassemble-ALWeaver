@@ -37,6 +37,7 @@
     activeOrderBlockId: null,
     orderBuilderLoading: false,
     orderDirty: false,
+    orderFilter: '',
     orderCollapsed: {},
     selectedOrderStepIds: {},
     symbolCatalog: {
@@ -251,6 +252,7 @@
   // -------------------------------------------------------------------------
   var _sourceEditors = {};
   var _outlineSortable = null;
+  var _orderSortables = [];
 
   function initSourceEditor(callback) {
     callback();
@@ -2462,28 +2464,14 @@
     return String(text || '').replace(/^Ask\s+/i, '').trim();
   }
 
-  function getOrderStepBadge(step) {
+  function getOrderStepTypeLabel(step) {
     if (!step) return '';
-    if (step.kind === 'gather') return 'gather';
-    if (step.kind === 'condition') return 'if';
-    if (step.kind === 'section') return 'sec';
-    if (step.kind === 'progress') return '%';
-    if (step.kind === 'function') return 'f';
-    if (step.kind === 'raw') return 'py';
-    if (step.kind === 'screen') return 'screen';
-    return '';
-  }
-
-  function getOrderBadgeCssClass(step) {
-    if (!step) return '';
-    if (step.kind === 'screen') return 'editor-order-badge-screen';
-    if (step.kind === 'gather') return 'editor-order-badge-gather';
-    if (step.kind === 'condition') return 'editor-order-badge-if';
-    if (step.kind === 'section') return 'editor-order-badge-sec';
-    if (step.kind === 'progress') return 'editor-order-badge-progress';
-    if (step.kind === 'function') return 'editor-order-badge-func';
-    if (step.kind === 'raw') return 'editor-order-badge-raw';
-    return 'editor-order-badge-var';
+    if (step.kind === 'screen') return '';
+    if (step.kind === 'gather') return 'loop';
+    if (step.kind === 'condition') return 'condition';
+    if (step.kind === 'section') return 'section';
+    if (step.kind === 'progress') return 'progress';
+    return 'code';
   }
 
   function getOrderStepPresentation(step) {
@@ -2508,12 +2496,15 @@
       var firstLine = cleanOrderText((step.code || '').split('\n')[0]);
       heading = firstLine || step.label || 'Python';
       detail = '';
+    } else if (step && step.kind === 'condition') {
+      heading = 'if ' + cleanOrderText(step.condition || step.summary || 'condition');
+      detail = '';
     } else if (step && step.kind === 'section') {
-      heading = step.value ? 'Set section: ' + step.value : (step.summary || 'Section');
-      detail = step.value ? 'nav.set_section(\'' + step.value + '\')' : '';
+      heading = step.value || step.summary || 'Section';
+      detail = '';
     } else if (step && step.kind === 'progress') {
-      heading = step.value ? 'Set progress to ' + step.value + '%' : (step.summary || 'Progress');
-      detail = step.value ? 'set_progress(' + step.value + ')' : '';
+      heading = step.value ? step.value + '%' : (step.summary || 'Progress');
+      detail = '';
     }
     return {
       heading: heading,
@@ -6498,11 +6489,9 @@
   // Order builder
   // -------------------------------------------------------------------------
   function renderOrderInsertRow(parentStepId, branch, index, depth) {
-    var indentPx = depth * 20;
-    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '; padding-left:' + indentPx + 'px">';
-    html += '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '" title="Add step">';
-    html += '<span class="editor-order-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span>';
-    html += '<span>Add</span>';
+    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
+    html += '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '" title="Insert here" aria-label="Insert a step here">';
+    html += '<span>Insert here</span>';
     html += '</button>';
     html += '</div>';
     return html;
@@ -6510,12 +6499,11 @@
 
   function renderOrderBranch(step, depth, branch, label) {
     var branchSteps = getOrderBranchSteps(step, branch);
-    var html = '<div class="editor-order-branch">';
-    html += '<div class="editor-order-branch-label">' + esc(label) + '</div>';
-    html += renderOrderStepTree(branchSteps, depth, step.id, branch);
-    if (branchSteps.length === 0) {
-      html += '<div class="editor-order-empty">No ' + esc(label.toLowerCase()) + ' steps yet.</div>';
+    var html = '<div class="editor-order-branch editor-order-branch-' + esc(branch) + ' editor-order-drop-list" data-order-parent-step-id="' + esc(step.id) + '" data-order-branch="' + esc(branch) + '">';
+    if (branch === 'else') {
+      html += '<div class="editor-order-branch-label"><span>' + esc(label.toLowerCase()) + '</span><i aria-hidden="true"></i></div>';
     }
+    html += renderOrderStepTree(branchSteps, depth, step.id, branch);
     html += '</div>';
     return html;
   }
@@ -6529,38 +6517,33 @@
     stepList.forEach(function (step, index) {
       var presentation = getOrderStepPresentation(step);
       var isCollapsed = Boolean(state.orderCollapsed[step.id]);
-      var hasChildren = Array.isArray(step.children) && step.children.length > 0;
       var hasElse = Boolean(step.has_else);
-      var kindBadge = getOrderStepBadge(step);
-      var badgeCss = getOrderBadgeCssClass(step);
+      var typeLabel = getOrderStepTypeLabel(step);
       html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
-      html += '<div class="editor-order-step' + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '">';
+      html += '<div class="editor-order-step editor-order-step-' + esc(step.kind) + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '" tabindex="0">';
       html += '<div class="editor-order-step-top">';
       html += '<div class="editor-order-step-main">';
-      if (depth === 0) html += '<span class="drag-handle" title="Drag to reorder">&#9776;</span>';
-      else html += '<span class="editor-order-indent" aria-hidden="true"></span>';
-      html += '<input type="checkbox" class="form-check-input editor-order-select" data-step-select="' + esc(step.id) + '"' + (state.selectedOrderStepIds[step.id] ? ' checked' : '') + '>';
-      if (step.kind === 'condition') {
-        html += '<button type="button" class="editor-order-collapse" data-step-action="toggle-collapse" data-step-id="' + esc(step.id) + '" title="' + (isCollapsed ? 'Expand' : 'Collapse') + '">';
-        html += '<i class="fa-solid ' + (isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down') + '" aria-hidden="true"></i>';
-        html += '</button>';
-      } else {
-        html += '<span class="editor-order-collapse-spacer" aria-hidden="true"></span>';
-      }
-      if (kindBadge) {
-        html += '<span class="editor-order-badge ' + badgeCss + '" title="' + esc(step.label || step.kind) + '">' + esc(kindBadge) + '</span>';
-      }
-      html += '<span class="editor-order-title" data-editable="true" data-step-id="' + esc(step.id) + '"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
+      html += '<span class="drag-handle" title="Drag to reorder" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>';
+      html += '<span class="editor-order-title' + (step.kind === 'screen' ? '' : ' editor-order-title-meta') + '" data-editable="true" data-step-id="' + esc(step.id) + '"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
       if (presentation.detail) {
         html += '<span class="editor-order-detail">' + esc(presentation.detail) + '</span>';
       }
+      if (step.kind === 'progress') {
+        var progressValue = Math.max(0, Math.min(100, parseFloat(step.value) || 0));
+        html += '<span class="editor-order-meter" aria-hidden="true"><i style="width:' + progressValue + '%"></i></span>';
+      }
       html += '</div>';
+      html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
       html += '<div class="editor-order-step-actions">';
+      html += '<input type="checkbox" class="form-check-input editor-order-select" data-step-select="' + esc(step.id) + '" aria-label="Select ' + esc(presentation.heading) + '"' + (state.selectedOrderStepIds[step.id] ? ' checked' : '') + '>';
       // Kebab menu consolidating all actions
       html += '<div class="dropdown">';
       html += '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
       html += '<ul class="dropdown-menu dropdown-menu-end">';
       html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
+      if (step.kind === 'condition') {
+        html += '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' + esc(step.id) + '"><i class="fa-solid ' + (isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up') + ' me-2" aria-hidden="true"></i>' + (isCollapsed ? 'Expand branches' : 'Collapse branches') + '</button></li>';
+      }
       if (step.kind === 'condition' && !hasElse) {
         html += '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
       }
@@ -6578,6 +6561,10 @@
       html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove</button></li>';
       html += '</ul></div>';
       html += '</div>';
+      if (typeLabel) html += '<span class="editor-order-type editor-order-type-' + esc(step.kind) + '">' + esc(typeLabel) + '</span>';
+      html += '</div>';
+      // Inline editors and branches must be siblings of the fixed-height row.
+      // Nesting them inside .editor-order-step makes later rows overlap them.
       html += '</div>';
       // Inline edit row shown when this step is being edited
       if (_inlineEditStepId === step.id) {
@@ -6589,10 +6576,61 @@
         if (hasElse) html += renderOrderBranch(step, depth + 1, 'else', 'Else');
         html += '</div>';
       }
-      html += '</div></div>';
+      html += '</div>';
       html += renderOrderInsertRow(parentStepId, branch, index + 1, depth);
     });
     return html;
+  }
+
+  function applyOrderFilter() {
+    var timeline = document.getElementById('order-sortable-list');
+    if (!timeline) return;
+    var query = String(state.orderFilter || '').trim().toLowerCase();
+    timeline.classList.toggle('editor-order-timeline-filtering', Boolean(query));
+    _orderSortables.forEach(function (sortable) {
+      if (sortable && typeof sortable.option === 'function') sortable.option('disabled', Boolean(query));
+    });
+
+    var shells = Array.prototype.slice.call(timeline.querySelectorAll('.editor-order-step-shell'));
+    if (!query) {
+      shells.forEach(function (shell) { shell.classList.remove('editor-order-filter-hidden'); });
+      timeline.querySelectorAll('.editor-order-branch').forEach(function (branchEl) {
+        branchEl.classList.remove('editor-order-filter-hidden');
+      });
+      var clearedEmptyState = document.getElementById('order-filter-empty');
+      if (clearedEmptyState) clearedEmptyState.hidden = true;
+      return;
+    }
+
+    // Work from leaves toward roots so a matching descendant keeps its
+    // conditional visible even when the condition itself does not match.
+    shells.reverse().forEach(function (shell) {
+      var row = shell.querySelector(':scope > .editor-order-step');
+      var searchable = row ? Array.prototype.map.call(
+        row.querySelectorAll('.editor-order-title, .editor-order-detail, .editor-order-type'),
+        function (part) { return part.textContent || ''; }
+      ).join(' ').toLowerCase() : '';
+      var hasMatchingChild = Array.prototype.some.call(
+        shell.querySelectorAll(':scope > .editor-order-children .editor-order-step-shell'),
+        function (child) { return !child.classList.contains('editor-order-filter-hidden'); }
+      );
+      shell.classList.toggle('editor-order-filter-hidden', searchable.indexOf(query) === -1 && !hasMatchingChild);
+    });
+
+    timeline.querySelectorAll('.editor-order-branch').forEach(function (branchEl) {
+      var hasMatch = Array.prototype.some.call(
+        branchEl.querySelectorAll('.editor-order-step-shell'),
+        function (shell) { return !shell.classList.contains('editor-order-filter-hidden'); }
+      );
+      branchEl.classList.toggle('editor-order-filter-hidden', !hasMatch);
+    });
+    var filterEmptyState = document.getElementById('order-filter-empty');
+    if (filterEmptyState) {
+      filterEmptyState.hidden = Array.prototype.some.call(
+        timeline.querySelectorAll(':scope > .editor-order-step-shell'),
+        function (shell) { return !shell.classList.contains('editor-order-filter-hidden'); }
+      );
+    }
   }
 
   function renderOrderBuilder() {
@@ -6626,17 +6664,19 @@
     html += '<div class="editor-order-grid">';
 
     // Steps list
-    html += '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
-    html += '<span>Steps</span>';
-    html += '<div class="editor-order-actions">';
-    html += '<span class="editor-order-actions-hint">Use + to add steps</span>';
-    html += '</div></div>';
+    html += '<div class="editor-card editor-order-list-card"><div class="editor-card-header editor-order-list-head">';
+    html += '<span class="editor-order-block-name">' + esc(activeOrderBlock ? activeOrderBlock.id : 'interview_order') + '</span>';
+    html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
+    html += '<label class="visually-hidden" for="order-step-filter">Filter steps</label>';
+    html += '<input type="search" class="form-control form-control-sm editor-order-filter" id="order-step-filter" placeholder="Filter steps" value="' + esc(state.orderFilter || '') + '">';
+    html += '</div>';
 
-    html += '<div class="editor-card-body"><div class="editor-order-timeline" id="order-sortable-list">';
+    html += '<div class="editor-card-body"><div class="editor-order-timeline editor-order-drop-list" id="order-sortable-list" data-order-parent-step-id="" data-order-branch="then">';
     if (state.orderBuilderLoading) {
       html += '<div class="editor-info-box mb-2"><div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div><div>Loading interview order...</div></div></div>';
     }
     html += renderOrderStepTree(state.orderSteps, 0, '', 'then');
+    html += '<p class="text-muted small editor-order-filter-empty" id="order-filter-empty" hidden>No matching steps.</p>';
     if (state.orderSteps.length === 0 && !state.orderBuilderLoading) {
       if (!activeOrderBlock) {
         html += '<div class="editor-info-box mb-2">';
@@ -6645,7 +6685,7 @@
         html += '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
         html += '</div>';
       }
-      html += '<p class="text-muted small mb-0">No order steps yet. Use the add row below or click "Auto-generate" to create a draft.</p>';
+      html += '<p class="text-muted small editor-order-empty-message">No order steps yet. Hover the insert target or auto-generate a draft.</p>';
     }
     html += '</div></div></div>';
 
@@ -6654,26 +6694,67 @@
     html += '</div></div>';
     canvasContent.innerHTML = html;
 
+    applyOrderFilter();
+
     // Initialize drag-to-reorder via SortableJS
-    var sortableEl = document.getElementById('order-sortable-list');
-    if (sortableEl && typeof Sortable !== 'undefined') {
-      Sortable.create(sortableEl, {
-        handle: '.drag-handle',
-        draggable: '.editor-order-step-shell',
-        animation: 150,
-        onEnd: function (evt) {
-          // Use draggable-only indices so that interspersed insert-rows don't
-          // offset the positions. Fall back to oldIndex/newIndex for older
-          // versions of SortableJS that don't expose the draggable variants.
-          var fromIdx = (evt.oldDraggableIndex != null) ? evt.oldDraggableIndex : evt.oldIndex;
-          var toIdx   = (evt.newDraggableIndex != null) ? evt.newDraggableIndex : evt.newIndex;
-          if (fromIdx < 0 || fromIdx >= state.orderSteps.length) return;
-          var moved = state.orderSteps.splice(fromIdx, 1)[0];
-          state.orderSteps.splice(toIdx, 0, moved);
-          syncActiveOrderStepMap();
-          markOrderDirty();
-          renderOrderBuilder();
-        }
+    _orderSortables.forEach(function (sortable) {
+      if (sortable && typeof sortable.destroy === 'function') sortable.destroy();
+    });
+    _orderSortables = [];
+    if (typeof Sortable !== 'undefined') {
+      document.querySelectorAll('.editor-order-drop-list').forEach(function (sortableEl) {
+        _orderSortables.push(Sortable.create(sortableEl, {
+          group: 'interview-order-steps',
+          handle: '.drag-handle',
+          draggable: '.editor-order-step-shell',
+          disabled: Boolean(String(state.orderFilter || '').trim()),
+          animation: 150,
+          onMove: function (evt) {
+            // Do not ask the browser to place a condition inside its own DOM
+            // subtree; onEnd also guards the equivalent data-tree case.
+            return !(evt.dragged && evt.to && evt.dragged.contains(evt.to));
+          },
+          onEnd: function (evt) {
+            var row = evt.item && evt.item.querySelector(':scope > .editor-order-step');
+            var movedStepId = row ? row.getAttribute('data-step-id') : '';
+            var sourceRecord = findStepRecord(state.orderSteps, movedStepId, null);
+            if (!sourceRecord) {
+              renderOrderBuilder();
+              return;
+            }
+
+            var destinationParentId = evt.to.getAttribute('data-order-parent-step-id') || '';
+            var destinationBranch = evt.to.getAttribute('data-order-branch') || 'then';
+            // A condition cannot become one of its own descendants.
+            if (destinationParentId && findStepRecord([sourceRecord.step], destinationParentId, null)) {
+              renderOrderBuilder();
+              return;
+            }
+
+            var destinationList = state.orderSteps;
+            if (destinationParentId) {
+              var destinationParent = findStepRecord(state.orderSteps, destinationParentId, null);
+              if (!destinationParent) {
+                renderOrderBuilder();
+                return;
+              }
+              destinationList = getOrderBranchSteps(destinationParent.step, destinationBranch);
+              if (destinationBranch === 'else') destinationParent.step.has_else = true;
+            }
+
+            var destinationShells = Array.prototype.filter.call(evt.to.children, function (child) {
+              return child.classList.contains('editor-order-step-shell');
+            });
+            var destinationIndex = destinationShells.indexOf(evt.item);
+            if (destinationIndex < 0) destinationIndex = destinationList.length;
+
+            sourceRecord.list.splice(sourceRecord.index, 1);
+            destinationList.splice(destinationIndex, 0, sourceRecord.step);
+            syncActiveOrderStepMap();
+            markOrderDirty();
+            renderOrderBuilder();
+          }
+        }));
       });
     }
 
@@ -8631,6 +8712,11 @@
     var target = e.target;
     if (target.id === 'symbol-insert-search') {
       refreshSymbolInsertModalList(target.value || '');
+      return;
+    }
+    if (target.id === 'order-step-filter') {
+      state.orderFilter = target.value || '';
+      applyOrderFilter();
       return;
     }
     if (target.matches('[data-symbol-role]')) {

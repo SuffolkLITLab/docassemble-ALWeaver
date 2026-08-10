@@ -145,6 +145,34 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("dirtyState.markSourceDirty(", body)
         self.assertNotIn("setFileSaved", body)
 
+    def test_order_builder_uses_quiet_step_list_structure(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        # Screens are the unlabeled default; exceptional step kinds use words
+        # in a stable right-hand gutter instead of colored abbreviations.
+        self.assertIn("if (step.kind === 'screen') return '';", editor)
+        for label in ("'loop'", "'condition'", "'section'", "'progress'", "'code'"):
+            self.assertIn(f"return {label};", editor)
+        self.assertIn("editor-order-type", editor)
+        self.assertNotIn("editor-order-badge", editor)
+
+        # Branches and insertion positions remain available without filling
+        # every row with permanent controls.
+        self.assertIn("editor-order-branch-label", editor)
+        self.assertIn("Insert here", editor)
+        self.assertIn("group: 'interview-order-steps'", editor)
+        self.assertIn("data-order-parent-step-id", editor)
+        self.assertIn("fa-grip-vertical", editor)
+        self.assertNotIn("&#10247;", editor)
+        self.assertIn(
+            "Inline editors and branches must be siblings of the fixed-height row.",
+            editor,
+        )
+        self.assertIn("color: transparent;", css)
+        self.assertIn("border-left: 2px solid", css)
+        self.assertIn("height: 32px;", css)
+
     def test_unsaved_changes_modal_cannot_trap_the_page(self):
         """The unsaved-changes modal is opened by every navigation gesture and
         has a static backdrop, no keyboard dismiss and no close button, so the
