@@ -2209,6 +2209,116 @@ code.md-mako-expr {
 
 .editor-field-row-preview:last-child { border-bottom: none; }
 
+.editor-al-field-preview {
+  margin: 8px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius-sm);
+  background: #fff;
+}
+
+.editor-al-preview-control {
+  margin-bottom: 12px;
+}
+
+.editor-al-preview-control:last-of-type {
+  margin-bottom: 8px;
+}
+
+.editor-al-preview-label {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.editor-al-preview-condition {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: var(--editor-muted);
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+
+.editor-al-preview-conditional {
+  padding-left: 10px;
+  border-left: 2px solid #d8dee6;
+}
+
+.editor-al-preview-input:disabled,
+.editor-al-preview-choice .form-check-input:disabled {
+  opacity: 1;
+  background-color: #fff;
+}
+
+.editor-al-preview-choice .form-check-input:disabled ~ .form-check-label {
+  opacity: 1;
+  color: var(--editor-fg);
+}
+
+.editor-al-preview-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 3px 14px;
+}
+
+.editor-al-preview-choice {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.editor-al-preview-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eef1f4;
+  color: var(--editor-muted);
+  font-size: 11px;
+}
+
+.editor-al-preview-source code {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.editor-question-context-help {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 12px;
+  margin-top: 14px;
+  padding-top: 9px;
+  border-top: 1px solid #eef1f4;
+  font-size: 11px;
+  color: var(--editor-muted);
+}
+
+.editor-question-context-help-label {
+  font-weight: 600;
+}
+
+.editor-question-context-help a {
+  color: var(--editor-muted);
+  text-decoration: none;
+}
+
+.editor-question-context-help a:hover,
+.editor-question-context-help a:focus-visible {
+  color: var(--editor-primary);
+  text-decoration: underline;
+}
+
+.editor-question-context-help a .fa-arrow-up-right-from-square {
+  margin-left: 3px;
+  font-size: 8px;
+  vertical-align: 1px;
+}
+
 .editor-info-box {
   background: #f0f4f8;
   border: 1px solid var(--editor-border);

@@ -1512,6 +1512,72 @@ def playground_write_yaml(
         pg.write_file(filename, content)
 
 
+def _al_individual_primitive_groups(model: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Return index-aware ALIndividual receivers found in parsed blocks."""
+
+    individual_objects: set[str] = set()
+    people_lists: set[str] = set()
+    field_method_names = {
+        "name_fields",
+        "address_fields",
+        "gender_fields",
+        "pronoun_fields",
+        "language_fields",
+    }
+    # ALIndividual.contact_fields() is presently a pass/None stub, so it is
+    # not a usable dynamic field-list helper yet.
+    method_pattern = re.compile(
+        r"(?P<receiver>[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]\n]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)"
+        r"\.(?:" + "|".join(sorted(field_method_names)) + r")\s*\("
+    )
+    for block in model.get("blocks", []):
+        data = block.get("data", {}) or {}
+        objects = data.get("objects")
+        if isinstance(objects, list):
+            for obj in objects:
+                if not isinstance(obj, dict):
+                    continue
+                for name, cls_value in obj.items():
+                    object_name = str(name or "").strip()
+                    class_name = str(cls_value or "").strip().split(".using(", 1)[0]
+                    class_basename = class_name.rsplit(".", 1)[-1]
+                    if not object_name:
+                        continue
+                    if class_basename == "ALPeopleList":
+                        people_lists.add(f"{object_name}[i]")
+                    elif class_basename == "ALIndividual":
+                        individual_objects.add(object_name)
+
+        generic_class = str(data.get("generic object") or "").strip().rsplit(".", 1)[-1]
+        if generic_class == "ALPeopleList":
+            people_lists.add("x[i]")
+        elif generic_class == "ALIndividual":
+            individual_objects.add("x")
+
+        fields = data.get("fields")
+        if isinstance(fields, list):
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                code_value = field.get("code")
+                if not isinstance(code_value, str):
+                    continue
+                for match in method_pattern.finditer(code_value):
+                    receiver = match.group("receiver").strip()
+                    if receiver:
+                        individual_objects.add(receiver)
+
+    result: Dict[str, List[str]] = {}
+    if individual_objects:
+        result["al_individual_objects"] = sorted(individual_objects)
+    if people_lists:
+        result["al_people_lists"] = sorted(people_lists)
+    combined = sorted(individual_objects | people_lists)
+    if combined:
+        result["al_individual_primitives"] = combined
+    return result
+
+
 def playground_get_variables(
     user_id: int, project: str, filename: str
 ) -> Dict[str, Any]:
@@ -1605,6 +1671,19 @@ def playground_get_variables(
         symbol_groups["classes"] = sorted(classes)
     if functions:
         symbol_groups["functions"] = sorted(functions)
+
+    # Field-list helpers such as ``name_fields()`` need an ALIndividual
+    # receiver, not an arbitrary interview variable.  Keep that richer type
+    # information alongside the ordinary AST/name catalog so the graphical
+    # editor can offer useful, index-aware suggestions.  Object declarations
+    # are authoritative: an ALPeopleList is addressed through ``[i]`` while a
+    # single ALIndividual is not.  Existing helper calls are also retained so
+    # interviews that get their objects from an included file still round-trip
+    # cleanly.
+    try:
+        symbol_groups.update(_al_individual_primitive_groups(model))
+    except Exception:
+        pass
 
     # Include files from the project's templates folder to power template pickers.
     template_files: List[str] = []
