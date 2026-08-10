@@ -4365,7 +4365,7 @@ def editor_api_variables() -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/order", methods=["POST"])
 def editor_api_save_order() -> Response:
-    """Save order-builder steps as a mandatory code block."""
+    """Save order-builder steps while preserving the block's metadata."""
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -4401,7 +4401,10 @@ def editor_api_save_order() -> Response:
             block_data["id"] = str(
                 block_data.get("id") or target_block.get("id") or "interview_order"
             )
-            block_data["mandatory"] = True
+            # Existing order blocks are not necessarily mandatory.  In many
+            # AssemblyLine interviews the standalone/main block is mandatory
+            # and invokes the order block; forcing this block to mandatory
+            # creates duplicate mandatory code blocks and invalidates YAML.
             block_data["code"] = code_body
             order_yaml = canonical_block_yaml(block_data)
             updated = update_block_in_yaml(
