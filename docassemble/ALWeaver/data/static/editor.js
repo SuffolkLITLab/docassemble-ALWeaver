@@ -89,6 +89,7 @@
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var MAX_RECENT_PROJECTS = 8;
   var _symbolInsertContext = null;
+  var _alFieldMethodContext = null;
   var _pendingOrderInsert = null;
   var _lastInsertedOrderStepId = null;
   var _lastInsertedOrderStepTimer = null;
@@ -667,7 +668,91 @@
   var outlineList = $('#outline-list');
   var canvasContent = $('#canvas-content');
 
-  // Known docassemble field datatypes
+  // ALIndividual methods that return a list of docassemble field definitions.
+  // ``contact_fields()`` is intentionally absent: in the current AssemblyLine
+  // source it is an unimplemented stub annotated to return None.
+  // These are graphical-editor pseudo-datatypes: they serialize as a
+  // ``fields: - code: object.method(...)`` row, never as ``datatype:``.
+  var AL_FIELD_METHODS = {
+    name_fields: {
+      label: 'Name fields',
+      sets: ['name.first', 'name.last', 'name.middle', 'name.suffix'],
+      parameters: [
+        { name: 'person_or_business', label: 'Person or business', kind: 'select', defaultLiteral: 'person', options: [
+          { value: '', label: 'Person (default)' },
+          { value: "'business'", label: 'Business' },
+          { value: "'unsure'", label: 'Ask person or business' }
+        ] },
+        { name: 'show_suffix', label: 'Show suffix', kind: 'boolean' },
+        { name: 'show_title', label: 'Show title', kind: 'boolean' },
+        { name: 'title_choices', label: 'Title choices', kind: 'expression', placeholder: 'al_name_titles' },
+        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
+        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'first': 40, 'last': 40}" },
+        { name: 'suffix_choices', label: 'Suffix choices', kind: 'expression', placeholder: 'al_name_suffixes' },
+        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'middle': False}" }
+      ]
+    },
+    address_fields: {
+      label: 'Address fields',
+      sets: ['address.address', 'address.city', 'address.zip', 'address.unit', 'address.state', 'address.country'],
+      parameters: [
+        { name: 'country_code', label: 'Country code', kind: 'expression', placeholder: "'US' or AL_DEFAULT_COUNTRY" },
+        { name: 'default_state', label: 'Default state', kind: 'expression', placeholder: "'MA' or AL_DEFAULT_STATE" },
+        { name: 'show_country', label: 'Show country', kind: 'boolean' },
+        { name: 'show_county', label: 'Show county', kind: 'boolean' },
+        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
+        { name: 'allow_no_address', label: 'Allow no address', kind: 'boolean' },
+        { name: 'ask_if_impounded', label: 'Ask if impounded', kind: 'boolean' },
+        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'address': 60, 'city': 40}" },
+        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'unit': False}" }
+      ]
+    },
+    gender_fields: {
+      label: 'Gender fields',
+      sets: ['gender'],
+      parameters: [
+        { name: 'show_help', label: 'Show help', kind: 'boolean' },
+        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
+        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'gender': 40}" },
+        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'custom_gender_choices' },
+        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'gender': True}" }
+      ]
+    },
+    pronoun_fields: {
+      label: 'Pronoun fields',
+      sets: ['pronouns'],
+      parameters: [
+        { name: 'show_help', label: 'Show help', kind: 'boolean' },
+        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
+        { name: 'required', label: 'Required', kind: 'expression', placeholder: 'True, False, or a field mapping' },
+        { name: 'shuffle', label: 'Shuffle choices', kind: 'boolean' },
+        { name: 'show_unknown', label: 'Show unknown option', kind: 'select', defaultLiteral: 'guess', options: [
+          { value: '', label: 'Guess (default)' },
+          { value: 'True', label: 'Always' },
+          { value: 'False', label: 'Never' }
+        ] },
+        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'pronouns_self_described': 80}" },
+        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'custom_pronoun_choices' }
+      ]
+    },
+    language_fields: {
+      label: 'Language fields',
+      sets: ['language'],
+      parameters: [
+        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'al_language_user_choices' },
+        { name: 'style', label: 'Style', kind: 'select', defaultLiteral: 'radio', options: [
+          { value: '', label: 'Radio (default)' },
+          { value: "'dropdown'", label: 'Dropdown' }
+        ] },
+        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
+        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'language_other': 80}" },
+        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'language': True}" }
+      ]
+    }
+  };
+  var AL_FIELD_METHOD_TYPES = Object.keys(AL_FIELD_METHODS);
+
+  // Known docassemble field datatypes and graphical pseudo-datatypes.
   var FIELD_TYPES = [
     'text', 'textC', 'area', 'areaC', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
     'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe',
@@ -680,7 +765,8 @@
     'ml', 'mlarea', 'microphone', 'camcorder',
     'hidden', 'raw', 'note', 'html', 'raw html', 'code',
     'user', 'environment',
-  ];
+  ].concat(AL_FIELD_METHOD_TYPES);
+  var AI_FIELD_TYPES = FIELD_TYPES.filter(function (type) { return !_isALFieldMethodType(type); });
 
   var FIELD_TYPE_GROUPS = [
     { label: 'Text inputs', items: ['text', 'textC', 'area', 'areaC', 'raw', 'email', 'password', 'url', 'al_international_phone', 'ml', 'mlarea'] },
@@ -690,6 +776,7 @@
     { label: 'Date and time', items: ['date', 'time', 'datetime', 'ThreePartsDate', 'BirthDate'] },
     { label: 'Files and media', items: ['file', 'files', 'camera', 'microphone', 'camcorder', 'environment'] },
     { label: 'Objects', items: ['object', 'object_radio', 'object_checkboxes', 'object_multiselect', 'user'] },
+    { label: 'Assembly Line person fields', items: AL_FIELD_METHOD_TYPES },
     { label: 'Standalone content', items: ['note', 'html', 'raw html'] },
     { label: 'Special', items: ['hidden', 'code'] },
   ];
@@ -718,6 +805,11 @@
     noyeswide: 'No/yes wide',
     noyesradio: 'No/yes radio',
     noyesmaybe: 'No/yes maybe',
+    name_fields: 'Name fields',
+    address_fields: 'Address fields',
+    gender_fields: 'Gender fields',
+    pronoun_fields: 'Pronoun fields',
+    language_fields: 'Language fields',
   };
 
   function _normalizeFieldType(type) {
@@ -730,6 +822,266 @@
 
   function _fieldTypeSupportsStandaloneContent(type) {
     return _isStandaloneFieldType(type);
+  }
+
+  function _isALFieldMethodType(type) {
+    return Object.prototype.hasOwnProperty.call(AL_FIELD_METHODS, String(type || ''));
+  }
+
+  function _splitPythonArguments(text) {
+    var parts = [];
+    var current = '';
+    var depth = 0;
+    var quote = '';
+    var escaped = false;
+    String(text || '').split('').forEach(function (ch) {
+      if (quote) {
+        current += ch;
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = '';
+        return;
+      }
+      if (ch === "'" || ch === '"') {
+        quote = ch;
+        current += ch;
+      } else if (ch === '(' || ch === '[' || ch === '{') {
+        depth += 1;
+        current += ch;
+      } else if (ch === ')' || ch === ']' || ch === '}') {
+        depth = Math.max(0, depth - 1);
+        current += ch;
+      } else if (ch === ',' && depth === 0) {
+        if (current.trim()) parts.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    });
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  }
+
+  function _splitKeywordArgument(part) {
+    var text = String(part || '');
+    var depth = 0;
+    var quote = '';
+    var escaped = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = '';
+        continue;
+      }
+      if (ch === "'" || ch === '"') quote = ch;
+      else if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+      else if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+      else if (ch === '=' && depth === 0) {
+        var name = text.slice(0, i).trim();
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+          return { name: name, value: text.slice(i + 1).trim() };
+        }
+        break;
+      }
+    }
+    return null;
+  }
+
+  function _pythonStringLiteralValue(value) {
+    var text = String(value || '').trim();
+    var match = text.match(/^(["'])([\s\S]*)\1$/);
+    return match ? match[2] : text;
+  }
+
+  function _parseALFieldMethodCall(codeValue) {
+    var code = String(codeValue || '').trim();
+    var methodAlternation = AL_FIELD_METHOD_TYPES.join('|');
+    var match = code.match(new RegExp('^([A-Za-z_][A-Za-z0-9_]*(?:\\[[^\\]\\n]+\\]|\\.[A-Za-z_][A-Za-z0-9_]*)*)\\.(' + methodAlternation + ')\\s*\\(([\\s\\S]*)\\)$'));
+    if (!match) return null;
+    return { object: match[1], method: match[2], args: match[3].trim() };
+  }
+
+  function _methodCallFromParts(objectName, methodName, args) {
+    var objectText = String(objectName || '').trim();
+    if (!objectText || !_isALFieldMethodType(methodName)) return '';
+    return objectText + '.' + methodName + '(' + String(args || '').trim() + ')';
+  }
+
+  function _keywordArgumentValues(args) {
+    var values = {};
+    _splitPythonArguments(args).forEach(function (part) {
+      var keyword = _splitKeywordArgument(part);
+      if (keyword) values[keyword.name] = keyword.value;
+    });
+    return values;
+  }
+
+  function _setsForALFieldMethod(objectName, methodName, args) {
+    var config = AL_FIELD_METHODS[methodName];
+    var receiver = String(objectName || '').trim();
+    if (!config || !receiver) return [];
+    var suffixes = config.sets.slice();
+    var values = _keywordArgumentValues(args);
+    if (methodName === 'name_fields') {
+      var businessNameOnly = /^["']business["']$/.test(values.person_or_business || '');
+      if (businessNameOnly) suffixes = ['name.first'];
+      if (values.show_suffix === 'False') suffixes = suffixes.filter(function (suffix) { return suffix !== 'name.suffix'; });
+      if (values.show_title === 'True' && !businessNameOnly) suffixes.push('name.title');
+      if (values.person_or_business && !/^["'](?:person|business)["']$/.test(values.person_or_business)) suffixes.push('person_type');
+    } else if (methodName === 'address_fields') {
+      if (values.show_county === 'True') suffixes.push('address.county');
+      if (values.allow_no_address === 'True') suffixes = suffixes.concat(['address.has_no_address', 'address.has_no_address_explanation']);
+      if (values.ask_if_impounded === 'True') suffixes.push('address.impounded');
+    }
+    return uniqueList(suffixes).map(function (suffix) { return receiver + '.' + suffix; });
+  }
+
+  function _suggestALIndividualReceiver(currentValue) {
+    var current = String(currentValue || '').trim();
+    var candidates = getSymbolMatches('', 'al-individual', 120).map(function (entry) { return entry.name; });
+    if (current && candidates.indexOf(current) !== -1) return current;
+    var preferred = candidates.filter(function (name) { return /^users(?:\[i\]|\[0\])$/.test(name); });
+    return preferred[0] || candidates[0] || current || 'users[i]';
+  }
+
+  function _fieldMethodCallsFromData(fields) {
+    var calls = [];
+    (fields || []).forEach(function (field) {
+      if (!field || typeof field !== 'object' || typeof field.code !== 'string') return;
+      var parsed = _parseALFieldMethodCall(field.code);
+      if (parsed) calls.push(parsed);
+    });
+    return calls;
+  }
+
+  function _generatedALFieldSets(fields) {
+    var values = [];
+    _fieldMethodCallsFromData(fields).forEach(function (call) {
+      values = values.concat(_setsForALFieldMethod(call.object, call.method, call.args));
+    });
+    return uniqueList(values);
+  }
+
+  function _setList(value) {
+    if (Array.isArray(value)) return value.map(function (item) { return String(item || '').trim(); }).filter(Boolean);
+    if (value === undefined || value === null) return [];
+    return String(value).split(',').map(function (item) { return item.trim(); }).filter(Boolean);
+  }
+
+  function _syncGeneratedALFieldSets(block, previousGenerated) {
+    if (!block || !block.data) return;
+    var nextGenerated = _generatedALFieldSets(block.data.fields || []);
+    var oldGenerated = previousGenerated || block.data._editor_al_generated_sets || [];
+    var oldMap = {};
+    oldGenerated.forEach(function (name) { oldMap[name] = true; });
+    var existing = _setList(block.data.sets || block.data['only sets']);
+    var merged = existing.filter(function (name) { return !oldMap[name]; });
+    nextGenerated.forEach(function (name) {
+      if (merged.indexOf(name) === -1) merged.push(name);
+    });
+    delete block.data['only sets'];
+    if (merged.length) block.data.sets = merged.length === 1 ? merged[0] : merged;
+    else delete block.data.sets;
+    block.data._editor_al_generated_sets = nextGenerated;
+    var setsInput = document.getElementById('adv-sets');
+    if (setsInput) {
+      setsInput.setAttribute('data-sets-key', 'sets');
+      setsInput.value = merged.join(', ');
+    }
+  }
+
+  function _openALFieldMethodModal(fieldIndex, methodName) {
+    var config = AL_FIELD_METHODS[methodName];
+    if (!config) return;
+    var argsInput = document.querySelector('[data-field-method-args][data-field-idx="' + fieldIndex + '"]');
+    var argsText = argsInput ? argsInput.value : '';
+    var known = {};
+    var extras = [];
+    var allowed = {};
+    config.parameters.forEach(function (param) { allowed[param.name] = true; });
+    _splitPythonArguments(argsText).forEach(function (part) {
+      var keyword = _splitKeywordArgument(part);
+      if (keyword && allowed[keyword.name]) known[keyword.name] = keyword.value;
+      else extras.push(part);
+    });
+    _alFieldMethodContext = {
+      fieldIndex: fieldIndex,
+      methodName: methodName,
+      extras: extras
+    };
+    var title = document.getElementById('al-field-method-title');
+    if (title) title.textContent = config.label + ' options';
+    var body = document.getElementById('al-field-method-body');
+    if (!body) return;
+    var html = '';
+    if (!config.parameters.length) {
+      html += '<div class="editor-info-box">This method has no supported parameters.</div>';
+    }
+    config.parameters.forEach(function (param) {
+      var value = known[param.name] || '';
+      if (param.kind === 'select' && value) {
+        var literalValue = _pythonStringLiteralValue(value);
+        if (param.defaultLiteral === literalValue) {
+          value = '';
+        } else {
+          var equivalentOption = (param.options || []).filter(function (option) {
+            return _pythonStringLiteralValue(option.value) === literalValue;
+          })[0];
+          if (equivalentOption) value = equivalentOption.value;
+        }
+      }
+      var inputId = 'al-method-param-' + param.name;
+      html += '<div class="editor-form-group">';
+      html += '<label class="editor-tiny" for="' + esc(inputId) + '">' + esc(param.label) + ' <span class="text-muted font-monospace">' + esc(param.name) + '</span></label>';
+      if (param.kind === 'boolean') {
+        html += '<select class="form-select editor-form-control" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '">';
+        [['', '(method default)'], ['True', 'Yes'], ['False', 'No']].forEach(function (option) {
+          html += '<option value="' + option[0] + '"' + (value === option[0] ? ' selected' : '') + '>' + option[1] + '</option>';
+        });
+        html += '</select>';
+      } else if (param.kind === 'select') {
+        html += '<select class="form-select editor-form-control" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '">';
+        (param.options || []).forEach(function (option) {
+          html += '<option value="' + esc(option.value) + '"' + (value === option.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
+        });
+        if (value && !(param.options || []).some(function (option) { return option.value === value; })) {
+          html += '<option value="' + esc(value) + '" selected>Existing: ' + esc(value) + '</option>';
+        }
+        html += '</select>';
+      } else {
+        html += '<input class="form-control editor-form-control font-monospace" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '" value="' + esc(value) + '" placeholder="' + esc(param.placeholder || 'Python expression') + '">';
+      }
+      html += '</div>';
+    });
+    if (extras.length) {
+      html += '<div class="editor-info-box mt-2"><strong>Preserved arguments:</strong> <code>' + esc(extras.join(', ')) + '</code><div class="small text-muted mt-1">These arguments are kept unchanged because this version of the editor does not recognize them.</div></div>';
+    }
+    body.innerHTML = html;
+    var modal = getOrCreateBootstrapModal('al-field-method-modal');
+    if (modal) modal.show();
+  }
+
+  function _applyALFieldMethodModal() {
+    if (!_alFieldMethodContext) return;
+    var context = _alFieldMethodContext;
+    var parts = [];
+    document.querySelectorAll('#al-field-method-body [data-al-param]').forEach(function (input) {
+      var value = String(input.value || '').trim();
+      if (value) parts.push(input.getAttribute('data-al-param') + '=' + value);
+    });
+    parts = parts.concat(context.extras || []);
+    var argsInput = document.querySelector('[data-field-method-args][data-field-idx="' + context.fieldIndex + '"]');
+    if (argsInput) argsInput.value = parts.join(', ');
+    var block = getSelectedBlock();
+    if (block && block.type === 'question') {
+      syncFieldsToData(block);
+      markInterviewDirty('set-al-field-method-options:' + context.fieldIndex);
+    }
+    closeBootstrapModal('al-field-method-modal');
+    _alFieldMethodContext = null;
+    renderCanvas();
   }
 
   // All known field modifier keys
@@ -991,7 +1343,7 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'variable' || role === 'top-level' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
+    if (role === 'variable' || role === 'top-level' || role === 'al-individual' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
       return role;
     }
     return 'all';
@@ -1039,6 +1391,13 @@
     }
     if (role === 'top-level') {
       return topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; });
+    }
+    if (role === 'al-individual') {
+      var individualLike = _groupEntries(groups, ['al_individual_primitives']);
+      if (!individualLike.length) {
+        individualLike = _groupEntries(groups, ['al_people_lists', 'al_individual_objects']);
+      }
+      return individualLike;
     }
     if (role === 'object-class') {
       var classLike = _groupEntries(groups, ['classes']);
@@ -2681,11 +3040,15 @@
   }
 
   function serializeQuestionBlockToYaml(block) {
+    // Keep generated ALIndividual helper calls and their question-level sets
+    // modifier in sync immediately before serialization.
+    syncFieldsToData(block);
     return window.ALWeaverSerializers.serializeQuestionToYaml(block, {
       document: document,
       appendYamlValue: appendYamlValue,
       appendYamlBlockValue: appendYamlBlockValue,
       fieldTypeSupportsStandaloneContent: _fieldTypeSupportsStandaloneContent,
+      fieldMethodTypes: AL_FIELD_METHOD_TYPES,
       choiceTypes: CHOICE_TYPES,
       state: state,
       serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
@@ -2776,6 +3139,12 @@
       return '  - ' + escapeYamlStr(String(field)) + '\n';
     }
     if (typeof field !== 'object') return yaml;
+
+    if (typeof field.code === 'string' && Object.keys(field).every(function (key) { return key === 'code'; })) {
+      yaml += '  - code: |\n';
+      String(field.code).split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+      return yaml;
+    }
 
     var reserved = {
       label: true,
@@ -3153,9 +3522,14 @@
   function syncFieldsToData(blk) {
     if (!blk || blk.type !== 'question') return;
     var rows = document.querySelectorAll('.editor-field-row');
+    var previousGeneratedSets = (blk.data && blk.data._editor_al_generated_sets)
+      || _generatedALFieldSets((blk.data && blk.data.fields) || []);
     syncQuestionMetaToData(blk);
     if (rows.length === 0) {
-      if (state.questionBlockTab === 'screen' && !state.markdownPreviewMode) blk.data.fields = [];
+      if (state.questionBlockTab === 'screen' && !state.markdownPreviewMode) {
+        blk.data.fields = [];
+      }
+      _syncGeneratedALFieldSets(blk, previousGeneratedSets);
       return;
     }
     blk.data.fields = [];
@@ -3164,6 +3538,7 @@
       var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
       var type = row.querySelector('[data-field-prop="type"]').value;
       var isStandaloneType = _fieldTypeSupportsStandaloneContent(type);
+      var isALMethodType = _isALFieldMethodType(type);
       var labelEl = row.querySelector('[data-field-prop="label"]');
       var label = labelEl ? String(labelEl.value || '') : '';
       if (!isStandaloneType && !label) label = 'Label';
@@ -3183,6 +3558,12 @@
       var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
       var isRequired = requiredSwitch ? requiredSwitch.checked : true;
       var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(syncFmods).length > 0;
+      if (isALMethodType) {
+        var methodArgsEl = row.querySelector('[data-field-method-args]');
+        var methodCall = _methodCallFromParts(variable, type, methodArgsEl ? methodArgsEl.value : '');
+        if (methodCall) blk.data.fields.push({ code: methodCall });
+        continue;
+      }
       if (isStandaloneType) {
         var standaloneObj = {};
         standaloneObj[type] = label;
@@ -3207,6 +3588,7 @@
       Object.keys(syncFmods).forEach(function (k) { fieldObj[k] = syncFmods[k]; });
       blk.data.fields.push(fieldObj);
     }
+    _syncGeneratedALFieldSets(blk, previousGeneratedSets);
   }
 
   function _setButtonLoading(buttonId, loading, loadingText) {
@@ -4714,9 +5096,18 @@
         fields.forEach(function (f, fi) {
           var label = '', varName = '', dtype = 'text', choices = '', codeExpr = '';
           var contentText = '';
+          var methodArgs = '';
           // Extract all known field modifiers into a bag
           var fmods = {};
-          if (typeof f === 'object' && f !== null) {
+          var alMethodCall = (typeof f === 'object' && f !== null && typeof f.code === 'string')
+            ? _parseALFieldMethodCall(f.code)
+            : null;
+          if (alMethodCall) {
+            dtype = alMethodCall.method;
+            label = AL_FIELD_METHODS[dtype].label;
+            varName = alMethodCall.object;
+            methodArgs = alMethodCall.args;
+          } else if (typeof f === 'object' && f !== null) {
             // Detect label:/field: expanded style
             if (Object.prototype.hasOwnProperty.call(f, 'label') &&
                 (Object.prototype.hasOwnProperty.call(f, 'field') ||
@@ -4795,6 +5186,7 @@
           }
 
           var isStandaloneType = _fieldTypeSupportsStandaloneContent(dtype);
+          var isALMethodType = _isALFieldMethodType(dtype);
           var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
           var hasCode = Boolean(codeExpr);
           var requiredVal = fmods.required;
@@ -4805,7 +5197,11 @@
 
           if (isMdPreview) {
             html += '<div class="editor-field-row-preview">';
-            if (isStandaloneType) {
+            if (isALMethodType) {
+              html += '<div class="md-preview-wrapper md-preview-label">' + esc(label) + '</div>';
+              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(_fieldTypeLabel(dtype)) + '</div>';
+              html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
+            } else if (isStandaloneType) {
               if (dtype === 'html' || dtype === 'raw html') {
                 html += '<div class="md-preview-wrapper md-preview-label">' + String(label || '') + '</div>';
               } else if (dtype === 'code') {
@@ -4823,15 +5219,21 @@
             html += '</div>';
           } else {
             html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
-            if (isStandaloneType) {
+            if (isALMethodType) {
+              html += '<input class="form-control editor-form-control" data-field-prop="label" value="' + esc(label) + '" readonly aria-label="Generated field group">';
+            } else if (isStandaloneType) {
               html += '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' + esc(_fieldStandalonePlaceholder(dtype)) + '" title="Right-click for insert tools" rows="' + _fieldStandaloneRows(dtype) + '">' + esc(label) + '</textarea>';
             } else {
               html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
             }
             html += _renderFieldTypeDropdown(fi, dtype);
-            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="variable" value="' + esc(varName) + '" placeholder="variable_name">';
+            if (isALMethodType) html += renderSymbolDatalist('al-individual-list-' + fi, 'al-individual', 120);
+            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="' + (isALMethodType ? 'al-individual' : 'variable') + '"' + (isALMethodType ? ' list="al-individual-list-' + fi + '"' : '') + ' value="' + esc(varName) + '" placeholder="' + (isALMethodType ? 'users[i] or person' : 'variable_name') + '">';
+            if (isALMethodType) {
+              html += '<input type="hidden" data-field-method-args data-field-idx="' + fi + '" value="' + esc(methodArgs) + '">';
+            }
             html += '<div class="editor-field-actions">';
-            if (!isStandaloneType) {
+            if (!isStandaloneType && !isALMethodType) {
               html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
               html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
               html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
@@ -4843,9 +5245,13 @@
                 html += '</div>';
               }
             }
-            html += '<div class="editor-field-kebab-wrapper">';
-            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
-            html += '</div>';
+            if (isALMethodType) {
+              html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Options</button>';
+            } else {
+              html += '<div class="editor-field-kebab-wrapper">';
+              html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+              html += '</div>';
+            }
             html += '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
             html += '</div>';
             html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
@@ -4860,7 +5266,7 @@
               html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
               html += '</div>';
             }
-            html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
+            if (!isALMethodType) html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
           }
         });
         if (!isMdPreview) {
@@ -5355,6 +5761,11 @@
       object_multiselect: 'fa-list-check',
       user: 'fa-user',
       environment: 'fa-server',
+      name_fields: 'fa-id-card',
+      address_fields: 'fa-location-dot',
+      gender_fields: 'fa-venus-mars',
+      pronoun_fields: 'fa-comments',
+      language_fields: 'fa-language',
     };
     return map[key] || 'fa-input-text';
   }
@@ -6771,7 +7182,7 @@
               filename: state.filename,
               block_id: newBlock.id,
               instruction: screenInstruction,
-              field_types: FIELD_TYPES,
+              field_types: AI_FIELD_TYPES,
               current_screen: {
                 question: newBlock.data.question || '',
                 subquestion: newBlock.data.subquestion || '',
@@ -7291,7 +7702,7 @@
         filename: state.filename,
         block_id: questionBlock.id,
         instruction: screenInstruction,
-        field_types: FIELD_TYPES,
+        field_types: AI_FIELD_TYPES,
         current_screen: {
           question: questionBlock.data.question || '',
           subquestion: questionBlock.data.subquestion || '',
@@ -7321,7 +7732,7 @@
         project: state.project,
         filename: state.filename,
         block_id: currentQuestionBlock.id,
-        field_types: FIELD_TYPES,
+        field_types: AI_FIELD_TYPES,
         current_screen: {
           question: currentQuestionBlock.data.question || '',
           subquestion: currentQuestionBlock.data.subquestion || '',
@@ -7426,6 +7837,20 @@
       return;
     }
 
+    var alMethodOptionsButton = target.closest('[data-al-field-method-options]');
+    if (alMethodOptionsButton) {
+      _openALFieldMethodModal(
+        parseInt(alMethodOptionsButton.getAttribute('data-al-field-method-options'), 10),
+        alMethodOptionsButton.getAttribute('data-method-name')
+      );
+      return;
+    }
+
+    if (target.id === 'al-field-method-apply') {
+      _applyALFieldMethodModal();
+      return;
+    }
+
     if (target.matches('[data-field-settings-tab]')) {
       var tabFi = parseInt(target.getAttribute('data-field-idx'), 10);
       var tabBlock = getSelectedBlock();
@@ -7445,14 +7870,29 @@
       if (typeBlock && typeBlock.type === 'question') {
         syncFieldsToData(typeBlock);
         if (typeBlock.data && Array.isArray(typeBlock.data.fields) && typeBlock.data.fields[typeFi]) {
-          if (typeof typeBlock.data.fields[typeFi] === 'string') {
+          if (_isALFieldMethodType(nextType)) {
+            var currentField = typeBlock.data.fields[typeFi];
+            var currentMethodCall = _fieldMethodCallsFromData([currentField])[0];
+            var currentVariable = currentField && typeof currentField === 'object'
+              ? String(currentField.field || '')
+              : '';
+            if (currentMethodCall) currentVariable = currentMethodCall.object;
+            var receiver = _suggestALIndividualReceiver(currentVariable);
+            typeBlock.data.fields[typeFi] = { code: _methodCallFromParts(receiver, nextType, '') };
+          } else if (_fieldMethodCallsFromData([typeBlock.data.fields[typeFi]]).length) {
+            typeBlock.data.fields[typeFi] = { label: 'Label', field: '', datatype: nextType };
+          } else if (typeof typeBlock.data.fields[typeFi] === 'string') {
             typeBlock.data.fields[typeFi] = { label: typeBlock.data.fields[typeFi], field: '', datatype: nextType };
           } else {
             typeBlock.data.fields[typeFi].datatype = nextType;
           }
         }
+        _syncGeneratedALFieldSets(typeBlock);
         markInterviewDirty('set-field-datatype:' + typeFi);
         renderCanvas();
+        if (_isALFieldMethodType(nextType)) {
+          setTimeout(function () { _openALFieldMethodModal(typeFi, nextType); }, 0);
+        }
       }
       return;
     }
@@ -7804,6 +8244,7 @@
       if (blk2 && blk2.data && blk2.data.fields) {
         syncFieldsToData(blk2);
         blk2.data.fields.splice(fi, 1);
+        _syncGeneratedALFieldSets(blk2);
         _openFieldModsPanels = {};
         markInterviewDirty('remove-field:' + fi);
         renderCanvas();

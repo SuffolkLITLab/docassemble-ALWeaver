@@ -24,6 +24,7 @@
     var appendYamlValue = options.appendYamlValue;
     var appendYamlBlockValue = options.appendYamlBlockValue;
     var fieldTypeSupportsStandaloneContent = options.fieldTypeSupportsStandaloneContent;
+    var fieldMethodTypes = options.fieldMethodTypes || [];
     var choiceTypes = options.choiceTypes;
     var state = options.state;
     var serializeQuestionFieldFromData = options.serializeQuestionFieldFromData;
@@ -50,6 +51,7 @@
         var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
         var type = row.querySelector('[data-field-prop="type"]').value;
         var isStandaloneType = fieldTypeSupportsStandaloneContent(type);
+        var isFieldMethodType = fieldMethodTypes.indexOf(type) !== -1;
         var labelEl = row.querySelector('[data-field-prop="label"]');
         var label = labelEl ? String(labelEl.value || '') : '';
         if (!isStandaloneType && !label) label = 'Label';
@@ -74,6 +76,15 @@
         var isRequired = requiredSwitch ? requiredSwitch.checked : true;
         var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(sfmods).length > 0;
         var isMultiLineLabel = label.indexOf('\n') !== -1;
+        if (isFieldMethodType) {
+          var methodArgsEl = row.querySelector('[data-field-method-args]');
+          var methodArgs = methodArgsEl ? String(methodArgsEl.value || '').trim() : '';
+          if (variable) {
+            yaml += '  - code: |\n';
+            yaml += '      ' + variable + '.' + type + '(' + methodArgs + ')\n';
+          }
+          continue;
+        }
         if (isStandaloneType) {
           yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
           if (hasChoices) {

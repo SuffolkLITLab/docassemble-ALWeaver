@@ -19,7 +19,7 @@ function appendYamlBlockValue(yaml, key, value) {
   return yaml;
 }
 
-function makeDocument(type, modifiers) {
+function makeDocument(type, modifiers, methodArgs) {
   const values = {
     'adv-id': { value: 'question_id' },
     'q-title': { value: 'Question text' },
@@ -34,6 +34,7 @@ function makeDocument(type, modifiers) {
       if (selector === '[data-field-prop="type"]') return { value: type };
       if (selector === '[data-field-prop="label"]') return { value: 'Label' };
       if (selector === '[data-field-prop="variable"]') return { value: 'answer' };
+      if (selector === '[data-field-method-args]') return { value: methodArgs || '' };
       return null;
     },
   };
@@ -54,14 +55,15 @@ function makeDocument(type, modifiers) {
   };
 }
 
-function serialize(type, modifiers) {
+function serialize(type, modifiers, methodArgs) {
   return serializers.serializeQuestionToYaml({ id: 'question_id', data: {} }, {
-    document: makeDocument(type, modifiers),
+    document: makeDocument(type, modifiers, methodArgs),
     appendYamlValue,
     appendYamlBlockValue,
     fieldTypeSupportsStandaloneContent(value) {
       return ['note', 'html', 'raw html', 'code'].indexOf(value) !== -1;
     },
+    fieldMethodTypes: ['name_fields', 'address_fields', 'gender_fields', 'pronoun_fields', 'language_fields'],
     choiceTypes: [
       'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
       'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
@@ -106,6 +108,14 @@ assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
   assert.ok(serialize(type, []).includes('    datatype: ' + type + '\n'), type);
 });
 assert.ok(!serialize('text', []).includes('    datatype: text\n'));
+
+[
+  'name_fields', 'address_fields', 'gender_fields', 'pronoun_fields', 'language_fields',
+].forEach((type) => {
+  const yaml = serialize(type, [], "show_if={'variable': 'ready', 'is': True}");
+  assert.ok(yaml.includes("  - code: |\n      answer." + type + "(show_if={'variable': 'ready', 'is': True})\n"), type);
+  assert.ok(!yaml.includes('datatype: ' + type), type);
+});
 
 const modifierKeys = [
   'datatype', 'input type', 'required', 'disabled', 'under text', 'hint',

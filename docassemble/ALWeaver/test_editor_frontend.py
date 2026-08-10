@@ -71,6 +71,24 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
 
+    def test_alindividual_field_helpers_have_a_group_and_options_modal(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        for method in (
+            "name_fields",
+            "address_fields",
+            "gender_fields",
+            "pronoun_fields",
+            "language_fields",
+        ):
+            self.assertIn(f"{method}:", editor)
+        self.assertIn("Assembly Line person fields", editor)
+        self.assertIn('id="al-field-method-modal"', template)
+        self.assertIn("data-al-field-method-options", editor)
+        self.assertIn("al_individual_primitives", editor)
+        self.assertIn("_syncGeneratedALFieldSets", editor)
+
     def test_the_assistant_is_absent_until_its_feature_flag_is_on(self):
         """The assistant drawer ships in the template but must not be reachable
         on an installation that has not opted in. The toggle is hidden and the
