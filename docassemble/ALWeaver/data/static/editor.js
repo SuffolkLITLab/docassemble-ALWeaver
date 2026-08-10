@@ -97,6 +97,8 @@
   var _questionEventFieldOpen = {};
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
+  var DOCASSEMBLE_FIELDS_DOCS_URL = 'https://docassemble.org/docs/fields.html';
+  var ASSEMBLYLINE_AL_GENERAL_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/al_general/';
   var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
   var UPLOAD_JOB_MAX_ATTEMPTS = 480;
 
@@ -676,6 +678,7 @@
   var AL_FIELD_METHODS = {
     name_fields: {
       label: 'Name fields',
+      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.name_fields',
       sets: ['name.first', 'name.last', 'name.middle', 'name.suffix'],
       parameters: [
         { name: 'person_or_business', label: 'Person or business', kind: 'select', defaultLiteral: 'person', options: [
@@ -694,6 +697,7 @@
     },
     address_fields: {
       label: 'Address fields',
+      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.address_fields',
       sets: ['address.address', 'address.city', 'address.zip', 'address.unit', 'address.state', 'address.country'],
       parameters: [
         { name: 'country_code', label: 'Country code', kind: 'expression', placeholder: "'US' or AL_DEFAULT_COUNTRY" },
@@ -709,6 +713,7 @@
     },
     gender_fields: {
       label: 'Gender fields',
+      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.gender_fields',
       sets: ['gender'],
       parameters: [
         { name: 'show_help', label: 'Show help', kind: 'boolean' },
@@ -720,6 +725,7 @@
     },
     pronoun_fields: {
       label: 'Pronoun fields',
+      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.pronoun_fields',
       sets: ['pronouns'],
       parameters: [
         { name: 'show_help', label: 'Show help', kind: 'boolean' },
@@ -737,6 +743,7 @@
     },
     language_fields: {
       label: 'Language fields',
+      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.language_fields',
       sets: ['language'],
       parameters: [
         { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'al_language_user_choices' },
@@ -782,6 +789,7 @@
   ];
 
   var FIELD_STANDALONE_TYPES = ['note', 'html', 'raw html', 'code'];
+  var DEFAULT_CODE_FIELD_EXPRESSION = "[{'Apples': 'num_apples', 'datatype': 'integer'},\n       {'Oranges': 'num_oranges', 'datatype': 'integer'}]";
 
   var FIELD_TYPE_LABELS = {
     raw: 'Raw',
@@ -916,6 +924,203 @@
       if (keyword) values[keyword.name] = keyword.value;
     });
     return values;
+  }
+
+  function _previewBooleanArgument(values, name, defaultValue) {
+    if (!Object.prototype.hasOwnProperty.call(values, name)) return defaultValue;
+    if (values[name] === 'True') return true;
+    if (values[name] === 'False') return false;
+    return null;
+  }
+
+  function _previewField(label, kind, options) {
+    var settings = options || {};
+    return {
+      label: label,
+      kind: kind || 'text',
+      choices: settings.choices || [],
+      optional: Boolean(settings.optional),
+      conditional: Boolean(settings.conditional),
+      hint: settings.hint || ''
+    };
+  }
+
+  function _alFieldMethodPreviewFields(methodName, args, receiver) {
+    var values = _keywordArgumentValues(args);
+    var fields = [];
+    var enabled;
+
+    if (methodName === 'name_fields') {
+      var personType = Object.prototype.hasOwnProperty.call(values, 'person_or_business')
+        ? _pythonStringLiteralValue(values.person_or_business)
+        : 'person';
+      if (personType === 'business') {
+        return [_previewField('Name of business or organization', 'text')];
+      }
+      if (personType !== 'person') {
+        fields.push(_previewField('Is this a person, or a business?', 'radio', {
+          choices: ['Person', 'Business or organization']
+        }));
+      }
+      if (personType === 'person') {
+        enabled = _previewBooleanArgument(values, 'show_title', false);
+        if (enabled !== false) fields.push(_previewField('Title', 'select', {
+          optional: true,
+          conditional: enabled === null,
+          choices: ['Mr.', 'Ms.', 'Mx.', 'Dr.']
+        }));
+      }
+      fields.push(_previewField('First name', 'text', { conditional: personType !== 'person' }));
+      fields.push(_previewField('Middle name', 'text', { optional: true, conditional: personType !== 'person' }));
+      fields.push(_previewField('Last name', 'text', { conditional: personType !== 'person' }));
+      enabled = _previewBooleanArgument(values, 'show_suffix', true);
+      if (enabled !== false) fields.push(_previewField('Suffix', 'select', {
+        optional: true,
+        conditional: personType !== 'person' || enabled === null,
+        choices: ['Jr', 'Sr', 'II', 'III']
+      }));
+      if (personType !== 'person') {
+        fields.push(_previewField('Name of business or organization', 'text', { conditional: true }));
+      }
+      return fields;
+    }
+
+    if (methodName === 'address_fields') {
+      var allowNoAddress = _previewBooleanArgument(values, 'allow_no_address', false);
+      if (allowNoAddress !== false) {
+        fields.push(_previewField('I do not have an address', 'yesno', { conditional: allowNoAddress === null }));
+        fields.push(_previewField('Anything else you want to add about the living situation?', 'area', {
+          optional: true,
+          conditional: true,
+          hint: 'Shown when no address is selected'
+        }));
+      }
+      fields.push(_previewField('Street address', 'text'));
+      fields.push(_previewField('Apartment', 'text', { optional: true }));
+      fields.push(_previewField('City', 'text'));
+      var showCountry = _previewBooleanArgument(values, 'show_country', false);
+      var countryCode = values.country_code ? _pythonStringLiteralValue(values.country_code) : 'US';
+      var isUsAddress = showCountry === false && countryCode === 'US';
+      fields.push(_previewField(isUsAddress ? 'State' : 'State / Province', isUsAddress ? 'select' : 'text'));
+      fields.push(_previewField(isUsAddress ? 'ZIP code' : 'Postal code', 'text', { optional: true }));
+      enabled = _previewBooleanArgument(values, 'show_county', false);
+      if (enabled !== false) fields.push(_previewField('County', 'text', { optional: true, conditional: enabled === null }));
+      if (showCountry !== false) fields.push(_previewField('Country', 'select', {
+        optional: true,
+        conditional: showCountry === null,
+        choices: ['United States', 'Canada', 'Mexico']
+      }));
+      enabled = _previewBooleanArgument(values, 'ask_if_impounded', false);
+      if (enabled !== false) fields.push(_previewField('Is this address impounded?', 'yesno', { conditional: enabled === null }));
+      return fields;
+    }
+
+    if (methodName === 'gender_fields') {
+      var genderChoices = values.choices
+        ? ['Configured choices', 'Prefer to write something else']
+        : ['Female', 'Male', 'Nonbinary', 'Prefer not to say', 'Prefer to write something else', 'Unknown'];
+      return [
+        _previewField('Gender', 'select', { choices: genderChoices }),
+        _previewField('Self-described gender', 'text', { conditional: true })
+      ];
+    }
+
+    if (methodName === 'pronoun_fields') {
+      var pronounChoices = values.choices
+        ? ['Configured choices', 'Something else', 'Prefer not to say']
+        : ['He/him/his', 'She/her/hers', 'They/them/theirs', 'Ze/zir/zirs', 'Something else', 'Prefer not to say'];
+      var showUnknown = values.show_unknown || "'guess'";
+      if (showUnknown === 'True') pronounChoices.push('Unknown');
+      else if (showUnknown !== 'False' && String(receiver || '') !== 'users[0]') pronounChoices.push('Unknown (when applicable)');
+      return [
+        _previewField('Choose one or more pronouns', 'checkboxes', { choices: pronounChoices, optional: true }),
+        _previewField('Self described pronouns', 'text', { conditional: true })
+      ];
+    }
+
+    if (methodName === 'language_fields') {
+      var languageChoices = values.choices
+        ? ['Configured languages', 'Other']
+        : ['English', 'Spanish', 'Other'];
+      var style = values.style ? _pythonStringLiteralValue(values.style) : 'radio';
+      return [
+        _previewField('Language', style === 'radio' ? 'radio' : 'select', { choices: languageChoices }),
+        _previewField('Other', 'text', { conditional: true })
+      ];
+    }
+    return fields;
+  }
+
+  function _renderALFieldMethodPreview(methodName, args, receiver) {
+    var fields = _alFieldMethodPreviewFields(methodName, args, receiver);
+    var html = '<div class="editor-al-field-preview">';
+    fields.forEach(function (field) {
+      var rowClass = 'editor-al-preview-control' + (field.conditional ? ' editor-al-preview-conditional' : '');
+      html += '<div class="' + rowClass + '">';
+      html += '<div class="editor-al-preview-label">' + esc(field.label);
+      if (!field.optional && field.kind !== 'yesno' && field.kind !== 'checkboxes') html += ' <span class="text-danger" aria-hidden="true">*</span>';
+      if (field.optional) html += ' <span class="text-muted">(optional)</span>';
+      if (field.conditional) html += ' <span class="editor-al-preview-condition">Conditional</span>';
+      html += '</div>';
+      if (field.hint) html += '<div class="editor-tiny text-muted mb-1">' + esc(field.hint) + '</div>';
+      if (field.kind === 'area') {
+        html += '<textarea class="form-control editor-al-preview-input" rows="2" disabled aria-hidden="true"></textarea>';
+      } else if (field.kind === 'select') {
+        html += '<select class="form-select editor-al-preview-input" disabled aria-hidden="true"><option></option>';
+        field.choices.forEach(function (choice) { html += '<option>' + esc(choice) + '</option>'; });
+        html += '</select>';
+      } else if (field.kind === 'radio' || field.kind === 'checkboxes' || field.kind === 'yesno') {
+        var choices = field.kind === 'yesno' ? ['Yes', 'No'] : field.choices;
+        html += '<div class="editor-al-preview-choices">';
+        choices.forEach(function (choice) {
+          var inputType = field.kind === 'checkboxes' ? 'checkbox' : 'radio';
+          html += '<label class="form-check editor-al-preview-choice"><input class="form-check-input" type="' + inputType + '" disabled aria-hidden="true"><span class="form-check-label">' + esc(choice) + '</span></label>';
+        });
+        html += '</div>';
+      } else {
+        html += '<input class="form-control editor-al-preview-input" type="text" disabled aria-hidden="true">';
+      }
+      html += '</div>';
+    });
+    html += '<div class="editor-al-preview-source"><span>' + esc(_fieldTypeLabel(methodName)) + '</span><code>' + esc(receiver) + '.' + esc(methodName) + '(...)</code></div>';
+    html += '</div>';
+    return html;
+  }
+
+  var FIELD_TYPE_DOC_ANCHORS = {
+    text: 'plain-text', textC: 'plain-text', area: 'plain-text', areaC: 'plain-text', raw: 'raw-data',
+    password: 'passwords', date: 'dates', time: 'times', datetime: 'combined-dates-and-times', email: 'e-mail-addresses',
+    number: 'numbers', integer: 'numbers', currency: 'currency', range: 'sliders',
+    file: 'file-uploads', files: 'file-uploads', camera: 'file-uploads', user: 'file-uploads', environment: 'file-uploads', microphone: 'file-uploads', camcorder: 'file-uploads',
+    yesno: 'yesno-fields', yesnowide: 'yesno-fields', yesnoradio: 'yesno-fields', yesnomaybe: 'yesno-fields', noyes: 'yesno-fields', noyeswide: 'yesno-fields', noyesradio: 'yesno-fields', noyesmaybe: 'yesno-fields',
+    checkboxes: 'checkboxes', multiselect: 'multiselect', dropdown: 'multiple-choice-dropdown-1', combobox: 'multiple-choice-combobox-1', radio: 'radio-buttons',
+    object: 'multiple-choice-with-objects', object_radio: 'multiple-choice-with-objects', object_checkboxes: 'multiple-choice-with-objects', object_multiselect: 'multiple-choice-with-objects',
+    ml: 'machine-learning', mlarea: 'machine-learning', hidden: 'hidden-field', note: 'note', html: 'html', 'raw html': 'raw-html', code: 'code'
+  };
+
+  function _fieldTypeHelp(type) {
+    var config = AL_FIELD_METHODS[type];
+    if (config && config.docsUrl) return { label: config.label, url: config.docsUrl };
+    var anchor = FIELD_TYPE_DOC_ANCHORS[type] || 'data-types-and-input-types';
+    return { label: _fieldTypeLabel(type), url: DOCASSEMBLE_FIELDS_DOCS_URL + '#' + anchor };
+  }
+
+  function _renderQuestionFieldHelp(types) {
+    var seen = {};
+    var links = [];
+    (types || []).forEach(function (type) {
+      if (!type || seen[type]) return;
+      seen[type] = true;
+      links.push(_fieldTypeHelp(type));
+    });
+    if (!links.length) return '';
+    var html = '<div class="editor-question-context-help" aria-label="Field documentation">';
+    html += '<span class="editor-question-context-help-label"><i class="fa-regular fa-circle-question" aria-hidden="true"></i> Field help</span>';
+    links.forEach(function (link) {
+      html += '<a href="' + esc(link.url) + '" target="_blank" rel="noopener noreferrer">' + esc(link.label) + '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>';
+    });
+    html += '</div>';
+    return html;
   }
 
   function _setsForALFieldMethod(objectName, methodName, args) {
@@ -4997,6 +5202,7 @@
   function renderQuestionBlock(block) {
     var data = block.data || {};
     var fields = data.fields || [];
+    var questionHelpTypes = [];
     var isPreview = state.questionEditMode === 'preview';
     var isMdPreview = isPreview && state.markdownPreviewMode;
     var html = '';
@@ -5187,6 +5393,7 @@
 
           var isStandaloneType = _fieldTypeSupportsStandaloneContent(dtype);
           var isALMethodType = _isALFieldMethodType(dtype);
+          questionHelpTypes.push(dtype);
           var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
           var hasCode = Boolean(codeExpr);
           var requiredVal = fmods.required;
@@ -5196,12 +5403,10 @@
           if (typeof showIfVal === 'object') showIfVal = JSON.stringify(showIfVal);
 
           if (isMdPreview) {
-            html += '<div class="editor-field-row-preview">';
             if (isALMethodType) {
-              html += '<div class="md-preview-wrapper md-preview-label">' + esc(label) + '</div>';
-              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(_fieldTypeLabel(dtype)) + '</div>';
-              html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
+              html += _renderALFieldMethodPreview(dtype, methodArgs, varName);
             } else if (isStandaloneType) {
+              html += '<div class="editor-field-row-preview">';
               if (dtype === 'html' || dtype === 'raw html') {
                 html += '<div class="md-preview-wrapper md-preview-label">' + String(label || '') + '</div>';
               } else if (dtype === 'code') {
@@ -5211,12 +5416,14 @@
               }
               html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(_fieldTypeLabel(dtype)) + '</div>';
               html += '<div></div>';
+              html += '</div>';
             } else {
+              html += '<div class="editor-field-row-preview">';
               html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(label) + '</div>';
               html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(dtype) + '</div>';
               html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
+              html += '</div>';
             }
-            html += '</div>';
           } else {
             html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
             if (isALMethodType) {
@@ -5246,8 +5453,10 @@
               }
             }
             if (isALMethodType) {
-              html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Options</button>';
-            } else {
+              html += '<div class="editor-field-kebab-wrapper">';
+              html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '" aria-label="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+              html += '</div>';
+            } else if (dtype !== 'code') {
               html += '<div class="editor-field-kebab-wrapper">';
               html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
               html += '</div>';
@@ -5266,7 +5475,7 @@
               html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
               html += '</div>';
             }
-            if (!isALMethodType) html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
+            if (!isALMethodType && dtype !== 'code') html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
           }
         });
         if (!isMdPreview) {
@@ -5276,6 +5485,7 @@
           html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
           html += '</div>';
         }
+        html += _renderQuestionFieldHelp(questionHelpTypes);
       } else if (!isMdPreview) {
         html += '<div class="editor-section-legend mt-3">Fields</div>';
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
@@ -7870,21 +8080,30 @@
       if (typeBlock && typeBlock.type === 'question') {
         syncFieldsToData(typeBlock);
         if (typeBlock.data && Array.isArray(typeBlock.data.fields) && typeBlock.data.fields[typeFi]) {
+          var selectedField = typeBlock.data.fields[typeFi];
+          var selectedMethodCall = _fieldMethodCallsFromData([selectedField])[0];
+          var isGenericCodeField = Boolean(
+            selectedField && typeof selectedField === 'object' &&
+            typeof selectedField.code === 'string' &&
+            !selectedField.label && !selectedField.field && !selectedMethodCall
+          );
           if (_isALFieldMethodType(nextType)) {
-            var currentField = typeBlock.data.fields[typeFi];
-            var currentMethodCall = _fieldMethodCallsFromData([currentField])[0];
-            var currentVariable = currentField && typeof currentField === 'object'
-              ? String(currentField.field || '')
+            var currentVariable = selectedField && typeof selectedField === 'object'
+              ? String(selectedField.field || '')
               : '';
-            if (currentMethodCall) currentVariable = currentMethodCall.object;
+            if (selectedMethodCall) currentVariable = selectedMethodCall.object;
             var receiver = _suggestALIndividualReceiver(currentVariable);
             typeBlock.data.fields[typeFi] = { code: _methodCallFromParts(receiver, nextType, '') };
-          } else if (_fieldMethodCallsFromData([typeBlock.data.fields[typeFi]]).length) {
+          } else if (nextType === 'code') {
+            if (!isGenericCodeField) {
+              typeBlock.data.fields[typeFi] = { code: DEFAULT_CODE_FIELD_EXPRESSION };
+            }
+          } else if (selectedMethodCall || isGenericCodeField) {
             typeBlock.data.fields[typeFi] = { label: 'Label', field: '', datatype: nextType };
-          } else if (typeof typeBlock.data.fields[typeFi] === 'string') {
-            typeBlock.data.fields[typeFi] = { label: typeBlock.data.fields[typeFi], field: '', datatype: nextType };
+          } else if (typeof selectedField === 'string') {
+            typeBlock.data.fields[typeFi] = { label: selectedField, field: '', datatype: nextType };
           } else {
-            typeBlock.data.fields[typeFi].datatype = nextType;
+            selectedField.datatype = nextType;
           }
         }
         _syncGeneratedALFieldSets(typeBlock);
