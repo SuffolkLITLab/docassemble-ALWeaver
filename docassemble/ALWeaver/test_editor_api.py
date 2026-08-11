@@ -154,6 +154,203 @@ def _load_api_editor_for_tests():
 api_editor = _load_api_editor_for_tests()
 
 
+class TestEditorProjectSearchApi(unittest.TestCase):
+    def test_search_returns_context_group_metadata_and_revisions(self):
+        project_files = [
+            {
+                "section": "interview",
+                "file_type": "interview",
+                "file_type_label": "Interviews",
+                "filename": "main.yml",
+                "content": "question: Alpha\n",
+                "revision": "revision-main",
+            },
+            {
+                "section": "modules",
+                "file_type": "modules",
+                "file_type_label": "Modules",
+                "filename": "helper.py",
+                "content": "alpha = 1\n",
+                "revision": "revision-helper",
+            },
+        ]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_text_files",
+                return_value=(project_files, []),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/project/search",
+                method="POST",
+                json={"project": "default", "query": "alpha", "mode": "text"},
+            ):
+                response = api_editor.editor_api_project_search()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertEqual(data["match_count"], 2)
+        self.assertEqual(data["file_count"], 2)
+        self.assertEqual(data["files"][0]["file_type_label"], "Interviews")
+        self.assertEqual(data["files"][0]["matches"][0]["line"], 1)
+        self.assertEqual(data["files"][1]["revision"], "revision-helper")
+
+    def test_replace_preflights_exact_spans_before_committing(self):
+        source = "alpha and alpha\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_read_project_text_file", return_value=source),
+            patch.object(api_editor, "_commit_project_replacements") as commit,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/project/replace",
+                method="POST",
+                json={
+                    "project": "default",
+                    "query": "alpha",
+                    "replacement": "beta",
+                    "mode": "text",
+                    "files": [
+                        {
+                            "section": "interview",
+                            "filename": "main.yml",
+                            "revision": "test-revision",
+                            "matches": [{"start": 0, "end": 5}],
+                        }
+                    ],
+                },
+            ):
+                response = api_editor.editor_api_project_replace()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["replacement_count"], 1)
+        changes = commit.call_args.args[2]
+        self.assertEqual(changes[0]["updated"], "beta and alpha\n")
+
+    def test_replace_rejects_stale_search_without_writing(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_read_project_text_file", return_value="alpha\n"),
+            patch.object(api_editor, "_commit_project_replacements") as commit,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/project/replace",
+                method="POST",
+                json={
+                    "project": "default",
+                    "query": "alpha",
+                    "replacement": "beta",
+                    "mode": "text",
+                    "files": [
+                        {
+                            "section": "interview",
+                            "filename": "main.yml",
+                            "revision": "older-revision",
+                            "matches": [{"start": 0, "end": 5}],
+                        }
+                    ],
+                },
+            ):
+                response = api_editor.editor_api_project_replace()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["code"], "stale_search")
+        commit.assert_not_called()
+
+    def test_variable_refactor_reuses_safe_rename_planning_across_a_file(self):
+        source = (
+            "---\n"
+            "id: ask_name\n"
+            "question: Name\n"
+            "fields:\n"
+            "  - Name: old_name\n"
+            "---\n"
+            "id: use_name\n"
+            "code: |\n"
+            "  if old_name:\n"
+            "    pass\n"
+        )
+        project_files = [
+            {
+                "section": "interview",
+                "file_type": "interview",
+                "file_type_label": "Interviews",
+                "filename": "main.yml",
+                "content": source,
+                "revision": "source-revision",
+            }
+        ]
+        validation = types.SimpleNamespace(blocking=False)
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_text_files",
+                return_value=(project_files, []),
+            ),
+            patch.object(
+                api_editor, "_project_search_revision", return_value="manifest"
+            ),
+            patch.object(
+                api_editor, "validate_candidate_source", return_value=validation
+            ),
+            patch.object(api_editor, "_commit_project_replacements") as commit,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/project/replace",
+                method="POST",
+                json={
+                    "project": "default",
+                    "query": "old_name",
+                    "replacement": "client_name",
+                    "mode": "variable",
+                    "project_revision": "manifest",
+                },
+            ):
+                response = api_editor.editor_api_project_replace()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["replacement_count"], 2)
+        updated = commit.call_args.args[2][0]["updated"]
+        self.assertNotIn("old_name", updated)
+        self.assertEqual(updated.count("client_name"), 2)
+
+    def test_final_batch_preflight_detects_a_race_before_any_write(self):
+        changes = [
+            {
+                "section": "interview",
+                "filename": "one.yml",
+                "original": "one old",
+                "updated": "one new",
+            },
+            {
+                "section": "modules",
+                "filename": "two.py",
+                "original": "two old",
+                "updated": "two new",
+            },
+        ]
+        with (
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                side_effect=["one old", "two changed elsewhere"],
+            ),
+            patch.object(api_editor, "_write_project_text_file") as write,
+        ):
+            with self.assertRaises(api_editor.StaleProjectSearchError) as raised:
+                api_editor._commit_project_replacements(7, "default", changes)
+
+        self.assertEqual(raised.exception.files[0]["filename"], "two.py")
+        write.assert_not_called()
+
+
 class TestEditorApiFileCreation(unittest.TestCase):
     def test_save_file_accepts_intentionally_empty_source(self):
         with (

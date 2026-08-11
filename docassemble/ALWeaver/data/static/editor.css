@@ -200,6 +200,94 @@ html, body {
   padding: 8px 12px;
 }
 
+/* ===== Project-wide find / replace ===== */
+
+.editor-project-search-results {
+  display: grid;
+  gap: 1rem;
+}
+
+.editor-project-search-group {
+  border: 1px solid var(--editor-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.editor-project-search-group-title {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  background: #f4f6f9;
+  border-bottom: 1px solid var(--editor-border);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.editor-project-search-file + .editor-project-search-file {
+  border-top: 1px solid var(--editor-border);
+}
+
+.editor-project-search-file-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  background: #fbfcfd;
+}
+
+.editor-project-search-file-link {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bs-link-color);
+  font-family: var(--bs-font-monospace);
+  font-size: 0.82rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.editor-project-search-file-count {
+  margin-left: auto;
+  color: var(--editor-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.editor-project-search-match {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  border-top: 1px solid #eef0f3;
+}
+
+.editor-project-search-context {
+  min-width: 0;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-project-search-context mark {
+  padding: 0.05rem 0.12rem;
+  background: #ffe69c;
+  color: inherit;
+  border-radius: 0.15rem;
+}
+
+.editor-project-search-line {
+  color: var(--editor-muted);
+  font-size: 0.72rem;
+}
+
+.editor-project-search-classification {
+  margin-left: 0.35rem;
+  font-family: var(--bs-body-font-family);
+  font-size: 0.7rem;
+}
+
 .editor-tiny {
   font-size: 11px;
   letter-spacing: 0.02em;
@@ -2896,8 +2984,9 @@ code.md-mako-expr {
   width: 26px;
 }
 
-/* ===== File actions kebab (YAML file rename/delete) ===== */
+/* ===== Compact sidebar actions ===== */
 
+.editor-sidebar-action-btn,
 .editor-file-actions-kebab {
   width: 28px;
   height: 32px;
@@ -2914,11 +3003,24 @@ code.md-mako-expr {
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 
+.editor-sidebar-action-btn {
+  width: 32px;
+  flex: 0 0 32px;
+}
+
+.editor-sidebar-action-btn:hover,
+.editor-sidebar-action-btn:focus-visible,
 .editor-file-actions-kebab:hover,
 .editor-file-actions-kebab:focus-visible {
   border-color: var(--editor-border);
   background: #f4f6fa;
   color: var(--editor-fg);
+}
+
+.editor-sidebar-action-btn:focus-visible,
+.editor-file-actions-kebab:focus-visible {
+  outline: 2px solid rgba(13, 57, 112, 0.18);
+  outline-offset: 1px;
 }
 
 .editor-file-actions-kebab::after {

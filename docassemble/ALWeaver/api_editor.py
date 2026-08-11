@@ -23,6 +23,8 @@ Provides:
     GET  /al/editor/api/preview-url — get the interview preview URL
     GET  /al/editor/api/weaver/validate — validate a saved YAML file
     POST /al/editor/api/validate-source — validate a submitted source buffer
+    POST /al/editor/api/project/search — search every text file in a project
+    POST /al/editor/api/project/replace — replace selected matches or refactor a variable
     POST /al/editor/api/agent/sessions — start an editing-assistant session
     GET  /al/editor/api/agent/sessions/<id> — read assistant session state
     DELETE /al/editor/api/agent/sessions/<id> — end an assistant session
@@ -35,6 +37,7 @@ Provides:
 from __future__ import annotations
 
 import importlib.resources
+import hashlib
 import json
 import mimetypes
 import os
@@ -129,6 +132,12 @@ from .source_document import (
     apply_range_operations,
     parse_source_document,
     unified_source_diff,
+)
+from .editor_project_search import (
+    MAX_PROJECT_MATCHES,
+    context_for_span,
+    find_literal_matches,
+    replace_selected_matches,
 )
 from .editor_agent import (
     AgentConfigurationError,
@@ -262,6 +271,24 @@ EDITOR_IMAGE_EXTENSIONS = {
     ".tif",
     ".tiff",
 }
+
+EDITOR_SEARCH_FILE_TYPES = {
+    "interview": "Interviews",
+    "templates": "Templates",
+    "modules": "Modules",
+    "static": "Static files",
+    "data": "Sources",
+}
+EDITOR_SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+class StaleProjectSearchError(ValueError):
+    """Raised when a project-search target changes during final preflight."""
+
+    def __init__(self, files: List[Dict[str, str]]):
+        super().__init__("Project files changed after this search")
+        self.files = files
+
 
 DEFAULT_DASHBOARD_EDITOR_URLS = {
     "pdf": "/al/pdf-labeler?project={project}&filename={filename}",
@@ -665,6 +692,156 @@ def _list_editor_section_files(
             }
         )
     return items
+
+
+def _read_project_text_file(
+    user_id: int, project: str, section: str, filename: str
+) -> str:
+    """Read one search-scoped file after applying the editor's normal guards."""
+    if section == "interview":
+        return playground_read_yaml(user_id, project, _normalize_filename(filename))
+    normalized_section = _normalize_section(section)
+    normalized_filename = _normalize_storage_filename(filename)
+    metadata = {
+        item["filename"]: item
+        for item in _list_editor_section_files(user_id, project, normalized_section)
+    }.get(normalized_filename)
+    if not metadata:
+        raise FileNotFoundError(f"{normalized_filename} not found")
+    if not metadata.get("editable"):
+        raise ValueError(f"{normalized_filename} is not a text-editable file")
+    if int(metadata.get("size") or 0) > EDITOR_SEARCH_MAX_FILE_BYTES:
+        raise ValueError(f"{normalized_filename} is too large for project search")
+    storage_section = EDITOR_SECTION_TO_STORAGE[normalized_section]
+    _area, directory = _editor_storage_directory(user_id, project, storage_section)
+    with open(
+        os.path.join(directory, normalized_filename), encoding="utf-8", errors="replace"
+    ) as fh:
+        return fh.read()
+
+
+def _write_project_text_file(
+    user_id: int, project: str, section: str, filename: str, content: str
+) -> None:
+    """Write one already-validated project-search target."""
+    if section == "interview":
+        playground_write_yaml(user_id, project, _normalize_filename(filename), content)
+        return
+    normalized_section = _normalize_section(section)
+    normalized_filename = _normalize_storage_filename(filename)
+    storage_section = EDITOR_SECTION_TO_STORAGE[normalized_section]
+    area, directory = _editor_storage_directory(user_id, project, storage_section)
+    with open(
+        os.path.join(directory, normalized_filename), "w", encoding="utf-8"
+    ) as fh:
+        fh.write(content)
+    area.finalize()
+
+
+def _project_text_files(
+    user_id: int, project: str, *, interviews_only: bool = False
+) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    """Return bounded text buffers in stable file-type/filename order."""
+    files: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
+    for item in playground_list_yaml_files(user_id, project):
+        if not isinstance(item, dict) or not item.get("filename"):
+            continue
+        filename = _normalize_filename(item.get("filename"))
+        content = playground_read_yaml(user_id, project, filename)
+        if len(content.encode("utf-8")) > EDITOR_SEARCH_MAX_FILE_BYTES:
+            skipped.append(
+                {"section": "interview", "filename": filename, "reason": "too_large"}
+            )
+            continue
+        files.append(
+            {
+                "section": "interview",
+                "file_type": "interview",
+                "file_type_label": EDITOR_SEARCH_FILE_TYPES["interview"],
+                "filename": filename,
+                "content": content,
+                "revision": source_revision(content),
+            }
+        )
+    if interviews_only:
+        return files, skipped
+
+    for section in ("templates", "modules", "static", "data"):
+        for item in _list_editor_section_files(user_id, project, section):
+            filename = str(item.get("filename") or "")
+            if not item.get("editable"):
+                continue
+            if int(item.get("size") or 0) > EDITOR_SEARCH_MAX_FILE_BYTES:
+                skipped.append(
+                    {"section": section, "filename": filename, "reason": "too_large"}
+                )
+                continue
+            content = _read_project_text_file(user_id, project, section, filename)
+            files.append(
+                {
+                    "section": section,
+                    "file_type": section,
+                    "file_type_label": EDITOR_SEARCH_FILE_TYPES[section],
+                    "filename": filename,
+                    "content": content,
+                    "revision": source_revision(content),
+                }
+            )
+    return files, skipped
+
+
+def _project_search_revision(files: List[Dict[str, Any]]) -> str:
+    manifest = "\n".join(
+        f"{item['section']}\0{item['filename']}\0{item['revision']}" for item in files
+    )
+    return hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+
+
+def _commit_project_replacements(
+    user_id: int, project: str, changes: List[Dict[str, Any]]
+) -> None:
+    """Write a preflighted batch and make a best-effort rollback on failure."""
+    stale_files: List[Dict[str, str]] = []
+    for change in changes:
+        current = _read_project_text_file(
+            user_id, project, change["section"], change["filename"]
+        )
+        if current != change["original"]:
+            stale_files.append(
+                {"section": change["section"], "filename": change["filename"]}
+            )
+    if stale_files:
+        raise StaleProjectSearchError(stale_files)
+
+    written: List[Dict[str, Any]] = []
+    try:
+        for change in changes:
+            _write_project_text_file(
+                user_id,
+                project,
+                change["section"],
+                change["filename"],
+                change["updated"],
+            )
+            written.append(change)
+    except Exception:
+        for change in reversed(written):
+            try:
+                _write_project_text_file(
+                    user_id,
+                    project,
+                    change["section"],
+                    change["filename"],
+                    change["original"],
+                )
+            except Exception as rollback_exc:
+                log(
+                    "ALWeaver editor: project replace rollback failed for "
+                    f"{change['section']}/{change['filename']}: {rollback_exc!r}",
+                    "error",
+                )
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1084,6 +1261,462 @@ def editor_api_files() -> Response:
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/search", methods=["POST"])
+def editor_api_project_search() -> Response:
+    """Search all text-editable files in one Playground project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        query = post_data.get("query")
+        if not isinstance(query, str):
+            raise ValueError("Search text is required")
+        mode = str(post_data.get("mode") or "text").strip().lower()
+        if mode not in {"text", "variable"}:
+            raise ValueError("Search mode must be text or variable")
+        replacement = post_data.get("replacement")
+        case_sensitive = parse_bool(post_data.get("case_sensitive"), default=False)
+        whole_word = parse_bool(post_data.get("whole_word"), default=False)
+        files, skipped = _project_text_files(
+            uid, project, interviews_only=mode == "variable"
+        )
+        project_revision = _project_search_revision(files)
+        results: List[Dict[str, Any]] = []
+        total_matches = 0
+        truncated = False
+
+        if mode == "variable":
+            from .editor_agent_rename import (
+                analyze_rename,
+                validate_variable_reference,
+            )
+
+            invalid = validate_variable_reference(query)
+            if invalid:
+                raise ValueError(invalid)
+            if not isinstance(replacement, str) or not replacement.strip():
+                raise ValueError(
+                    "Enter the new variable name before previewing a refactor"
+                )
+            invalid_replacement = validate_variable_reference(replacement)
+            if invalid_replacement:
+                raise ValueError(invalid_replacement)
+            if query == replacement:
+                raise ValueError(f"{query} is already named that")
+            for item in files:
+                analysis = analyze_rename(
+                    filename=item["filename"],
+                    raw_yaml=item["content"],
+                    old_name=query,
+                    new_name=replacement,
+                )
+                contexts: List[Dict[str, Any]] = []
+                for occurrence in analysis.occurrences:
+                    if total_matches >= MAX_PROJECT_MATCHES:
+                        truncated = True
+                        break
+                    context = context_for_span(
+                        item["content"], occurrence.start, occurrence.end
+                    )
+                    context.update(
+                        {
+                            "replaceable": occurrence.safe,
+                            "reason": occurrence.reason,
+                            "context_type": occurrence.context,
+                            "block_id": occurrence.block_id,
+                        }
+                    )
+                    contexts.append(context)
+                    total_matches += 1
+                if contexts:
+                    results.append(
+                        {
+                            key: item[key]
+                            for key in (
+                                "section",
+                                "file_type",
+                                "file_type_label",
+                                "filename",
+                                "revision",
+                            )
+                        }
+                        | {"matches": contexts}
+                    )
+                if truncated:
+                    break
+        else:
+            for item in files:
+                remaining = MAX_PROJECT_MATCHES - total_matches
+                if remaining <= 0:
+                    truncated = True
+                    break
+                matches, file_truncated = find_literal_matches(
+                    item["content"],
+                    query,
+                    case_sensitive=case_sensitive,
+                    whole_word=whole_word,
+                    limit=min(remaining, 500),
+                )
+                if matches:
+                    results.append(
+                        {
+                            key: item[key]
+                            for key in (
+                                "section",
+                                "file_type",
+                                "file_type_label",
+                                "filename",
+                                "revision",
+                            )
+                        }
+                        | {"matches": matches}
+                    )
+                    total_matches += len(matches)
+                if file_truncated or total_matches >= MAX_PROJECT_MATCHES:
+                    truncated = True
+                    if total_matches >= MAX_PROJECT_MATCHES:
+                        break
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "mode": mode,
+                    "query": query,
+                    "replacement": replacement if mode == "variable" else None,
+                    "case_sensitive": case_sensitive,
+                    "whole_word": whole_word,
+                    "project_revision": project_revision,
+                    "files": results,
+                    "file_count": len(results),
+                    "match_count": total_matches,
+                    "truncated": truncated,
+                    "skipped": skipped,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: project search error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "message": "The project search could not be completed.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/replace", methods=["POST"])
+def editor_api_project_replace() -> Response:
+    """Apply a stale-safe text replacement or semantic variable refactor."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(post_data.get("project"))
+        query = post_data.get("query")
+        replacement = post_data.get("replacement")
+        if not isinstance(query, str) or not query:
+            raise ValueError("Search text is required")
+        if not isinstance(replacement, str):
+            raise ValueError("Replacement must be text")
+        mode = str(post_data.get("mode") or "text").strip().lower()
+        if mode not in {"text", "variable"}:
+            raise ValueError("Replace mode must be text or variable")
+        case_sensitive = parse_bool(post_data.get("case_sensitive"), default=False)
+        whole_word = parse_bool(post_data.get("whole_word"), default=False)
+        changes: List[Dict[str, Any]] = []
+        replacement_count = 0
+
+        if mode == "variable":
+            from .editor_agent_rename import (
+                analyze_rename,
+                check_rename_batch,
+                plan_rename_operations,
+                validate_variable_reference,
+            )
+            from .editor_agent_tools import _variable_catalog
+
+            invalid_old = validate_variable_reference(query)
+            if invalid_old:
+                raise ValueError(invalid_old)
+            invalid = validate_variable_reference(replacement)
+            if invalid:
+                raise ValueError(invalid)
+            if query == replacement:
+                raise ValueError(f"{query} is already named that")
+            files, skipped = _project_text_files(uid, project, interviews_only=True)
+            current_project_revision = _project_search_revision(files)
+            if post_data.get("project_revision") != current_project_revision:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "conflict",
+                            "code": "stale_search",
+                            "message": "Project files changed after this search. Search again before replacing.",
+                            "details": {"project_revision": current_project_revision},
+                        },
+                    },
+                    409,
+                )
+
+            problems: List[str] = [
+                f"{item['filename']} is too large to inspect safely" for item in skipped
+            ]
+            diagnostics: List[Dict[str, Any]] = []
+            replacement_definitions = [
+                item["filename"]
+                for item in files
+                if replacement
+                in {
+                    str(entry.get("variable") or "")
+                    for entry in _variable_catalog(item["content"])
+                }
+            ]
+            if replacement_definitions:
+                problems.append(
+                    f"{replacement} is already used in "
+                    + ", ".join(replacement_definitions[:5])
+                    + "; renaming onto it could merge two variables"
+                )
+            for item in files:
+                preliminary = analyze_rename(
+                    filename=item["filename"],
+                    raw_yaml=item["content"],
+                    old_name=query,
+                    new_name=replacement,
+                )
+                if preliminary.blocking_occurrences:
+                    lines = ", ".join(
+                        f"line {occurrence.line} ({occurrence.reason})"
+                        for occurrence in preliminary.blocking_occurrences[:5]
+                    )
+                    problems.append(
+                        f"{item['filename']}: {query} has ambiguous references at {lines}"
+                    )
+                    diagnostics.extend(
+                        occurrence.public_dict() | {"filename": item["filename"]}
+                        for occurrence in preliminary.blocking_occurrences[:20]
+                    )
+                    continue
+                if not preliminary.safe_occurrences:
+                    # Display prose is intentionally not part of a semantic
+                    # rename and does not prevent references in other files.
+                    continue
+                analyses, file_problems = check_rename_batch(
+                    filename=item["filename"],
+                    raw_yaml=item["content"],
+                    renames=[{"old_name": query, "new_name": replacement}],
+                )
+                if file_problems:
+                    problems.extend(
+                        f"{item['filename']}: {problem}" for problem in file_problems
+                    )
+                    continue
+                operations = plan_rename_operations(analyses)
+                updated, _applied_operations = apply_range_operations(
+                    item["content"], operations
+                )
+                validation = validate_candidate_source(
+                    filename=item["filename"], raw_yaml=updated
+                )
+                if validation.blocking:
+                    problems.append(
+                        f"{item['filename']}: the refactor would produce validation errors"
+                    )
+                    diagnostics.extend(validation.blocking_diagnostics())
+                    continue
+                count = sum(len(analysis.safe_occurrences) for analysis in analyses)
+                changes.append(
+                    {
+                        "section": "interview",
+                        "filename": item["filename"],
+                        "original": item["content"],
+                        "updated": updated,
+                        "count": count,
+                    }
+                )
+                replacement_count += count
+            if problems:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "unsafe_refactor",
+                            "code": "unsafe_refactor",
+                            "message": " ".join(problems[:6]),
+                            "details": {
+                                "problems": problems,
+                                "diagnostics": diagnostics,
+                            },
+                        },
+                    },
+                    422,
+                )
+            if not changes:
+                raise ValueError("No safe variable references were found to rename")
+        else:
+            requested_files = post_data.get("files")
+            if not isinstance(requested_files, list):
+                raise ValueError("Selected search results are required")
+            if len(requested_files) > 500:
+                raise ValueError("Too many files were selected")
+            stale_files: List[Dict[str, str]] = []
+            seen_files: set[tuple[str, str]] = set()
+            selected_count = 0
+            for requested in requested_files:
+                if not isinstance(requested, dict):
+                    raise ValueError("Each selected file must be an object")
+                raw_section = str(requested.get("section") or "")
+                section = (
+                    "interview"
+                    if raw_section == "interview"
+                    else _normalize_section(raw_section)
+                )
+                filename = (
+                    _normalize_filename(requested.get("filename"))
+                    if section == "interview"
+                    else _normalize_storage_filename(requested.get("filename"))
+                )
+                key = (section, filename)
+                if key in seen_files:
+                    raise ValueError(f"{filename} was selected more than once")
+                seen_files.add(key)
+                original = _read_project_text_file(uid, project, section, filename)
+                current_revision = source_revision(original)
+                if requested.get("revision") != current_revision:
+                    stale_files.append({"section": section, "filename": filename})
+                    continue
+                raw_matches = requested.get("matches")
+                if not isinstance(raw_matches, list):
+                    raise ValueError(f"Selected matches are required for {filename}")
+                selected_count += len(raw_matches)
+                if selected_count > MAX_PROJECT_MATCHES:
+                    raise ValueError("Too many matches were selected")
+                updated, count = replace_selected_matches(
+                    original,
+                    query,
+                    replacement,
+                    raw_matches,
+                    case_sensitive=case_sensitive,
+                    whole_word=whole_word,
+                )
+                if count:
+                    changes.append(
+                        {
+                            "section": section,
+                            "filename": filename,
+                            "original": original,
+                            "updated": updated,
+                            "count": count,
+                        }
+                    )
+                    replacement_count += count
+            if stale_files:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "conflict",
+                            "code": "stale_search",
+                            "message": "Some files changed after this search. Search again before replacing.",
+                            "details": {"files": stale_files},
+                        },
+                    },
+                    409,
+                )
+            if not changes:
+                raise ValueError("Select at least one match to replace")
+
+        _commit_project_replacements(uid, project, changes)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "mode": mode,
+                    "replacement_count": replacement_count,
+                    "file_count": len(changes),
+                    "files": [
+                        {
+                            "section": change["section"],
+                            "filename": change["filename"],
+                            "replacement_count": change["count"],
+                            "revision": source_revision(change["updated"]),
+                        }
+                        for change in changes
+                    ],
+                },
+            }
+        )
+    except StaleProjectSearchError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "conflict",
+                    "code": "stale_search",
+                    "message": "Some files changed while the replacement was being checked. Search again before replacing.",
+                    "details": {"files": exc.files},
+                },
+            },
+            409,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: project replace error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "message": "The project replacement could not be completed.",
+                },
             },
             500,
         )
