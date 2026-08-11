@@ -1393,6 +1393,363 @@
     return apiClient.uploadDetailed(path, formData, options);
   }
 
+  // -------------------------------------------------------------------------
+  // Project-wide find / replace
+  // -------------------------------------------------------------------------
+  var _projectSearchData = null;
+
+  function projectSearchElement(id) {
+    return document.getElementById(id);
+  }
+
+  function setProjectSearchStatus(message, kind) {
+    var status = projectSearchElement('project-search-status');
+    if (!status) return;
+    status.className = 'alert py-2 mt-3 mb-0 alert-' + (kind || 'secondary');
+    status.textContent = message;
+  }
+
+  function projectSearchIsVariableMode() {
+    var control = projectSearchElement('project-search-variable');
+    return Boolean(control && control.checked);
+  }
+
+  function updateProjectSearchMode() {
+    var variableMode = projectSearchIsVariableMode();
+    var caseControl = projectSearchElement('project-search-case');
+    var wordControl = projectSearchElement('project-search-word');
+    var help = projectSearchElement('project-search-mode-help');
+    var replaceButton = projectSearchElement('project-search-replace');
+    if (caseControl) caseControl.disabled = variableMode;
+    if (wordControl) wordControl.disabled = variableMode;
+    if (help) {
+      help.textContent = variableMode
+        ? 'Renames recognized variable references in every interview YAML file. Display text is left alone; ambiguous references stop the whole refactor.'
+        : 'Searches interview YAML, templates, modules, static text, and sources. Binary files are skipped.';
+    }
+    if (replaceButton) replaceButton.textContent = variableMode ? 'Rename safely' : 'Replace selected';
+    _projectSearchData = null;
+    var results = projectSearchElement('project-search-results');
+    if (results) results.innerHTML = '';
+    updateProjectSearchSelection();
+  }
+
+  function invalidateProjectSearchPreview() {
+    if (!_projectSearchData) return;
+    _projectSearchData = null;
+    var results = projectSearchElement('project-search-results');
+    if (results) results.innerHTML = '';
+    setProjectSearchStatus('Search options changed. Run Find to refresh the preview.', 'secondary');
+    updateProjectSearchSelection();
+  }
+
+  function projectSearchReasonLabel(match) {
+    if (match.replaceable) return 'Reference';
+    if (match.reason === 'display_text') return 'Display text — unchanged';
+    if (match.reason === 'quoted_string') return 'String/dynamic reference';
+    if (match.reason === 'call_expression') return 'Call expression';
+    if (match.reason === 'partial_path_reference') return 'Part of a longer path';
+    if (match.reason === 'object_declaration') return 'Object declaration';
+    return 'Needs manual review';
+  }
+
+  function renderProjectSearchResults(data) {
+    var host = projectSearchElement('project-search-results');
+    if (!host) return;
+    var files = (data && data.files) || [];
+    if (!files.length) {
+      host.innerHTML = '<div class="text-muted text-center py-4">No matches found.</div>';
+      return;
+    }
+    var grouped = {};
+    var groupOrder = [];
+    files.forEach(function (file, fileIndex) {
+      var key = file.file_type || file.section;
+      if (!grouped[key]) {
+        grouped[key] = { label: file.file_type_label || key, files: [] };
+        groupOrder.push(key);
+      }
+      grouped[key].files.push({ file: file, index: fileIndex });
+    });
+
+    var variableMode = data.mode === 'variable';
+    var html = '';
+    groupOrder.forEach(function (groupKey) {
+      var group = grouped[groupKey];
+      var groupCount = group.files.reduce(function (sum, entry) { return sum + entry.file.matches.length; }, 0);
+      html += '<section class="editor-project-search-group">';
+      html += '<h6 class="editor-project-search-group-title">' + esc(group.label) + ' <span class="text-muted fw-normal">(' + groupCount + ')</span></h6>';
+      group.files.forEach(function (entry) {
+        var file = entry.file;
+        html += '<div class="editor-project-search-file">';
+        html += '<div class="editor-project-search-file-header">';
+        if (!variableMode) {
+          html += '<input class="form-check-input mt-0" type="checkbox" checked data-project-search-file-select="' + entry.index + '" aria-label="Select all matches in ' + esc(file.filename) + '">';
+        }
+        html += '<button type="button" class="editor-project-search-file-link" data-project-search-open="' + entry.index + '">' + esc(file.filename) + '</button>';
+        html += '<span class="editor-project-search-file-count">' + file.matches.length + (file.matches.length === 1 ? ' match' : ' matches') + '</span>';
+        html += '</div>';
+        file.matches.forEach(function (match, matchIndex) {
+          var classificationClass = match.replaceable ? 'text-bg-success' : (match.reason === 'display_text' ? 'text-bg-secondary' : 'text-bg-warning');
+          html += '<div class="editor-project-search-match">';
+          if (variableMode) {
+            html += '<i class="fa-solid ' + (match.replaceable ? 'fa-check text-success' : (match.reason === 'display_text' ? 'fa-minus text-muted' : 'fa-triangle-exclamation text-warning')) + ' mt-1" aria-hidden="true"></i>';
+          } else {
+            html += '<input class="form-check-input mt-1" type="checkbox" checked data-project-search-match data-file-index="' + entry.index + '" data-match-index="' + matchIndex + '" aria-label="Select match on line ' + match.line + '">';
+          }
+          html += '<div><div class="editor-project-search-line">Line ' + match.line + ', column ' + match.column;
+          if (variableMode) html += '<span class="badge ' + classificationClass + ' editor-project-search-classification">' + esc(projectSearchReasonLabel(match)) + '</span>';
+          html += '</div><div class="editor-project-search-context">';
+          html += (match.before_truncated ? '&hellip;' : '') + esc(match.before) + '<mark>' + esc(match.match) + '</mark>' + esc(match.after) + (match.after_truncated ? '&hellip;' : '');
+          html += '</div></div></div>';
+        });
+        html += '</div>';
+      });
+      html += '</section>';
+    });
+    host.innerHTML = html;
+  }
+
+  function updateProjectSearchSelection() {
+    var summary = projectSearchElement('project-search-selection-summary');
+    var replaceButton = projectSearchElement('project-search-replace');
+    if (!summary || !replaceButton) return;
+    if (!_projectSearchData) {
+      summary.textContent = '';
+      replaceButton.disabled = true;
+      return;
+    }
+    var dirty = hasUnsavedChanges();
+    if (_projectSearchData.mode === 'variable') {
+      var safe = 0;
+      var blocking = 0;
+      (_projectSearchData.files || []).forEach(function (file) {
+        (file.matches || []).forEach(function (match) {
+          if (match.replaceable) safe += 1;
+          else if (match.reason !== 'display_text') blocking += 1;
+        });
+      });
+      var replacementControl = projectSearchElement('project-search-replacement');
+      var replacementChanged = !replacementControl || replacementControl.value !== _projectSearchData.replacement;
+      var skipped = (_projectSearchData.skipped || []).length;
+      summary.textContent = safe + ' reference' + (safe === 1 ? '' : 's') + ' will change' + (blocking ? '; ' + blocking + ' need manual review' : '') + (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') + (dirty ? '; save editor changes first' : '') + (replacementChanged ? '; run Find again for the new name' : '');
+      replaceButton.disabled = safe === 0 || blocking > 0 || skipped > 0 || dirty || replacementChanged || Boolean(_projectSearchData.truncated);
+      return;
+    }
+    var checked = document.querySelectorAll('#project-search-results [data-project-search-match]:checked').length;
+    summary.textContent = checked + ' match' + (checked === 1 ? '' : 'es') + ' selected' + (dirty ? '; save editor changes first' : '');
+    replaceButton.disabled = checked === 0 || dirty || Boolean(_projectSearchData.truncated);
+  }
+
+  function runProjectSearch() {
+    var queryControl = projectSearchElement('project-search-query');
+    var replacementControl = projectSearchElement('project-search-replacement');
+    var submitButton = projectSearchElement('project-search-submit');
+    var query = queryControl ? queryControl.value : '';
+    if (!state.project) {
+      setProjectSearchStatus('Select a project before searching.', 'warning');
+      return Promise.resolve();
+    }
+    if (projectSearchIsVariableMode() && !(replacementControl && replacementControl.value.trim())) {
+      setProjectSearchStatus('Enter the new variable name to preview a safe refactor.', 'warning');
+      if (replacementControl) replacementControl.focus();
+      return Promise.resolve();
+    }
+    if (!query) {
+      setProjectSearchStatus('Enter text to search.', 'warning');
+      if (queryControl) queryControl.focus();
+      return Promise.resolve();
+    }
+    if (submitButton) submitButton.disabled = true;
+    setProjectSearchStatus('Searching ' + state.project + '…', 'secondary');
+    return apiPost('/api/project/search', {
+      project: state.project,
+      query: query,
+      replacement: replacementControl ? replacementControl.value : '',
+      mode: projectSearchIsVariableMode() ? 'variable' : 'text',
+      case_sensitive: Boolean(projectSearchElement('project-search-case') && projectSearchElement('project-search-case').checked),
+      whole_word: Boolean(projectSearchElement('project-search-word') && projectSearchElement('project-search-word').checked),
+    }).then(function (res) {
+      _projectSearchData = res.data;
+      renderProjectSearchResults(_projectSearchData);
+      var message = _projectSearchData.match_count + (_projectSearchData.match_count === 1 ? ' match' : ' matches') + ' in ' + _projectSearchData.file_count + (_projectSearchData.file_count === 1 ? ' file' : ' files') + '.';
+      if (_projectSearchData.truncated) message += ' Results were capped; narrow the search before replacing.';
+      if ((_projectSearchData.skipped || []).length) message += ' ' + _projectSearchData.skipped.length + ' oversized text file(s) were skipped.';
+      setProjectSearchStatus(message, _projectSearchData.truncated ? 'warning' : 'secondary');
+      updateProjectSearchSelection();
+    }).catch(function (error) {
+      _projectSearchData = null;
+      renderProjectSearchResults(null);
+      setProjectSearchStatus((error && error.message) || 'Search failed.', 'danger');
+      updateProjectSearchSelection();
+    }).finally(function () {
+      if (submitButton) submitButton.disabled = false;
+    });
+  }
+
+  function selectedProjectSearchFiles() {
+    var selections = [];
+    if (!_projectSearchData || _projectSearchData.mode !== 'text') return selections;
+    (_projectSearchData.files || []).forEach(function (file, fileIndex) {
+      var matches = [];
+      document.querySelectorAll('#project-search-results [data-project-search-match][data-file-index="' + fileIndex + '"]:checked').forEach(function (control) {
+        var matchIndex = parseInt(control.getAttribute('data-match-index'), 10);
+        var match = file.matches[matchIndex];
+        if (match) matches.push({ start: match.start, end: match.end });
+      });
+      if (matches.length) {
+        selections.push({ section: file.section, filename: file.filename, revision: file.revision, matches: matches });
+      }
+    });
+    return selections;
+  }
+
+  function applyProjectReplacement() {
+    if (!_projectSearchData || hasUnsavedChanges()) {
+      updateProjectSearchSelection();
+      return;
+    }
+    var replacementControl = projectSearchElement('project-search-replacement');
+    var replaceButton = projectSearchElement('project-search-replace');
+    var replacement = replacementControl ? replacementControl.value : '';
+    var variableMode = _projectSearchData.mode === 'variable';
+    if (variableMode && !replacement.trim()) {
+      setProjectSearchStatus('Enter the new variable name.', 'warning');
+      if (replacementControl) replacementControl.focus();
+      return;
+    }
+    if (variableMode && replacement !== _projectSearchData.replacement) {
+      setProjectSearchStatus('The new variable name changed. Run Find again to preview this refactor.', 'warning');
+      return;
+    }
+    var files = variableMode ? [] : selectedProjectSearchFiles();
+    var selectedCount = variableMode
+      ? (_projectSearchData.files || []).reduce(function (sum, file) { return sum + file.matches.filter(function (match) { return match.replaceable; }).length; }, 0)
+      : files.reduce(function (sum, file) { return sum + file.matches.length; }, 0);
+    if (!selectedCount) return;
+    if (!window.confirm((variableMode ? 'Rename ' : 'Replace ') + selectedCount + (selectedCount === 1 ? ' match' : ' matches') + ' across this project?')) return;
+    if (replaceButton) replaceButton.disabled = true;
+    setProjectSearchStatus(variableMode ? 'Checking and applying the variable refactor…' : 'Applying replacements…', 'secondary');
+    apiPost('/api/project/replace', {
+      project: state.project,
+      query: _projectSearchData.query,
+      replacement: replacement,
+      mode: _projectSearchData.mode,
+      case_sensitive: _projectSearchData.case_sensitive,
+      whole_word: _projectSearchData.whole_word,
+      project_revision: _projectSearchData.project_revision,
+      files: files,
+    }).then(function (res) {
+      var data = res.data || {};
+      setProjectSearchStatus('Changed ' + data.replacement_count + (data.replacement_count === 1 ? ' match' : ' matches') + ' in ' + data.file_count + (data.file_count === 1 ? ' file.' : ' files.'), 'success');
+      _projectSearchData = null;
+      var results = projectSearchElement('project-search-results');
+      if (results) results.innerHTML = '';
+      updateProjectSearchSelection();
+      loadFiles();
+    }).catch(function (error) {
+      setProjectSearchStatus((error && error.message) || 'Replacement failed.', 'danger');
+      updateProjectSearchSelection();
+    });
+  }
+
+  function openProjectSearchResult(fileIndex) {
+    if (!_projectSearchData || !_projectSearchData.files[fileIndex]) return;
+    var file = _projectSearchData.files[fileIndex];
+    function navigate() {
+      closeBootstrapModal('project-search-modal');
+      if (file.section === 'interview') {
+        state.currentView = 'interview';
+        state.filename = file.filename;
+        state.canvasMode = 'full-yaml';
+        populateFiles();
+        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        if (interviewTab) setActiveTopTab(interviewTab);
+        loadFile();
+        return;
+      }
+      state.currentView = file.section;
+      state.sectionSelectedFile[file.section] = file.filename;
+      var sectionTab = document.querySelector('.editor-top-tab[data-view="' + file.section + '"]');
+      if (sectionTab) setActiveTopTab(sectionTab);
+      loadSectionFiles(file.section).then(function () {
+        renderOutline();
+        renderCanvas();
+      });
+    }
+    if (deferNavigationForUnsavedChanges('open a search result', navigate)) return;
+    navigate();
+  }
+
+  function initProjectSearch() {
+    var openButton = projectSearchElement('btn-project-search');
+    var form = projectSearchElement('project-search-form');
+    var variableControl = projectSearchElement('project-search-variable');
+    var queryControl = projectSearchElement('project-search-query');
+    var replacementControl = projectSearchElement('project-search-replacement');
+    var caseControl = projectSearchElement('project-search-case');
+    var wordControl = projectSearchElement('project-search-word');
+    var results = projectSearchElement('project-search-results');
+    var replaceButton = projectSearchElement('project-search-replace');
+    if (openButton) openButton.addEventListener('click', function () {
+      if (!state.project) {
+        window.alert('Select a project before searching.');
+        return;
+      }
+      if (_projectSearchData && _projectSearchData.project !== state.project) {
+        _projectSearchData = null;
+        if (results) results.innerHTML = '';
+        setProjectSearchStatus('Enter text to search the current project.', 'secondary');
+      }
+      var title = projectSearchElement('project-search-title');
+      if (title) title.textContent = 'Find and replace — ' + state.project;
+      var modal = getOrCreateBootstrapModal('project-search-modal');
+      if (modal) modal.show();
+      setTimeout(function () {
+        var query = projectSearchElement('project-search-query');
+        if (query) query.focus();
+      }, 150);
+      updateProjectSearchSelection();
+    });
+    if (form) form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      runProjectSearch();
+    });
+    if (variableControl) variableControl.addEventListener('change', updateProjectSearchMode);
+    if (queryControl) queryControl.addEventListener('input', invalidateProjectSearchPreview);
+    if (caseControl) caseControl.addEventListener('change', invalidateProjectSearchPreview);
+    if (wordControl) wordControl.addEventListener('change', invalidateProjectSearchPreview);
+    if (replacementControl) replacementControl.addEventListener('input', function () {
+      if (projectSearchIsVariableMode()) updateProjectSearchSelection();
+    });
+    if (replaceButton) replaceButton.addEventListener('click', applyProjectReplacement);
+    if (results) {
+      results.addEventListener('change', function (event) {
+        var fileToggle = event.target.closest('[data-project-search-file-select]');
+        if (fileToggle) {
+          var fileIndex = fileToggle.getAttribute('data-project-search-file-select');
+          results.querySelectorAll('[data-project-search-match][data-file-index="' + fileIndex + '"]').forEach(function (control) {
+            control.checked = fileToggle.checked;
+          });
+        } else if (event.target.matches('[data-project-search-match]')) {
+          var changedFile = event.target.getAttribute('data-file-index');
+          var children = Array.from(results.querySelectorAll('[data-project-search-match][data-file-index="' + changedFile + '"]'));
+          var parent = results.querySelector('[data-project-search-file-select="' + changedFile + '"]');
+          if (parent) {
+            parent.checked = children.every(function (control) { return control.checked; });
+            parent.indeterminate = !parent.checked && children.some(function (control) { return control.checked; });
+          }
+        }
+        updateProjectSearchSelection();
+      });
+      results.addEventListener('click', function (event) {
+        var openControl = event.target.closest('[data-project-search-open]');
+        if (openControl) openProjectSearchResult(parseInt(openControl.getAttribute('data-project-search-open'), 10));
+      });
+    }
+    updateProjectSearchMode();
+  }
+
   var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
     api: {
       get: apiGet,
@@ -9133,6 +9490,7 @@
       renderLoginRequired();
       return;
     }
+    initProjectSearch();
     renderSystemChecks();
     document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
       // The control now lives inside a dropdown, so hide the whole <li>;

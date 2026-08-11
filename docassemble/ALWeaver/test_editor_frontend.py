@@ -71,6 +71,23 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
 
+    def test_project_search_is_preview_first_and_offers_safe_refactoring(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="btn-project-search"', template)
+        self.assertIn('id="project-search-modal"', template)
+        self.assertIn('id="project-search-variable"', template)
+        self.assertIn('id="project-search-results"', template)
+        self.assertIn("/api/project/search", editor)
+        self.assertIn("/api/project/replace", editor)
+        self.assertIn("project_revision", editor)
+        self.assertIn("data-project-search-match", editor)
+        self.assertIn("Display text — unchanged", editor)
+        self.assertIn("hasUnsavedChanges()", editor)
+        self.assertIn(".editor-project-search-context", css)
+
     def test_alindividual_field_helpers_have_a_group_and_options_modal(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()

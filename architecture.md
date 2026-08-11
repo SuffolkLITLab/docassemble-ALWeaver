@@ -103,6 +103,16 @@ The file-read API exposes interview text as `raw_yaml`; browser downloads
 validate that field as a string before creating a file, including when the
 source is intentionally empty.
 
+Project-wide find/replace uses `POST /al/editor/api/project/search` to inspect
+saved, text-editable interview, template, module, static, and source files. Its
+context previews carry exact source spans and SHA-256 revisions. The matching
+replace endpoint rechecks both before writing, preflights the whole selected
+batch, and attempts to restore earlier files if a later write fails. Binary and
+oversized files are skipped. Safe variable refactor is a separate mode: it uses
+the editing assistant's deterministic variable-reference classifier, leaves
+display prose unchanged, refuses ambiguous/dynamic references and name
+collisions, and validates every changed interview before committing the batch.
+
 Editor browser requests go through `editor_api_client.js`. The client enforces
 same-origin credentials, structured `EditorApiError` failures, JSON response
 validation, CSRF and request-ID headers, timeouts, and cancellation of
