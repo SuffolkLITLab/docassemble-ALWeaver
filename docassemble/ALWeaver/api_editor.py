@@ -1191,15 +1191,18 @@ def editor_api_github_status() -> Response:
             normalize_project_name(project, fallback="WeaverProject")
         )
         status = get_native_github_integration(uid)
-        owners = (
-            get_github_publish_owners()
-            if status.get("available") and status.get("connected")
-            else []
-        )
-        for owner in owners:
-            owner["available"] = bool(
-                owner.get("type") == "user" or status.get("organizations_enabled")
-            )
+        owners: List[Dict[str, Any]] = []
+        if status.get("available") and status.get("connected"):
+            owners = [
+                {
+                    **owner,
+                    "available": bool(
+                        owner.get("type") == "user"
+                        or status.get("organizations_enabled")
+                    ),
+                }
+                for owner in get_github_publish_owners()
+            ]
         status["owners"] = owners
         status.update(
             {
