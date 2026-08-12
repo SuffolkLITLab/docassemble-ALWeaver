@@ -5,6 +5,8 @@
 Provides:
     GET  /al/editor              — serve the editor single-page application
     GET  /al/editor/api/projects — list playground projects
+    GET  /al/editor/api/github/status — inspect native GitHub integration
+    POST /al/editor/api/github/publish — prepare a package and hand off to Docassemble
     GET  /al/editor/api/files    — list YAML files in a project
     POST /al/editor/api/file/new — create a new YAML interview file
     GET  /al/editor/api/file     — read & parse a YAML file
@@ -68,9 +70,13 @@ from .docassemble_compat import (
     go_back_target_session,
     get_csrf,
     get_flask_app,
+    get_github_publish_owners,
+    get_native_github_integration,
     get_redis_client,
     get_worker_app,
     json_response as jsonify_with_status,
+    ensure_github_repository,
+    native_github_publish_url,
     run_target_action_raw,
     set_target_variables,
 )
@@ -203,7 +209,9 @@ from .playground_publish import (
     create_project,
     get_list_of_projects,
     next_available_project_name,
+    normalize_github_package_name,
     normalize_project_name,
+    prepare_project_github_package,
     rename_project,
 )
 
@@ -487,6 +495,40 @@ def _normalize_project(raw: Optional[str]) -> str:
     value = str(raw or "default").strip() or "default"
     if "/" in value or "\\" in value or value.startswith("."):
         raise ValueError("Invalid project name")
+    return value
+
+
+def _normalize_git_branch(raw: Optional[str]) -> str:
+    """Validate a Git ref name without narrowing Docassemble's slash support."""
+    value = str(raw or "").strip()
+    if not value:
+        raise ValueError("Branch name is required")
+    if len(value) > 255:
+        raise ValueError("Branch name is too long")
+    invalid = (
+        value == "@"
+        or value.startswith(("/", "."))
+        or value.endswith(("/", "."))
+        or ".." in value
+        or "@{" in value
+        or "//" in value
+        or any(character.isspace() or ord(character) < 32 for character in value)
+        or any(character in "~^:?*[\\" for character in value)
+        or any(
+            part.startswith(".") or part.endswith(".lock") for part in value.split("/")
+        )
+    )
+    if invalid:
+        raise ValueError("Branch name is not a valid Git branch name")
+    return value
+
+
+def _normalize_commit_message(raw: Optional[str]) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        raise ValueError("Commit message is required")
+    if len(value) > 500:
+        raise ValueError("Commit message must be 500 characters or fewer")
     return value
 
 
@@ -1126,6 +1168,175 @@ def editor_api_projects() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: projects error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/github/status", methods=["GET"])
+def editor_api_github_status() -> Response:
+    """Report whether Docassemble's native GitHub publisher is ready."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        default_package = normalize_github_package_name(
+            normalize_project_name(project, fallback="WeaverProject")
+        )
+        status = get_native_github_integration(uid)
+        owners: List[Dict[str, Any]] = []
+        if status.get("available") and status.get("connected"):
+            owners = [
+                {
+                    **owner,
+                    "available": bool(
+                        owner.get("type") == "user"
+                        or status.get("organizations_enabled")
+                    ),
+                }
+                for owner in get_github_publish_owners()
+            ]
+        status["owners"] = owners
+        status.update(
+            {
+                "project": project,
+                "default_package": default_package,
+                "default_repository": f"docassemble-{default_package}",
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": status})
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/github/publish", methods=["POST"])
+def editor_api_github_publish() -> Response:
+    """Prepare a Playground package and hand it to Docassemble's publisher."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        package = normalize_github_package_name(post_data.get("package"))
+        owner = str(post_data.get("owner") or "").strip()
+        if not owner:
+            raise ValueError("GitHub owner is required")
+        branch = _normalize_git_branch(post_data.get("branch"))
+        commit_message = _normalize_commit_message(post_data.get("commit_message"))
+        integration = get_native_github_integration(uid)
+        if not integration.get("available"):
+            raise RuntimeError(
+                "Docassemble's native GitHub publisher is not enabled on this server"
+            )
+        if not integration.get("connected"):
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "github_not_connected",
+                        "message": "Connect your GitHub account in Docassemble before publishing.",
+                    },
+                    "data": {"configure_url": integration.get("configure_url")},
+                },
+                409,
+            )
+
+        author_name = _editor_user_designator()
+        author_email = str(getattr(current_user, "email", "") or "").strip()
+        owners = get_github_publish_owners()
+        selected_owner = next(
+            (
+                candidate
+                for candidate in owners
+                if candidate["login"].casefold() == owner.casefold()
+            ),
+            None,
+        )
+        if selected_owner is None:
+            raise ValueError("Choose a GitHub account or organization from the list")
+        if selected_owner.get("type") == "organization" and not integration.get(
+            "organizations_enabled"
+        ):
+            raise ValueError(
+                "Enable organization repository access in Docassemble's GitHub settings first"
+            )
+        repository = f"docassemble-{package}"
+        repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
+        prepared = prepare_project_github_package(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+            author_name=author_name,
+            author_email=author_email,
+            github_url=repository_url,
+        )
+        github_repository = ensure_github_repository(
+            owner=selected_owner["login"],
+            repository=prepared["repository"],
+            description=f"A docassemble project for {project}.",
+        )
+        publish_url = native_github_publish_url(
+            project=project,
+            package=prepared["package"],
+            branch=branch,
+            commit_message=commit_message,
+        )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "package": prepared["package"],
+                    "repository": prepared["repository"],
+                    "owner": selected_owner["login"],
+                    "repository_url": github_repository.get("html_url", repository_url),
+                    "repository_created": bool(
+                        github_repository.get("created_by_weaver")
+                    ),
+                    "branch": branch,
+                    "publish_url": publish_url,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub publish error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

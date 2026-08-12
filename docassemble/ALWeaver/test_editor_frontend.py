@@ -88,6 +88,22 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("hasUnsavedChanges()", editor)
         self.assertIn(".editor-project-search-context", css)
 
+    def test_github_publish_uses_a_main_menu_modal_and_native_handoff(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('data-action="open-github-publish"', template)
+        self.assertIn('id="github-publish-modal"', template)
+        self.assertIn('id="github-owner"', template)
+        self.assertIn('id="github-package-name"', template)
+        self.assertIn('id="github-branch-name"', template)
+        self.assertIn('id="github-commit-message"', template)
+        self.assertIn("promptAndSaveUnsavedChanges('publish to GitHub')", editor)
+        self.assertIn("/api/github/status?project=", editor)
+        self.assertIn("apiPost('/api/github/publish'", editor)
+        self.assertIn("owner: ownerSelect ? ownerSelect.value : ''", editor)
+        self.assertIn("window.location.assign(res.data.publish_url)", editor)
+
     def test_alindividual_field_helpers_have_a_group_and_options_modal(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()

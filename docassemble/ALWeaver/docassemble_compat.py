@@ -6,10 +6,13 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 import importlib
 import importlib.metadata
+import json
+import re
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import quote
 
-from flask import Response, jsonify
+from flask import Response, jsonify, url_for
 
 
 class DocassembleCompatibilityError(RuntimeError):
@@ -370,6 +373,235 @@ def create_playground(*args: Any, **kwargs: Any) -> Any:
         "its playground storage",
     )
     return playground(*args, **kwargs)
+
+
+def _first_endpoint_url(candidates: Sequence[str], **values: Any) -> Optional[str]:
+    """Resolve a native Docassemble endpoint across the 1.9/1.10 split."""
+    for endpoint in candidates:
+        try:
+            return str(url_for(endpoint, **values))
+        except Exception:
+            continue
+    return None
+
+
+def get_native_github_integration(user_id: int) -> Dict[str, Any]:
+    """Describe Docassemble's built-in GitHub integration for one user.
+
+    Docassemble 1.10 moved the developer views onto the ``develop`` blueprint;
+    1.9 registered the same views as bare Flask endpoints.  Redis remains the
+    authoritative source for whether this user enabled the native integration.
+    """
+    flask_app = get_flask_app()
+    enabled = bool(flask_app.config.get("USE_GITHUB"))
+    configure_url = _first_endpoint_url(
+        (
+            "develop.github_menu",
+            "github_menu",
+        )
+    )
+    publish_available = (
+        _first_endpoint_url(
+            (
+                "develop.create_playground_package",
+                "create_playground_package",
+            )
+        )
+        is not None
+    )
+    connected = False
+    organizations_enabled = False
+    if enabled:
+        try:
+            raw_settings = get_redis_client().get(
+                f"da:using_github:userid:{int(user_id)}"
+            )
+            connected = raw_settings is not None
+            if raw_settings is not None:
+                decoded_settings = (
+                    raw_settings.decode()
+                    if isinstance(raw_settings, bytes)
+                    else str(raw_settings)
+                )
+                if decoded_settings == "1":
+                    organizations_enabled = True
+                else:
+                    settings = json.loads(decoded_settings)
+                    organizations_enabled = bool(settings.get("orgs"))
+        except Exception:
+            connected = False
+            organizations_enabled = False
+    return {
+        "enabled": enabled,
+        "connected": connected,
+        "organizations_enabled": organizations_enabled,
+        "available": enabled and publish_available,
+        "configure_url": configure_url,
+    }
+
+
+def _github_authorized_http() -> Any:
+    """Return Docassemble's authorized GitHub HTTP client."""
+    storage_class = _first_webapp_attr(
+        (
+            (
+                "docassemble.webapp.utils.redis_cred_storage",
+                "RedisCredStorage",
+            ),
+            ("docassemble.webapp.server", "RedisCredStorage"),
+        ),
+        "its GitHub OAuth credential storage",
+    )
+    credentials = storage_class(oauth_app="github").get()
+    if not credentials or getattr(credentials, "invalid", False):
+        raise DocassembleCompatibilityError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    httplib2 = importlib.import_module("httplib2")
+    return credentials.authorize(httplib2.Http())
+
+
+def _github_json_request(
+    http: Any, url: str, method: str = "GET", body: Optional[Dict[str, Any]] = None
+) -> Tuple[Any, Any]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    encoded_body = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        encoded_body = json.dumps(body)
+    response, content = http.request(url, method, headers=headers, body=encoded_body)
+    try:
+        payload = json.loads(content.decode("utf-8")) if content else None
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+    return response, payload
+
+
+def _github_error_message(payload: Any, fallback: str) -> str:
+    if isinstance(payload, dict) and payload.get("message"):
+        return str(payload["message"])
+    return fallback
+
+
+def get_github_publish_owners() -> List[Dict[str, str]]:
+    """List the personal account and organizations visible to GitHub OAuth."""
+    http = _github_authorized_http()
+    response, user = _github_json_request(http, "https://api.github.com/user")
+    if int(response.get("status", 0)) != 200 or not isinstance(user, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(user, "GitHub did not return the connected account")
+        )
+    user_login = str(user.get("login") or "").strip()
+    if not user_login:
+        raise DocassembleCompatibilityError(
+            "GitHub did not return a username for the connected account"
+        )
+
+    owners = [{"login": user_login, "type": "user"}]
+    url: Optional[str] = "https://api.github.com/user/orgs?per_page=100"
+    while url:
+        response, organizations = _github_json_request(http, url)
+        if int(response.get("status", 0)) != 200 or not isinstance(organizations, list):
+            raise DocassembleCompatibilityError(
+                _github_error_message(
+                    organizations, "GitHub did not return your organizations"
+                )
+            )
+        owners.extend(
+            {"login": str(org["login"]), "type": "organization"}
+            for org in organizations
+            if isinstance(org, dict) and org.get("login")
+        )
+        link_header = str(response.get("link") or "")
+        next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
+        url = next_match.group(1) if next_match else None
+    return owners
+
+
+def ensure_github_repository(
+    *, owner: str, repository: str, description: str = ""
+) -> Dict[str, Any]:
+    """Find or create a repository under a selected authenticated owner.
+
+    Docassemble creates missing repositories only under ``/user/repos``.  For
+    organizations, Weaver creates the empty repository first and then lets the
+    native publisher perform all Git operations against it.
+    """
+    owners = get_github_publish_owners()
+    selected = next(
+        (
+            item
+            for item in owners
+            if item["login"].casefold() == str(owner).strip().casefold()
+        ),
+        None,
+    )
+    if selected is None:
+        raise ValueError("Choose a GitHub account or organization from the list")
+
+    http = _github_authorized_http()
+    encoded_owner = quote(selected["login"], safe="")
+    encoded_repository = quote(repository, safe="")
+    response, repo = _github_json_request(
+        http, f"https://api.github.com/repos/{encoded_owner}/{encoded_repository}"
+    )
+    status = int(response.get("status", 0))
+    if status == 200 and isinstance(repo, dict):
+        if not (repo.get("permissions") or {}).get("push", True):
+            raise DocassembleCompatibilityError(
+                f"You do not have permission to push to {selected['login']}/{repository}"
+            )
+        repo["created_by_weaver"] = False
+        return repo
+    if status != 404:
+        raise DocassembleCompatibilityError(
+            _github_error_message(repo, "GitHub could not check the repository")
+        )
+
+    if selected["type"] == "organization":
+        create_url = f"https://api.github.com/orgs/{encoded_owner}/repos"
+    else:
+        create_url = "https://api.github.com/user/repos"
+    response, repo = _github_json_request(
+        http,
+        create_url,
+        "POST",
+        {"name": repository, "description": description},
+    )
+    if int(response.get("status", 0)) != 201 or not isinstance(repo, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(
+                repo,
+                f"GitHub could not create {selected['login']}/{repository}",
+            )
+        )
+    repo["created_by_weaver"] = True
+    return repo
+
+
+def native_github_publish_url(
+    *, project: str, package: str, branch: str, commit_message: str
+) -> str:
+    """Build the native Playground GitHub publish URL on 1.9.x or 1.10.x."""
+    result = _first_endpoint_url(
+        (
+            "develop.create_playground_package",
+            "create_playground_package",
+        ),
+        project=project,
+        package=package,
+        github="1",
+        branch=branch,
+        commit_message=commit_message,
+    )
+    if result is None:
+        raise DocassembleCompatibilityError(
+            "This Docassemble installation does not expose its Playground GitHub publisher"
+        )
+    return result
 
 
 def json_response(payload: Any, status: int = 200) -> Response:

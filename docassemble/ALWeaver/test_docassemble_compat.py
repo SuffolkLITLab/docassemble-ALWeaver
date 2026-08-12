@@ -1,6 +1,7 @@
 # do not pre load
 
 from contextlib import contextmanager, nullcontext
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -8,7 +9,9 @@ import sys
 import types
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
+from flask import Flask
 from jinja2 import DebugUndefined
 
 from . import docassemble_compat
@@ -238,6 +241,159 @@ class TestWebappAccessors(unittest.TestCase):
             self.assertEqual(imported, [])
 
 
+class TestNativeGithubCompatibility(unittest.TestCase):
+    def _app_for_layout(self, layout):
+        app = Flask(f"github-{layout}")
+        app.config["USE_GITHUB"] = True
+        if layout == "1.10.x":
+            app.add_url_rule(
+                "/playground/github",
+                endpoint="develop.github_menu",
+                view_func=lambda: "github",
+            )
+            app.add_url_rule(
+                "/playground/package/create",
+                endpoint="develop.create_playground_package",
+                view_func=lambda: "publish",
+            )
+        else:
+            app.add_url_rule(
+                "/github",
+                endpoint="github_menu",
+                view_func=lambda: "github",
+            )
+            app.add_url_rule(
+                "/createplaygroundpackage",
+                endpoint="create_playground_package",
+                view_func=lambda: "publish",
+            )
+        return app
+
+    def test_native_github_endpoints_resolve_on_19_and_110(self):
+        redis = types.SimpleNamespace(get=lambda key: b'{"shared": true, "orgs": true}')
+        for layout in ("1.9.x", "1.10.x"):
+            with self.subTest(layout=layout):
+                app = self._app_for_layout(layout)
+                with app.test_request_context("/"):
+                    with (
+                        patch.object(
+                            docassemble_compat, "get_flask_app", return_value=app
+                        ),
+                        patch.object(
+                            docassemble_compat,
+                            "get_redis_client",
+                            return_value=redis,
+                        ),
+                    ):
+                        status = docassemble_compat.get_native_github_integration(7)
+                        publish_url = docassemble_compat.native_github_publish_url(
+                            project="Housing",
+                            package="HousingForms",
+                            branch="feature/github",
+                            commit_message="Update interview",
+                        )
+
+                self.assertTrue(status["available"])
+                self.assertTrue(status["connected"])
+                self.assertTrue(status["organizations_enabled"])
+                self.assertTrue(status["configure_url"])
+                query = parse_qs(urlsplit(publish_url).query)
+                self.assertEqual(query["project"], ["Housing"])
+                self.assertEqual(query["package"], ["HousingForms"])
+                self.assertEqual(query["branch"], ["feature/github"])
+                self.assertEqual(query["github"], ["1"])
+
+    def test_native_github_status_reports_disabled_configuration(self):
+        app = self._app_for_layout("1.10.x")
+        app.config["USE_GITHUB"] = False
+        with app.test_request_context("/"):
+            with patch.object(docassemble_compat, "get_flask_app", return_value=app):
+                status = docassemble_compat.get_native_github_integration(7)
+        self.assertFalse(status["enabled"])
+        self.assertFalse(status["connected"])
+        self.assertFalse(status["available"])
+
+    def test_publish_owners_include_personal_account_and_paginated_orgs(self):
+        class FakeHttp:
+            def __init__(self):
+                self.responses = [
+                    ({"status": "200"}, {"login": "ada"}),
+                    (
+                        {
+                            "status": "200",
+                            "link": '<https://api.github.com/user/orgs?page=2>; rel="next"',
+                        },
+                        [{"login": "LegalAid"}],
+                    ),
+                    ({"status": "200"}, [{"login": "CourtForms"}]),
+                ]
+
+            def request(self, url, method, headers=None, body=None):
+                response, payload = self.responses.pop(0)
+                return response, json.dumps(payload).encode()
+
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=FakeHttp()
+        ):
+            owners = docassemble_compat.get_github_publish_owners()
+
+        self.assertEqual(
+            owners,
+            [
+                {"login": "ada", "type": "user"},
+                {"login": "LegalAid", "type": "organization"},
+                {"login": "CourtForms", "type": "organization"},
+            ],
+        )
+
+    def test_missing_organization_repository_is_created_under_that_org(self):
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append((url, method, json.loads(body) if body else None))
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                return (
+                    {"status": "201"},
+                    b'{"html_url": "https://github.com/LegalAid/docassemble-HousingForms"}',
+                )
+
+        http = FakeHttp()
+        with (
+            patch.object(
+                docassemble_compat,
+                "get_github_publish_owners",
+                return_value=[
+                    {"login": "ada", "type": "user"},
+                    {"login": "LegalAid", "type": "organization"},
+                ],
+            ),
+            patch.object(
+                docassemble_compat, "_github_authorized_http", return_value=http
+            ),
+        ):
+            repository = docassemble_compat.ensure_github_repository(
+                owner="LegalAid",
+                repository="docassemble-HousingForms",
+                description="Housing forms",
+            )
+
+        self.assertEqual(
+            http.calls[1],
+            (
+                "https://api.github.com/orgs/LegalAid/repos",
+                "POST",
+                {
+                    "name": "docassemble-HousingForms",
+                    "description": "Housing forms",
+                },
+            ),
+        )
+        self.assertTrue(repository["created_by_weaver"])
+
+
 class TestDocassembleSourceCompatibility(unittest.TestCase):
     def test_private_webapp_imports_are_isolated_to_compatibility_module(self):
         package_dir = Path(__file__).resolve().parent
@@ -342,6 +498,34 @@ class TestDocassembleSourceCompatibility(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
                 self.assertIn(snippet, result.stdout, f"{ref}:{module_path}")
+
+        github_publishers = {
+            "v1.9.13": (
+                "server.py",
+                "@app.route('/createplaygroundpackage'",
+            ),
+            "v1.10.7": (
+                "develop/views.py",
+                "@develop_bp.route('/createplaygroundpackage'",
+            ),
+        }
+        for ref, (module_path, route_snippet) in github_publishers.items():
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(checkout),
+                    "show",
+                    f"{ref}:docassemble_webapp/docassemble/webapp/{module_path}",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, f"{ref}: {result.stderr}")
+            self.assertIn(route_snippet, result.stdout, f"{ref}:{module_path}")
+            self.assertIn("def create_playground_package():", result.stdout)
+            self.assertIn("da:using_github:userid:", result.stdout)
 
 
 if __name__ == "__main__":

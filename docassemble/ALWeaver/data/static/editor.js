@@ -1394,6 +1394,131 @@
   }
 
   // -------------------------------------------------------------------------
+  // GitHub publishing through Docassemble's native Playground workflow
+  // -------------------------------------------------------------------------
+  function setGithubPublishStatus(message, kind) {
+    var status = document.getElementById('github-publish-status');
+    if (!status) return;
+    status.className = 'alert py-2 alert-' + (kind || 'secondary');
+    status.textContent = message;
+  }
+
+  function applyGithubIntegrationStatus(data) {
+    var submit = document.getElementById('github-publish-submit');
+    var configure = document.getElementById('github-configure-link');
+    var packageInput = document.getElementById('github-package-name');
+    var ownerSelect = document.getElementById('github-owner');
+    if (packageInput && data && data.default_package) {
+      packageInput.value = data.default_package;
+    }
+    if (configure) {
+      configure.classList.toggle('d-none', !(data && data.configure_url));
+      if (data && data.configure_url) configure.href = data.configure_url;
+    }
+    if (!data || !data.enabled || !data.available) {
+      setGithubPublishStatus("Docassemble's native GitHub integration is not enabled on this server.", 'warning');
+      if (submit) submit.disabled = true;
+      return;
+    }
+    if (!data.connected) {
+      setGithubPublishStatus('Connect your GitHub account in Docassemble before publishing.', 'warning');
+      if (submit) submit.disabled = true;
+      return;
+    }
+    if (ownerSelect) {
+      ownerSelect.replaceChildren();
+      (data.owners || []).forEach(function (owner) {
+        var option = document.createElement('option');
+        option.value = owner.login;
+        option.textContent = owner.login + (owner.type === 'organization' ? ' (organization)' : ' (personal)');
+        option.disabled = owner.available === false;
+        ownerSelect.appendChild(option);
+      });
+      ownerSelect.disabled = !(data.owners && data.owners.length);
+    }
+    if (!data.owners || !data.owners.length) {
+      setGithubPublishStatus('GitHub did not return an account or organization that can own the repository.', 'warning');
+      if (submit) submit.disabled = true;
+      return;
+    }
+    if (data.owners.some(function (owner) { return owner.type === 'organization' && owner.available === false; })) {
+      setGithubPublishStatus('Connected. Enable organization repositories in Configure GitHub to use the disabled organizations below.', 'warning');
+    } else {
+      setGithubPublishStatus('Connected. Choose where this repository should live.', 'success');
+    }
+    if (submit) submit.disabled = false;
+  }
+
+  function openGithubPublishModal() {
+    if (!state.project) {
+      window.alert('Choose a project before publishing to GitHub.');
+      return;
+    }
+    promptAndSaveUnsavedChanges('publish to GitHub').then(function (canContinue) {
+      if (!canContinue) return;
+      var modal = getOrCreateBootstrapModal('github-publish-modal');
+      var submit = document.getElementById('github-publish-submit');
+      var configure = document.getElementById('github-configure-link');
+      var ownerSelect = document.getElementById('github-owner');
+      if (submit) submit.disabled = true;
+      if (configure) configure.classList.add('d-none');
+      if (ownerSelect) {
+        ownerSelect.disabled = true;
+        ownerSelect.replaceChildren();
+        var loadingOption = document.createElement('option');
+        loadingOption.textContent = 'Loading GitHub accounts…';
+        ownerSelect.appendChild(loadingOption);
+      }
+      setGithubPublishStatus("Checking Docassemble's GitHub integration…", 'secondary');
+      if (modal) modal.show();
+      apiGet('/api/github/status?project=' + encodeURIComponent(state.project)).then(function (res) {
+        if (!res.success || !res.data) {
+          setGithubPublishStatus((res.error && res.error.message) || 'Unable to check GitHub integration.', 'danger');
+          return;
+        }
+        applyGithubIntegrationStatus(res.data);
+      }).catch(function (error) {
+        setGithubPublishStatus(error && error.message ? error.message : 'Unable to check GitHub integration.', 'danger');
+      });
+    });
+  }
+
+  function initGithubPublishing() {
+    var form = document.getElementById('github-publish-form');
+    if (!form) return;
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!state.project) return;
+      var packageInput = document.getElementById('github-package-name');
+      var ownerSelect = document.getElementById('github-owner');
+      var branchInput = document.getElementById('github-branch-name');
+      var messageInput = document.getElementById('github-commit-message');
+      var submit = document.getElementById('github-publish-submit');
+      if (!form.reportValidity()) return;
+      if (submit) submit.disabled = true;
+      setGithubPublishStatus('Preparing the project for Docassemble…', 'info');
+      apiPost('/api/github/publish', {
+        project: state.project,
+        owner: ownerSelect ? ownerSelect.value : '',
+        package: packageInput ? packageInput.value : '',
+        branch: branchInput ? branchInput.value : '',
+        commit_message: messageInput ? messageInput.value : '',
+      }).then(function (res) {
+        if (!res.success || !res.data || !res.data.publish_url) {
+          setGithubPublishStatus((res.error && res.error.message) || 'Unable to start GitHub publishing.', 'danger');
+          if (submit) submit.disabled = false;
+          return;
+        }
+        setGithubPublishStatus('Opening Docassemble\'s GitHub publisher…', 'success');
+        window.location.assign(res.data.publish_url);
+      }).catch(function (error) {
+        setGithubPublishStatus(error && error.message ? error.message : 'Unable to start GitHub publishing.', 'danger');
+        if (submit) submit.disabled = false;
+      });
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Project-wide find / replace
   // -------------------------------------------------------------------------
   var _projectSearchData = null;
@@ -8158,6 +8283,11 @@
       return;
     }
 
+    if (uiAction === 'open-github-publish') {
+      openGithubPublishModal();
+      return;
+    }
+
     if (target.id === 'btn-new-section-file') {
       if (!state.project || isInterviewView()) return;
       var filenamePrompt = window.prompt('New filename', defaultNewFilename(state.currentView));
@@ -9491,6 +9621,7 @@
       return;
     }
     initProjectSearch();
+    initGithubPublishing();
     renderSystemChecks();
     document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
       // The control now lives inside a dropdown, so hide the whole <li>;

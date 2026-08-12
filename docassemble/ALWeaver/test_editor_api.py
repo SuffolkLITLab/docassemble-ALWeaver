@@ -117,7 +117,16 @@ def _load_api_editor_for_tests():
     playground_publish.next_available_project_name = (
         lambda base_name, existing=None: base_name
     )
-    playground_publish.normalize_project_name = lambda raw_name: str(raw_name).strip()
+    playground_publish.normalize_github_package_name = lambda raw_name: str(
+        raw_name
+    ).strip()
+    playground_publish.normalize_project_name = lambda raw_name, **kwargs: str(
+        raw_name
+    ).strip()
+    playground_publish.prepare_project_github_package = lambda **kwargs: {
+        "package": kwargs["package_name"],
+        "repository": "docassemble-" + kwargs["package_name"],
+    }
     playground_publish.rename_project = lambda *args, **kwargs: None
 
     stubs = {
@@ -152,6 +161,117 @@ def _load_api_editor_for_tests():
 
 
 api_editor = _load_api_editor_for_tests()
+
+
+class TestEditorGithubApi(unittest.TestCase):
+    def test_publish_prepares_manifest_and_returns_native_handoff_url(self):
+        prepared = {
+            "package": "HousingForms",
+            "repository": "docassemble-HousingForms",
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={
+                    "available": True,
+                    "connected": True,
+                    "organizations_enabled": True,
+                },
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[
+                    {"login": "ada", "type": "user"},
+                    {"login": "LegalAid", "type": "organization"},
+                ],
+            ),
+            patch.object(
+                api_editor,
+                "ensure_github_repository",
+                return_value={
+                    "html_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "created_by_weaver": True,
+                },
+            ) as ensure_repository,
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value=prepared,
+            ) as prepare,
+            patch.object(
+                api_editor,
+                "native_github_publish_url",
+                return_value="/createplaygroundpackage?github=1",
+            ) as native_url,
+            patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+        ):
+            api_editor.current_user.email = "ada@example.com"
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                    "branch": "feature/github",
+                    "commit_message": "Update interview",
+                },
+            ):
+                response = api_editor.editor_api_github_publish()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertEqual(data["repository"], "docassemble-HousingForms")
+        self.assertEqual(data["owner"], "LegalAid")
+        self.assertTrue(data["repository_created"])
+        self.assertEqual(data["branch"], "feature/github")
+        self.assertEqual(data["publish_url"], "/createplaygroundpackage?github=1")
+        prepare.assert_called_once_with(
+            user_id=7,
+            project_name="Housing",
+            package_name="HousingForms",
+            author_name="Ada",
+            author_email="ada@example.com",
+            github_url="https://github.com/LegalAid/docassemble-HousingForms",
+        )
+        ensure_repository.assert_called_once_with(
+            owner="LegalAid",
+            repository="docassemble-HousingForms",
+            description="A docassemble project for Housing.",
+        )
+        native_url.assert_called_once_with(
+            project="Housing",
+            package="HousingForms",
+            branch="feature/github",
+            commit_message="Update interview",
+        )
+
+    def test_publish_rejects_invalid_branch_before_writing_manifest(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "prepare_project_github_package") as prepare,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "HousingForms",
+                    "branch": "bad branch",
+                    "commit_message": "Update interview",
+                },
+            ):
+                response = api_editor.editor_api_github_publish()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("valid Git branch", response.get_json()["error"]["message"])
+        prepare.assert_not_called()
 
 
 class TestEditorProjectSearchApi(unittest.TestCase):

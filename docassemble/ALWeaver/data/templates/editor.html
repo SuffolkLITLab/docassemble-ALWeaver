@@ -41,6 +41,7 @@
             <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="topbar-more-menu">
               <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
               <li class="d-none"><button type="button" class="dropdown-item" data-action="open-runtime-inspector"><i class="fa-solid fa-magnifying-glass-chart fa-fw me-2" aria-hidden="true"></i>Inspect variables</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
@@ -174,6 +175,65 @@
 </div>
 
 <!-- ===== MODALS ===== -->
+
+<!-- Native Docassemble GitHub publishing -->
+<div class="modal fade" id="github-publish-modal" tabindex="-1"
+     aria-labelledby="github-publish-title">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny">Current project</div>
+          <h5 class="modal-title mt-1" id="github-publish-title">Commit to GitHub</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="github-publish-form">
+        <div class="modal-body">
+          <div class="alert alert-secondary py-2" id="github-publish-status"
+               role="status" aria-live="polite">Checking Docassemble's GitHub integration&hellip;</div>
+          <div class="mb-3">
+            <label class="form-label" for="github-owner">Owner</label>
+            <select class="form-select" id="github-owner" name="owner" required disabled>
+              <option value="">Loading GitHub accounts&hellip;</option>
+            </select>
+            <div class="form-text">Choose your personal account or an organization where you are allowed to create repositories.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="github-package-name">Repository name</label>
+            <div class="input-group">
+              <span class="input-group-text">docassemble-</span>
+              <input class="form-control" id="github-package-name" name="package"
+                     autocomplete="off" maxlength="100" required>
+            </div>
+            <div class="form-text">An existing accessible repository with this name is reused; otherwise it is created under the selected owner.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="github-branch-name">Branch</label>
+            <input class="form-control font-monospace" id="github-branch-name" name="branch"
+                   value="main" autocomplete="off" maxlength="255" required>
+            <div class="form-text">Existing branches are updated and missing branches are created. Slashes are allowed.</div>
+          </div>
+          <div>
+            <label class="form-label" for="github-commit-message">Commit message</label>
+            <input class="form-control" id="github-commit-message" name="commit_message"
+                   value="Update from Weaver" autocomplete="off" maxlength="500" required>
+          </div>
+          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included. Weaver uses Docassemble's GitHub connection, and Docassemble performs the Git commit and push.</p>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <a class="btn btn-sm btn-outline-secondary d-none" id="github-configure-link">Configure GitHub</a>
+          <div class="d-flex gap-2 ms-auto">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-primary" id="github-publish-submit" disabled>
+              <i class="fa-brands fa-github me-1" aria-hidden="true"></i>Continue to GitHub
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- Project-wide find / replace -->
 <div class="modal fade" id="project-search-modal" tabindex="-1"
