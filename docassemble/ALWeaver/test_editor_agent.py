@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 """Fake-model tests for the bounded agent loop.
 

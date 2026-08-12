@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 from io import BytesIO
 from contextlib import nullcontext
@@ -70,6 +70,7 @@ def _load_api_editor_for_tests():
         "delete_block_from_yaml": lambda content, block_id: content,
         "delete_saved_file": lambda *args, **kwargs: None,
         "generate_draft_order": lambda *args, **kwargs: {},
+        "insert_block_in_yaml": lambda content, block_yaml, insert_after_id=None: content,
         "parse_interview_yaml": lambda *args, **kwargs: {
             "blocks": [],
             "metadata_blocks": [],
@@ -88,7 +89,7 @@ def _load_api_editor_for_tests():
         "source_revision": lambda text: "test-revision",
         "enable_commented_block_in_yaml": lambda content, block_id: content,
         "reorder_blocks_in_yaml": lambda content, order: content,
-        "update_block_in_yaml": lambda content, block_id, new_yaml: content,
+        "update_block_in_yaml": lambda content, block_id, new_yaml, **kwargs: content,
         "update_metadata_documents_in_yaml": lambda content, edited: content,
     }.items():
         setattr(editor_utils, name, func)

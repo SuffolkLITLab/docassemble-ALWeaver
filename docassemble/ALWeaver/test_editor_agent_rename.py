@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 """Variable renaming: what gets rewritten, what gets left, what gets refused.
 

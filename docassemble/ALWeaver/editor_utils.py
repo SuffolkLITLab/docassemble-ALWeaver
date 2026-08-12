@@ -27,6 +27,7 @@ __all__ = [
     "serialize_order_steps",
     "generate_draft_order",
     "canonicalize_block_yaml",
+    "insert_block_in_yaml",
     "update_block_in_yaml",
     "delete_block_from_yaml",
     "comment_out_block_in_yaml",
@@ -465,17 +466,19 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
 
 def _uncomment_yaml_block(block_yaml: str) -> str:
     uncommented_lines = []
-    for line in block_yaml.rstrip().splitlines():
-        stripped = line.lstrip()
+    for line in block_yaml.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        ending = line[len(content) :]
+        stripped = content.lstrip()
         if stripped.startswith("#"):
-            comment_offset = line.index("#")
-            remainder = line[comment_offset + 1 :]
+            comment_offset = content.index("#")
+            remainder = content[comment_offset + 1 :]
             if remainder.startswith(" "):
                 remainder = remainder[1:]
-            uncommented_lines.append(remainder)
+            uncommented_lines.append(remainder + ending)
         else:
             uncommented_lines.append(line)
-    return "\n".join(uncommented_lines)
+    return "".join(uncommented_lines)
 
 
 def _detect_block_type(block: Dict[str, Any]) -> str:
@@ -642,7 +645,6 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         order_blocks: indices of mandatory code blocks (interview order)
         raw_yaml: the original YAML text
     """
-    raw_lines = raw_yaml.splitlines()
 
     def _is_comment_only_segment(segment: str) -> bool:
         lines = [line for line in segment.splitlines() if line.strip()]
@@ -651,26 +653,25 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         return all(line.lstrip().startswith("#") for line in lines)
 
     segments: List[Dict[str, Any]] = []
-    segment_start_line = 1
-    segment_lines: List[str] = []
-    for line_number, line in enumerate(raw_lines, start=1):
-        if re.match(r"^---\s*$", line):
-            segments.append(
-                {
-                    "start_line": segment_start_line,
-                    "end_line": line_number - 1,
-                    "text": "\n".join(segment_lines),
-                }
-            )
-            segment_lines = []
-            segment_start_line = line_number + 1
-        else:
-            segment_lines.append(line)
+    body_start = 0
+    for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
+        body = raw_yaml[body_start : separator.start()]
+        start_line = raw_yaml.count("\n", 0, body_start) + 1
+        segments.append(
+            {
+                "start_line": start_line,
+                "end_line": start_line + len(body.splitlines()) - 1,
+                "text": body,
+            }
+        )
+        body_start = separator.end()
+    body = raw_yaml[body_start:]
+    start_line = raw_yaml.count("\n", 0, body_start) + 1
     segments.append(
         {
-            "start_line": segment_start_line,
-            "end_line": len(raw_lines),
-            "text": "\n".join(segment_lines),
+            "start_line": start_line,
+            "end_line": start_line + len(body.splitlines()) - 1,
+            "text": body,
         }
     )
 
@@ -757,11 +758,10 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         editor_objects = (
             _build_editor_objects(doc.get("objects")) if "objects" in doc else []
         )
-        block_yaml = (
-            segment_text
-            if block_type == BLOCK_TYPE_OBJECTS
-            else canonical_block_yaml(doc)
-        )
+        # The source shown in a block's YAML tab must be the source the user
+        # wrote.  Canonicalizing it here silently discarded comments, anchors,
+        # quoting and scalar styles before the user had made any edit.
+        block_yaml = segment_text_raw.strip("\r\n")
 
         block_entry: Dict[str, Any] = {
             "id": block_id,
@@ -924,32 +924,197 @@ def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
     return "\n---\n".join(parts)
 
 
-def update_block_in_yaml(full_yaml: str, block_id: str, new_block_yaml: str) -> str:
+def _unique_block_document(
+    full_yaml: str, block_id: str
+) -> Tuple[Dict[str, Any], int, int, str]:
+    """Return one block and its exact document-body source range."""
+    matches = [
+        block
+        for block in parse_interview_yaml(full_yaml)["blocks"]
+        if block["id"] == block_id
+    ]
+    if not matches:
+        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
+    if len(matches) != 1:
+        raise ValueError(
+            f"Block id {block_id!r} is duplicated; edit the IDs in source mode first"
+        )
+    block = matches[0]
+    bodies = _source_document_bodies(full_yaml)
+    document_index = int(block["index"])
+    if document_index < 0 or document_index >= len(bodies):
+        raise ValueError(f"Could not map block {block_id!r} safely to source")
+    start, end, body = bodies[document_index]
+    return block, start, end, body
+
+
+def _mapping_value_ranges(yaml_text: str) -> Dict[str, Tuple[int, int]]:
+    """Return exact top-level YAML value ranges, or an empty mapping."""
+    try:
+        node = yaml.compose(yaml_text)
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(node, yaml.MappingNode):
+        return {}
+    ranges: Dict[str, Tuple[int, int]] = {}
+    for key_node, value_node in node.value:
+        if not isinstance(key_node, yaml.ScalarNode):
+            return {}
+        key = str(key_node.value)
+        if key in ranges:
+            return {}
+        ranges[key] = (value_node.start_mark.index, value_node.end_mark.index)
+    return ranges
+
+
+def _merge_changed_mapping_values(
+    original_body: str, edited_body: str
+) -> Optional[str]:
+    """Patch only semantically changed values in a graphical block edit.
+
+    This keeps comments, anchors, quote choices and scalar styles on unchanged
+    properties.  It is deliberately limited to edits with the same top-level
+    keys; structural changes fall back to exact document-body replacement.
+    """
+    try:
+        original = yaml.safe_load(original_body)
+        edited = yaml.safe_load(edited_body)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(original, dict) or not isinstance(edited, dict):
+        return None
+    if list(original.keys()) != list(edited.keys()):
+        return None
+    original_ranges = _mapping_value_ranges(original_body)
+    edited_ranges = _mapping_value_ranges(edited_body)
+    if set(original_ranges) != set(original) or set(edited_ranges) != set(edited):
+        return None
+
+    def normalized_graphical_value(key: str, value: Any) -> Any:
+        """Remove explicit values that are identical to graphical defaults."""
+        if isinstance(value, str):
+            # Textareas do not represent YAML's final line break separately.
+            # Treat it as presentation so touching another control does not
+            # collapse an unchanged literal block scalar to a plain scalar.
+            return value.rstrip("\r\n")
+        if key == "fields" and isinstance(value, list):
+            normalized_fields: List[Any] = []
+            for field in value:
+                if not isinstance(field, dict):
+                    normalized_fields.append(field)
+                    continue
+                normalized_field = dict(field)
+                if str(normalized_field.get("datatype", "")).lower() == "text":
+                    normalized_field.pop("datatype", None)
+                if normalized_field.get("required") is True:
+                    normalized_field.pop("required", None)
+                normalized_fields.append(normalized_field)
+            return normalized_fields
+        return value
+
+    operations: List[Tuple[int, int, str]] = []
+    for key in original:
+        if normalized_graphical_value(
+            str(key), original[key]
+        ) == normalized_graphical_value(str(key), edited[key]):
+            continue
+        start, end = original_ranges[str(key)]
+        edited_start, edited_end = edited_ranges[str(key)]
+        replacement = edited_body[edited_start:edited_end]
+        original_fragment = original_body[start:end]
+        if original_fragment.endswith("\r\n") and not replacement.endswith(
+            ("\r", "\n")
+        ):
+            replacement += "\r\n"
+        elif original_fragment.endswith("\n") and not replacement.endswith(
+            ("\r", "\n")
+        ):
+            replacement += "\n"
+        elif original_fragment.endswith("\r") and not replacement.endswith(
+            ("\r", "\n")
+        ):
+            replacement += "\r"
+        operations.append((start, end, replacement))
+    updated = original_body
+    for start, end, replacement in reversed(operations):
+        updated = updated[:start] + replacement + updated[end:]
+    return updated
+
+
+def _replace_document_body(
+    full_yaml: str, start: int, end: int, replacement: str
+) -> str:
+    return full_yaml[:start] + replacement + full_yaml[end:]
+
+
+def update_block_in_yaml(
+    full_yaml: str,
+    block_id: str,
+    new_block_yaml: str,
+    *,
+    preserve_unchanged_annotations: bool = False,
+) -> str:
     """Replace a single block in a full interview YAML by its id.
 
-    Locates the block matching *block_id* in the parsed output, then
-    rebuilds the YAML with the replacement.
+    Locates the block matching *block_id* and replaces only its exact source
+    range.  Other documents and separators are never serialized again.
     """
-    model = parse_interview_yaml(full_yaml)
-    blocks = model["blocks"]
-    updated: List[str] = []
-    found = False
-    normalized_new_block_yaml = canonicalize_block_yaml(new_block_yaml)
-    for block in blocks:
-        block_text = (
-            normalized_new_block_yaml if block["id"] == block_id else block["yaml"]
-        )
+    _block, start, end, original_body = _unique_block_document(full_yaml, block_id)
+    edited_body = new_block_yaml.strip("\r\n")
+    replacement: Optional[str] = None
+    if preserve_unchanged_annotations:
+        replacement = _merge_changed_mapping_values(original_body, edited_body)
+    if replacement is None:
+        leading_len = len(original_body) - len(original_body.lstrip("\r\n"))
+        trailing_len = len(original_body) - len(original_body.rstrip("\r\n"))
+        leading = original_body[:leading_len]
+        trailing = original_body[-trailing_len:] if trailing_len else ""
+        replacement = leading + edited_body + trailing
+    return _replace_document_body(full_yaml, start, end, replacement)
 
-        if block["id"] == block_id:
-            found = True
 
-        block_text = block_text.strip()
-        if block_text and block_text != "{}":
-            updated.append(block_text)
+def insert_block_in_yaml(
+    full_yaml: str, new_block_yaml: str, insert_after_id: Optional[str] = None
+) -> str:
+    """Insert one new document without serializing any existing document."""
+    edited_body = new_block_yaml.strip("\r\n")
+    if not edited_body:
+        raise ValueError("block_yaml must be a non-empty YAML string")
+    try:
+        inserted_value = yaml.safe_load(edited_body)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML: {exc}") from exc
+    if not isinstance(inserted_value, dict):
+        raise ValueError("block_yaml must contain exactly one YAML mapping block")
+    inserted_id = str(inserted_value.get("id") or "").strip()
+    if inserted_id:
+        existing_ids = {
+            str(block.get("id") or "").strip()
+            for block in parse_interview_yaml(full_yaml)["blocks"]
+        }
+        if inserted_id in existing_ids:
+            raise ValueError(f"Block id {inserted_id!r} already exists")
 
-    if not found:
-        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
-    return "\n---\n".join(updated) + "\n"
+    newline = (
+        "\r\n"
+        if "\r\n" in full_yaml and "\n" not in full_yaml.replace("\r\n", "")
+        else "\n"
+    )
+    document = edited_body + newline
+    if not full_yaml:
+        return document
+    separator = "---" + newline
+    if not insert_after_id:
+        if full_yaml.startswith("%"):
+            raise ValueError(
+                "Top insertion is not safe when the YAML stream begins with directives"
+            )
+        return document + separator + full_yaml
+
+    _block, _start, end, _body = _unique_block_document(full_yaml, insert_after_id)
+    prefix = full_yaml[:end]
+    line_break = "" if prefix.endswith(("\n", "\r")) else newline
+    return prefix + line_break + separator + document + full_yaml[end:]
 
 
 def delete_block_from_yaml(full_yaml: str, block_id: str) -> str:
@@ -958,78 +1123,40 @@ def delete_block_from_yaml(full_yaml: str, block_id: str) -> str:
     Locates the block matching *block_id* in the parsed output, then
     rebuilds the YAML without it.
     """
-    model = parse_interview_yaml(full_yaml)
-    blocks = model["blocks"]
-    updated: List[str] = []
-    found = False
-    for block in blocks:
-        if block["id"] == block_id:
-            found = True
-            continue
-
-        block_text = block["yaml"].strip()
-        if block_text and block_text != "{}":
-            updated.append(block_text)
-
-    if not found:
-        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
-    return "\n---\n".join(updated) + "\n" if updated else ""
+    _block, start, end, _body = _unique_block_document(full_yaml, block_id)
+    bodies = _source_document_bodies(full_yaml)
+    body_index = next(i for i, item in enumerate(bodies) if item[0] == start)
+    if body_index > 0:
+        # Remove the separator immediately before the deleted body too.
+        start = bodies[body_index - 1][1]
+    elif len(bodies) > 1:
+        # The first document has no preceding separator, so consume the next.
+        end = bodies[1][0]
+    return _replace_document_body(full_yaml, start, end, "")
 
 
 def _comment_yaml_block(block_yaml: str) -> str:
     commented_lines = []
-    for line in block_yaml.rstrip().splitlines():
-        commented_lines.append(f"# {line}" if line else "#")
-    return "\n".join(commented_lines)
+    for line in block_yaml.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        ending = line[len(content) :]
+        commented_lines.append((f"# {content}" if content else "#") + ending)
+    return "".join(commented_lines)
 
 
 def comment_out_block_in_yaml(full_yaml: str, block_id: str) -> str:
     """Comment out a single block in a full interview YAML by its id."""
-    model = parse_interview_yaml(full_yaml)
-    blocks = model["blocks"]
-    updated: List[str] = []
-    found = False
-    for block in blocks:
-        block_text = (
-            _comment_yaml_block(block["yaml"])
-            if block["id"] == block_id
-            else block["yaml"]
-        )
-        if block["id"] == block_id:
-            found = True
-
-        block_text = block_text.strip()
-        if block_text and block_text != "{}":
-            updated.append(block_text)
-
-    if not found:
-        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
-    return "\n---\n".join(updated) + "\n" if updated else ""
+    _block, start, end, body = _unique_block_document(full_yaml, block_id)
+    return _replace_document_body(full_yaml, start, end, _comment_yaml_block(body))
 
 
 def enable_commented_block_in_yaml(full_yaml: str, block_id: str) -> str:
     """Restore a previously commented-out block in a full interview YAML."""
-    model = parse_interview_yaml(full_yaml)
-    blocks = model["blocks"]
-    updated: List[str] = []
-    found = False
-    for block in blocks:
-        if block["id"] == block_id:
-            if block.get("type") != BLOCK_TYPE_COMMENTED:
-                raise ValueError(f"Block with id {block_id!r} is not commented out")
-            uncommented = canonicalize_block_yaml(_uncomment_yaml_block(block["yaml"]))
-            block_text = uncommented
-            found = True
-        else:
-            block_text = block["yaml"]
-
-        block_text = block_text.strip()
-        if block_text and block_text != "{}":
-            updated.append(block_text)
-
-    if not found:
-        raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
-    return "\n---\n".join(updated) + "\n" if updated else ""
+    block, start, end, body = _unique_block_document(full_yaml, block_id)
+    if block.get("type") != BLOCK_TYPE_COMMENTED:
+        raise ValueError(f"Block with id {block_id!r} is not commented out")
+    uncommented = _uncomment_yaml_block(body)
+    return _replace_document_body(full_yaml, start, end, uncommented)
 
 
 def reorder_blocks_in_yaml(full_yaml: str, block_ids: List[str]) -> str:
@@ -1038,20 +1165,26 @@ def reorder_blocks_in_yaml(full_yaml: str, block_ids: List[str]) -> str:
     Locates each block matching the ids in *block_ids*, then rebuilds the YAML
     in the specified order.
     """
-    model = parse_interview_yaml(full_yaml)
-    blocks = model["blocks"]
-    block_map = {block["id"]: block for block in blocks}
-    updated: List[str] = []
-
-    for block_id in block_ids:
-        if block_id not in block_map:
-            raise ValueError(f"Block with id {block_id!r} not found in interview YAML")
-        block = block_map[block_id]
-        block_text = block["yaml"].strip()
-        if block_text and block_text != "{}":
-            updated.append(block_text)
-
-    return "\n---\n".join(updated) + "\n" if updated else ""
+    blocks = parse_interview_yaml(full_yaml)["blocks"]
+    existing_ids = [str(block["id"]) for block in blocks]
+    if len(set(existing_ids)) != len(existing_ids):
+        raise ValueError("Cannot reorder while duplicate block IDs exist")
+    if len(set(block_ids)) != len(block_ids):
+        raise ValueError("block_ids must not contain duplicates")
+    if set(block_ids) != set(existing_ids) or len(block_ids) != len(existing_ids):
+        raise ValueError("block_ids must contain every interview block exactly once")
+    bodies = _source_document_bodies(full_yaml)
+    block_map = {str(block["id"]): block for block in blocks}
+    destination_indexes = sorted(int(block["index"]) for block in blocks)
+    replacements = {
+        destination_index: bodies[int(block_map[block_id]["index"])][2]
+        for destination_index, block_id in zip(destination_indexes, block_ids)
+    }
+    updated = full_yaml
+    for destination_index in reversed(destination_indexes):
+        start, end, _body = bodies[destination_index]
+        updated = updated[:start] + replacements[destination_index] + updated[end:]
+    return updated
 
 
 # ---------------------------------------------------------------------------

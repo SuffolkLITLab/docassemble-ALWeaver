@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 """Normalisation rules shared by the AI screen drafter and the editing agent.
 
@@ -83,6 +83,16 @@ class TestScreenNormalisation(unittest.TestCase):
 
     def test_a_continue_button_field_is_never_invented_from_nothing(self):
         screen = normalize_generated_screen({"question": "Anything?"})
+        self.assertEqual(screen["continue_button_field"], "")
+
+    def test_fields_and_continue_button_field_are_not_combined(self):
+        screen = normalize_generated_screen(
+            {
+                "question": "Contact information",
+                "fields": [{"label": "Email", "field": "email"}],
+                "continue_button_field": "continue",
+            }
+        )
         self.assertEqual(screen["continue_button_field"], "")
 
     def test_field_variables_stay_on_one_line(self):
