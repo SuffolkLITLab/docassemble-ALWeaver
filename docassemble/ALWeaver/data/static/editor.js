@@ -5034,6 +5034,10 @@
           if (!res.success || !res.data) return false;
           refreshFromFileResponse(res.data);
           return true;
+        }).catch(function (error) {
+          if (isSupersededRequest(error)) return false;
+          window.alert('Unable to save metadata safely: ' + String((error && error.message) || error || 'Unknown error'));
+          return false;
         });
       }
       return apiPost('/api/file', {
@@ -5043,6 +5047,10 @@
       }).then(function (res) {
         if (!res.success) return false;
         return loadFile().then(function () { return true; });
+      }).catch(function (error) {
+        if (isSupersededRequest(error)) return false;
+        window.alert('Unable to save YAML: ' + String((error && error.message) || error || 'Unknown error'));
+        return false;
       });
     }
     if (state.orderDirty) {
@@ -5059,6 +5067,10 @@
         }
         state.orderDirty = false;
         return loadFile().then(function () { return true; });
+      }).catch(function (error) {
+        if (isSupersededRequest(error)) return false;
+        window.alert('Unable to save interview order: ' + String((error && error.message) || error || 'Unknown error'));
+        return false;
       });
     }
     var editingRawOrder = state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
@@ -5075,6 +5087,7 @@
       filename: state.filename,
       block_id: originalBlockId,
       block_yaml: yamlVal,
+      edit_mode: editingRawOrder || state.questionEditMode !== 'preview' ? 'source' : 'graphical',
     }).then(function (res) {
       if (!res.success || !res.data) {
         window.alert((res.error && res.error.message) || 'Unable to save block.');
@@ -5086,6 +5099,10 @@
       renderOutline();
       renderCanvas();
       return !dirtyState.hasDirty(state.filename);
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return false;
+      window.alert('Unable to save block: ' + String((error && error.message) || error || 'Unknown error'));
+      return false;
     });
   }
 
@@ -5111,6 +5128,10 @@
       var saveSectionBtn = document.getElementById('save-section-file');
       if (saveSectionBtn) saveSectionBtn.disabled = true;
       return true;
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return false;
+      window.alert('Unable to save file: ' + String((error && error.message) || error || 'Unknown error'));
+      return false;
     });
   }
 
@@ -8202,6 +8223,9 @@
         }
         state.filename = res.data && res.data.filename ? res.data.filename : newInterviewName;
         loadFiles();
+      }).catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        window.alert('Unable to create file: ' + String((error && error.message) || error || 'Unknown error'));
       });
       return;
     }
@@ -8793,6 +8817,7 @@
         filename: state.filename,
         block_id: originalBlockId,
         block_yaml: yamlVal,
+        edit_mode: state.questionEditMode === 'preview' ? 'graphical' : 'source',
       }).then(function (res) {
         if (res.success && res.data) {
           var keepBlockId = res.data.saved_block_id || originalBlockId;
@@ -8859,6 +8884,7 @@
           filename: state.filename,
           block_id: state.activeOrderBlockId,
           block_yaml: yamlContent,
+          edit_mode: 'source',
         }).then(function (res) {
           if (res.success && res.data) {
             refreshFromFileResponse(res.data, { savedBlockId: state.activeOrderBlockId });

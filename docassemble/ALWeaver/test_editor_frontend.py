@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 from collections import Counter
 from html.parser import HTMLParser
@@ -258,6 +258,13 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("uiAction === 'save-file'", editor)
         self.assertNotIn("target.id === 'btn-save-file'", editor)
         self.assertIn("saveCurrentFile", editor)
+
+    def test_new_file_and_save_failures_are_reported_to_the_user(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("Unable to create file: ", editor)
+        self.assertIn("Unable to save metadata safely: ", editor)
+        self.assertIn("Unable to save block: ", editor)
 
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble

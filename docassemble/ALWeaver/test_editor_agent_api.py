@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 """HTTP-level guarantees for the editing-assistant endpoints.
 

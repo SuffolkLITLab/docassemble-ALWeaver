@@ -1,3 +1,5 @@
+# do not pre-load
+
 import unittest
 
 from .editor_utils import _al_individual_primitive_groups

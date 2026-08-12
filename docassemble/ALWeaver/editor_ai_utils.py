@@ -238,8 +238,12 @@ def normalize_generated_screen(
     subquestion = _safe_prose(raw_screen.get("subquestion"))
 
     continue_button_field = _safe_text(raw_screen.get("continue_button_field"))
-    if not continue_button_field and fields:
-        continue_button_field = _safe_text(fields[0].get("field"))
+    # A Docassemble question is completed either by its input fields or by a
+    # continue button field. Combining both makes the generated screen define
+    # an unrelated completion variable (models commonly return a generic
+    # ``continue`` here) and can create collisions elsewhere in the interview.
+    if fields:
+        continue_button_field = ""
 
     return {
         "question": question,

@@ -106,6 +106,7 @@ try:
         delete_block_from_yaml,
         delete_saved_file,
         generate_draft_order,
+        insert_block_in_yaml,
         parse_interview_yaml,
         metadata_source_slice,
         parse_order_code,
@@ -4804,7 +4805,14 @@ def editor_api_save_block() -> Response:
         _validate_block_yaml_payload(new_yaml)
 
         current_content = playground_read_yaml(uid, project, filename)
-        updated_content = update_block_in_yaml(current_content, block_id, new_yaml)
+        updated_content = update_block_in_yaml(
+            current_content,
+            block_id,
+            new_yaml,
+            preserve_unchanged_annotations=(
+                str(post_data.get("edit_mode") or "").strip().lower() == "graphical"
+            ),
+        )
         playground_write_yaml(uid, project, filename, updated_content)
 
         model = parse_interview_yaml(updated_content)
@@ -5076,31 +5084,10 @@ def editor_api_insert_block() -> Response:
         _validate_block_yaml_payload(block_yaml)
 
         current_content = playground_read_yaml(uid, project, filename)
-        model = parse_interview_yaml(current_content)
-        blocks = model["blocks"]
-
-        block_text = canonicalize_block_yaml(block_yaml)
-        existing_parts = [
-            b["yaml"].strip()
-            for b in blocks
-            if b.get("yaml", "").strip() and b.get("yaml", "").strip() != "{}"
-        ]
-
-        insert_at: int
-        if not insert_after_id:
-            insert_at = 0
-        else:
-            found_insert_at: Optional[int] = None
-            for idx, block in enumerate(blocks):
-                if block.get("id") == insert_after_id:
-                    found_insert_at = idx + 1
-                    break
-            if found_insert_at is None:
-                raise ValueError(f"Block with id {insert_after_id!r} not found")
-            insert_at = found_insert_at
-
-        existing_parts.insert(insert_at, block_text)
-        updated_content = "\n---\n".join(existing_parts) + "\n"
+        block_text = block_yaml.strip("\r\n")
+        updated_content = insert_block_in_yaml(
+            current_content, block_text, insert_after_id
+        )
         playground_write_yaml(uid, project, filename, updated_content)
 
         updated_model = parse_interview_yaml(updated_content)
@@ -5108,9 +5095,9 @@ def editor_api_insert_block() -> Response:
         id_match = re.search(r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text)
         if id_match:
             inserted_block_id = id_match.group(1).strip()
-        elif 0 <= insert_at < len(updated_model["blocks"]):
+        elif updated_model["blocks"]:
             inserted_block_id = (
-                str(updated_model["blocks"][insert_at].get("id") or "").strip() or None
+                str(updated_model["blocks"][-1].get("id") or "").strip() or None
             )
 
         return jsonify(
@@ -5252,7 +5239,10 @@ def editor_api_save_order() -> Response:
             block_data["code"] = code_body
             order_yaml = canonical_block_yaml(block_data)
             updated = update_block_in_yaml(
-                current_content, target_block["id"], order_yaml
+                current_content,
+                target_block["id"],
+                order_yaml,
+                preserve_unchanged_annotations=True,
             )
         else:
             # Append a new mandatory code block
@@ -5342,6 +5332,8 @@ def editor_api_ai_generate_screen() -> Response:
             - Choose datatypes from the provided allowed list.
             - Keep labels plain and user-friendly.
             - Keep variable names python-safe snake_case.
+            - When fields is non-empty, continue_button_field must be an empty string.
+            - Use continue_button_field only for a screen with no input fields.
             """).strip()
 
         user_message = (

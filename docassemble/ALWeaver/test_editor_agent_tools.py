@@ -1,4 +1,4 @@
-# do not pre load
+# do not pre-load
 
 """Deterministic invariants for the agent's editing tools.
 

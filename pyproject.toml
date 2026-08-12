@@ -66,100 +66,59 @@ show_error_codes = true
 # per-module options:
 [[tool.mypy.overrides]]
 module = "pikepdf.*"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "docassemble.base.*"
-ignore_missing_imports=true
-
-[[tool.mypy.overrides]]
-module = "docassemble.webapp.*"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "docassemble.webapp.worker_common"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "docassemble.AssemblyLine"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "docassemble.AssemblyLine.*"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "docassemble.ALWeaver.validate_template_files"
-disable_error_code=["import-untyped"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "more_itertools"
-ignore_missing_imports=true
-
-[[tool.mypy.overrides]]
-module = "sklearn.*"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "docxtpl"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "docx2python"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "bs4"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "mako.*"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "flask_cors"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = "flask_login"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = "flask_wtf.*"
-ignore_missing_imports=true
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "mypy-pdfminer.*"
-ignore_missing_imports=true
-
-[[tool.mypy.overrides]]
-module = "mypy-ruamel"
-ignore_missing_imports=true
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = "formfyxer"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "docassemble.ALDashboard.interview_linter"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "docassemble.ALDashboard.review_screen_generator"
-ignore_missing_imports=true
+ignore_missing_imports = true
 
-disable_error_code=["import-untyped"]
-
-[[tool.mypy.overrides]]
-module = "docassemble.ALWeaver.interview_generator"
-disable_error_code=["import-untyped"]
 
 [dependency-groups]
 dev = [
