@@ -5,6 +5,8 @@ import re
 import shutil
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import yaml
+
 from .docassemble_compat import create_saved_file
 
 __all__ = [
@@ -14,6 +16,8 @@ __all__ = [
     "next_available_project_name",
     "normalize_project_name",
     "publish_weaver_artifacts_to_playground",
+    "prepare_project_github_package",
+    "normalize_github_package_name",
     "rename_project",
 ]
 
@@ -84,6 +88,106 @@ def _directory_for(area: Any, project_name: str) -> str:
     if project_name == "default":
         return area.directory
     return os.path.join(area.directory, project_name)
+
+
+def normalize_github_package_name(raw_name: Optional[str]) -> str:
+    """Return the package suffix used for ``docassemble-<name>`` repositories."""
+    value = str(raw_name or "").strip()
+    value = re.sub(r"^docassemble[-.]", "", value, flags=re.IGNORECASE)
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", value):
+        raise ValueError(
+            "Repository name must start with a letter and contain only letters, numbers, and underscores"
+        )
+    if value.lower() in {"base", "webapp", "demo"}:
+        raise ValueError("That repository name is reserved by docassemble")
+    return value
+
+
+def _visible_section_files(area: Any, project_name: str) -> List[str]:
+    directory = _directory_for(area, project_name)
+    if not os.path.isdir(directory):
+        return []
+    return sorted(
+        filename
+        for filename in os.listdir(directory)
+        if not filename.startswith(".")
+        and os.path.isfile(os.path.join(directory, filename))
+    )
+
+
+def prepare_project_github_package(
+    *,
+    user_id: int,
+    project_name: str,
+    package_name: str,
+    author_name: str = "",
+    author_email: str = "",
+    github_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create/update the package manifest consumed by Docassemble's publisher.
+
+    The native GitHub flow publishes Playground *packages*, not arbitrary
+    projects.  Weaver keeps the manifest in sync with every visible file in
+    the graphical project and lets Docassemble perform repository creation,
+    authentication, Git operations, and the final pull-back into Playground.
+    """
+    package = normalize_github_package_name(package_name)
+    file_fields = {
+        "interview_files": "playground",
+        "template_files": "playgroundtemplate",
+        "module_files": "playgroundmodules",
+        "static_files": "playgroundstatic",
+        "sources_files": "playgroundsources",
+    }
+    files: Dict[str, List[str]] = {}
+    for field_name, section in file_fields.items():
+        area = create_saved_file(user_id, fix=True, section=section)
+        files[field_name] = _visible_section_files(area, project_name)
+
+    if not files["interview_files"]:
+        raise ValueError("The project must contain at least one interview file")
+
+    packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
+    package_directory = _directory_for(packages_area, project_name)
+    os.makedirs(package_directory, exist_ok=True)
+    manifest_path = os.path.join(package_directory, f"docassemble.{package}")
+    existing: Dict[str, Any] = {}
+    if os.path.isfile(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as stream:
+            loaded = yaml.safe_load(stream)
+        if isinstance(loaded, dict):
+            existing = loaded
+
+    manifest: Dict[str, Any] = dict(existing)
+    manifest.update(files)
+    manifest.setdefault("dependencies", [])
+    manifest.setdefault("description", f"A docassemble project for {project_name}.")
+    manifest.setdefault("license", "MIT License")
+    manifest.setdefault(
+        "readme", f"# docassemble.{package}\n\nA docassemble extension.\n"
+    )
+    manifest.setdefault("url", "")
+    manifest.setdefault("version", "0.0.1")
+    if author_name:
+        manifest["author_name"] = author_name
+    else:
+        manifest.setdefault("author_name", "")
+    if author_email:
+        manifest["author_email"] = author_email
+    else:
+        manifest.setdefault("author_email", "")
+    if github_url:
+        manifest["github_url"] = github_url
+
+    with open(manifest_path, "w", encoding="utf-8") as stream:
+        yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+    packages_area.finalize()
+    return {
+        "package": package,
+        "repository": f"docassemble-{package}",
+        "manifest_path": manifest_path,
+        "files": files,
+    }
 
 
 def get_list_of_projects(user_id: int) -> List[str]:
