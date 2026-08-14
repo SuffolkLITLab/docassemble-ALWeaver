@@ -112,6 +112,35 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("commitLink.href = result.commit_url", editor)
         self.assertNotIn("window.location.assign(res.data.publish_url)", editor)
 
+        self.assertIn('data-action="pull-github"', template)
+        self.assertIn("function pullGithubChanges()", editor)
+        self.assertIn("apiPost('/api/github/pull'", editor)
+        self.assertIn("Local changes will be preserved", editor)
+
+    def test_new_project_accepts_an_unrestricted_github_url(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="new-project-github-url"', editor)
+        self.assertIn("https://github.com/owner/docassemble-package", editor)
+        self.assertIn("any public GitHub repository", editor)
+        self.assertIn("github_url: githubUrl", editor)
+        self.assertIn('id="project-github-import-url"', editor)
+        self.assertIn('id="project-github-import-submit"', editor)
+        self.assertIn("Create and pull", editor)
+        self.assertIn(
+            "apiPost('/api/new-project', { project_name: importName, github_url: importUrl })",
+            editor,
+        )
+
+    def test_project_pull_actions_are_scoped_to_synced_projects(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("projectSyncs: BOOT.projectSyncs || {}", editor)
+        self.assertIn("if (state.projectSyncs[projectName])", editor)
+        self.assertIn('data-project-action="pull-github"', editor)
+        self.assertIn("state.canvasMode === 'project-selector'", editor)
+        self.assertIn("state.project !== checkedProject", editor)
+
     def test_alindividual_field_helpers_have_a_group_and_options_modal(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()

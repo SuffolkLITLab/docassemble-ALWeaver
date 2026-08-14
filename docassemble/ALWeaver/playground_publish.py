@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
+import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import yaml
@@ -18,6 +20,10 @@ __all__ = [
     "publish_weaver_artifacts_to_playground",
     "prepare_project_github_package",
     "load_project_github_manifest",
+    "find_project_github_sync",
+    "import_github_snapshot",
+    "merge_github_snapshot",
+    "record_project_github_sync",
     "normalize_github_package_name",
     "rename_project",
 ]
@@ -214,6 +220,270 @@ def load_project_github_manifest(
     if not isinstance(loaded, dict):
         raise ValueError("The generated GitHub package manifest is invalid")
     return loaded, manifest_path
+
+
+def find_project_github_sync(
+    *, user_id: int, project_name: str
+) -> Optional[Dict[str, Any]]:
+    """Return the first GitHub-backed package manifest for a project."""
+    packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
+    directory = _directory_for(packages_area, project_name)
+    if not os.path.isdir(directory):
+        return None
+    for filename in sorted(os.listdir(directory)):
+        if not filename.startswith("docassemble."):
+            continue
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                manifest = yaml.safe_load(stream) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(manifest, dict) or not manifest.get("github_url"):
+            continue
+        package = filename[len("docassemble.") :]
+        commit_file = os.path.join(directory, f".docassemble-{package}")
+        commit = str(manifest.get("github_commit") or "").strip()
+        if not commit and os.path.isfile(commit_file):
+            with open(commit_file, "r", encoding="utf-8") as stream:
+                commit = stream.read().strip()
+        return {
+            "package": package,
+            "repository_url": str(manifest["github_url"]).rstrip("/"),
+            "branch": str(manifest.get("github_branch") or "main"),
+            "commit": commit,
+            "manifest": manifest,
+            "manifest_path": path,
+        }
+    return None
+
+
+def record_project_github_sync(
+    *,
+    user_id: int,
+    project_name: str,
+    package_name: str,
+    repository_url: str,
+    branch: str,
+    commit_sha: str,
+) -> None:
+    """Persist the shared Git base used by subsequent three-way pulls."""
+    package = normalize_github_package_name(package_name)
+    manifest, manifest_path = load_project_github_manifest(
+        user_id=user_id, project_name=project_name, package_name=package
+    )
+    manifest.update(
+        {
+            "github_url": repository_url.rstrip("/"),
+            "github_branch": branch,
+            "github_commit": commit_sha,
+        }
+    )
+    with open(manifest_path, "w", encoding="utf-8") as stream:
+        yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+    commit_path = os.path.join(
+        os.path.dirname(manifest_path), f".docassemble-{package}"
+    )
+    with open(commit_path, "w", encoding="utf-8") as stream:
+        stream.write(commit_sha + "\n")
+    create_saved_file(user_id, fix=True, section="playgroundpackages").finalize()
+
+
+def _snapshot_project_files(
+    files: Dict[str, bytes],
+) -> Tuple[str, Dict[Tuple[str, str], bytes]]:
+    """Translate a docassemble repository tree into Playground section files."""
+    roots: Dict[str, Dict[Tuple[str, str], bytes]] = {}
+    for path, content in files.items():
+        if re.fullmatch(
+            r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
+            path,
+        ):
+            raise ValueError(
+                "The repository contains nested files under a docassemble data directory; "
+                "move them directly into questions, templates, static, or sources before importing"
+            )
+        match = re.fullmatch(
+            r"docassemble/([^/]+)/data/(questions|templates|static|sources)/([^/]+)",
+            path,
+        )
+        if match:
+            package, section, filename = match.groups()
+            roots.setdefault(package, {})[(section, filename)] = content
+            continue
+        match = re.fullmatch(r"docassemble/([^/]+)/([^/]+\.py)", path)
+        if match and match.group(2) != "__init__.py":
+            package, filename = match.groups()
+            roots.setdefault(package, {})[("modules", filename)] = content
+    candidates = [
+        (name, data)
+        for name, data in roots.items()
+        if any(key[0] == "questions" for key in data)
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            "The repository must contain exactly one docassemble package with interview files"
+        )
+    return candidates[0]
+
+
+def _project_section_files(
+    user_id: int, project_name: str
+) -> Dict[Tuple[str, str], bytes]:
+    result: Dict[Tuple[str, str], bytes] = {}
+    for section, storage in SECTION_TO_STORAGE.items():
+        area = create_saved_file(user_id, fix=True, section=storage)
+        directory = _directory_for(area, project_name)
+        if not os.path.isdir(directory):
+            continue
+        for filename in os.listdir(directory):
+            path = os.path.join(directory, filename)
+            if not filename.startswith(".") and os.path.isfile(path):
+                with open(path, "rb") as stream:
+                    result[(section, filename)] = stream.read()
+    return result
+
+
+def _apply_project_files(
+    *,
+    user_id: int,
+    project_name: str,
+    previous: Dict[Tuple[str, str], bytes],
+    merged: Dict[Tuple[str, str], bytes],
+) -> None:
+    for section, storage in SECTION_TO_STORAGE.items():
+        area = create_saved_file(user_id, fix=True, section=storage)
+        directory = _directory_for(area, project_name)
+        os.makedirs(directory, exist_ok=True)
+        for key in [key for key in previous if key[0] == section and key not in merged]:
+            path = os.path.join(directory, key[1])
+            if os.path.isfile(path):
+                os.remove(path)
+        for key, content in merged.items():
+            if key[0] != section or previous.get(key) == content:
+                continue
+            with open(os.path.join(directory, key[1]), "wb") as stream:
+                stream.write(content)
+        area.finalize()
+
+
+def import_github_snapshot(
+    *, user_id: int, project_name: str, snapshot: Dict[str, Any]
+) -> Dict[str, Any]:
+    package, imported = _snapshot_project_files(snapshot["files"])
+    _apply_project_files(
+        user_id=user_id, project_name=project_name, previous={}, merged=imported
+    )
+    prepare_project_github_package(
+        user_id=user_id,
+        project_name=project_name,
+        package_name=package,
+        github_url=str(snapshot["url"]),
+    )
+    record_project_github_sync(
+        user_id=user_id,
+        project_name=project_name,
+        package_name=package,
+        repository_url=str(snapshot["url"]),
+        branch=str(snapshot["branch"]),
+        commit_sha=str(snapshot["sha"]),
+    )
+    interviews = sorted(
+        filename for (section, filename) in imported if section == "questions"
+    )
+    return {
+        "package": package,
+        "filename": interviews[0],
+        "files_imported": len(imported),
+    }
+
+
+def _merge_file_content(local: bytes, base: bytes, remote: bytes) -> Optional[bytes]:
+    if b"\x00" in local + base + remote:
+        return None
+    directory = tempfile.mkdtemp(prefix="weaver-merge-")
+    try:
+        paths = [os.path.join(directory, name) for name in ("local", "base", "remote")]
+        for path, content in zip(paths, (local, base, remote)):
+            with open(path, "wb") as stream:
+                stream.write(content)
+        try:
+            result = subprocess.run(
+                ["git", "merge-file", "-p", paths[0], paths[1], paths[2]],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return result.stdout if result.returncode == 0 else None
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def merge_github_snapshot(
+    *,
+    user_id: int,
+    project_name: str,
+    base_snapshot: Dict[str, Any],
+    remote_snapshot: Dict[str, Any],
+    sync: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Three-way merge a remote repository into a Playground project."""
+    base_package, base = _snapshot_project_files(base_snapshot["files"])
+    remote_package, remote = _snapshot_project_files(remote_snapshot["files"])
+    if base_package != remote_package or base_package != sync["package"]:
+        raise ValueError("The GitHub repository package no longer matches this project")
+    local = _project_section_files(user_id, project_name)
+    merged: Dict[Tuple[str, str], bytes] = {}
+    conflicts: List[str] = []
+    for key in sorted(set(base) | set(local) | set(remote)):
+        base_value = base.get(key)
+        local_value = local.get(key)
+        remote_value = remote.get(key)
+        if local_value == remote_value:
+            value = local_value
+        elif local_value == base_value:
+            value = remote_value
+        elif remote_value == base_value:
+            value = local_value
+        elif base_value is None or local_value is None or remote_value is None:
+            value = None
+            conflicts.append(f"{key[0]}/{key[1]}")
+        else:
+            value = _merge_file_content(local_value, base_value, remote_value)
+            if value is None:
+                conflicts.append(f"{key[0]}/{key[1]}")
+        if value is not None:
+            merged[key] = value
+    if conflicts:
+        return {"merged": False, "conflicts": conflicts}
+    _apply_project_files(
+        user_id=user_id, project_name=project_name, previous=local, merged=merged
+    )
+    prepare_project_github_package(
+        user_id=user_id,
+        project_name=project_name,
+        package_name=sync["package"],
+        github_url=sync["repository_url"],
+    )
+    record_project_github_sync(
+        user_id=user_id,
+        project_name=project_name,
+        package_name=sync["package"],
+        repository_url=sync["repository_url"],
+        branch=str(remote_snapshot["branch"]),
+        commit_sha=str(remote_snapshot["sha"]),
+    )
+    return {
+        "merged": True,
+        "conflicts": [],
+        "files": len(merged),
+        "commit": remote_snapshot["sha"],
+    }
 
 
 def get_list_of_projects(user_id: int) -> List[str]:

@@ -24,6 +24,7 @@
   // -------------------------------------------------------------------------
   var state = {
     projects: BOOT.projects || [],
+    projectSyncs: BOOT.projectSyncs || {},
     project: null,
     files: [],
     filename: null,
@@ -1507,6 +1508,60 @@
       setGithubPublishStatus('Connected. Choose where this repository should live.', 'success');
     }
     if (submit) submit.disabled = false;
+  }
+
+  function refreshGithubSyncAction() {
+    var item = document.getElementById('github-pull-menu-item');
+    if (!item) return;
+    item.classList.add('d-none');
+    if (!state.project || state.canvasMode === 'project-selector') return;
+    var checkedProject = state.project;
+    apiGet('/api/github/status?sync_only=1&project=' + encodeURIComponent(checkedProject))
+      .then(function (res) {
+        if (state.project !== checkedProject || state.canvasMode === 'project-selector') {
+          item.classList.add('d-none');
+          return;
+        }
+        if (res.success && res.data && res.data.sync) {
+          state.projectSyncs[checkedProject] = res.data.sync;
+          item.classList.remove('d-none');
+          var button = item.querySelector('[data-action="pull-github"]');
+          if (button) button.title = 'Merge ' + res.data.sync.branch + ' from ' + res.data.sync.repository_url;
+        } else {
+          delete state.projectSyncs[checkedProject];
+          item.classList.add('d-none');
+        }
+      })
+      .catch(function () { item.classList.add('d-none'); });
+  }
+
+  function pullGithubProject(projectName) {
+    if (!projectName || !state.projectSyncs[projectName]) return;
+    if (!window.confirm('Merge GitHub changes into "' + projectName + '"? Local changes will be preserved when they do not conflict.')) return;
+    apiPost('/api/github/pull', { project: projectName })
+      .then(function (res) {
+        if (!res.success) {
+          window.alert((res.error && res.error.message) || 'Unable to pull changes from GitHub.');
+          return;
+        }
+        _showSuccessBanner('Merged GitHub changes into "' + esc(projectName) + '".');
+        if (state.project === projectName && state.canvasMode !== 'project-selector') {
+          loadFiles();
+        } else {
+          reloadProjectList().then(renderCanvas);
+        }
+      })
+      .catch(function (error) {
+        window.alert(error && error.message ? error.message : 'Unable to pull changes from GitHub.');
+      });
+  }
+
+  function pullGithubChanges() {
+    if (!state.project) return;
+    var projectName = state.project;
+    promptAndSaveUnsavedChanges('pull changes from GitHub').then(function (canContinue) {
+      if (canContinue) pullGithubProject(projectName);
+    });
   }
 
   function openGithubPublishModal() {
@@ -4483,6 +4538,22 @@
     });
   }
 
+  function applyProjectListData(data) {
+    if (!data) return;
+    state.projects = data.projects || [];
+    state.projectSyncs = data.github_syncs || {};
+  }
+
+  function reloadProjectList() {
+    return apiGet('/api/projects').then(function (res) {
+      if (res.success && res.data) {
+        applyProjectListData(res.data);
+        populateProjects();
+      }
+      return res;
+    });
+  }
+
   function populateFiles() {
     fileSelect.innerHTML = '';
     if (state.files.length === 0) {
@@ -4550,6 +4621,7 @@
   }
 
   function loadFiles() {
+    refreshGithubSyncAction();
     if (!state.project) {
       state.files = [];
       state.filename = null;
@@ -4772,6 +4844,10 @@
     html += '<div class="dropdown editor-project-card-actions">';
     html += '<button type="button" class="editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu dropdown-menu-end editor-project-card-action-menu">';
+    if (state.projectSyncs[projectName]) {
+      html += '<li><button type="button" class="dropdown-item" data-project-action="pull-github" data-project-name="' + projectId + '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
+      html += '<li><hr class="dropdown-divider"></li>';
+    }
     html += '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' + projectId + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
     html += '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' + projectId + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
     html += '</ul></div>';
@@ -4779,11 +4855,7 @@
   }
 
   function reloadProjectsAfterMutation(projectName, replacementName) {
-    return apiGet('/api/projects').then(function (res) {
-      if (res.success && res.data) {
-        state.projects = res.data.projects || [];
-        populateProjects();
-      }
+    return reloadProjectList().then(function () {
       if (replacementName) {
         state.project = replacementName;
       } else if (projectName && state.project === projectName) {
@@ -5716,6 +5788,8 @@
   }
 
   function renderProjectSelector() {
+    var globalPullItem = document.getElementById('github-pull-menu-item');
+    if (globalPullItem) globalPullItem.classList.add('d-none');
     var query = state.projectSearchQuery.toLowerCase().trim();
     var recent = getRecentProjectsInWorkspace();
     var filteredProjects = state.projects.filter(function (name) {
@@ -5735,6 +5809,14 @@
     html += '<div class="editor-card"><div class="editor-card-body">';
     html += '<label class="editor-tiny" for="project-search-input">Search projects</label>';
     html += '<input class="form-control mt-1" id="project-search-input" placeholder="Type a project name" value="' + esc(state.projectSearchQuery) + '">';
+    html += '</div></div>';
+    html += '<div class="editor-card"><div class="editor-card-header">Create from GitHub</div><div class="editor-card-body">';
+    html += '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
+    html += '<div class="row g-2 align-items-end">';
+    html += '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
+    html += '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" placeholder="Derived from repository"></div>';
+    html += '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
+    html += '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
 
     if (recent.length > 0) {
@@ -7368,6 +7450,10 @@
 
     // File upload zone
     html += '<div class="editor-card"><div class="editor-card-header">Template files (optional)</div><div class="editor-card-body">';
+    html += '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>';
+    html += '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">';
+    html += '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>';
+    html += '<div class="text-muted small text-center mb-3">or upload a document</div>';
     html += '<div class="editor-dropzone" id="upload-dropzone">';
     html += '<div class="editor-dropzone-icon">&#128196;</div>';
     html += '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>';
@@ -7850,6 +7936,10 @@
       var projectAction = projectActionBtn.getAttribute('data-project-action');
       var projectName = projectActionBtn.getAttribute('data-project-name');
       if (!projectName) return;
+      if (projectAction === 'pull-github') {
+        pullGithubProject(projectName);
+        return;
+      }
       if (projectAction === 'rename') {
         var renamed = window.prompt('Rename project:', projectName);
         if (renamed === null) return;
@@ -7974,6 +8064,44 @@
     if (target.id === 'open-new-project-card') {
       state.canvasMode = 'new-project';
       renderCanvas();
+      return;
+    }
+    if (target.id === 'project-github-import-submit') {
+      var importUrlInput = document.getElementById('project-github-import-url');
+      var importNameInput = document.getElementById('project-github-import-name');
+      var importStatus = document.getElementById('project-github-import-status');
+      var importUrl = importUrlInput ? importUrlInput.value.trim() : '';
+      var importName = importNameInput ? importNameInput.value.trim() : '';
+      if (!importUrl) {
+        if (importStatus) {
+          importStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
+          importStatus.textContent = 'Enter a GitHub repository URL.';
+        }
+        return;
+      }
+      target.disabled = true;
+      if (importStatus) {
+        importStatus.className = 'alert alert-info py-2 mt-3 mb-0';
+        importStatus.textContent = 'Creating the project and pulling files from GitHub…';
+      }
+      apiPost('/api/new-project', { project_name: importName, github_url: importUrl })
+        .then(function (res) {
+          if (!res.success || !res.data) {
+            throw new Error((res.error && res.error.message) || 'Unable to create the project from GitHub.');
+          }
+          _showSuccessBanner('Created "' + esc(res.data.project) + '" from GitHub.');
+          state.project = res.data.project;
+          state.filename = res.data.filename;
+          state.canvasMode = 'question';
+          return reloadProjectList().then(function () { return loadFiles(); });
+        })
+        .catch(function (error) {
+          target.disabled = false;
+          if (importStatus) {
+            importStatus.className = 'alert alert-danger py-2 mt-3 mb-0';
+            importStatus.textContent = error && error.message ? error.message : 'Unable to create the project from GitHub.';
+          }
+        });
       return;
     }
 
@@ -8393,6 +8521,11 @@
 
     if (uiAction === 'open-github-publish') {
       openGithubPublishModal();
+      return;
+    }
+
+    if (uiAction === 'pull-github') {
+      pullGithubChanges();
       return;
     }
 
@@ -9205,12 +9338,18 @@
       var helpPageUrlInput = document.getElementById('new-project-help-page-url');
       var helpPageTitleInput = document.getElementById('new-project-help-page-title');
       var useLlmAssistInput = document.getElementById('new-project-use-llm-assist');
+      var githubUrlInput = document.getElementById('new-project-github-url');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
       var helpPageUrl = helpPageUrlInput ? helpPageUrlInput.value : '';
       var helpPageTitle = helpPageTitleInput ? helpPageTitleInput.value : '';
       var useLlmAssist = useLlmAssistInput ? useLlmAssistInput.checked : false;
-      _showUploadProgressModal('This may take a minute or two. Please wait.');
+      var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
+      if (githubUrl && _uploadedFiles.length > 0) {
+        window.alert('Choose either a GitHub repository or uploaded documents, not both.');
+        return;
+      }
+      _showUploadProgressModal(githubUrl ? 'Importing the GitHub repository…' : 'This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
         var formData = new FormData();
@@ -9241,7 +9380,7 @@
                 _uploadedFiles = [];
                 _showSuccessBanner('Project "' + esc(state.project) + '" created successfully.');
                 return apiGet('/api/projects').then(function (r) {
-                  if (r.success) state.projects = r.data.projects;
+                  if (r.success) applyProjectListData(r.data);
                   populateProjects();
                   loadFiles();
                 });
@@ -9255,7 +9394,7 @@
               _uploadedFiles = [];
               _showSuccessBanner('Project "' + esc(payload.data.project) + '" created successfully.');
               return apiGet('/api/projects').then(function (r) {
-                if (r.success) state.projects = r.data.projects;
+                if (r.success) applyProjectListData(r.data);
                 populateProjects();
                 loadFiles();
               });
@@ -9274,6 +9413,7 @@
           help_page_url: helpPageUrl,
           help_page_title: helpPageTitle,
           use_llm_assist: useLlmAssist,
+          github_url: githubUrl,
         })
           .then(function (res) {
             if (res.success) {
@@ -9282,7 +9422,7 @@
               state.filename = res.data.filename;
               state.canvasMode = 'question';
               _showSuccessBanner('Project "' + esc(res.data.project) + '" created successfully.');
-              apiGet('/api/projects').then(function (r) { if (r.success) state.projects = r.data.projects; populateProjects(); loadFiles(); });
+              apiGet('/api/projects').then(function (r) { if (r.success) applyProjectListData(r.data); populateProjects(); loadFiles(); });
             } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
           })
           .catch(function (err) {

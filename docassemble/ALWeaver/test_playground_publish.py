@@ -1,5 +1,6 @@
 # do not pre-load
 
+import subprocess
 import unittest
 import tempfile
 from pathlib import Path
@@ -15,10 +16,136 @@ from .playground_publish import (
     normalize_github_package_name,
     normalize_project_name,
     prepare_project_github_package,
+    merge_github_snapshot,
 )
 
 
 class test_playground_publish(unittest.TestCase):
+    def test_merge_file_subprocess_failures_become_merge_conflicts(self):
+        failures = (
+            subprocess.TimeoutExpired(["git", "merge-file"], 30),
+            OSError("git could not start"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                with patch.object(
+                    playground_publish.subprocess, "run", side_effect=failure
+                ) as merge_file:
+                    result = playground_publish._merge_file_content(
+                        b"local\n", b"base\n", b"remote\n"
+                    )
+
+                self.assertIsNone(result)
+                self.assertEqual(merge_file.call_args.kwargs["timeout"], 30)
+
+    def test_github_pull_three_way_merges_non_overlapping_edits(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class FakeArea:
+                def __init__(self, section):
+                    self.directory = str(root / section)
+                    Path(self.directory).mkdir(parents=True, exist_ok=True)
+
+                def finalize(self):
+                    pass
+
+            areas = {
+                section: FakeArea(section)
+                for section in playground_publish.PLAYGROUND_SECTIONS
+            }
+            project_dir = Path(areas["playground"].directory) / "Housing"
+            project_dir.mkdir()
+            base_text = "title: Original\nline2: same\nline3: same\nline4: same\nending: Original\n"
+            local_text = base_text.replace("title: Original", "title: Local")
+            remote_text = base_text.replace("ending: Original", "ending: Remote")
+            (project_dir / "main.yml").write_text(local_text, encoding="utf-8")
+            repo_path = "docassemble/HousingForms/data/questions/main.yml"
+            sync = {
+                "package": "HousingForms",
+                "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                "branch": "main",
+            }
+            with (
+                patch.object(
+                    playground_publish,
+                    "create_saved_file",
+                    side_effect=lambda _uid, fix, section: areas[section],
+                ),
+                patch.object(playground_publish, "prepare_project_github_package"),
+                patch.object(
+                    playground_publish, "record_project_github_sync"
+                ) as record,
+            ):
+                result = merge_github_snapshot(
+                    user_id=7,
+                    project_name="Housing",
+                    base_snapshot={"files": {repo_path: base_text.encode()}},
+                    remote_snapshot={
+                        "files": {repo_path: remote_text.encode()},
+                        "branch": "main",
+                        "sha": "remote-sha",
+                    },
+                    sync=sync,
+                )
+
+            merged = (project_dir / "main.yml").read_text(encoding="utf-8")
+            self.assertTrue(result["merged"])
+            self.assertIn("title: Local", merged)
+            self.assertIn("ending: Remote", merged)
+            record.assert_called_once()
+
+    def test_github_pull_leaves_project_untouched_on_conflict(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class FakeArea:
+                def __init__(self, section):
+                    self.directory = str(root / section)
+                    Path(self.directory).mkdir(parents=True, exist_ok=True)
+
+                def finalize(self):
+                    pass
+
+            areas = {
+                section: FakeArea(section)
+                for section in playground_publish.PLAYGROUND_SECTIONS
+            }
+            project_dir = Path(areas["playground"].directory) / "Housing"
+            project_dir.mkdir()
+            original = b"question: Local title\n"
+            (project_dir / "main.yml").write_bytes(original)
+            repo_path = "docassemble/HousingForms/data/questions/main.yml"
+            with (
+                patch.object(
+                    playground_publish,
+                    "create_saved_file",
+                    side_effect=lambda _uid, fix, section: areas[section],
+                ),
+                patch.object(
+                    playground_publish, "prepare_project_github_package"
+                ) as prepare,
+            ):
+                result = merge_github_snapshot(
+                    user_id=7,
+                    project_name="Housing",
+                    base_snapshot={"files": {repo_path: b"question: Base title\n"}},
+                    remote_snapshot={
+                        "files": {repo_path: b"question: Remote title\n"},
+                        "branch": "main",
+                        "sha": "remote-sha",
+                    },
+                    sync={
+                        "package": "HousingForms",
+                        "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                        "branch": "main",
+                    },
+                )
+
+            self.assertFalse(result["merged"])
+            self.assertEqual((project_dir / "main.yml").read_bytes(), original)
+            prepare.assert_not_called()
+
     def test_normalize_project_name(self):
         self.assertEqual(normalize_project_name("My New Project"), "MyNewProject")
         self.assertEqual(
@@ -71,6 +198,52 @@ class test_playground_publish(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             normalize_github_package_name("housing-forms")
+
+    def test_record_github_sync_normalizes_fallback_commit_filename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "Housing"
+            project_dir.mkdir()
+            manifest_path = project_dir / "docassemble.HousingForms"
+            manifest_path.write_text("dependencies: []\n", encoding="utf-8")
+
+            class FakeArea:
+                directory = temp_dir
+
+                def finalize(self):
+                    pass
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                return_value=FakeArea(),
+            ):
+                playground_publish.record_project_github_sync(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="docassemble-HousingForms",
+                    repository_url=(
+                        "https://github.com/LegalAid/docassemble-HousingForms"
+                    ),
+                    branch="main",
+                    commit_sha="abc123",
+                )
+
+            self.assertEqual(
+                (project_dir / ".docassemble-HousingForms").read_text(encoding="utf-8"),
+                "abc123\n",
+            )
+            self.assertFalse(
+                (project_dir / ".docassemble-docassemble-HousingForms").exists()
+            )
+
+    def test_snapshot_project_files_rejects_nested_data_files(self):
+        with self.assertRaisesRegex(ValueError, "nested files"):
+            playground_publish._snapshot_project_files(
+                {
+                    "docassemble/HousingForms/data/questions/main.yml": b"question: Hi\n",
+                    "docassemble/HousingForms/data/static/images/logo.svg": b"<svg />",
+                }
+            )
 
     def test_prepare_project_github_package_lists_every_visible_project_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:

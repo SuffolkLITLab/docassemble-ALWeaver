@@ -2,11 +2,13 @@
 
 from contextlib import contextmanager, nullcontext
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tarfile
 import types
 import unittest
 from unittest.mock import patch
@@ -242,6 +244,198 @@ class TestWebappAccessors(unittest.TestCase):
 
 
 class TestNativeGithubCompatibility(unittest.TestCase):
+    def test_repository_snapshot_uses_one_archive_download(self):
+        archive_buffer = io.BytesIO()
+        with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+            for path, content in (
+                (
+                    "repo-root/docassemble/PublicForms/data/questions/main.yml",
+                    b"question: Hello\n",
+                ),
+                ("repo-root/README.md", b"ignored"),
+            ):
+                info = tarfile.TarInfo(path)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append((url, method))
+                if url.endswith("/tarball/commit-sha"):
+                    return {"status": "200"}, archive_buffer.getvalue()
+                if "/commits/main" in url:
+                    return {"status": "200"}, b'{"sha": "commit-sha"}'
+                return {
+                    "status": "200"
+                }, b'{"default_branch": "main", "private": false}'
+
+        http = FakeHttp()
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=http
+        ):
+            result = docassemble_compat.get_github_repository_snapshot(
+                repository_url="https://github.com/OtherOrg/docassemble-PublicForms",
+                user_id=7,
+            )
+
+        self.assertEqual(result["sha"], "commit-sha")
+        self.assertEqual(
+            result["files"],
+            {"docassemble/PublicForms/data/questions/main.yml": b"question: Hello\n"},
+        )
+        self.assertEqual(len(http.calls), 3)
+        self.assertFalse(any("/git/blobs/" in url for url, _method in http.calls))
+
+    def test_public_snapshot_needs_no_github_api_or_oauth_connection(self):
+        archive_buffer = io.BytesIO()
+        content = b"question: Public interview\n"
+        with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+            info = tarfile.TarInfo(
+                "repo-root/docassemble/PublicForms/data/questions/main.yml"
+            )
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append(url)
+                return {"status": "200"}, archive_buffer.getvalue()
+
+        http = FakeHttp()
+        with (
+            patch.object(
+                docassemble_compat,
+                "_github_authorized_http",
+                side_effect=docassemble_compat.GithubCredentialError("not connected"),
+            ),
+            patch.object(
+                docassemble_compat.importlib,
+                "import_module",
+                return_value=types.SimpleNamespace(Http=lambda: http),
+            ),
+            patch.object(
+                docassemble_compat.subprocess,
+                "run",
+                return_value=types.SimpleNamespace(
+                    returncode=0,
+                    stdout="a" * 40 + "\tHEAD\n",
+                    stderr="",
+                ),
+            ) as ls_remote,
+        ):
+            result = docassemble_compat.get_github_repository_snapshot(
+                repository_url="https://github.com/OtherOrg/docassemble-PublicForms",
+                user_id=7,
+            )
+
+        self.assertEqual(result["branch"], "HEAD")
+        self.assertEqual(result["sha"], "a" * 40)
+        self.assertEqual(len(http.calls), 1)
+        self.assertTrue(http.calls[0].startswith("https://codeload.github.com/"))
+        self.assertNotIn("api.github.com", http.calls[0])
+        ls_remote.assert_called_once()
+
+    def test_public_snapshot_reports_git_resolution_failures(self):
+        failures = (
+            (
+                subprocess.TimeoutExpired(["git", "ls-remote"], 30),
+                "took too long",
+            ),
+            (OSError("git could not start"), "could not run Git"),
+        )
+        for failure, message in failures:
+            with self.subTest(failure=type(failure).__name__):
+                with (
+                    patch.object(
+                        docassemble_compat,
+                        "_github_authorized_http",
+                        side_effect=docassemble_compat.GithubCredentialError(
+                            "not connected"
+                        ),
+                    ),
+                    patch.object(
+                        docassemble_compat.importlib,
+                        "import_module",
+                        return_value=types.SimpleNamespace(Http=lambda: object()),
+                    ),
+                    patch.object(
+                        docassemble_compat.subprocess,
+                        "run",
+                        side_effect=failure,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        docassemble_compat.DocassembleCompatibilityError, message
+                    ):
+                        docassemble_compat.get_github_repository_snapshot(
+                            repository_url=(
+                                "https://github.com/OtherOrg/docassemble-PublicForms"
+                            ),
+                            user_id=7,
+                        )
+
+    def test_repository_snapshot_rejects_nested_data_files(self):
+        archive_buffer = io.BytesIO()
+        with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+            for path, content in (
+                (
+                    "repo-root/docassemble/PublicForms/data/questions/main.yml",
+                    b"question: Hello\n",
+                ),
+                (
+                    "repo-root/docassemble/PublicForms/data/static/images/logo.svg",
+                    b"<svg></svg>",
+                ),
+            ):
+                info = tarfile.TarInfo(path)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
+
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("/tarball/commit-sha"):
+                    return {"status": "200"}, archive_buffer.getvalue()
+                if "/commits/main" in url:
+                    return {"status": "200"}, b'{"sha": "commit-sha"}'
+                return {
+                    "status": "200"
+                }, b'{"default_branch": "main", "private": false}'
+
+        with patch.object(
+            docassemble_compat,
+            "_github_authorized_http",
+            return_value=FakeHttp(),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.DocassembleCompatibilityError, "nested files"
+            ):
+                docassemble_compat.get_github_repository_snapshot(
+                    repository_url=(
+                        "https://github.com/OtherOrg/docassemble-PublicForms"
+                    ),
+                    user_id=7,
+                )
+
+    def test_repository_url_is_not_limited_to_connected_owner(self):
+        parsed = docassemble_compat.normalize_github_repository_url(
+            "https://github.com/CompletelyDifferentOrg/docassemble-Public.git"
+        )
+        self.assertEqual(parsed["owner"], "CompletelyDifferentOrg")
+        self.assertEqual(
+            parsed["url"],
+            "https://github.com/CompletelyDifferentOrg/docassemble-Public",
+        )
+        with self.assertRaises(ValueError):
+            docassemble_compat.normalize_github_repository_url(
+                "https://example.com/not-github/repository"
+            )
+
     def _app_for_layout(self, layout):
         app = Flask(f"github-{layout}")
         app.config["USE_GITHUB"] = True
@@ -342,6 +536,59 @@ class TestNativeGithubCompatibility(unittest.TestCase):
 
         self.assertIn("reconnect it in Docassemble", str(raised.exception))
 
+    def test_background_github_credentials_are_loaded_for_explicit_user(self):
+        requested_keys = []
+
+        class FakeRedis:
+            def get(self, key):
+                requested_keys.append(key)
+                return b'{"access_token": "worker-token"}'
+
+        authorized_http = object()
+
+        class FakeCredentials:
+            invalid = False
+
+            def authorize(self, http):
+                self.http = http
+                return authorized_http
+
+        parsed_values = []
+
+        class FakeCredentialFactory:
+            @staticmethod
+            def new_from_json(value):
+                parsed_values.append(value)
+                return FakeCredentials()
+
+        def fake_import(module_name):
+            if module_name == "oauth2client.client":
+                return types.SimpleNamespace(Credentials=FakeCredentialFactory)
+            if module_name == "httplib2":
+                return types.SimpleNamespace(Http=lambda: object())
+            raise AssertionError(f"Unexpected import: {module_name}")
+
+        with (
+            patch.object(
+                docassemble_compat, "get_redis_client", return_value=FakeRedis()
+            ),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=fake_import
+            ),
+            patch.object(
+                docassemble_compat,
+                "_first_webapp_attr",
+                side_effect=AssertionError(
+                    "Background credential lookup must not use current_user storage"
+                ),
+            ),
+        ):
+            result = docassemble_compat._github_authorized_http(user_id=7)
+
+        self.assertIs(result, authorized_http)
+        self.assertEqual(requested_keys, ["da:github:userid:7"])
+        self.assertEqual(parsed_values, ['{"access_token": "worker-token"}'])
+
     def test_missing_organization_repository_is_created_under_that_org(self):
         class FakeHttp:
             def __init__(self):
@@ -384,6 +631,7 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                 {
                     "name": "docassemble-HousingForms",
                     "description": "Housing forms",
+                    "auto_init": True,
                 },
             ),
         )
@@ -443,9 +691,11 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             ),
             patch.object(
                 docassemble_compat, "_github_authorized_http", return_value=http
-            ),
+            ) as authorized,
         ):
-            return docassemble_compat.publish_github_package(**arguments)
+            result = docassemble_compat.publish_github_package(**arguments)
+        authorized.assert_called_once_with(user_id=arguments["user_id"])
+        return result
 
     @staticmethod
     def _body_for(http, suffix, method="POST"):
@@ -485,12 +735,12 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
 
-    def test_publish_github_package_treats_an_empty_repository_as_a_fresh_branch(self):
+    def test_publish_github_package_initializes_an_empty_repository(self):
         """A repository Weaver just created has no commits.
 
         GitHub answers git-data reads on such a repository with 409 "Git
-        Repository is empty", not 404, so the first publish must still fall
-        through to a parentless commit instead of failing.
+        Repository is empty", including blob writes.  The Contents API can
+        create the required initial commit before the Git Database upload.
         """
         builder, _staging = self._fake_package_builder()
 
@@ -506,14 +756,19 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                         {"status": "409"},
                         b'{"message": "Git Repository is empty."}',
                     )
+                if method == "PUT" and url.endswith("/contents/.gitkeep"):
+                    return (
+                        {"status": "201"},
+                        b'{"commit": {"sha": "initial-commit-sha"}}',
+                    )
                 if url.endswith("/git/blobs"):
                     return {"status": "201"}, b'{"sha": "blob-sha"}'
                 if url.endswith("/git/trees"):
                     return {"status": "201"}, b'{"sha": "tree-sha"}'
                 if url.endswith("/git/commits"):
                     return {"status": "201"}, b'{"sha": "first-commit-sha"}'
-                if url.endswith("/git/refs"):
-                    return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+                if method == "PATCH" and url.endswith("/git/refs/heads/main"):
+                    return {"status": "200"}, b'{"ref": "refs/heads/main"}'
                 return {"status": "400"}, b'{"message": "Unexpected call"}'
 
         http = FakeHttp()
@@ -522,11 +777,18 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(
             result, {"sha": "first-commit-sha", "branch": "main", "files": 1}
         )
-        commit_body = self._body_for(http, "/git/commits")
-        self.assertNotIn("parents", commit_body)
         self.assertEqual(
-            self._body_for(http, "/git/refs"),
-            {"ref": "refs/heads/main", "sha": "first-commit-sha"},
+            self._body_for(http, "/contents/.gitkeep", method="PUT"),
+            {
+                "message": "Initialize repository for ALWeaver publishing",
+                "content": "Cg==",
+            },
+        )
+        commit_body = self._body_for(http, "/git/commits")
+        self.assertEqual(commit_body["parents"], ["initial-commit-sha"])
+        self.assertEqual(
+            self._body_for(http, "/git/refs/heads/main", method="PATCH"),
+            {"sha": "first-commit-sha", "force": False},
         )
 
     def test_publish_github_package_creates_new_branch_from_default_branch(self):
@@ -633,8 +895,12 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             self._body_for(http, "/git/commits")["parents"], ["existing-commit-sha"]
         )
         self.assertEqual(
-            self._body_for(http, "/git/ref/heads/main", method="PATCH"),
+            self._body_for(http, "/git/refs/heads/main", method="PATCH"),
             {"sha": "next-commit-sha", "force": False},
+        )
+        self.assertEqual(
+            next(url for url, method, _body in http.calls if method == "PATCH"),
+            "https://api.github.com/repos/LegalAid/docassemble-HousingForms/git/refs/heads/main",
         )
 
     def test_publish_github_package_attributes_the_commit_to_the_weaver_user(self):

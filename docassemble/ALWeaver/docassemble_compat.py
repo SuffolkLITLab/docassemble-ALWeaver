@@ -7,14 +7,17 @@ from dataclasses import dataclass, field
 import base64
 import importlib
 import importlib.metadata
+import io
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import tarfile
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from flask import Response, jsonify, url_for
 
@@ -445,21 +448,43 @@ def get_native_github_integration(user_id: int) -> Dict[str, Any]:
     }
 
 
-def _github_authorized_http() -> Any:
-    """Return Docassemble's authorized GitHub HTTP client."""
-    storage_class = _first_webapp_attr(
-        (
-            (
-                "docassemble.webapp.utils.redis_cred_storage",
-                "RedisCredStorage",
-            ),
-            ("docassemble.webapp.server", "RedisCredStorage"),
-        ),
-        "its GitHub OAuth credential storage",
-    )
+def _github_authorized_http(*, user_id: Optional[int] = None) -> Any:
+    """Return Docassemble's authorized GitHub HTTP client.
+
+    Request handlers can use Docassemble's request-scoped credential storage.
+    Celery workers cannot: that storage derives its Redis key from
+    ``flask_login.current_user``, which is anonymous outside a request.  When
+    the caller supplies ``user_id``, read the same per-user Redis record
+    explicitly so background publishing authorizes as the user who queued it.
+    """
     try:
-        credentials = storage_class(oauth_app="github").get()
-    except ValueError as exc:
+        if user_id is None:
+            storage_class = _first_webapp_attr(
+                (
+                    (
+                        "docassemble.webapp.utils.redis_cred_storage",
+                        "RedisCredStorage",
+                    ),
+                    ("docassemble.webapp.server", "RedisCredStorage"),
+                ),
+                "its GitHub OAuth credential storage",
+            )
+            credentials = storage_class(oauth_app="github").get()
+        else:
+            raw_credentials = get_redis_client().get(f"da:github:userid:{int(user_id)}")
+            if raw_credentials is None:
+                credentials = None
+            else:
+                serialized_credentials = (
+                    raw_credentials.decode("utf-8")
+                    if isinstance(raw_credentials, bytes)
+                    else str(raw_credentials)
+                )
+                oauth_client = importlib.import_module("oauth2client.client")
+                credentials = oauth_client.Credentials.new_from_json(
+                    serialized_credentials
+                )
+    except (TypeError, ValueError, UnicodeDecodeError) as exc:
         # Some Docassemble versions let JSONDecodeError escape when the
         # Redis credential record is empty or stale.  That is an expired
         # connection, not a malformed editor request.
@@ -499,9 +524,189 @@ def _github_error_message(payload: Any, fallback: str) -> str:
     return fallback
 
 
-def get_github_publish_owners() -> List[Dict[str, str]]:
+def normalize_github_repository_url(raw_url: str) -> Dict[str, str]:
+    """Validate a GitHub repository URL and return its canonical components."""
+    value = str(raw_url or "").strip()
+    if value.endswith(".git"):
+        value = value[:-4]
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.hostname not in {
+        "github.com",
+        "www.github.com",
+    }:
+        raise ValueError("Enter an HTTPS GitHub repository URL")
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) != 2 or not all(
+        re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts
+    ):
+        raise ValueError(
+            "Enter a GitHub repository URL like https://github.com/owner/repository"
+        )
+    owner, repository = parts
+    return {
+        "owner": owner,
+        "repository": repository,
+        "url": f"https://github.com/{owner}/{repository}",
+    }
+
+
+def get_github_repository_snapshot(
+    *,
+    repository_url: str,
+    user_id: Optional[int] = None,
+    ref: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Read one GitHub repository tree, using OAuth when available.
+
+    An anonymous client is deliberately supported so importing a public URL is
+    never limited to repositories owned by the connected GitHub account.
+    """
+    repository = normalize_github_repository_url(repository_url)
+    anonymous = False
+    try:
+        http = _github_authorized_http(user_id=user_id)
+    except GithubCredentialError:
+        httplib2 = importlib.import_module("httplib2")
+        http = httplib2.Http()
+        anonymous = True
+
+    base_url = (
+        "https://api.github.com/repos/"
+        f"{quote(repository['owner'], safe='')}/{quote(repository['repository'], safe='')}"
+    )
+    if anonymous:
+        selected_ref = str(ref or "HEAD").strip()
+        if not re.fullmatch(
+            r"[A-Za-z0-9._/-]+", selected_ref
+        ) or selected_ref.startswith("-"):
+            raise ValueError("Enter a valid Git branch or commit")
+        if re.fullmatch(r"[0-9a-fA-F]{40}", selected_ref):
+            commit_sha = selected_ref
+        else:
+            try:
+                result = subprocess.run(
+                    ["git", "ls-remote", repository["url"], selected_ref],
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise DocassembleCompatibilityError(
+                    "GitHub took too long to resolve that branch; try again or enter a commit SHA"
+                ) from exc
+            except OSError as exc:
+                raise DocassembleCompatibilityError(
+                    "Docassemble could not run Git to resolve that branch; try again or enter a commit SHA"
+                ) from exc
+            lines = result.stdout.splitlines()
+            commit_sha = lines[0].split()[0] if lines else ""
+            if result.returncode != 0 or not re.fullmatch(
+                r"[0-9a-fA-F]{40}", commit_sha
+            ):
+                raise DocassembleCompatibilityError(
+                    "GitHub repository was not found, is private, or does not contain that branch"
+                )
+        archive_url = (
+            f"https://codeload.github.com/{quote(repository['owner'], safe='')}/"
+            f"{quote(repository['repository'], safe='')}/tar.gz/{commit_sha}"
+        )
+        repo_info: Dict[str, Any] = {"private": False}
+    else:
+        response, repo_info = _github_json_request(http, base_url)
+        status = int(response.get("status", 0))
+        if status != 200 or not isinstance(repo_info, dict):
+            if status == 404:
+                message = "GitHub repository was not found or is private"
+            else:
+                message = "GitHub could not read the repository"
+            raise DocassembleCompatibilityError(
+                _github_error_message(repo_info, message)
+            )
+
+        selected_ref = str(ref or repo_info.get("default_branch") or "main").strip()
+        response, commit = _github_json_request(
+            http, f"{base_url}/commits/{quote(selected_ref, safe='')}"
+        )
+        if int(response.get("status", 0)) != 200 or not isinstance(commit, dict):
+            raise DocassembleCompatibilityError(
+                _github_error_message(commit, f"GitHub could not read {selected_ref}")
+            )
+        commit_sha = str(commit.get("sha") or "").strip()
+        archive_url = f"{base_url}/tarball/{quote(commit_sha, safe='')}"
+    if not commit_sha:
+        raise DocassembleCompatibilityError("GitHub did not return a repository commit")
+
+    # One archive request avoids GitHub's low anonymous API limit. A valid
+    # public package can contain hundreds of templates; reading each through
+    # /git/blobs would otherwise fail halfway through for users who have not
+    # connected a GitHub account.
+    archive_headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    response, archive_content = http.request(
+        archive_url, "GET", headers=archive_headers
+    )
+    archive_status = int(response.get("status", 0))
+    if archive_status in {301, 302, 303, 307, 308} and response.get("location"):
+        response, archive_content = http.request(
+            str(response["location"]), "GET", headers=archive_headers
+        )
+        archive_status = int(response.get("status", 0))
+    if archive_status != 200:
+        raise DocassembleCompatibilityError(
+            "GitHub could not download the repository archive"
+        )
+
+    files: Dict[str, bytes] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_content), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                if not member.isfile() or "/" not in member.name:
+                    continue
+                path = member.name.split("/", 1)[1]
+                if re.fullmatch(
+                    r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
+                    path,
+                ):
+                    raise DocassembleCompatibilityError(
+                        "The repository contains nested files under a docassemble data directory; "
+                        "move them directly into questions, templates, static, or sources before importing"
+                    )
+                if not (
+                    re.fullmatch(
+                        r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
+                        path,
+                    )
+                    or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
+                ):
+                    continue
+                if member.size > 25 * 1024 * 1024:
+                    raise DocassembleCompatibilityError(
+                        f"The repository file {path} is too large to import"
+                    )
+                stream = archive.extractfile(member)
+                if stream is not None:
+                    files[path] = stream.read()
+    except (tarfile.TarError, OSError) as exc:
+        raise DocassembleCompatibilityError(
+            "GitHub returned an invalid repository archive"
+        ) from exc
+
+    return {
+        **repository,
+        "branch": selected_ref,
+        "sha": commit_sha,
+        "files": files,
+        "private": bool(repo_info.get("private")),
+    }
+
+
+def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str, str]]:
     """List the personal account and organizations visible to GitHub OAuth."""
-    http = _github_authorized_http()
+    http = _github_authorized_http(user_id=user_id)
     response, user = _github_json_request(http, "https://api.github.com/user")
     if int(response.get("status", 0)) != 200 or not isinstance(user, dict):
         raise DocassembleCompatibilityError(
@@ -540,6 +745,7 @@ def ensure_github_repository(
     repository: str,
     description: str = "",
     owner_type: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Find or create a repository under a selected authenticated owner.
 
@@ -549,12 +755,13 @@ def ensure_github_repository(
 
     Pass ``owner_type`` when the caller already resolved the owner against
     :func:`get_github_publish_owners`; that skips a second ``/user/orgs``
-    pagination walk on every publish.
+    pagination walk on every publish.  Background callers must also pass
+    ``user_id`` so credential lookup does not depend on a Flask request user.
     """
     if owner_type:
         selected = {"login": str(owner).strip(), "type": str(owner_type)}
     else:
-        owners = get_github_publish_owners()
+        owners = get_github_publish_owners(user_id=user_id)
         found = next(
             (
                 item
@@ -567,7 +774,7 @@ def ensure_github_repository(
             raise ValueError("Choose a GitHub account or organization from the list")
         selected = found
 
-    http = _github_authorized_http()
+    http = _github_authorized_http(user_id=user_id)
     encoded_owner = quote(selected["login"], safe="")
     encoded_repository = quote(repository, safe="")
     response, repo = _github_json_request(
@@ -594,7 +801,15 @@ def ensure_github_repository(
         http,
         create_url,
         "POST",
-        {"name": repository, "description": description},
+        {
+            "name": repository,
+            "description": description,
+            # GitHub's Git Database API rejects every blob/tree/ref operation
+            # with 409 while a repository has no commits.  An initial commit
+            # makes the repository immediately usable by the package upload
+            # below; its standalone tree replaces this generated README.
+            "auto_init": True,
+        },
     )
     if int(response.get("status", 0)) != 201 or not isinstance(repo, dict):
         raise DocassembleCompatibilityError(
@@ -707,13 +922,14 @@ def publish_github_package(
         if not files:
             raise ValueError("The generated GitHub package is empty")
 
-        http = _github_authorized_http()
+        http = _github_authorized_http(user_id=user_id)
         repository_path = (
             f"https://api.github.com/repos/{quote(str(owner), safe='')}/"
             f"{quote(str(repository), safe='')}"
         )
         branch_ref = quote(str(branch), safe="/")
         ref_url = f"{repository_path}/git/ref/heads/{branch_ref}"
+        ref_update_url = f"{repository_path}/git/refs/heads/{branch_ref}"
 
         target_branch_exists = False
         parent_sha: Optional[str] = None
@@ -722,6 +938,36 @@ def publish_github_package(
         if ref_status == 200 and isinstance(ref, dict):
             parent_sha = str((ref.get("object") or {}).get("sha") or "") or None
             target_branch_exists = True
+        elif ref_status == 409:
+            # GitHub does not permit even blob creation through the Git
+            # Database API until an empty repository has its first commit.
+            # This also repairs repositories created by an older Weaver
+            # version without ``auto_init``.
+            response, initialized = _github_json_request(
+                http,
+                f"{repository_path}/contents/.gitkeep",
+                "PUT",
+                {
+                    "message": "Initialize repository for ALWeaver publishing",
+                    "content": "Cg==",
+                },
+            )
+            if int(response.get("status", 0)) != 201 or not isinstance(
+                initialized, dict
+            ):
+                raise DocassembleCompatibilityError(
+                    _github_error_message(
+                        initialized, "GitHub could not initialize the empty repository"
+                    )
+                )
+            parent_sha = str((initialized.get("commit") or {}).get("sha") or "") or None
+            if not parent_sha:
+                raise DocassembleCompatibilityError(
+                    "GitHub did not return the initial repository commit"
+                )
+            initialized_branch = default_branch or "main"
+            default_branch = initialized_branch
+            target_branch_exists = branch == initialized_branch
         elif ref_status not in _GITHUB_NO_SUCH_REF_STATUSES:
             raise DocassembleCompatibilityError(
                 _github_error_message(ref, "GitHub could not read the target branch")
@@ -830,7 +1076,7 @@ def publish_github_package(
         if target_branch_exists:
             response, updated_ref = _github_json_request(
                 http,
-                ref_url,
+                ref_update_url,
                 "PATCH",
                 {"sha": commit_sha, "force": False},
             )
