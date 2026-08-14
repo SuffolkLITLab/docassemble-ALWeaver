@@ -121,20 +121,23 @@ class TestEditorFrontend(unittest.TestCase):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
         self.assertIn('id="new-project-github-url"', editor)
-        self.assertIn('https://github.com/owner/docassemble-package', editor)
-        self.assertIn('any public GitHub repository', editor)
-        self.assertIn('github_url: githubUrl', editor)
+        self.assertIn("https://github.com/owner/docassemble-package", editor)
+        self.assertIn("any public GitHub repository", editor)
+        self.assertIn("github_url: githubUrl", editor)
         self.assertIn('id="project-github-import-url"', editor)
         self.assertIn('id="project-github-import-submit"', editor)
-        self.assertIn('Create and pull', editor)
-        self.assertIn("apiPost('/api/new-project', { project_name: importName, github_url: importUrl })", editor)
+        self.assertIn("Create and pull", editor)
+        self.assertIn(
+            "apiPost('/api/new-project', { project_name: importName, github_url: importUrl })",
+            editor,
+        )
 
     def test_project_pull_actions_are_scoped_to_synced_projects(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
         self.assertIn("projectSyncs: BOOT.projectSyncs || {}", editor)
         self.assertIn("if (state.projectSyncs[projectName])", editor)
-        self.assertIn("data-project-action=\"pull-github\"", editor)
+        self.assertIn('data-project-action="pull-github"', editor)
         self.assertIn("state.canvasMode === 'project-selector'", editor)
         self.assertIn("state.project !== checkedProject", editor)
 
