@@ -1,5 +1,6 @@
 # do not pre-load
 
+import subprocess
 import unittest
 import tempfile
 from pathlib import Path
@@ -20,6 +21,23 @@ from .playground_publish import (
 
 
 class test_playground_publish(unittest.TestCase):
+    def test_merge_file_subprocess_failures_become_merge_conflicts(self):
+        failures = (
+            subprocess.TimeoutExpired(["git", "merge-file"], 30),
+            OSError("git could not start"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                with patch.object(
+                    playground_publish.subprocess, "run", side_effect=failure
+                ) as merge_file:
+                    result = playground_publish._merge_file_content(
+                        b"local\n", b"base\n", b"remote\n"
+                    )
+
+                self.assertIsNone(result)
+                self.assertEqual(merge_file.call_args.kwargs["timeout"], 30)
+
     def test_github_pull_three_way_merges_non_overlapping_edits(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -180,6 +198,52 @@ class test_playground_publish(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             normalize_github_package_name("housing-forms")
+
+    def test_record_github_sync_normalizes_fallback_commit_filename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "Housing"
+            project_dir.mkdir()
+            manifest_path = project_dir / "docassemble.HousingForms"
+            manifest_path.write_text("dependencies: []\n", encoding="utf-8")
+
+            class FakeArea:
+                directory = temp_dir
+
+                def finalize(self):
+                    pass
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                return_value=FakeArea(),
+            ):
+                playground_publish.record_project_github_sync(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="docassemble-HousingForms",
+                    repository_url=(
+                        "https://github.com/LegalAid/docassemble-HousingForms"
+                    ),
+                    branch="main",
+                    commit_sha="abc123",
+                )
+
+            self.assertEqual(
+                (project_dir / ".docassemble-HousingForms").read_text(encoding="utf-8"),
+                "abc123\n",
+            )
+            self.assertFalse(
+                (project_dir / ".docassemble-docassemble-HousingForms").exists()
+            )
+
+    def test_snapshot_project_files_rejects_nested_data_files(self):
+        with self.assertRaisesRegex(ValueError, "nested files"):
+            playground_publish._snapshot_project_files(
+                {
+                    "docassemble/HousingForms/data/questions/main.yml": b"question: Hi\n",
+                    "docassemble/HousingForms/data/static/images/logo.svg": b"<svg />",
+                }
+            )
 
     def test_prepare_project_github_package_lists_every_visible_project_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:

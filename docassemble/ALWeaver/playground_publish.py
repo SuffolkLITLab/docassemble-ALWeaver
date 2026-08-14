@@ -270,8 +270,9 @@ def record_project_github_sync(
     commit_sha: str,
 ) -> None:
     """Persist the shared Git base used by subsequent three-way pulls."""
+    package = normalize_github_package_name(package_name)
     manifest, manifest_path = load_project_github_manifest(
-        user_id=user_id, project_name=project_name, package_name=package_name
+        user_id=user_id, project_name=project_name, package_name=package
     )
     manifest.update(
         {
@@ -283,7 +284,7 @@ def record_project_github_sync(
     with open(manifest_path, "w", encoding="utf-8") as stream:
         yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
     commit_path = os.path.join(
-        os.path.dirname(manifest_path), f".docassemble-{package_name}"
+        os.path.dirname(manifest_path), f".docassemble-{package}"
     )
     with open(commit_path, "w", encoding="utf-8") as stream:
         stream.write(commit_sha + "\n")
@@ -296,6 +297,14 @@ def _snapshot_project_files(
     """Translate a docassemble repository tree into Playground section files."""
     roots: Dict[str, Dict[Tuple[str, str], bytes]] = {}
     for path, content in files.items():
+        if re.fullmatch(
+            r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
+            path,
+        ):
+            raise ValueError(
+                "The repository contains nested files under a docassemble data directory; "
+                "move them directly into questions, templates, static, or sources before importing"
+            )
         match = re.fullmatch(
             r"docassemble/([^/]+)/data/(questions|templates|static|sources)/([^/]+)",
             path,
@@ -400,12 +409,16 @@ def _merge_file_content(local: bytes, base: bytes, remote: bytes) -> Optional[by
         for path, content in zip(paths, (local, base, remote)):
             with open(path, "wb") as stream:
                 stream.write(content)
-        result = subprocess.run(
-            ["git", "merge-file", "-p", paths[0], paths[1], paths[2]],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "merge-file", "-p", paths[0], paths[1], paths[2]],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
         return result.stdout if result.returncode == 0 else None
     finally:
         shutil.rmtree(directory, ignore_errors=True)

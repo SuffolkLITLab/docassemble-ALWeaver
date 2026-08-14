@@ -583,14 +583,23 @@ def get_github_repository_snapshot(
         if re.fullmatch(r"[0-9a-fA-F]{40}", selected_ref):
             commit_sha = selected_ref
         else:
-            result = subprocess.run(
-                ["git", "ls-remote", repository["url"], selected_ref],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=30,
-            )
+            try:
+                result = subprocess.run(
+                    ["git", "ls-remote", repository["url"], selected_ref],
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise DocassembleCompatibilityError(
+                    "GitHub took too long to resolve that branch; try again or enter a commit SHA"
+                ) from exc
+            except OSError as exc:
+                raise DocassembleCompatibilityError(
+                    "Docassemble could not run Git to resolve that branch; try again or enter a commit SHA"
+                ) from exc
             lines = result.stdout.splitlines()
             commit_sha = lines[0].split()[0] if lines else ""
             if result.returncode != 0 or not re.fullmatch(
@@ -658,6 +667,14 @@ def get_github_repository_snapshot(
                 if not member.isfile() or "/" not in member.name:
                     continue
                 path = member.name.split("/", 1)[1]
+                if re.fullmatch(
+                    r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
+                    path,
+                ):
+                    raise DocassembleCompatibilityError(
+                        "The repository contains nested files under a docassemble data directory; "
+                        "move them directly into questions, templates, static, or sources before importing"
+                    )
                 if not (
                     re.fullmatch(
                         r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",

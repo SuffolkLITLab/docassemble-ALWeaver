@@ -341,6 +341,87 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertNotIn("api.github.com", http.calls[0])
         ls_remote.assert_called_once()
 
+    def test_public_snapshot_reports_git_resolution_failures(self):
+        failures = (
+            (
+                subprocess.TimeoutExpired(["git", "ls-remote"], 30),
+                "took too long",
+            ),
+            (OSError("git could not start"), "could not run Git"),
+        )
+        for failure, message in failures:
+            with self.subTest(failure=type(failure).__name__):
+                with (
+                    patch.object(
+                        docassemble_compat,
+                        "_github_authorized_http",
+                        side_effect=docassemble_compat.GithubCredentialError(
+                            "not connected"
+                        ),
+                    ),
+                    patch.object(
+                        docassemble_compat.importlib,
+                        "import_module",
+                        return_value=types.SimpleNamespace(Http=lambda: object()),
+                    ),
+                    patch.object(
+                        docassemble_compat.subprocess,
+                        "run",
+                        side_effect=failure,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        docassemble_compat.DocassembleCompatibilityError, message
+                    ):
+                        docassemble_compat.get_github_repository_snapshot(
+                            repository_url=(
+                                "https://github.com/OtherOrg/docassemble-PublicForms"
+                            ),
+                            user_id=7,
+                        )
+
+    def test_repository_snapshot_rejects_nested_data_files(self):
+        archive_buffer = io.BytesIO()
+        with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+            for path, content in (
+                (
+                    "repo-root/docassemble/PublicForms/data/questions/main.yml",
+                    b"question: Hello\n",
+                ),
+                (
+                    "repo-root/docassemble/PublicForms/data/static/images/logo.svg",
+                    b"<svg></svg>",
+                ),
+            ):
+                info = tarfile.TarInfo(path)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
+
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("/tarball/commit-sha"):
+                    return {"status": "200"}, archive_buffer.getvalue()
+                if "/commits/main" in url:
+                    return {"status": "200"}, b'{"sha": "commit-sha"}'
+                return {
+                    "status": "200"
+                }, b'{"default_branch": "main", "private": false}'
+
+        with patch.object(
+            docassemble_compat,
+            "_github_authorized_http",
+            return_value=FakeHttp(),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.DocassembleCompatibilityError, "nested files"
+            ):
+                docassemble_compat.get_github_repository_snapshot(
+                    repository_url=(
+                        "https://github.com/OtherOrg/docassemble-PublicForms"
+                    ),
+                    user_id=7,
+                )
+
     def test_repository_url_is_not_limited_to_connected_owner(self):
         parsed = docassemble_compat.normalize_github_repository_url(
             "https://github.com/CompletelyDifferentOrg/docassemble-Public.git"
