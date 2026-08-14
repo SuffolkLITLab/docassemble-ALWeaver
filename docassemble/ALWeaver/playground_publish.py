@@ -437,7 +437,7 @@ def merge_github_snapshot(
             value = remote_value
         elif remote_value == base_value:
             value = local_value
-        elif None in {base_value, local_value, remote_value}:
+        elif base_value is None or local_value is None or remote_value is None:
             value = None
             conflicts.append(f"{key[0]}/{key[1]}")
         else:
