@@ -411,10 +411,10 @@ event: review_${ interview.interview_label }
 question: |
   Review your answers
 review:
-  % for coll in interview.all_fields.find_parent_collections():
+  % for coll in review_collections:
 ${ review_yaml(coll) | trim }\
   % endfor
-% for coll in interview.all_fields.find_parent_collections():
+% for coll in review_collections:
   % if coll.var_type == 'list':
 ---
 id: ${ fix_id("edit " + coll.var_name) }

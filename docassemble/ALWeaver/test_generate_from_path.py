@@ -15,6 +15,7 @@ from .interview_generator import (
     generate_interview_from_path,
     generate_interview_artifacts,
     _ensure_unique_question_ids,
+    _with_progress_markers,
 )
 
 
@@ -314,6 +315,56 @@ question: |
                 folders_and_files["templates"],
                 ["generated-next-steps", "uploaded-template"],
             )
+
+    def test_progress_markers_climb_across_the_whole_interview(self):
+        """Progress used to stall around 66% because the step size was too small."""
+        entries = [("screen_%d" % index, True) for index in range(18)]
+        entries.insert(0, ('nav.set_section("people")', False))
+        lines = _with_progress_markers(entries)
+
+        values = [
+            int(line[len("set_progress(") : -1])
+            for line in lines
+            if line.startswith("set_progress(")
+        ]
+        self.assertEqual(values, sorted(set(values)), "must climb, never repeat")
+        self.assertGreaterEqual(values[-1], 70)
+        self.assertLessEqual(values[-1], 90)
+        # A marker always introduces a screen; it never trails the block.
+        self.assertFalse(lines[-1].startswith("set_progress("))
+
+        # Interviews too short to have meaningful steps get no markers at all.
+        self.assertEqual(
+            [line for line in _with_progress_markers([("a", True), ("b", True)])],
+            ["a", "b"],
+        )
+
+    def test_review_screen_follows_the_order_the_questions_are_asked(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(
+                    Path(__file__).parent
+                    / "test/test_petition_to_enforce_sanitary_code.pdf"
+                ),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        asked = re.findall(r'(?m)^  - "[^"]*": (\w+)$', yaml_text)
+        self.assertGreater(len(asked), 5, "expected several question screen fields")
+        reviewed = re.findall(r"(?m)^  - Edit: (\w+)$", yaml_text)
+        # Every reviewed field that is asked on a screen must keep its position.
+        self.assertEqual(
+            [name for name in reviewed if name in asked],
+            [name for name in asked if name in reviewed],
+        )
+
+        # Signatures and the signature date belong to the signature flow, not to
+        # a review screen "Edit" link -- but the date is still gathered.
+        self.assertNotIn("- Edit: signature_date", yaml_text)
+        self.assertIn("\n  signature_date\n", yaml_text)
 
     def test_generated_yaml_has_no_leading_or_trailing_blank_lines(self):
         """Mako's control-flow lines used to leave blank lines wrapping the file."""

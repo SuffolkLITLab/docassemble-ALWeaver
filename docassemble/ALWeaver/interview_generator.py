@@ -961,6 +961,62 @@ class DAField(DAObject):
         return f"{self.variable} ({self.raw_field_names}, {self.final_display_var})"
 
 
+def _with_progress_markers(entries: List[Tuple[str, bool]]) -> List[str]:
+    """Interleave ``set_progress()`` calls through an interview order block.
+
+    The percentage is derived from how far through the screens each marker
+    actually sits, so the bar climbs steadily instead of stalling: the old
+    version added a fixed increment sized for more steps than it ever emitted,
+    which left a twenty-screen interview showing 66% on its last question.
+
+    Progress tops out around 90 because the screens are not the whole interview
+    -- the signature flow and the download screen still follow, and the download
+    screen sets ``progress: 100`` itself.
+    """
+    screen_positions = [
+        index for index, (_, is_screen) in enumerate(entries) if is_screen
+    ]
+    total_screens = len(screen_positions)
+
+    # A progress step every 5 screens, unless the interview is short.
+    screen_divisor = 5 if total_screens > 20 else 3
+    markers: Dict[int, int] = {}
+    if total_screens > screen_divisor:
+        last_value = 0
+        for screens_so_far, entry_index in enumerate(screen_positions):
+            if not screens_so_far or screens_so_far % screen_divisor:
+                continue
+            value = round(screens_so_far / total_screens * 90)
+            if value <= last_value:
+                continue
+            markers[entry_index] = value
+            last_value = value
+
+    lines: List[str] = []
+    for index, (line, _is_screen) in enumerate(entries):
+        if index in markers:
+            lines.append(f"set_progress({markers[index]})")
+        lines.append(line)
+    return lines
+
+
+def _is_signature_only_collection(collection: "ParentCollection") -> bool:
+    """True for review-screen entries that only exist to be signed.
+
+    Signatures and ``signature_date`` are gathered by
+    ``basic_questions_signature_flow`` immediately before the download screen, so
+    an "Edit" link for them on the review screen would either be overwritten
+    moments later or let someone change a date they never picked.
+    """
+    if collection.var_type != "primitive":
+        return False
+    return all(
+        (getattr(field, "group", None) == DAFieldGroup.SIGNATURE)
+        or getattr(field, "final_display_var", "") == "signature_date"
+        for field in collection.fields
+    )
+
+
 class ParentCollection(object):
     """A ParentCollection is "highest" level of data structure containing some DAField.
     For example, the parent collection for `users[0].name.first` is `users`, since that is the list
@@ -1151,6 +1207,47 @@ class DAFieldList(DAList):
             )
             for var_and_type, fields in parent_coll_map.items()
         ]
+
+    def review_collections(
+        self, screen_order: Optional[Sequence[Any]] = None
+    ) -> List[ParentCollection]:
+        """The parent collections a review screen should offer, in asking order.
+
+        ``find_parent_collections`` groups fields by parent but hands them back in
+        whatever order the fields happen to sit in the field list, which is not the
+        order the interview asks for them. Sorting by first appearance in
+        ``screen_order`` means the review screen reads like a recap of what the user
+        just did rather than an arbitrary list.
+        """
+        collections = [
+            collection
+            for collection in self.find_parent_collections()
+            if not _is_signature_only_collection(collection)
+        ]
+        if not screen_order:
+            return collections
+
+        # Number every field in the order it is asked, so collections sort by
+        # their position *within* a screen too, not just by which screen they
+        # landed on.
+        position: Dict[str, int] = {}
+        for screen in screen_order:
+            fields = screen.field_list if hasattr(screen, "field_list") else [screen]
+            for field in fields:
+                variable = getattr(field, "variable", None)
+                if variable and variable not in position:
+                    position[variable] = len(position)
+        unplaced = len(position)
+
+        def sort_key(collection: ParentCollection) -> Tuple[int, str]:
+            positions = [
+                position[field.variable]
+                for field in collection.fields
+                if getattr(field, "variable", None) in position
+            ]
+            return (min(positions) if positions else unplaced, collection.var_name)
+
+        return sorted(collections, key=sort_key)
 
     def add_fields_from_file(self, document: Union[DAFile, DAFileList]) -> None:
         """
@@ -1628,22 +1725,9 @@ class DAQuestionList(DAList):
         if not screens:
             screens = list(self)
 
-        logic_list = []
-
-        total_num_screens = len(screens)
-
-        # We'll have a progress step every 5 screens,
-        # unless it's very short
-        if total_num_screens > 20:
-            screen_divisor = 5
-        else:
-            screen_divisor = 3
-
-        total_steps = (
-            round(total_num_screens / screen_divisor) + 2
-        )  # signature screen adds two steps
-        increment = int(100 / total_steps)
-        progress = 0
+        # Each entry is (line, counts_as_a_screen).  Only the screens count
+        # toward progress; navigation and bookkeeping lines do not.
+        logic_list: List[Tuple[str, bool]] = []
 
         saved_answer_name_flag = False
         current_section: Optional[str] = None
@@ -1651,11 +1735,8 @@ class DAQuestionList(DAList):
             if sections and index < len(sections):
                 section_id = str(sections[index] or "").strip()
                 if section_id and section_id != current_section:
-                    logic_list.append(f'nav.set_section("{section_id}")')
+                    logic_list.append((f'nav.set_section("{section_id}")', False))
                     current_section = section_id
-            if set_progress and index and index % screen_divisor == 0:
-                progress += increment
-                logic_list.append(f"set_progress({int(progress)})")
             if (
                 isinstance(question, DAQuestion)
                 and question.type == "question"
@@ -1669,11 +1750,14 @@ class DAQuestionList(DAList):
                 # Add the first field in every question to our logic tree
                 # This can be customized to control the order of questions later
                 if question.needs_continue_button_field:
-                    logic_list.append(varname(question.question_text))
+                    logic_list.append((varname(question.question_text), True))
                 else:
                     logic_list.append(
-                        question.field_list[0].trigger_gather(
-                            custom_plurals=all_fields.custom_people_plurals.values()
+                        (
+                            question.field_list[0].trigger_gather(
+                                custom_plurals=all_fields.custom_people_plurals.values()
+                            ),
+                            True,
                         )
                     )
             else:
@@ -1685,7 +1769,7 @@ class DAQuestionList(DAList):
                     question in all_fields.builtins()
                     and trigger_gather.endswith(".signature")
                 ):
-                    logic_list.append(trigger_gather)
+                    logic_list.append((trigger_gather, True))
                     # set the saved answer name so it includes the user's name in saved
                     # answer list
                     # NOTE: this is redundant now that we have a custom interview list, but leaving for now
@@ -1693,20 +1777,32 @@ class DAQuestionList(DAList):
                         trigger_gather == "users.gather()"
                         and not saved_answer_name_flag
                     ):
-                        logic_list.append("set_parts(subtitle=str(users))")
+                        logic_list.append(("set_parts(subtitle=str(users))", False))
                         saved_answer_name_flag = True
 
-        unique_lines: List[str] = []
+        unique_entries: List[Tuple[str, bool]] = []
         seen_non_nav: Set[str] = set()
-        for line in logic_list:
+        for line, is_screen in logic_list:
             if line.startswith('nav.set_section("'):
-                unique_lines.append(line)
+                # A section whose screens all deduplicated away leaves its
+                # `nav.set_section` stranded next to the following section's.
+                if unique_entries and unique_entries[-1][0].startswith(
+                    'nav.set_section("'
+                ):
+                    unique_entries[-1] = (line, False)
+                else:
+                    unique_entries.append((line, False))
                 continue
             if line in seen_non_nav:
                 continue
             seen_non_nav.add(line)
-            unique_lines.append(line)
-        return unique_lines
+            unique_entries.append((line, is_screen))
+        while unique_entries and unique_entries[-1][0].startswith('nav.set_section("'):
+            unique_entries.pop()
+
+        if not set_progress:
+            return [line for line, _ in unique_entries]
+        return _with_progress_markers(unique_entries)
 
 
 class DADataType(Enum):
@@ -5477,6 +5573,7 @@ def _render_interview_yaml(
         "objects": objects or [],
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
+        "review_collections": interview.all_fields.review_collections(screen_reordered),
         "navigation_sections": navigation_sections,
         "interview_order_lines": interview_order_lines,
         "package_version_number": __version__,
