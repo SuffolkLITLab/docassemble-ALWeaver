@@ -315,6 +315,119 @@ question: |
                 ["generated-next-steps", "uploaded-template"],
             )
 
+    def test_generated_yaml_has_no_leading_or_trailing_blank_lines(self):
+        """Mako's control-flow lines used to leave blank lines wrapping the file."""
+        for source in (
+            "test/test_docx_no_pdf_field_names.docx",
+            "test/test_petition_to_enforce_sanitary_code.pdf",
+        ):
+            with self.subTest(source=source):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    result = generate_interview_from_path(
+                        str(Path(__file__).parent / source),
+                        output_dir=tmpdir,
+                        create_package_zip=False,
+                        include_next_steps=False,
+                    )
+                    yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+                self.assertTrue(yaml_text.startswith("---\n"), repr(yaml_text[:40]))
+                self.assertFalse(yaml_text.endswith("\n\n"), repr(yaml_text[-40:]))
+                self.assertTrue(yaml_text.endswith("\n"))
+                # No runs of blank lines anywhere in the file either.
+                self.assertNotIn("\n\n\n", yaml_text)
+
+    def test_attachment_comment_sits_in_the_block_it_describes(self):
+        """The `i` placeholder comment documents the attachment, not the bundle title."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        marker = "# Each attachment defines a key in an ALDocument."
+        self.assertEqual(yaml_text.count(marker), 1)
+        comment_start = yaml_text.index(marker)
+        # The nearest `---` above the comment must be the one that opens the
+        # attachment block, and nothing but comment lines may sit between them.
+        separator = yaml_text.rindex("\n---\n", 0, comment_start)
+        between = yaml_text[separator + len("\n---\n") : comment_start]
+        self.assertEqual(between.strip(), "")
+        after = yaml_text[comment_start:].split("\n")
+        self.assertEqual(
+            [line for line in after[:5] if not line.startswith("#")][0],
+            "attachment:",
+        )
+
+    def test_every_gathered_object_has_an_objects_block(self):
+        """Anything the interview treats as an object needs a declaration to match."""
+        # AssemblyLine declares and configures these itself; re-declaring them
+        # would clobber its own setup.
+        al_provided = {
+            "users",
+            "other_parties",
+            "children",
+            "courts",
+            "trial_court",
+            "plaintiffs",
+            "defendants",
+            "petitioners",
+            "respondents",
+            "witnesses",
+            "docket_numbers",
+            "case_numbers",
+            "al_user_bundle",
+            "al_court_bundle",
+            "al_recipient_bundle",
+            "nav",
+        }
+        for source in (
+            "test/test_petition_to_enforce_sanitary_code.pdf",
+            "test/test_docx_no_pdf_field_names.docx",
+            "test/unmap_suffixes.docx",
+        ):
+            with self.subTest(source=source):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    result = generate_interview_from_path(
+                        str(Path(__file__).parent / source),
+                        output_dir=tmpdir,
+                        create_package_zip=False,
+                        include_next_steps=False,
+                    )
+                    yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+                declared = set(re.findall(r"(?m)^  - (\w+):", yaml_text))
+                order_block = yaml_text.split("id: interview_order_", 1)[1].split(
+                    "\n---\n", 1
+                )[0]
+                referenced = set(
+                    re.findall(
+                        r"(?m)^  (\w+)(?:\.gather\(\)|\[\d+\]|\.\w)", order_block
+                    )
+                )
+                undeclared = referenced - declared - al_provided
+                self.assertEqual(undeclared, set(), f"undeclared in {source}")
+
+        # The sanitary-code PDF is the concrete case that used to slip through:
+        # `my_user` and `some_identifier_mail` were gathered but never declared.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(
+                    Path(__file__).parent
+                    / "test/test_petition_to_enforce_sanitary_code.pdf"
+                ),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn("  - my_user: ALPeopleList", yaml_text)
+        self.assertIn("  - some_identifier_mail: ALPeopleList", yaml_text)
+        # `inspector_name` is a plain text field, so there is no `inspector` list.
+        self.assertNotIn("  - inspector:", yaml_text)
+
     def test_custom_frontend_sections_respected(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         with tempfile.TemporaryDirectory() as tmpdir:

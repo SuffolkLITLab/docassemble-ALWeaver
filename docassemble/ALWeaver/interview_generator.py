@@ -113,6 +113,21 @@ _PERSON_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "guardians_ad_litem": {"ask_number": True},
 }
 
+# Objects AssemblyLine defines and configures itself. Re-declaring these in the
+# generated interview would clobber that setup -- `courts`, for instance, is an
+# ALCourtLoader-backed list whose gathering drives the court picker, and
+# `plaintiffs`/`defendants` are derived from `users` and `other_parties`.
+_AL_MANAGED_OBJECTS: Set[str] = {
+    "case_numbers",
+    "courts",
+    "defendants",
+    "docket_numbers",
+    "petitioners",
+    "plaintiffs",
+    "respondents",
+    "trial_court",
+}
+
 
 __all__ = [
     "attachment_download_html",
@@ -1801,12 +1816,42 @@ class DAInterview(DAObject):
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
 
+    def _referenced_objects(self) -> Tuple[Set[str], Set[str]]:
+        """Names the generated interview actually treats as objects.
+
+        Everything the review screens, tables and interview order block reference
+        comes from :meth:`DAFieldList.find_parent_collections`, so that is the
+        authoritative answer to "what did we turn into an object?".  Returns a
+        ``(lists, singletons)`` pair: names used as ``x.gather()`` / ``x[0].attr``
+        and names used as ``x.attr`` respectively.
+        """
+        lists: Set[str] = set()
+        singletons: Set[str] = set()
+        for collection in self.all_fields.find_parent_collections():
+            var_name = collection.var_name
+            if collection.var_type == "list":
+                if var_name.isidentifier():
+                    lists.add(var_name)
+            elif "." in var_name:
+                root = var_name.split(".", 1)[0]
+                if root.isidentifier() and not keyword.iskeyword(root):
+                    singletons.add(root)
+        return lists, singletons
+
     def _guess_objects_list(self) -> List[_PersonObjectSpec]:
         """Build an objects list for the generated interview using field analysis heuristics.
 
         Mirrors the person candidate consolidation logic in assembly_line.yml and
         adds quantity guessing from field index numbers.  Always includes ``users``.
+
+        Every name the interview gathers as a list gets an entry, so a variable
+        like ``my_user[0].name.last`` can never end up referenced without a
+        matching ``objects`` block.  Conversely, a person the heuristics guessed
+        at but that no field actually uses as a list (a lone ``inspector_name``
+        text field, say) is dropped rather than declared and left unused.
         """
+        referenced_lists, referenced_singletons = self._referenced_objects()
+
         person_candidates: Set[str] = set(self.all_fields.get_person_candidates())
         person_candidates.add("users")
 
@@ -1817,10 +1862,16 @@ class DAInterview(DAObject):
             "respondents" in person_candidates and "petitioners" in person_candidates
         ):
             person_candidates.add("other_parties")
-        person_candidates.discard("petitioners")
-        person_candidates.discard("respondents")
-        person_candidates.discard("plaintiffs")
-        person_candidates.discard("defendants")
+
+        # `users` and `other_parties` back AssemblyLine's own party logic, so they
+        # are declared whether or not a field mentions them directly.
+        person_candidates = (person_candidates & referenced_lists) | (
+            {"users", "other_parties"} & person_candidates
+        )
+        person_candidates |= referenced_lists
+        person_candidates -= _AL_MANAGED_OBJECTS
+
+        singletons = referenced_singletons - _AL_MANAGED_OBJECTS - person_candidates
 
         quantities = self.all_fields._guess_people_quantities()
 
@@ -1834,6 +1885,8 @@ class DAInterview(DAObject):
             else:
                 params = dict(_PERSON_DEFAULT_PARAMS.get(person, {}))
             result.append(_PersonObjectSpec(name=person, params=params))
+        for singleton in sorted(singletons):
+            result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
         return result
 
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
@@ -5246,6 +5299,46 @@ def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
     return updated
 
 
+def _tidy_generated_yaml(yaml_text: str) -> str:
+    """Clean up the whitespace Mako leaves behind in a rendered interview.
+
+    Mako emits a newline for every control-flow line that isn't backslash-continued,
+    which leaves a run of blank lines wherever the template opens with a ``<%doc>``
+    or ``<%`` block and again wherever it closes with one.  The result is a file
+    that starts and ends with several blank lines, and that can have large blank
+    runs between blocks.  None of that changes what Docassemble parses, but it
+    makes the generated YAML look unfinished to the person who has to edit it next.
+
+    Applied to the rendered output rather than to ``output.mako`` so that custom
+    output templates from other packages get the same treatment.
+    """
+    lines = yaml_text.replace("\r\n", "\n").split("\n")
+
+    tidied: List[str] = []
+    blank_run = 0
+    for line in lines:
+        if line.strip():
+            blank_run = 0
+            tidied.append(line)
+            continue
+        blank_run += 1
+        # Keep single blank lines (they are meaningful inside Markdown block
+        # scalars) but collapse anything longer.
+        if blank_run < 2 and tidied:
+            tidied.append("")
+
+    while tidied and not tidied[0].strip():
+        tidied.pop(0)
+    while tidied and not tidied[-1].strip():
+        tidied.pop()
+
+    if not tidied:
+        return ""
+    if tidied[0].strip() != "---":
+        tidied.insert(0, "---")
+    return "\n".join(tidied) + "\n"
+
+
 def _repair_generated_yaml_with_lint(
     yaml_text: str, interview: DAInterview, max_passes: int = 3
 ) -> str:
@@ -5406,8 +5499,8 @@ def _render_interview_yaml(
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }
-    yaml_text = template.render(**context)
-    return _repair_generated_yaml_with_lint(yaml_text, interview)
+    yaml_text = _tidy_generated_yaml(template.render(**context))
+    return _tidy_generated_yaml(_repair_generated_yaml_with_lint(yaml_text, interview))
 
 
 def _assign_next_steps_template(interview: DAInterview) -> None:
