@@ -102,6 +102,8 @@
   var ASSEMBLYLINE_AL_GENERAL_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/al_general/';
   var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
   var UPLOAD_JOB_MAX_ATTEMPTS = 480;
+  var GITHUB_PUBLISH_JOB_POLL_INTERVAL_MS = 1500;
+  var GITHUB_PUBLISH_JOB_MAX_ATTEMPTS = 400;
 
   function isInterviewView() {
     return state.currentView === 'interview';
@@ -1394,13 +1396,62 @@
   }
 
   // -------------------------------------------------------------------------
-  // GitHub publishing through Docassemble's native Playground workflow
+  // GitHub publishing through the authorized GitHub API
   // -------------------------------------------------------------------------
   function setGithubPublishStatus(message, kind) {
     var status = document.getElementById('github-publish-status');
     if (!status) return;
     status.className = 'alert py-2 alert-' + (kind || 'secondary');
     status.textContent = message;
+  }
+
+  function _pollGithubPublishJob(jobUrl) {
+    var attempts = 0;
+
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        attempts += 1;
+        apiGetDetailed(jobUrl, {
+          cancelPrevious: false,
+          staleKey: 'github-publish-job:' + jobUrl,
+        })
+          .then(function (response) {
+            var payload = response.body || {};
+            var jobData = payload.data || {};
+            var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
+            if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
+              reject(new Error(
+                (jobData.error && jobData.error.message) ||
+                (payload.error && payload.error.message) ||
+                jobData.message ||
+                'Publishing to GitHub failed.'
+              ));
+              return;
+            }
+            if (jobStatus === 'succeeded') {
+              resolve(jobData.result || {});
+              return;
+            }
+            var progressPrefix = Number.isFinite(Number(jobData.progress))
+              ? String(Number(jobData.progress)) + '% — '
+              : '';
+            setGithubPublishStatus(
+              progressPrefix + (jobData.message || 'Publishing to GitHub…'),
+              'info'
+            );
+            if (attempts >= GITHUB_PUBLISH_JOB_MAX_ATTEMPTS) {
+              reject(new Error('Timed out waiting for the GitHub publish to finish.'));
+              return;
+            }
+            setTimeout(tick, GITHUB_PUBLISH_JOB_POLL_INTERVAL_MS);
+          })
+          .catch(function (err) {
+            reject(err);
+          });
+      }
+
+      tick();
+    });
   }
 
   function applyGithubIntegrationStatus(data) {
@@ -1415,13 +1466,22 @@
       configure.classList.toggle('d-none', !(data && data.configure_url));
       if (data && data.configure_url) configure.href = data.configure_url;
     }
-    if (!data || !data.enabled || !data.available) {
-      setGithubPublishStatus("Docassemble's native GitHub integration is not enabled on this server.", 'warning');
+    if (!data || !data.enabled) {
+      setGithubPublishStatus("Docassemble's GitHub integration is not enabled on this server.", 'warning');
       if (submit) submit.disabled = true;
       return;
     }
     if (!data.connected) {
       setGithubPublishStatus('Connect your GitHub account in Docassemble before publishing.', 'warning');
+      if (submit) submit.disabled = true;
+      return;
+    }
+    if (data.async_configured === false) {
+      setGithubPublishStatus(
+        (data.celery && data.celery.message) ||
+        'Publishing runs in the Celery worker, which is not configured on this server.',
+        'warning'
+      );
       if (submit) submit.disabled = true;
       return;
     }
@@ -1459,9 +1519,13 @@
       var modal = getOrCreateBootstrapModal('github-publish-modal');
       var submit = document.getElementById('github-publish-submit');
       var configure = document.getElementById('github-configure-link');
+      var repositoryLink = document.getElementById('github-repository-link');
+      var commitLink = document.getElementById('github-commit-link');
       var ownerSelect = document.getElementById('github-owner');
       if (submit) submit.disabled = true;
       if (configure) configure.classList.add('d-none');
+      if (repositoryLink) repositoryLink.classList.add('d-none');
+      if (commitLink) commitLink.classList.add('d-none');
       if (ownerSelect) {
         ownerSelect.disabled = true;
         ownerSelect.replaceChildren();
@@ -1494,9 +1558,11 @@
       var branchInput = document.getElementById('github-branch-name');
       var messageInput = document.getElementById('github-commit-message');
       var submit = document.getElementById('github-publish-submit');
+      var repositoryLink = document.getElementById('github-repository-link');
+      var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
       if (submit) submit.disabled = true;
-      setGithubPublishStatus('Preparing the project for Docassemble…', 'info');
+      setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       apiPost('/api/github/publish', {
         project: state.project,
         owner: ownerSelect ? ownerSelect.value : '',
@@ -1504,13 +1570,31 @@
         branch: branchInput ? branchInput.value : '',
         commit_message: messageInput ? messageInput.value : '',
       }).then(function (res) {
-        if (!res.success || !res.data || !res.data.publish_url) {
+        if (!res.success || !res.data || !res.data.job_url) {
           setGithubPublishStatus((res.error && res.error.message) || 'Unable to start GitHub publishing.', 'danger');
           if (submit) submit.disabled = false;
           return;
         }
-        setGithubPublishStatus('Opening Docassemble\'s GitHub publisher…', 'success');
-        window.location.assign(res.data.publish_url);
+        setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
+        return _pollGithubPublishJob(res.data.job_url).then(function (result) {
+          if (repositoryLink && result.repository_url) {
+            repositoryLink.href = result.repository_url;
+            repositoryLink.classList.remove('d-none');
+          }
+          if (commitLink && result.commit_url) {
+            commitLink.href = result.commit_url;
+            commitLink.classList.remove('d-none');
+          }
+          var fileCount = result.files_committed;
+          var published = typeof fileCount === 'number'
+            ? fileCount + (fileCount === 1 ? ' file' : ' files')
+            : 'the project files';
+          setGithubPublishStatus(
+            'Published ' + published + ' to ' + (result.branch || 'GitHub') + '.',
+            'success'
+          );
+          if (submit) submit.disabled = false;
+        });
       }).catch(function (error) {
         setGithubPublishStatus(error && error.message ? error.message : 'Unable to start GitHub publishing.', 'danger');
         if (submit) submit.disabled = false;

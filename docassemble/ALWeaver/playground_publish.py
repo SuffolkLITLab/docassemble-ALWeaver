@@ -17,6 +17,7 @@ __all__ = [
     "normalize_project_name",
     "publish_weaver_artifacts_to_playground",
     "prepare_project_github_package",
+    "load_project_github_manifest",
     "normalize_github_package_name",
     "rename_project",
 ]
@@ -188,6 +189,31 @@ def prepare_project_github_package(
         "manifest_path": manifest_path,
         "files": files,
     }
+
+
+def load_project_github_manifest(
+    *, user_id: int, project_name: str, package_name: str
+) -> Tuple[Dict[str, Any], str]:
+    """Read back the manifest :func:`prepare_project_github_package` wrote.
+
+    The Celery worker that publishes may be a different host than the web
+    process that prepared the package, so the packages area is fetched here
+    rather than trusting a path handed across the queue.
+    """
+    package = normalize_github_package_name(package_name)
+    packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
+    manifest_path = os.path.join(
+        _directory_for(packages_area, project_name), f"docassemble.{package}"
+    )
+    if not os.path.isfile(manifest_path):
+        raise ValueError(
+            "The GitHub package manifest is missing; prepare the project again"
+        )
+    with open(manifest_path, "r", encoding="utf-8") as stream:
+        loaded = yaml.safe_load(stream) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("The generated GitHub package manifest is invalid")
+    return loaded, manifest_path
 
 
 def get_list_of_projects(user_id: int) -> List[str]:

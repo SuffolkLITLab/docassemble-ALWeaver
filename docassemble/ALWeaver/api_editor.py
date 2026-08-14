@@ -6,7 +6,8 @@ Provides:
     GET  /al/editor              — serve the editor single-page application
     GET  /al/editor/api/projects — list playground projects
     GET  /al/editor/api/github/status — inspect native GitHub integration
-    POST /al/editor/api/github/publish — prepare a package and hand off to Docassemble
+    POST /al/editor/api/github/publish — queue a package commit to GitHub
+    GET  /al/editor/api/github/publish/jobs/<id> — poll a queued publish
     GET  /al/editor/api/files    — list YAML files in a project
     POST /al/editor/api/file/new — create a new YAML interview file
     GET  /al/editor/api/file     — read & parse a YAML file
@@ -51,6 +52,7 @@ import tempfile
 import time
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, cast
@@ -65,6 +67,7 @@ from docassemble.base.util import log
 from .docassemble_compat import (
     create_target_session,
     create_saved_file,
+    GithubCredentialError,
     get_target_question,
     get_target_variables,
     go_back_target_session,
@@ -76,7 +79,7 @@ from .docassemble_compat import (
     get_worker_app,
     json_response as jsonify_with_status,
     ensure_github_repository,
-    native_github_publish_url,
+    publish_github_package,
     run_target_action_raw,
     set_target_variables,
 )
@@ -212,6 +215,7 @@ from .playground_publish import (
     next_available_project_name,
     normalize_github_package_name,
     normalize_project_name,
+    load_project_github_manifest,
     prepare_project_github_package,
     rename_project,
 )
@@ -1193,23 +1197,38 @@ def editor_api_github_status() -> Response:
         )
         status = get_native_github_integration(uid)
         owners: List[Dict[str, Any]] = []
-        if status.get("available") and status.get("connected"):
-            owners = [
-                {
-                    **owner,
-                    "available": bool(
-                        owner.get("type") == "user"
-                        or status.get("organizations_enabled")
-                    ),
-                }
-                for owner in get_github_publish_owners()
-            ]
+        if status.get("enabled") and status.get("connected"):
+            try:
+                owners = [
+                    {
+                        **owner,
+                        "available": bool(
+                            owner.get("type") == "user"
+                            or status.get("organizations_enabled")
+                        ),
+                    }
+                    for owner in get_github_publish_owners()
+                ]
+            except GithubCredentialError as exc:
+                # The Redis integration flag can outlive the OAuth record.
+                # Treat that state as disconnected so the editor can show the
+                # normal reconnect path instead of returning a 400 caused by
+                # credential JSON parsing.
+                log(
+                    f"ALWeaver editor: GitHub credential unavailable: {exc!r}",
+                    "warning",
+                )
+                status.update({"connected": False, "organizations_enabled": False})
         status["owners"] = owners
         status.update(
             {
                 "project": project,
                 "default_package": default_package,
                 "default_repository": f"docassemble-{default_package}",
+                # Publishing runs in the Celery worker, so the modal can refuse
+                # up front rather than after the user fills the form in.
+                "async_configured": _editor_async_is_configured(),
+                "celery": get_worker_configuration_status(),
             }
         )
         return jsonify({"success": True, "request_id": request_id, "data": status})
@@ -1236,10 +1255,17 @@ def editor_api_github_status() -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/publish", methods=["POST"])
 def editor_api_github_publish() -> Response:
-    """Prepare a Playground package and hand it to Docassemble's publisher."""
+    """Prepare a Playground package and queue the commit to GitHub.
+
+    Everything that can fail on the user's input is checked here so the browser
+    gets an immediate 400/409.  The GitHub round trips — one blob upload per
+    file — are handed to the Celery worker and polled through the job URL in
+    the 202 response.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
+    integration: Dict[str, Any] = {}
     try:
         uid = _current_user_id()
         post_data = request.get_json(silent=True) or {}
@@ -1250,10 +1276,31 @@ def editor_api_github_publish() -> Response:
             raise ValueError("GitHub owner is required")
         branch = _normalize_git_branch(post_data.get("branch"))
         commit_message = _normalize_commit_message(post_data.get("commit_message"))
+        # Checked after the input is validated so a malformed request still gets
+        # its 400, but before anything is written or queued.
+        if not _editor_async_is_configured():
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "async_not_configured",
+                        "code": "editor_async_not_configured",
+                        "message": (
+                            "Background GitHub publishing is not configured. Add "
+                            f"{CELERY_MODULE!r} to the Docassemble 'celery "
+                            "modules' configuration list, then restart the "
+                            "Docassemble web and Celery services."
+                        ),
+                        "details": get_worker_configuration_status(),
+                    },
+                },
+                503,
+            )
         integration = get_native_github_integration(uid)
-        if not integration.get("available"):
+        if not integration.get("enabled"):
             raise RuntimeError(
-                "Docassemble's native GitHub publisher is not enabled on this server"
+                "Docassemble's GitHub integration is not enabled on this server"
             )
         if not integration.get("connected"):
             return jsonify_with_status(
@@ -1298,34 +1345,52 @@ def editor_api_github_publish() -> Response:
             author_email=author_email,
             github_url=repository_url,
         )
-        github_repository = ensure_github_repository(
-            owner=selected_owner["login"],
-            repository=prepared["repository"],
-            description=f"A docassemble project for {project}.",
-        )
-        publish_url = native_github_publish_url(
+        queued = _start_github_publish_job(
+            uid=uid,
+            request_id=request_id,
             project=project,
             package=prepared["package"],
+            repository=prepared["repository"],
+            owner=selected_owner["login"],
+            owner_type=str(selected_owner.get("type") or ""),
+            author_name=author_name,
+            author_email=author_email,
             branch=branch,
             commit_message=commit_message,
+            repository_url=repository_url,
         )
-        return jsonify(
+        return jsonify_with_status(
             {
                 "success": True,
                 "request_id": request_id,
+                "job_id": queued["job_id"],
+                "status": "queued",
                 "data": {
                     "project": project,
                     "package": prepared["package"],
                     "repository": prepared["repository"],
                     "owner": selected_owner["login"],
-                    "repository_url": github_repository.get("html_url", repository_url),
-                    "repository_created": bool(
-                        github_repository.get("created_by_weaver")
-                    ),
+                    "repository_url": repository_url,
                     "branch": branch,
-                    "publish_url": publish_url,
+                    "job_id": queued["job_id"],
+                    "job_url": queued["job_url"],
+                    "state": queued["state"],
                 },
-            }
+            },
+            202,
+        )
+    except GithubCredentialError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "github_not_connected",
+                    "message": str(exc),
+                },
+                "data": {"configure_url": integration.get("configure_url")},
+            },
+            409,
         )
     except ValueError as exc:
         return jsonify_with_status(
@@ -1338,6 +1403,49 @@ def editor_api_github_publish() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: GitHub publish error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/github/publish/jobs/<job_id>",
+    methods=["GET"],
+)
+def editor_api_github_publish_job(job_id: str) -> Response:
+    """Get the status of a queued GitHub publish."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        state = _load_job_state(GITHUB_PUBLISH_JOB, job_id)
+        if not state or state.get("owner_user_id") not in {None, uid}:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {"type": "not_found", "message": "Job not found."},
+                },
+                404,
+            )
+        state = _reconcile_github_publish_job_state(job_id, state)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "job_id": job_id,
+                "status": str(state.get("status") or "queued"),
+                "data": state,
+            }
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub publish job status error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -5686,12 +5794,18 @@ AGENT_TURN_CELERY_TASK = (
 NEW_PROJECT_CELERY_TASK = (
     "docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
 )
-NEW_PROJECT_TERMINAL_STATES = {
+GITHUB_PUBLISH_JOB_KEY_PREFIX = "da:alweaver:editor:github-publish:"
+GITHUB_PUBLISH_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+GITHUB_PUBLISH_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_github_publish_task"
+)
+JOB_TERMINAL_STATES = {
     "succeeded",
     "failed",
     "cancelled",
     "expired",
 }
+NEW_PROJECT_TERMINAL_STATES = JOB_TERMINAL_STATES
 
 
 def _editor_async_is_configured() -> bool:
@@ -5713,12 +5827,38 @@ def _log_editor_worker_preflight() -> None:
 _log_editor_worker_preflight()
 
 
-def _new_project_job_key(job_id: str) -> str:
-    return NEW_PROJECT_JOB_KEY_PREFIX + job_id
+@dataclass(frozen=True)
+class _EditorJobKind:
+    """One family of background jobs tracked in Redis.
+
+    Every long-running editor operation stores the same shaped state record
+    under its own key prefix, so the load/store/reconcile helpers below are
+    shared rather than duplicated per operation.
+    """
+
+    key_prefix: str
+    celery_task: str
+    expire_seconds: int = 24 * 60 * 60
 
 
-def _load_new_project_job_state(job_id: str) -> Optional[Dict[str, Any]]:
-    raw = r.get(_new_project_job_key(job_id))
+NEW_PROJECT_JOB = _EditorJobKind(
+    key_prefix=NEW_PROJECT_JOB_KEY_PREFIX,
+    celery_task=NEW_PROJECT_CELERY_TASK,
+    expire_seconds=NEW_PROJECT_JOB_EXPIRE_SECONDS,
+)
+GITHUB_PUBLISH_JOB = _EditorJobKind(
+    key_prefix=GITHUB_PUBLISH_JOB_KEY_PREFIX,
+    celery_task=GITHUB_PUBLISH_CELERY_TASK,
+    expire_seconds=GITHUB_PUBLISH_JOB_EXPIRE_SECONDS,
+)
+
+
+def _job_state_key(kind: _EditorJobKind, job_id: str) -> str:
+    return kind.key_prefix + job_id
+
+
+def _load_job_state(kind: _EditorJobKind, job_id: str) -> Optional[Dict[str, Any]]:
+    raw = r.get(_job_state_key(kind, job_id))
     if raw is None:
         return None
     if isinstance(raw, bytes):
@@ -5732,22 +5872,39 @@ def _load_new_project_job_state(job_id: str) -> Optional[Dict[str, Any]]:
     return parsed
 
 
-def _store_new_project_job_state(job_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+def _store_job_state(
+    kind: _EditorJobKind, job_id: str, state: Dict[str, Any]
+) -> Dict[str, Any]:
     payload = dict(state)
     payload["job_id"] = job_id
     payload.setdefault("created_at", payload.get("updated_at", time.time()))
     payload["updated_at"] = time.time()
+    key = _job_state_key(kind, job_id)
     pipe = r.pipeline()
-    pipe.set(_new_project_job_key(job_id), json.dumps(payload))
-    pipe.expire(_new_project_job_key(job_id), NEW_PROJECT_JOB_EXPIRE_SECONDS)
+    pipe.set(key, json.dumps(payload))
+    pipe.expire(key, kind.expire_seconds)
     pipe.execute()
     return payload
 
 
-def _update_new_project_job_state(job_id: str, **updates: Any) -> Dict[str, Any]:
-    state = _load_new_project_job_state(job_id) or {}
+def _update_job_state(
+    kind: _EditorJobKind, job_id: str, **updates: Any
+) -> Dict[str, Any]:
+    state = _load_job_state(kind, job_id) or {}
     state.update(updates)
-    return _store_new_project_job_state(job_id, state)
+    return _store_job_state(kind, job_id, state)
+
+
+def _load_new_project_job_state(job_id: str) -> Optional[Dict[str, Any]]:
+    return _load_job_state(NEW_PROJECT_JOB, job_id)
+
+
+def _store_new_project_job_state(job_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    return _store_job_state(NEW_PROJECT_JOB, job_id, state)
+
+
+def _update_new_project_job_state(job_id: str, **updates: Any) -> Dict[str, Any]:
+    return _update_job_state(NEW_PROJECT_JOB, job_id, **updates)
 
 
 def _complete_new_project_upload_job(
@@ -5952,15 +6109,26 @@ def _start_new_project_upload_job(
     }
 
 
-def _reconcile_new_project_job_state(
-    job_id: str, state: Dict[str, Any]
+def _reconcile_job_state(
+    kind: _EditorJobKind,
+    job_id: str,
+    state: Dict[str, Any],
+    *,
+    success_message: str,
+    failure_message: str,
 ) -> Dict[str, Any]:
+    """Fold the Celery task's own state back into the stored job record.
+
+    A worker that dies mid-task never gets to write its failure, so the poll
+    endpoint asks Celery directly whenever the record is not already terminal.
+    """
     status = str(state.get("status") or "queued")
-    if status in NEW_PROJECT_TERMINAL_STATES:
+    if status in JOB_TERMINAL_STATES:
         return state
     celery_task_id = state.get("celery_task_id")
     if not celery_task_id:
-        return _update_new_project_job_state(
+        return _update_job_state(
+            kind,
             job_id,
             status="expired",
             stage="expired",
@@ -5976,22 +6144,24 @@ def _reconcile_new_project_job_state(
     celery_state = str(getattr(task_result, "state", "") or "").upper()
     if celery_state == "SUCCESS":
         task_value = getattr(task_result, "result", None)
-        return _update_new_project_job_state(
+        return _update_job_state(
+            kind,
             job_id,
             status="succeeded",
             stage="done",
-            message="Project created successfully.",
+            message=success_message,
             progress=100,
             finished_at=time.time(),
             result=task_value if isinstance(task_value, dict) else state.get("result"),
         )
     if celery_state == "FAILURE":
         task_error = getattr(task_result, "result", None)
-        return _update_new_project_job_state(
+        return _update_job_state(
+            kind,
             job_id,
             status="failed",
             stage=state.get("stage") or "failed",
-            message="ALWeaver generation failed.",
+            message=failure_message,
             finished_at=time.time(),
             error={
                 "type": "celery_failure",
@@ -5999,7 +6169,8 @@ def _reconcile_new_project_job_state(
             },
         )
     if celery_state == "REVOKED":
-        return _update_new_project_job_state(
+        return _update_job_state(
+            kind,
             job_id,
             status="cancelled",
             stage="cancelled",
@@ -6010,10 +6181,11 @@ def _reconcile_new_project_job_state(
         updates: Dict[str, Any] = {"status": "running"}
         if not state.get("started_at"):
             updates["started_at"] = time.time()
-        return _update_new_project_job_state(job_id, **updates)
+        return _update_job_state(kind, job_id, **updates)
     if celery_state in {"PENDING", "RECEIVED"}:
-        return _update_new_project_job_state(job_id, status="queued")
-    return _update_new_project_job_state(
+        return _update_job_state(kind, job_id, status="queued")
+    return _update_job_state(
+        kind,
         job_id,
         status="expired",
         stage="expired",
@@ -6021,6 +6193,243 @@ def _reconcile_new_project_job_state(
         finished_at=time.time(),
         error={"type": "job_expired", "message": f"Unknown task state: {celery_state}"},
     )
+
+
+def _reconcile_new_project_job_state(
+    job_id: str, state: Dict[str, Any]
+) -> Dict[str, Any]:
+    return _reconcile_job_state(
+        NEW_PROJECT_JOB,
+        job_id,
+        state,
+        success_message="Project created successfully.",
+        failure_message="ALWeaver generation failed.",
+    )
+
+
+def _reconcile_github_publish_job_state(
+    job_id: str, state: Dict[str, Any]
+) -> Dict[str, Any]:
+    return _reconcile_job_state(
+        GITHUB_PUBLISH_JOB,
+        job_id,
+        state,
+        success_message="Published to GitHub successfully.",
+        failure_message="Publishing to GitHub failed.",
+    )
+
+
+def _complete_github_publish_job(
+    *,
+    job_id: str,
+    uid: int,
+    project: str,
+    package: str,
+    repository: str,
+    owner: str,
+    owner_type: str,
+    author_name: str,
+    author_email: str,
+    branch: str,
+    commit_message: str,
+    repository_url: str,
+) -> Dict[str, Any]:
+    """Create the repository if needed and commit the prepared package.
+
+    Runs in the Celery worker: one blob upload per file means a project with a
+    handful of templates makes far more GitHub round trips than a web request
+    can wait for.
+    """
+    stage = "start"
+    try:
+        _update_job_state(
+            GITHUB_PUBLISH_JOB,
+            job_id,
+            status="running",
+            stage=stage,
+            message="Starting the GitHub publish.",
+            started_at=time.time(),
+            progress=5,
+        )
+
+        stage = "ensure_repository"
+        _update_job_state(
+            GITHUB_PUBLISH_JOB,
+            job_id,
+            stage=stage,
+            message=f"Checking {owner}/{repository} on GitHub.",
+            progress=10,
+        )
+        github_repository = ensure_github_repository(
+            owner=owner,
+            repository=repository,
+            description=f"A docassemble project for {project}.",
+            owner_type=owner_type or None,
+        )
+        canonical_url = str(github_repository.get("html_url") or repository_url).rstrip(
+            "/"
+        )
+
+        stage = "publish"
+        package_info, manifest_path = load_project_github_manifest(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+        )
+
+        def report(message: str, percent: int) -> None:
+            # publish_github_package reports on its own 0-100 scale; the
+            # repository check already accounted for the first tenth.
+            _update_job_state(
+                GITHUB_PUBLISH_JOB,
+                job_id,
+                stage="publish",
+                message=message,
+                progress=15 + int(80 * percent / 100),
+            )
+
+        committed = publish_github_package(
+            owner=owner,
+            repository=repository,
+            package=package,
+            project=project,
+            user_id=uid,
+            package_info=package_info,
+            author_name=author_name,
+            author_email=author_email,
+            branch=branch,
+            commit_message=commit_message,
+            manifest_path=manifest_path,
+            default_branch=str(github_repository.get("default_branch") or ""),
+            on_progress=report,
+        )
+
+        result = {
+            "project": project,
+            "package": package,
+            "repository": repository,
+            "owner": owner,
+            "repository_url": canonical_url,
+            "repository_created": bool(github_repository.get("created_by_weaver")),
+            "branch": branch,
+            "commit_sha": committed["sha"],
+            "files_committed": committed["files"],
+            "commit_url": f"{canonical_url}/commit/{committed['sha']}",
+        }
+        _update_job_state(
+            GITHUB_PUBLISH_JOB,
+            job_id,
+            status="succeeded",
+            stage="done",
+            message=(
+                f"Published {result['files_committed']} files to "
+                f"{owner}/{repository} on {branch}."
+            ),
+            result=result,
+            progress=100,
+            finished_at=time.time(),
+        )
+        return result
+    except Exception as exc:
+        if isinstance(exc, GithubCredentialError):
+            error_type = "github_not_connected"
+        elif isinstance(exc, ValueError):
+            error_type = "validation_error"
+        else:
+            error_type = "server_error"
+        _update_job_state(
+            GITHUB_PUBLISH_JOB,
+            job_id,
+            status="failed",
+            stage=stage,
+            message="Publishing to GitHub failed.",
+            error={"type": error_type, "message": str(exc)},
+            finished_at=time.time(),
+        )
+        log(
+            "ALWeaver editor: background GitHub publish failed "
+            f"job_id={job_id} project={project} stage={stage}: {exc!r}\n"
+            f"{traceback.format_exc()}",
+            "error",
+        )
+        raise
+
+
+def _start_github_publish_job(
+    *,
+    uid: int,
+    request_id: str,
+    project: str,
+    package: str,
+    repository: str,
+    owner: str,
+    owner_type: str,
+    author_name: str,
+    author_email: str,
+    branch: str,
+    commit_message: str,
+    repository_url: str,
+) -> Dict[str, Any]:
+    job_id = str(uuid.uuid4())
+    initial_state: Dict[str, Any] = {
+        "status": "queued",
+        "stage": "queued",
+        "message": f"Queued for publishing to {owner}/{repository}.",
+        "owner_user_id": uid,
+        "operation_type": "github_publish",
+        "project": project,
+        "package": package,
+        "repository": repository,
+        "owner": owner,
+        "branch": branch,
+        "repository_url": repository_url,
+        "request_id": request_id,
+        "queued_at": time.time(),
+        "started_at": None,
+        "finished_at": None,
+        "progress": 0,
+        "result": None,
+        "error": None,
+    }
+    _store_job_state(GITHUB_PUBLISH_JOB, job_id, initial_state)
+    try:
+        task = workerapp.send_task(
+            GITHUB_PUBLISH_CELERY_TASK,
+            kwargs={
+                "job_id": job_id,
+                "uid": uid,
+                "project": project,
+                "package": package,
+                "repository": repository,
+                "owner": owner,
+                "owner_type": owner_type,
+                "author_name": author_name,
+                "author_email": author_email,
+                "branch": branch,
+                "commit_message": commit_message,
+                "repository_url": repository_url,
+            },
+        )
+    except Exception as exc:
+        _update_job_state(
+            GITHUB_PUBLISH_JOB,
+            job_id,
+            status="failed",
+            stage="enqueue",
+            message="Unable to queue the GitHub publish.",
+            finished_at=time.time(),
+            error={
+                "type": "queue_error",
+                "message": str(exc) or "Unable to queue Celery task.",
+            },
+        )
+        raise
+    _update_job_state(GITHUB_PUBLISH_JOB, job_id, celery_task_id=task.id)
+    return {
+        "job_id": job_id,
+        "job_url": f"{EDITOR_BASE_PATH}/api/github/publish/jobs/{job_id}",
+        "state": initial_state,
+    }
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/new-project", methods=["POST"])

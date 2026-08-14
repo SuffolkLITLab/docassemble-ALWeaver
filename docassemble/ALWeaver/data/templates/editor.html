@@ -219,14 +219,18 @@
             <input class="form-control" id="github-commit-message" name="commit_message"
                    value="Update from Weaver" autocomplete="off" maxlength="500" required>
           </div>
-          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included. Weaver uses Docassemble's GitHub connection, and Docassemble performs the Git commit and push.</p>
+          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included. Weaver uses Docassemble's GitHub connection to create the commit and push it to the selected repository.</p>
         </div>
         <div class="modal-footer justify-content-between">
           <a class="btn btn-sm btn-outline-secondary d-none" id="github-configure-link">Configure GitHub</a>
+          <a class="btn btn-sm btn-outline-success d-none" id="github-repository-link"
+             target="_blank" rel="noopener">View repository</a>
+          <a class="btn btn-sm btn-outline-success d-none" id="github-commit-link"
+             target="_blank" rel="noopener">View commit</a>
           <div class="d-flex gap-2 ms-auto">
             <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
             <button type="submit" class="btn btn-sm btn-primary" id="github-publish-submit" disabled>
-              <i class="fa-brands fa-github me-1" aria-hidden="true"></i>Continue to GitHub
+              <i class="fa-brands fa-github me-1" aria-hidden="true"></i>Publish to GitHub
             </button>
           </div>
         </div>

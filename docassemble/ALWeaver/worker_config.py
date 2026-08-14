@@ -31,7 +31,8 @@ def get_worker_configuration_status(
             "code": "celery_configuration_check_failed",
             "message": (
                 "Weaver could not inspect Docassemble's Celery configuration. "
-                "Uploaded-document project generation is unavailable."
+                "Uploaded-document project generation and GitHub publishing "
+                "are unavailable."
             ),
             "config_key": CELERY_CONFIG_KEY,
             "required_module": CELERY_MODULE,
@@ -53,10 +54,10 @@ def get_worker_configuration_status(
         "configured": False,
         "code": "celery_module_missing",
         "message": (
-            "Uploaded-document project generation is unavailable until the "
-            "Weaver worker module is added to Docassemble's Celery configuration "
-            "and the web and Celery services are restarted. Other editor features "
-            "remain available."
+            "Uploaded-document project generation and GitHub publishing are "
+            "unavailable until the Weaver worker module is added to "
+            "Docassemble's Celery configuration and the web and Celery services "
+            "are restarted. Other editor features remain available."
         ),
         "config_key": CELERY_CONFIG_KEY,
         "required_module": CELERY_MODULE,

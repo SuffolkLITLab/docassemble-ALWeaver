@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+import base64
 import importlib
 import importlib.metadata
 import json
+import os
 import re
+import shutil
 import sys
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import tempfile
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from flask import Response, jsonify, url_for
@@ -17,6 +21,17 @@ from flask import Response, jsonify, url_for
 
 class DocassembleCompatibilityError(RuntimeError):
     """Raised when the installed Docassemble lacks a required capability."""
+
+
+class GithubCredentialError(DocassembleCompatibilityError):
+    """Raised when Docassemble's stored GitHub OAuth credential is unusable."""
+
+
+# GitHub answers 404 for a missing ref, but 409 ("Git Repository is empty") for
+# every git-data read against a repository that has no commits yet — which is
+# exactly the repository Weaver just created for a first publish.  Both mean
+# "there is nothing to build on", not "something went wrong".
+_GITHUB_NO_SUCH_REF_STATUSES = frozenset({404, 409})
 
 
 @dataclass(frozen=True)
@@ -400,15 +415,6 @@ def get_native_github_integration(user_id: int) -> Dict[str, Any]:
             "github_menu",
         )
     )
-    publish_available = (
-        _first_endpoint_url(
-            (
-                "develop.create_playground_package",
-                "create_playground_package",
-            )
-        )
-        is not None
-    )
     connected = False
     organizations_enabled = False
     if enabled:
@@ -435,7 +441,6 @@ def get_native_github_integration(user_id: int) -> Dict[str, Any]:
         "enabled": enabled,
         "connected": connected,
         "organizations_enabled": organizations_enabled,
-        "available": enabled and publish_available,
         "configure_url": configure_url,
     }
 
@@ -452,9 +457,17 @@ def _github_authorized_http() -> Any:
         ),
         "its GitHub OAuth credential storage",
     )
-    credentials = storage_class(oauth_app="github").get()
+    try:
+        credentials = storage_class(oauth_app="github").get()
+    except ValueError as exc:
+        # Some Docassemble versions let JSONDecodeError escape when the
+        # Redis credential record is empty or stale.  That is an expired
+        # connection, not a malformed editor request.
+        raise GithubCredentialError(
+            "The GitHub connection could not be read; reconnect it in Docassemble"
+        ) from exc
     if not credentials or getattr(credentials, "invalid", False):
-        raise DocassembleCompatibilityError(
+        raise GithubCredentialError(
             "The GitHub connection has expired; reconnect it in Docassemble"
         )
     httplib2 = importlib.import_module("httplib2")
@@ -522,25 +535,37 @@ def get_github_publish_owners() -> List[Dict[str, str]]:
 
 
 def ensure_github_repository(
-    *, owner: str, repository: str, description: str = ""
+    *,
+    owner: str,
+    repository: str,
+    description: str = "",
+    owner_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Find or create a repository under a selected authenticated owner.
 
     Docassemble creates missing repositories only under ``/user/repos``.  For
-    organizations, Weaver creates the empty repository first and then lets the
-    native publisher perform all Git operations against it.
+    organizations, Weaver creates the empty repository first and then commits
+    into it through :func:`publish_github_package`.
+
+    Pass ``owner_type`` when the caller already resolved the owner against
+    :func:`get_github_publish_owners`; that skips a second ``/user/orgs``
+    pagination walk on every publish.
     """
-    owners = get_github_publish_owners()
-    selected = next(
-        (
-            item
-            for item in owners
-            if item["login"].casefold() == str(owner).strip().casefold()
-        ),
-        None,
-    )
-    if selected is None:
-        raise ValueError("Choose a GitHub account or organization from the list")
+    if owner_type:
+        selected = {"login": str(owner).strip(), "type": str(owner_type)}
+    else:
+        owners = get_github_publish_owners()
+        found = next(
+            (
+                item
+                for item in owners
+                if item["login"].casefold() == str(owner).strip().casefold()
+            ),
+            None,
+        )
+        if found is None:
+            raise ValueError("Choose a GitHub account or organization from the list")
+        selected = found
 
     http = _github_authorized_http()
     encoded_owner = quote(selected["login"], safe="")
@@ -582,26 +607,249 @@ def ensure_github_repository(
     return repo
 
 
-def native_github_publish_url(
-    *, project: str, package: str, branch: str, commit_message: str
-) -> str:
-    """Build the native Playground GitHub publish URL on 1.9.x or 1.10.x."""
-    result = _first_endpoint_url(
+def publish_github_package(
+    *,
+    owner: str,
+    repository: str,
+    package: str,
+    project: str,
+    user_id: int,
+    package_info: Dict[str, Any],
+    author_name: str,
+    author_email: str,
+    branch: str,
+    commit_message: str,
+    manifest_path: str = "",
+    default_branch: str = "",
+    on_progress: Optional[Callable[[str, int], None]] = None,
+) -> Dict[str, Any]:
+    """Commit a generated Playground package through GitHub's Git API.
+
+    The native Playground publisher shells out to Git over SSH and then
+    redirects the browser away from Weaver.  The editor already has the
+    authorized GitHub connection, so the Git database API is a better fit: it
+    works for personal and organization repositories and needs no SSH key.
+
+    One blob upload per file means a template-heavy project takes far longer
+    than a web request should, so this runs in Docassemble's Celery worker.
+    ``on_progress`` receives ``(message, percent)`` on this function's own
+    0-100 scale for the caller to surface while it runs.
+
+    ``manifest_path`` supplies the modification time Docassemble's package
+    builder expects, and ``default_branch`` is the repository's default branch,
+    used as the starting point when ``branch`` does not exist yet.
+    """
+
+    def report(message: str, percent: int) -> None:
+        if on_progress is None:
+            return
+        try:
+            on_progress(message, max(0, min(100, int(percent))))
+        except Exception:
+            # Progress reporting must never abort a publish that is working.
+            pass
+
+    make_package_dir = _first_webapp_attr(
         (
-            "develop.create_playground_package",
-            "create_playground_package",
+            ("docassemble.webapp.files", "make_package_dir"),
+            ("docassemble.webapp.files.savedfile", "make_package_dir"),
         ),
-        project=project,
-        package=package,
-        github="1",
-        branch=branch,
-        commit_message=commit_message,
+        "its Playground package builder",
     )
-    if result is None:
-        raise DocassembleCompatibilityError(
-            "This Docassemble installation does not expose its Playground GitHub publisher"
+    package_info = dict(package_info)
+    manifest_path = str(manifest_path or "")
+    default_branch = str(default_branch or "").strip()
+    if manifest_path and os.path.isfile(manifest_path):
+        package_info["modtime"] = os.path.getmtime(manifest_path)
+    else:
+        package_info.setdefault("modtime", 0)
+
+    display_name = str(author_name or "Account").strip() or "Account"
+    if author_email:
+        author_label = f"{display_name} <{author_email}>"
+    else:
+        author_label = display_name
+    author_info = {
+        "id": user_id,
+        "author name": display_name,
+        "author email": author_email,
+        "author name and email": author_label,
+    }
+
+    # Create the staging directory here rather than letting Docassemble pick a
+    # temporary one: if the package build fails partway through the copy, the
+    # ``finally`` below still knows what to remove.
+    package_directory = tempfile.mkdtemp(prefix="weaver-github-")
+    try:
+        report("Building the package from the Playground project.", 5)
+        make_package_dir(
+            package,
+            package_info,
+            author_info,
+            directory=package_directory,
+            current_project=project,
         )
-    return result
+        packagedir = os.path.join(package_directory, f"docassemble-{package}")
+        if not os.path.isdir(packagedir):
+            raise DocassembleCompatibilityError(
+                "Docassemble did not create the GitHub package directory"
+            )
+
+        files: List[Tuple[str, str]] = []
+        for root, _directories, filenames in os.walk(packagedir):
+            for filename in filenames:
+                full_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(full_path, packagedir).replace(
+                    os.sep, "/"
+                )
+                files.append((relative_path, full_path))
+        files.sort()
+        if not files:
+            raise ValueError("The generated GitHub package is empty")
+
+        http = _github_authorized_http()
+        repository_path = (
+            f"https://api.github.com/repos/{quote(str(owner), safe='')}/"
+            f"{quote(str(repository), safe='')}"
+        )
+        branch_ref = quote(str(branch), safe="/")
+        ref_url = f"{repository_path}/git/ref/heads/{branch_ref}"
+
+        target_branch_exists = False
+        parent_sha: Optional[str] = None
+        response, ref = _github_json_request(http, ref_url)
+        ref_status = int(response.get("status", 0))
+        if ref_status == 200 and isinstance(ref, dict):
+            parent_sha = str((ref.get("object") or {}).get("sha") or "") or None
+            target_branch_exists = True
+        elif ref_status not in _GITHUB_NO_SUCH_REF_STATUSES:
+            raise DocassembleCompatibilityError(
+                _github_error_message(ref, "GitHub could not read the target branch")
+            )
+
+        # If the requested branch does not exist, base it on the repository's
+        # default branch when one is available.  A repository Weaver just
+        # created has no commits at all, so it simply starts without a parent.
+        if not target_branch_exists and default_branch and default_branch != branch:
+            default_ref_url = (
+                f"{repository_path}/git/ref/heads/{quote(default_branch, safe='/')}"
+            )
+            response, default_ref = _github_json_request(http, default_ref_url)
+            default_status = int(response.get("status", 0))
+            if default_status == 200 and isinstance(default_ref, dict):
+                parent_sha = (
+                    str((default_ref.get("object") or {}).get("sha") or "") or None
+                )
+            elif default_status not in _GITHUB_NO_SUCH_REF_STATUSES:
+                raise DocassembleCompatibilityError(
+                    _github_error_message(
+                        default_ref, "GitHub could not read the default branch"
+                    )
+                )
+
+        tree_entries: List[Dict[str, str]] = []
+        total_files = len(files)
+        for index, (relative_path, full_path) in enumerate(files, start=1):
+            report(
+                f"Uploading {relative_path} ({index} of {total_files}).",
+                15 + int(70 * (index - 1) / total_files),
+            )
+            with open(full_path, "rb") as stream:
+                encoded_content = base64.b64encode(stream.read()).decode("ascii")
+            response, blob = _github_json_request(
+                http,
+                f"{repository_path}/git/blobs",
+                "POST",
+                {"content": encoded_content, "encoding": "base64"},
+            )
+            if int(response.get("status", 0)) != 201 or not isinstance(blob, dict):
+                raise DocassembleCompatibilityError(
+                    _github_error_message(
+                        blob, f"GitHub could not upload {relative_path}"
+                    )
+                )
+            blob_sha = str(blob.get("sha") or "").strip()
+            if not blob_sha:
+                raise DocassembleCompatibilityError(
+                    f"GitHub did not return a blob for {relative_path}"
+                )
+            tree_entries.append(
+                {
+                    "path": relative_path,
+                    "mode": "100755" if os.access(full_path, os.X_OK) else "100644",
+                    "type": "blob",
+                    "sha": blob_sha,
+                }
+            )
+
+        # Deliberately no ``base_tree``: the walk above already covers every
+        # file in the package, so posting a standalone tree replaces the branch
+        # contents.  Extending the parent tree instead would leave files the
+        # author deleted or renamed in the Playground behind forever, which is
+        # not what the native ``git add .`` publisher did.
+        report("Creating the package tree.", 88)
+        response, tree = _github_json_request(
+            http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
+        )
+        if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
+            raise DocassembleCompatibilityError(
+                _github_error_message(tree, "GitHub could not create the package tree")
+            )
+        tree_sha = str(tree.get("sha") or "").strip()
+        if not tree_sha:
+            raise DocassembleCompatibilityError("GitHub did not return a package tree")
+
+        commit_body: Dict[str, Any] = {
+            "message": commit_message,
+            "tree": tree_sha,
+        }
+        # Attribute the commit to the Weaver user the way the native publisher's
+        # ``git config user.name``/``user.email`` did.  Without this every
+        # commit made through a shared connection looks like the token owner.
+        if author_email:
+            commit_body["author"] = {
+                "name": display_name,
+                "email": author_email,
+            }
+            commit_body["committer"] = dict(commit_body["author"])
+        if parent_sha:
+            commit_body["parents"] = [parent_sha]
+        report("Creating the commit.", 93)
+        response, commit = _github_json_request(
+            http, f"{repository_path}/git/commits", "POST", commit_body
+        )
+        if int(response.get("status", 0)) != 201 or not isinstance(commit, dict):
+            raise DocassembleCompatibilityError(
+                _github_error_message(commit, "GitHub could not create the commit")
+            )
+        commit_sha = str(commit.get("sha") or "").strip()
+        if not commit_sha:
+            raise DocassembleCompatibilityError("GitHub did not return a commit")
+
+        report(f"Pointing {branch} at the new commit.", 97)
+        if target_branch_exists:
+            response, updated_ref = _github_json_request(
+                http,
+                ref_url,
+                "PATCH",
+                {"sha": commit_sha, "force": False},
+            )
+            expected_status = 200
+        else:
+            response, updated_ref = _github_json_request(
+                http,
+                f"{repository_path}/git/refs",
+                "POST",
+                {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+            )
+            expected_status = 201
+        if int(response.get("status", 0)) != expected_status:
+            raise DocassembleCompatibilityError(
+                _github_error_message(updated_ref, "GitHub could not update the branch")
+            )
+        return {"sha": commit_sha, "branch": branch, "files": len(files)}
+    finally:
+        shutil.rmtree(package_directory, ignore_errors=True)
 
 
 def json_response(payload: Any, status: int = 200) -> Response:

@@ -10,6 +10,7 @@ import yaml
 from . import playground_publish
 from .playground_publish import (
     _source_path_and_filename,
+    load_project_github_manifest,
     next_available_project_name,
     normalize_github_package_name,
     normalize_project_name,
@@ -135,6 +136,49 @@ class test_playground_publish(unittest.TestCase):
             )
             self.assertNotIn(".placeholder", str(manifest))
             self.assertTrue(areas["playgroundpackages"].finalized)
+
+            # The publishing worker reads the manifest back through the saved
+            # file area, which may be a different host than wrote it.
+            fetched = []
+
+            def fake_create_saved_file(_uid, fix, section):
+                fetched.append((section, fix))
+                return areas[section]
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                side_effect=fake_create_saved_file,
+            ):
+                loaded, loaded_path = load_project_github_manifest(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="HousingForms",
+                )
+
+            self.assertEqual(loaded_path, result["manifest_path"])
+            self.assertEqual(loaded, manifest)
+            self.assertEqual(fetched, [("playgroundpackages", True)])
+
+    def test_load_project_github_manifest_reports_a_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            class FakeArea:
+                directory = temp_dir
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                return_value=FakeArea(),
+            ):
+                with self.assertRaises(ValueError) as raised:
+                    load_project_github_manifest(
+                        user_id=7,
+                        project_name="Housing",
+                        package_name="HousingForms",
+                    )
+
+        self.assertIn("prepare the project again", str(raised.exception))
 
 
 if __name__ == "__main__":
