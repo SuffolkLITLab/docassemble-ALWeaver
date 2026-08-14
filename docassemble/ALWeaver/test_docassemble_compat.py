@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 from flask import Flask
 from jinja2 import DebugUndefined
@@ -251,25 +251,15 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                 endpoint="develop.github_menu",
                 view_func=lambda: "github",
             )
-            app.add_url_rule(
-                "/playground/package/create",
-                endpoint="develop.create_playground_package",
-                view_func=lambda: "publish",
-            )
         else:
             app.add_url_rule(
                 "/github",
                 endpoint="github_menu",
                 view_func=lambda: "github",
             )
-            app.add_url_rule(
-                "/createplaygroundpackage",
-                endpoint="create_playground_package",
-                view_func=lambda: "publish",
-            )
         return app
 
-    def test_native_github_endpoints_resolve_on_19_and_110(self):
+    def test_native_github_configuration_resolves_on_19_and_110(self):
         redis = types.SimpleNamespace(get=lambda key: b'{"shared": true, "orgs": true}')
         for layout in ("1.9.x", "1.10.x"):
             with self.subTest(layout=layout):
@@ -286,22 +276,11 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                         ),
                     ):
                         status = docassemble_compat.get_native_github_integration(7)
-                        publish_url = docassemble_compat.native_github_publish_url(
-                            project="Housing",
-                            package="HousingForms",
-                            branch="feature/github",
-                            commit_message="Update interview",
-                        )
 
-                self.assertTrue(status["available"])
+                self.assertTrue(status["enabled"])
                 self.assertTrue(status["connected"])
                 self.assertTrue(status["organizations_enabled"])
                 self.assertTrue(status["configure_url"])
-                query = parse_qs(urlsplit(publish_url).query)
-                self.assertEqual(query["project"], ["Housing"])
-                self.assertEqual(query["package"], ["HousingForms"])
-                self.assertEqual(query["branch"], ["feature/github"])
-                self.assertEqual(query["github"], ["1"])
 
     def test_native_github_status_reports_disabled_configuration(self):
         app = self._app_for_layout("1.10.x")
@@ -311,7 +290,6 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                 status = docassemble_compat.get_native_github_integration(7)
         self.assertFalse(status["enabled"])
         self.assertFalse(status["connected"])
-        self.assertFalse(status["available"])
 
     def test_publish_owners_include_personal_account_and_paginated_orgs(self):
         class FakeHttp:
@@ -345,6 +323,24 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                 {"login": "CourtForms", "type": "organization"},
             ],
         )
+
+    def test_malformed_github_credential_is_reported_as_expired_connection(self):
+        class BrokenStorage:
+            def __init__(self, **kwargs):
+                pass
+
+            def get(self):
+                raise json.JSONDecodeError("Expecting value", "", 0)
+
+        with patch.object(
+            docassemble_compat,
+            "_first_webapp_attr",
+            return_value=BrokenStorage,
+        ):
+            with self.assertRaises(docassemble_compat.GithubCredentialError) as raised:
+                docassemble_compat._github_authorized_http()
+
+        self.assertIn("reconnect it in Docassemble", str(raised.exception))
 
     def test_missing_organization_repository_is_created_under_that_org(self):
         class FakeHttp:
@@ -392,6 +388,353 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             ),
         )
         self.assertTrue(repository["created_by_weaver"])
+
+    PACKAGE_INFO = {
+        "dependencies": [],
+        "description": "Housing forms",
+        "license": "MIT License",
+        "interview_files": ["main.yml"],
+        "template_files": [],
+        "module_files": [],
+        "static_files": [],
+        "sources_files": [],
+    }
+
+    def _fake_package_builder(self, filenames=("README.md",)):
+        """Stand in for Docassemble's ``make_package_dir``.
+
+        The real builder writes into the ``directory`` the caller supplies, so
+        the fake must too — that is what lets Weaver clean up after a failure.
+        """
+        staging_directories = []
+
+        def fake_make_package_dir(
+            pkgname, info, author_info, directory=None, current_project="default"
+        ):
+            self.assertIsNotNone(directory, "Weaver must own the staging directory")
+            staging_directories.append(directory)
+            package_directory = Path(directory) / f"docassemble-{pkgname}"
+            package_directory.mkdir()
+            for filename in filenames:
+                target = package_directory / filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f"# {filename}\n", encoding="utf-8")
+            return directory
+
+        return fake_make_package_dir, staging_directories
+
+    def _publish(self, http, builder, **overrides):
+        arguments = {
+            "owner": "LegalAid",
+            "repository": "docassemble-HousingForms",
+            "package": "HousingForms",
+            "project": "Housing",
+            "user_id": 7,
+            "package_info": dict(self.PACKAGE_INFO),
+            "author_name": "Ada",
+            "author_email": "ada@example.com",
+            "branch": "main",
+            "commit_message": "Publish housing forms",
+        }
+        arguments.update(overrides)
+        with (
+            patch.object(
+                docassemble_compat, "_first_webapp_attr", return_value=builder
+            ),
+            patch.object(
+                docassemble_compat, "_github_authorized_http", return_value=http
+            ),
+        ):
+            return docassemble_compat.publish_github_package(**arguments)
+
+    @staticmethod
+    def _body_for(http, suffix, method="POST"):
+        return next(
+            body
+            for url, called_method, body in http.calls
+            if called_method == method and url.endswith(suffix)
+        )
+
+    def test_publish_github_package_creates_a_commit_on_a_new_branch(self):
+        builder, staging_directories = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+
+        http = FakeHttp()
+        result = self._publish(http, builder)
+
+        self.assertEqual(result, {"sha": "commit-sha", "branch": "main", "files": 1})
+        self.assertEqual(http.calls[0][1], "GET")
+        self.assertEqual(http.calls[-1][1], "POST")
+        self.assertEqual(http.calls[-1][2]["ref"], "refs/heads/main")
+        self.assertTrue(staging_directories)
+        self.assertFalse(Path(staging_directories[0]).exists())
+
+    def test_publish_github_package_treats_an_empty_repository_as_a_fresh_branch(self):
+        """A repository Weaver just created has no commits.
+
+        GitHub answers git-data reads on such a repository with 409 "Git
+        Repository is empty", not 404, so the first publish must still fall
+        through to a parentless commit instead of failing.
+        """
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    return (
+                        {"status": "409"},
+                        b'{"message": "Git Repository is empty."}',
+                    )
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "first-commit-sha"}'
+                if url.endswith("/git/refs"):
+                    return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+                return {"status": "400"}, b'{"message": "Unexpected call"}'
+
+        http = FakeHttp()
+        result = self._publish(http, builder, default_branch="main")
+
+        self.assertEqual(
+            result, {"sha": "first-commit-sha", "branch": "main", "files": 1}
+        )
+        commit_body = self._body_for(http, "/git/commits")
+        self.assertNotIn("parents", commit_body)
+        self.assertEqual(
+            self._body_for(http, "/git/refs"),
+            {"ref": "refs/heads/main", "sha": "first-commit-sha"},
+        )
+
+    def test_publish_github_package_creates_new_branch_from_default_branch(self):
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    if url.endswith("/git/ref/heads/feature/github"):
+                        return {"status": "404"}, b'{"message": "Not Found"}'
+                    if url.endswith("/git/ref/heads/main"):
+                        return (
+                            {"status": "200"},
+                            b'{"object": {"sha": "main-commit-sha"}}',
+                        )
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "new-commit-sha"}'
+                if url.endswith("/git/refs"):
+                    return {"status": "201"}, b'{"ref": "refs/heads/feature/github"}'
+                return {"status": "400"}, b'{"message": "Unexpected call"}'
+
+        http = FakeHttp()
+        result = self._publish(
+            http,
+            builder,
+            branch="feature/github",
+            default_branch="main",
+            commit_message="Publish housing forms on new branch",
+        )
+
+        self.assertEqual(
+            result, {"sha": "new-commit-sha", "branch": "feature/github", "files": 1}
+        )
+        self.assertEqual(
+            self._body_for(http, "/git/commits")["parents"], ["main-commit-sha"]
+        )
+        self.assertEqual(http.calls[-1][1], "POST")
+        self.assertEqual(
+            http.calls[-1][0],
+            "https://api.github.com/repos/LegalAid/docassemble-HousingForms/git/refs",
+        )
+        self.assertEqual(
+            http.calls[-1][2],
+            {"ref": "refs/heads/feature/github", "sha": "new-commit-sha"},
+        )
+
+    def test_publish_github_package_replaces_the_tree_so_deletions_propagate(self):
+        """Publishing must not inherit the parent tree.
+
+        The native publisher ran ``git add .`` inside a clone, so a file the
+        author deleted or renamed in the Playground disappeared from the
+        repository.  Passing ``base_tree`` here would silently keep it forever.
+        """
+        builder, _staging = self._fake_package_builder(
+            filenames=("README.md", "setup.py")
+        )
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    return (
+                        {"status": "200"},
+                        b'{"object": {"sha": "existing-commit-sha"}}',
+                    )
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "next-commit-sha"}'
+                if method == "PATCH":
+                    return {"status": "200"}, b'{"ref": "refs/heads/main"}'
+                return {"status": "400"}, b'{"message": "Unexpected call"}'
+
+        http = FakeHttp()
+        result = self._publish(http, builder)
+
+        self.assertEqual(result["files"], 2)
+        tree_body = self._body_for(http, "/git/trees")
+        self.assertNotIn("base_tree", tree_body)
+        self.assertEqual(
+            sorted(entry["path"] for entry in tree_body["tree"]),
+            ["README.md", "setup.py"],
+        )
+        # The parent commit's tree is never read, so no extra round trip.
+        self.assertFalse(
+            [url for url, _method, _body in http.calls if "/git/commits/" in url]
+        )
+        self.assertEqual(
+            self._body_for(http, "/git/commits")["parents"], ["existing-commit-sha"]
+        )
+        self.assertEqual(
+            self._body_for(http, "/git/ref/heads/main", method="PATCH"),
+            {"sha": "next-commit-sha", "force": False},
+        )
+
+    def test_publish_github_package_attributes_the_commit_to_the_weaver_user(self):
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+
+        http = FakeHttp()
+        self._publish(http, builder)
+
+        commit_body = self._body_for(http, "/git/commits")
+        expected = {"name": "Ada", "email": "ada@example.com"}
+        self.assertEqual(commit_body["author"], expected)
+        self.assertEqual(commit_body["committer"], expected)
+
+    def test_publish_github_package_reports_progress_for_every_file(self):
+        """The Celery job surfaces this while the browser polls."""
+        builder, _staging = self._fake_package_builder(
+            filenames=("README.md", "setup.py")
+        )
+
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+
+        reported = []
+        self._publish(
+            FakeHttp(),
+            builder,
+            on_progress=lambda message, percent: reported.append((message, percent)),
+        )
+
+        messages = [message for message, _percent in reported]
+        self.assertIn("Uploading README.md (1 of 2).", messages)
+        self.assertIn("Uploading setup.py (2 of 2).", messages)
+        self.assertIn("Creating the commit.", messages)
+        percents = [percent for _message, percent in reported]
+        self.assertEqual(percents, sorted(percents))
+        self.assertTrue(all(0 <= percent <= 100 for percent in percents))
+
+    def test_publish_github_package_survives_a_failing_progress_hook(self):
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+
+        def exploding_progress(message, percent):
+            raise RuntimeError("Redis is down")
+
+        result = self._publish(FakeHttp(), builder, on_progress=exploding_progress)
+
+        self.assertEqual(result["sha"], "commit-sha")
+
+    def test_publish_github_package_cleans_up_when_the_package_build_fails(self):
+        staging_directories = []
+
+        def exploding_make_package_dir(
+            pkgname, info, author_info, directory=None, current_project="default"
+        ):
+            staging_directories.append(directory)
+            (Path(directory) / "partial-copy.txt").write_text("x", encoding="utf-8")
+            raise RuntimeError("disk full")
+
+        with self.assertRaises(RuntimeError):
+            self._publish(object(), exploding_make_package_dir)
+
+        self.assertTrue(staging_directories)
+        self.assertFalse(Path(staging_directories[0]).exists())
 
 
 class TestDocassembleSourceCompatibility(unittest.TestCase):

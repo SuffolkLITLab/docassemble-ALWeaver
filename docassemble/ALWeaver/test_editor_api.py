@@ -128,6 +128,7 @@ def _load_api_editor_for_tests():
         "package": kwargs["package_name"],
         "repository": "docassemble-" + kwargs["package_name"],
     }
+    playground_publish.load_project_github_manifest = lambda **kwargs: ({}, "")
     playground_publish.rename_project = lambda *args, **kwargs: None
 
     stubs = {
@@ -164,12 +165,39 @@ def _load_api_editor_for_tests():
 api_editor = _load_api_editor_for_tests()
 
 
+class _FakeRedis:
+    """Just enough Redis for the editor's job-state records."""
+
+    def __init__(self):
+        self.store = {}
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def pipeline(self):
+        store = self.store
+
+        class _Pipe:
+            def __init__(self):
+                self.pending = []
+
+            def set(self, key, value):
+                self.pending.append((key, value))
+                return self
+
+            def expire(self, key, seconds):
+                return self
+
+            def execute(self):
+                for key, value in self.pending:
+                    store[key] = value
+                self.pending = []
+
+        return _Pipe()
+
+
 class TestEditorGithubApi(unittest.TestCase):
-    def test_publish_prepares_manifest_and_returns_native_handoff_url(self):
-        prepared = {
-            "package": "HousingForms",
-            "repository": "docassemble-HousingForms",
-        }
+    def test_status_treats_stale_github_credentials_as_disconnected(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
@@ -177,7 +205,75 @@ class TestEditorGithubApi(unittest.TestCase):
                 api_editor,
                 "get_native_github_integration",
                 return_value={
-                    "available": True,
+                    "enabled": True,
+                    "connected": True,
+                    "organizations_enabled": True,
+                    "configure_url": "/github",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                side_effect=api_editor.GithubCredentialError(
+                    "The GitHub connection could not be read; reconnect it in Docassemble"
+                ),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/status?project=Housing"
+            ):
+                response = api_editor.editor_api_github_status()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertFalse(data["connected"])
+        self.assertFalse(data["organizations_enabled"])
+        self.assertEqual(data["owners"], [])
+
+    MANIFEST_PATH = "/playground/packages/Housing/docassemble.HousingForms"
+    MANIFEST_INFO = {
+        "interview_files": ["main.yml"],
+        "template_files": [],
+        "module_files": [],
+        "static_files": [],
+        "sources_files": [],
+        "dependencies": [],
+        "description": "Housing forms",
+        "license": "MIT License",
+        "readme": "# Housing forms",
+        "url": "",
+        "version": "0.0.1",
+    }
+
+    def test_publish_prepares_manifest_and_queues_a_background_commit(self):
+        """The request must not hold open the per-file GitHub round trips."""
+        prepared = {
+            "package": "HousingForms",
+            "repository": "docassemble-HousingForms",
+            "manifest_path": "/playground/packages/Housing/docassemble.HousingForms",
+        }
+        sent = {}
+
+        def fake_send_task(task_name, kwargs=None):
+            sent["task_name"] = task_name
+            sent["kwargs"] = kwargs
+            return types.SimpleNamespace(id="celery-task-1")
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "r", _FakeRedis()),
+            patch.object(
+                api_editor,
+                "workerapp",
+                types.SimpleNamespace(send_task=fake_send_task),
+            ),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={
+                    "enabled": True,
                     "connected": True,
                     "organizations_enabled": True,
                 },
@@ -192,22 +288,11 @@ class TestEditorGithubApi(unittest.TestCase):
             ),
             patch.object(
                 api_editor,
-                "ensure_github_repository",
-                return_value={
-                    "html_url": "https://github.com/LegalAid/docassemble-HousingForms",
-                    "created_by_weaver": True,
-                },
-            ) as ensure_repository,
-            patch.object(
-                api_editor,
                 "prepare_project_github_package",
                 return_value=prepared,
             ) as prepare,
-            patch.object(
-                api_editor,
-                "native_github_publish_url",
-                return_value="/createplaygroundpackage?github=1",
-            ) as native_url,
+            patch.object(api_editor, "ensure_github_repository") as ensure_repository,
+            patch.object(api_editor, "publish_github_package") as publish,
             patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
         ):
             api_editor.current_user.email = "ada@example.com"
@@ -224,13 +309,22 @@ class TestEditorGithubApi(unittest.TestCase):
             ):
                 response = api_editor.editor_api_github_publish()
 
-        self.assertEqual(response.status_code, 200)
-        data = response.get_json()["data"]
+        self.assertEqual(response.status_code, 202)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "queued")
+        data = payload["data"]
         self.assertEqual(data["repository"], "docassemble-HousingForms")
         self.assertEqual(data["owner"], "LegalAid")
-        self.assertTrue(data["repository_created"])
         self.assertEqual(data["branch"], "feature/github")
-        self.assertEqual(data["publish_url"], "/createplaygroundpackage?github=1")
+        self.assertEqual(
+            data["job_url"],
+            f"/al/editor/api/github/publish/jobs/{payload['job_id']}",
+        )
+        self.assertEqual(data["state"]["status"], "queued")
+
+        # No GitHub traffic happens in the request itself.
+        ensure_repository.assert_not_called()
+        publish.assert_not_called()
         prepare.assert_called_once_with(
             user_id=7,
             project_name="Housing",
@@ -239,17 +333,196 @@ class TestEditorGithubApi(unittest.TestCase):
             author_email="ada@example.com",
             github_url="https://github.com/LegalAid/docassemble-HousingForms",
         )
+        self.assertEqual(
+            sent["task_name"],
+            "docassemble.ALWeaver.api_weaver_worker.weaver_editor_github_publish_task",
+        )
+        self.assertEqual(
+            sent["kwargs"],
+            {
+                "job_id": payload["job_id"],
+                "uid": 7,
+                "project": "Housing",
+                "package": "HousingForms",
+                "repository": "docassemble-HousingForms",
+                "owner": "LegalAid",
+                "owner_type": "organization",
+                "author_name": "Ada",
+                "author_email": "ada@example.com",
+                "branch": "feature/github",
+                "commit_message": "Update interview",
+                "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            },
+        )
+
+    def test_publish_refuses_when_celery_is_not_configured(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=False),
+            patch.object(
+                api_editor,
+                "get_worker_configuration_status",
+                return_value={"configured": False, "message": "Not configured."},
+            ),
+            patch.object(api_editor, "prepare_project_github_package") as prepare,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                    "branch": "main",
+                    "commit_message": "Update interview",
+                },
+            ):
+                response = api_editor.editor_api_github_publish()
+
+        self.assertEqual(response.status_code, 503)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "editor_async_not_configured")
+        prepare.assert_not_called()
+
+    def test_publish_job_runs_the_github_calls_and_records_the_commit(self):
+        redis = _FakeRedis()
+        with (
+            patch.object(api_editor, "r", redis),
+            patch.object(
+                api_editor,
+                "load_project_github_manifest",
+                return_value=(dict(self.MANIFEST_INFO), self.MANIFEST_PATH),
+            ) as load_manifest,
+            patch.object(
+                api_editor,
+                "ensure_github_repository",
+                return_value={
+                    "html_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "default_branch": "main",
+                    "created_by_weaver": True,
+                },
+            ) as ensure_repository,
+            patch.object(
+                api_editor,
+                "publish_github_package",
+                return_value={"sha": "commit-sha", "files": 12},
+            ) as publish,
+        ):
+            result = api_editor._complete_github_publish_job(
+                job_id="job-1",
+                uid=7,
+                project="Housing",
+                package="HousingForms",
+                repository="docassemble-HousingForms",
+                owner="LegalAid",
+                owner_type="organization",
+                author_name="Ada",
+                author_email="ada@example.com",
+                branch="feature/github",
+                commit_message="Update interview",
+                repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+            )
+            state = api_editor._load_job_state(api_editor.GITHUB_PUBLISH_JOB, "job-1")
+            publish_kwargs = publish.call_args.kwargs
+            # The progress hook writes through to the job record.
+            publish_kwargs["on_progress"]("Uploading main.yml (1 of 2).", 50)
+            progressed = api_editor._load_job_state(
+                api_editor.GITHUB_PUBLISH_JOB, "job-1"
+            )
+
+        self.assertEqual(result["commit_sha"], "commit-sha")
+        self.assertEqual(result["files_committed"], 12)
+        self.assertTrue(result["repository_created"])
+        self.assertEqual(
+            result["commit_url"],
+            "https://github.com/LegalAid/docassemble-HousingForms/commit/commit-sha",
+        )
+        self.assertEqual(state["status"], "succeeded")
+        self.assertEqual(state["progress"], 100)
+        self.assertEqual(state["result"], result)
+
         ensure_repository.assert_called_once_with(
             owner="LegalAid",
             repository="docassemble-HousingForms",
             description="A docassemble project for Housing.",
+            owner_type="organization",
         )
-        native_url.assert_called_once_with(
-            project="Housing",
-            package="HousingForms",
-            branch="feature/github",
-            commit_message="Update interview",
+        # The manifest is re-read in the worker rather than trusting a path
+        # handed across the queue, so this works on a multi-server install.
+        load_manifest.assert_called_once_with(
+            user_id=7,
+            project_name="Housing",
+            package_name="HousingForms",
         )
+        self.assertEqual(publish_kwargs["package_info"], self.MANIFEST_INFO)
+        self.assertEqual(publish_kwargs["manifest_path"], self.MANIFEST_PATH)
+        self.assertEqual(publish_kwargs["default_branch"], "main")
+        self.assertEqual(publish_kwargs["branch"], "feature/github")
+        self.assertEqual(publish_kwargs["author_email"], "ada@example.com")
+        self.assertEqual(progressed["message"], "Uploading main.yml (1 of 2).")
+        self.assertEqual(progressed["progress"], 55)
+
+    def test_publish_job_records_a_lost_github_connection_as_a_failure(self):
+        with (
+            patch.object(api_editor, "r", _FakeRedis()),
+            patch.object(
+                api_editor,
+                "ensure_github_repository",
+                side_effect=api_editor.GithubCredentialError(
+                    "The GitHub connection has expired; reconnect it in Docassemble"
+                ),
+            ),
+        ):
+            with self.assertRaises(api_editor.GithubCredentialError):
+                api_editor._complete_github_publish_job(
+                    job_id="job-2",
+                    uid=7,
+                    project="Housing",
+                    package="HousingForms",
+                    repository="docassemble-HousingForms",
+                    owner="LegalAid",
+                    owner_type="organization",
+                    author_name="Ada",
+                    author_email="ada@example.com",
+                    branch="main",
+                    commit_message="Update interview",
+                    repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+                )
+            state = api_editor._load_job_state(api_editor.GITHUB_PUBLISH_JOB, "job-2")
+
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["stage"], "ensure_repository")
+        self.assertEqual(state["error"]["type"], "github_not_connected")
+
+    def test_publish_job_status_is_scoped_to_its_owner(self):
+        redis = _FakeRedis()
+        with patch.object(api_editor, "r", redis):
+            api_editor._store_job_state(
+                api_editor.GITHUB_PUBLISH_JOB,
+                "job-3",
+                {"status": "succeeded", "owner_user_id": 7, "result": {"files": 3}},
+            )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/github/publish/jobs/job-3"
+                ):
+                    owner_response = api_editor.editor_api_github_publish_job("job-3")
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=99),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/github/publish/jobs/job-3"
+                ):
+                    other_response = api_editor.editor_api_github_publish_job("job-3")
+
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(owner_response.get_json()["status"], "succeeded")
+        self.assertEqual(other_response.status_code, 404)
 
     def test_publish_rejects_invalid_branch_before_writing_manifest(self):
         with (

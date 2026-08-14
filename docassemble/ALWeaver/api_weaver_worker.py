@@ -62,6 +62,49 @@ def weaver_editor_agent_turn_task(
 
 
 @workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_github_publish_task"
+)
+def weaver_editor_github_publish_task(
+    *,
+    job_id: str,
+    uid: int,
+    project: str,
+    package: str,
+    repository: str,
+    owner: str,
+    owner_type: str,
+    author_name: str,
+    author_email: str,
+    branch: str,
+    commit_message: str,
+    repository_url: str,
+) -> Dict[str, Any]:
+    """Commit a prepared Playground package to GitHub in the Celery worker.
+
+    Publishing uploads one blob per file before it can write the tree, commit
+    and ref, so a template-heavy project makes far more GitHub round trips than
+    a web request should hold open.
+    """
+    with bg_context():
+        from .api_editor import _complete_github_publish_job
+
+        return _complete_github_publish_job(
+            job_id=job_id,
+            uid=uid,
+            project=project,
+            package=package,
+            repository=repository,
+            owner=owner,
+            owner_type=owner_type,
+            author_name=author_name,
+            author_email=author_email,
+            branch=branch,
+            commit_message=commit_message,
+            repository_url=repository_url,
+        )
+
+
+@workerapp.task(
     name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_new_project_task"
 )
 def weaver_editor_new_project_task(
