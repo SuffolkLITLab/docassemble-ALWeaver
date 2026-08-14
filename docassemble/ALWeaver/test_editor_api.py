@@ -115,6 +115,9 @@ def _load_api_editor_for_tests():
     playground_publish.delete_project = lambda *args, **kwargs: None
     playground_publish.create_project = lambda *args, **kwargs: None
     playground_publish.get_list_of_projects = lambda *args, **kwargs: []
+    playground_publish.find_project_github_sync = lambda *args, **kwargs: None
+    playground_publish.import_github_snapshot = lambda *args, **kwargs: {}
+    playground_publish.merge_github_snapshot = lambda *args, **kwargs: {}
     playground_publish.next_available_project_name = (
         lambda base_name, existing=None: base_name
     )
@@ -129,6 +132,7 @@ def _load_api_editor_for_tests():
         "repository": "docassemble-" + kwargs["package_name"],
     }
     playground_publish.load_project_github_manifest = lambda **kwargs: ({}, "")
+    playground_publish.record_project_github_sync = lambda *args, **kwargs: None
     playground_publish.rename_project = lambda *args, **kwargs: None
 
     stubs = {
@@ -197,6 +201,108 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_projects_only_marks_projects_with_a_github_manifest_as_synced(self):
+        def find_sync(*, user_id, project_name):
+            if project_name != "SyncedProject":
+                return None
+            return {
+                "package": "SyncedProject",
+                "repository_url": "https://github.com/LegalAid/docassemble-SyncedProject",
+                "branch": "main",
+                "commit": "base-sha",
+            }
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_list_projects",
+                return_value=["LocalOnly", "SyncedProject"],
+            ),
+            patch.object(api_editor, "find_project_github_sync", side_effect=find_sync),
+        ):
+            with api_editor.app.test_request_context("/al/editor/api/projects"):
+                response = api_editor.editor_api_projects()
+
+        data = response.get_json()["data"]
+        self.assertEqual(data["projects"], ["LocalOnly", "SyncedProject"])
+        self.assertNotIn("LocalOnly", data["github_syncs"])
+        self.assertEqual(
+            data["github_syncs"]["SyncedProject"]["repository_url"],
+            "https://github.com/LegalAid/docassemble-SyncedProject",
+        )
+
+    def test_pull_uses_recorded_commit_as_a_three_way_merge_base(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "main",
+            "commit": "base-sha",
+        }
+        remote = {"sha": "remote-sha", "branch": "main", "files": {}}
+        base = {"sha": "base-sha", "branch": "base-sha", "files": {}}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", side_effect=[remote, base]
+            ) as snapshots,
+            patch.object(
+                api_editor,
+                "merge_github_snapshot",
+                return_value={"merged": True, "files": 3, "commit": "remote-sha"},
+            ) as merge,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull", method="POST", json={"project": "Housing"}
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        self.assertEqual(snapshots.call_args_list[0].kwargs["ref"], "main")
+        self.assertEqual(snapshots.call_args_list[1].kwargs["ref"], "base-sha")
+        self.assertIs(merge.call_args.kwargs["base_snapshot"], base)
+        self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
+
+    def test_pull_reports_conflicts_without_claiming_success(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "find_project_github_sync",
+                return_value={
+                    "package": "HousingForms",
+                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "branch": "main",
+                    "commit": "same-sha",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                return_value={"sha": "same-sha", "branch": "main", "files": {}},
+            ),
+            patch.object(
+                api_editor,
+                "merge_github_snapshot",
+                return_value={"merged": False, "conflicts": ["questions/main.yml"]},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull", method="POST", json={"project": "Housing"}
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["type"], "merge_conflict")
+        self.assertEqual(
+            response.get_json()["error"]["details"]["conflicts"], ["questions/main.yml"]
+        )
+
     def test_status_treats_stale_github_credentials_as_disconnected(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -447,6 +553,7 @@ class TestEditorGithubApi(unittest.TestCase):
             repository="docassemble-HousingForms",
             description="A docassemble project for Housing.",
             owner_type="organization",
+            user_id=7,
         )
         # The manifest is re-read in the worker rather than trusting a path
         # handed across the queue, so this works on a multi-server install.
@@ -746,6 +853,91 @@ class TestEditorProjectSearchApi(unittest.TestCase):
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
+    def test_github_import_derives_project_name_from_repository(self):
+        snapshot = {
+            "url": "https://github.com/OtherOrg/docassemble-PublicForms",
+            "branch": "HEAD",
+            "sha": "remote-sha",
+            "files": {},
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor,
+                "next_available_project_name",
+                side_effect=lambda base, existing: base,
+            ),
+            patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=snapshot
+            ),
+            patch.object(
+                api_editor,
+                "import_github_snapshot",
+                return_value={"filename": "main.yml", "files_imported": 1},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                json={
+                    "project_name": "",
+                    "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                },
+            ):
+                response = api_editor.editor_api_new_project()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["project"], "PublicForms")
+        create.assert_called_once_with(7, "PublicForms")
+
+    def test_new_project_can_import_any_github_repository_url(self):
+        snapshot = {
+            "url": "https://github.com/OtherOrg/docassemble-PublicForms",
+            "branch": "main",
+            "sha": "remote-sha",
+            "files": {},
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="PublicForms"
+            ),
+            patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=snapshot
+            ) as fetch,
+            patch.object(
+                api_editor,
+                "import_github_snapshot",
+                return_value={"filename": "main.yml", "files_imported": 4},
+            ) as import_snapshot,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                json={
+                    "project_name": "PublicForms",
+                    "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                },
+            ):
+                response = api_editor.editor_api_new_project()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
+        create.assert_called_once_with(7, "PublicForms")
+        self.assertEqual(
+            fetch.call_args.kwargs["repository_url"],
+            "https://github.com/OtherOrg/docassemble-PublicForms",
+        )
+        import_snapshot.assert_called_once_with(
+            user_id=7, project_name="PublicForms", snapshot=snapshot
+        )
+
     def test_save_file_accepts_intentionally_empty_source(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),

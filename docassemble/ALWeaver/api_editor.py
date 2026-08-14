@@ -74,6 +74,8 @@ from .docassemble_compat import (
     get_csrf,
     get_flask_app,
     get_github_publish_owners,
+    get_github_repository_snapshot,
+    normalize_github_repository_url,
     get_native_github_integration,
     get_redis_client,
     get_worker_app,
@@ -212,11 +214,15 @@ from .playground_publish import (
     delete_project,
     create_project,
     get_list_of_projects,
+    find_project_github_sync,
+    import_github_snapshot,
+    merge_github_snapshot,
     next_available_project_name,
     normalize_github_package_name,
     normalize_project_name,
     load_project_github_manifest,
     prepare_project_github_package,
+    record_project_github_sync,
     rename_project,
 )
 
@@ -981,7 +987,9 @@ def _render_editor_page() -> str:
     try:
         if _editor_auth_check():
             uid = _current_user_id()
-            bootstrap["projects"] = playground_list_projects(uid)
+            projects = playground_list_projects(uid)
+            bootstrap["projects"] = projects
+            bootstrap["projectSyncs"] = _project_github_sync_summaries(uid, projects)
             bootstrap["authenticated"] = True
             bootstrap["auth"]["authenticated"] = True
             bootstrap["auth"]["email"] = getattr(current_user, "email", None)
@@ -1156,6 +1164,24 @@ def editor_static(filename: str) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _project_github_sync_summaries(
+    user_id: int, projects: List[str]
+) -> Dict[str, Dict[str, Any]]:
+    """Return safe GitHub sync metadata keyed by Playground project."""
+    summaries: Dict[str, Dict[str, Any]] = {}
+    for project in projects:
+        sync = find_project_github_sync(user_id=user_id, project_name=project)
+        if not sync:
+            continue
+        summaries[project] = {
+            "package": sync["package"],
+            "repository_url": sync["repository_url"],
+            "branch": sync["branch"],
+            "has_merge_base": bool(sync.get("commit")),
+        }
+    return summaries
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/projects", methods=["GET"])
 def editor_api_projects() -> Response:
     """List playground projects for the current user."""
@@ -1164,11 +1190,15 @@ def editor_api_projects() -> Response:
         return _auth_fail(request_id)
     try:
         uid = _current_user_id()
+        projects = playground_list_projects(uid)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"projects": playground_list_projects(uid)},
+                "data": {
+                    "projects": projects,
+                    "github_syncs": _project_github_sync_summaries(uid, projects),
+                },
             }
         )
     except Exception as exc:
@@ -1195,6 +1225,23 @@ def editor_api_github_status() -> Response:
         default_package = normalize_github_package_name(
             normalize_project_name(project, fallback="WeaverProject")
         )
+        sync = find_project_github_sync(user_id=uid, project_name=project)
+        sync_data = None
+        if sync:
+            sync_data = {
+                "package": sync["package"],
+                "repository_url": sync["repository_url"],
+                "branch": sync["branch"],
+                "has_merge_base": bool(sync.get("commit")),
+            }
+        if parse_bool(request.args.get("sync_only"), default=False):
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"project": project, "sync": sync_data},
+                }
+            )
         status = get_native_github_integration(uid)
         owners: List[Dict[str, Any]] = []
         if status.get("enabled") and status.get("connected"):
@@ -1207,7 +1254,7 @@ def editor_api_github_status() -> Response:
                             or status.get("organizations_enabled")
                         ),
                     }
-                    for owner in get_github_publish_owners()
+                    for owner in get_github_publish_owners(user_id=uid)
                 ]
             except GithubCredentialError as exc:
                 # The Redis integration flag can outlive the OAuth record.
@@ -1229,6 +1276,7 @@ def editor_api_github_status() -> Response:
                 # up front rather than after the user fills the form in.
                 "async_configured": _editor_async_is_configured(),
                 "celery": get_worker_configuration_status(),
+                "sync": sync_data,
             }
         )
         return jsonify({"success": True, "request_id": request_id, "data": status})
@@ -1318,7 +1366,7 @@ def editor_api_github_publish() -> Response:
 
         author_name = _editor_user_designator()
         author_email = str(getattr(current_user, "email", "") or "").strip()
-        owners = get_github_publish_owners()
+        owners = get_github_publish_owners(user_id=uid)
         selected_owner = next(
             (
                 candidate
@@ -1446,6 +1494,91 @@ def editor_api_github_publish_job(job_id: str) -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: GitHub publish job status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/github/pull", methods=["POST"])
+def editor_api_github_pull() -> Response:
+    """Merge upstream GitHub changes into an already-synced project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        sync = find_project_github_sync(user_id=uid, project_name=project)
+        if not sync:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "not_synced",
+                        "message": "This project is not linked to a GitHub repository.",
+                    },
+                },
+                409,
+            )
+        remote = get_github_repository_snapshot(
+            repository_url=sync["repository_url"], user_id=uid, ref=sync["branch"]
+        )
+        # Older manifests did not record the published commit. Establishing the
+        # current head as the base is safe and makes all later pulls mergeable.
+        base_ref = sync.get("commit") or remote["sha"]
+        base = (
+            remote
+            if base_ref == remote["sha"]
+            else get_github_repository_snapshot(
+                repository_url=sync["repository_url"], user_id=uid, ref=base_ref
+            )
+        )
+        result = merge_github_snapshot(
+            user_id=uid,
+            project_name=project,
+            base_snapshot=base,
+            remote_snapshot=remote,
+            sync=sync,
+        )
+        if not result.get("merged"):
+            conflicts = result.get("conflicts") or []
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "merge_conflict",
+                        "message": "GitHub changes conflict with local edits. No files were changed.",
+                        "details": {"conflicts": conflicts},
+                    },
+                },
+                409,
+            )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"project": project, **result},
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub pull error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -6265,6 +6398,7 @@ def _complete_github_publish_job(
             repository=repository,
             description=f"A docassemble project for {project}.",
             owner_type=owner_type or None,
+            user_id=uid,
         )
         canonical_url = str(github_repository.get("html_url") or repository_url).rstrip(
             "/"
@@ -6302,6 +6436,14 @@ def _complete_github_publish_job(
             manifest_path=manifest_path,
             default_branch=str(github_repository.get("default_branch") or ""),
             on_progress=report,
+        )
+        record_project_github_sync(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+            repository_url=canonical_url,
+            branch=branch,
+            commit_sha=committed["sha"],
         )
 
         result = {
@@ -6479,11 +6621,44 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     post_data = request.get_json(silent=True) or {}
     raw_name = post_data.get("project_name", "NewProject")
     template_id = post_data.get("template_id")
+    github_url = str(post_data.get("github_url") or "").strip()
+    if github_url and not str(raw_name or "").strip():
+        repository = normalize_github_repository_url(github_url)["repository"]
+        raw_name = re.sub(r"^docassemble-", "", repository, flags=re.IGNORECASE)
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
     project_name = next_available_project_name(base_name, [*existing, "default"])
     create_project(uid, project_name)
+
+    if github_url:
+        try:
+            snapshot = get_github_repository_snapshot(
+                repository_url=github_url,
+                user_id=uid,
+                ref=str(post_data.get("github_branch") or "").strip() or None,
+            )
+            imported = import_github_snapshot(
+                user_id=uid, project_name=project_name, snapshot=snapshot
+            )
+        except Exception:
+            # A failed import should not leave an empty, misleading project in
+            # the user's project chooser.
+            delete_project(uid, project_name)
+            raise
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project_name,
+                    "filename": imported["filename"],
+                    "github_url": snapshot["url"],
+                    "github_branch": snapshot["branch"],
+                    "files_imported": imported["files_imported"],
+                },
+            }
+        )
 
     # If a template is specified, load its content and write it
     starter_yaml = ""
