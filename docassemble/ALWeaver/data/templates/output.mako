@@ -43,7 +43,56 @@
       else:
           jurisdiction_value = "NAM-US"
   intro_prompt_value = str(getattr(interview, "intro_prompt", "") or "")
-%>
+
+  allowed_courts_value = sorted(
+      set(
+          interview.allowed_courts.true_values()
+          + (
+              interview.allowed_courts_text.split(",")
+              if interview.allowed_courts.get("Other")
+              else []
+          )
+      )
+      - {"Other"}
+  )
+
+  has_addendum = interview.all_fields.has_addendum_fields()
+  aldocument_kwargs = "enabled=True, has_addendum=%s" % has_addendum
+  if has_addendum:
+      aldocument_kwargs += ", default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE"
+
+  # The name of the ALDocument variable each uploaded template is attached to.
+  if len(interview.uploaded_templates) == 1:
+      attachment_variable_names = {
+          interview.uploaded_templates[0].filename: f"{ interview.interview_label }_attachment"
+      }
+  else:
+      attachment_variable_names = {
+          document.filename: varname(base_name(document.filename))
+          for document in interview.uploaded_templates
+      }
+
+  # Every signature the finished document needs, whether it belongs to a person
+  # in an ALPeopleList (built-in) or is a standalone signature field. Anything in
+  # this list is gathered by `basic_questions_signature_flow`, so the preview and
+  # signature screens are only worth generating when it is non-empty.
+  signature_field_triggers = list(
+      dict.fromkeys(
+          list(interview.all_fields.built_in_signature_triggers())
+          + [
+              field.trigger_gather(interview.all_fields.custom_people_plurals)
+              for field in interview.all_fields.signatures()
+          ]
+      )
+  )
+
+  # Emitted once, inside the first `attachment` block it describes.
+  attachment_key_comment = (
+      "# Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the\n"
+      "# same template is used for \"preview\" and \"final\" keys, and logic in the template checks\n"
+      "# the value of `i` to show or hide the user's signature"
+  )
+%>\
 ---
 include:
   - docassemble.AssemblyLine:assembly_line.yml
@@ -58,17 +107,23 @@ metadata:
     ${ interview.short_title }
   description: |-
 ${ indent(interview.description, by=4) }
-  can_I_use_this_form: |
 % if getattr(interview, "can_I_use_this_form", ""):
+  can_I_use_this_form: |
 ${ indent(interview.can_I_use_this_form, by=4) }
+% else:
+  can_I_use_this_form: ""
 % endif
-  before_you_start: |
 % if getattr(interview, "getting_started", ""):
+  before_you_start: |
 ${ indent(interview.getting_started, by=4) }
+% else:
+  before_you_start: ""
 % endif
-  when_you_are_finished: |
 % if getattr(interview, "when_you_are_finished", ""):
+  when_you_are_finished: |
 ${ indent(interview.when_you_are_finished, by=4) }
+% else:
+  when_you_are_finished: ""
 % endif
   efiling_enabled: ${ "True" if getattr(interview, "efiling_enabled", False) else "False" }
   integrated_efiling: ${ "True" if getattr(interview, "integrated_efiling", False) else "False" }
@@ -88,13 +143,13 @@ ${ indent(landing_page_url_value, by=4) }
     % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
+  % if interview.categories.any_true() or len(other_categories_selected) > 0:
+  # Keep legacy tags behavior for compatibility with downstream tools.
+  % endif
   tags:
     % for category in topic_values:
     - "${ escape_double_quoted_yaml(oneline(category)).strip() }"
     % endfor
-  % if interview.categories.any_true() or len(other_categories_selected) > 0:
-  # Keep legacy tags behavior for compatibility with downstream tools.
-  % endif
   authors:
     % for author in interview.author.splitlines():
     - ${ author }
@@ -116,11 +171,11 @@ ${ indent(interview.help_page_url, by=4) }
   help_page_title: >-
 ${ indent(interview.help_page_title, by=4) }
   % endif
-  % if len(interview.allowed_courts.true_values()) < 1:
+  % if len(allowed_courts_value) < 1:
   allowed_courts: []
   % else:
-  allowed_courts: 
-    % for court in sorted(set(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else [])) - {"Other"}):
+  allowed_courts:
+    % for court in allowed_courts_value:
     - "${ escape_double_quoted_yaml(oneline(court)).strip() }"
     % endfor
   % endif
@@ -145,7 +200,7 @@ ${ indent(interview.help_page_title, by=4) }
   fees:
     - Filing fee: ${ currency(interview.filing_fee) }
   % endif
-  update_notes: |
+  update_notes: ""
 ---
 code: |
   # This controls the default country and list of states in address field questions
@@ -156,7 +211,7 @@ code: |
   AL_DEFAULT_STATE = "${ interview.state }"
 ---
 code: |
-  github_repo_name =  'docassemble-${ interview.package_title }'
+  github_repo_name = 'docassemble-${ interview.package_title }'
 % if intro_prompt_value:
 ---
 template: interview_short_title
@@ -166,7 +221,7 @@ ${ indent(intro_prompt_value, by=2) }
 % if generate_download_screen:
 ---
 code: |
-  al_form_type = "${ interview.form_type }" 
+  al_form_type = "${ interview.form_type }"
 % endif
 % if len(objects) > 0:
 ---
@@ -182,15 +237,18 @@ sections:
   % endfor
   - review_${ interview.interview_label }: Review your answers
 ---
-#################### Interview order #####################
+<%text>#################### Interview order #####################</%text>
 comment: |
   Controls order and branching logic for questions specific to this form
 id: interview_order_${ interview.interview_label }
 code: |
-  % if generate_download_screen:
+  % if generate_download_screen and interview.court_related:
+  % if allowed_courts_value:
   # Set the allowed courts for this interview
-  % if interview.court_related:
-  allowed_courts = ${ repr(sorted(interview.allowed_courts.true_values() + (interview.allowed_courts_text.split(",") if interview.allowed_courts.get("Other") else []))) }
+  allowed_courts = ${ repr(allowed_courts_value) }
+  % else:
+  # Uncomment and list the courts this form can be filed in, for example:
+  # allowed_courts = ["Boston Municipal Court"]
   % endif
   % endif
   % if interview.typical_role == 'unknown':
@@ -209,7 +267,7 @@ code: |
   % endif
   interview_order_${ interview.interview_label } = True
 ---
-###################### Main order ######################
+<%text>###################### Main order ######################</%text>
 comment: |
   This block includes the logic for standalone interviews.
   Delete mandatory: True to include in another interview
@@ -228,12 +286,9 @@ code: |
           "reached_interview_end": True,
       },
   )
-  % if len(interview.all_fields.signatures()) > 0:
+  % if signature_field_triggers:
   ${ interview.interview_label }_preview_question
-  basic_questions_signature_flow    
-  % for signature_field in interview.all_fields.signatures():
-  ${ signature_field.trigger_gather(interview.all_fields.custom_people_plurals) }
-  % endfor
+  basic_questions_signature_flow
   % endif
   ${ interview.interview_label }_download
   % else:
@@ -242,25 +297,20 @@ code: |
 <%doc>
     Question blocks
 </%doc>\
-<%doc>
-    TODO(qs): 
-      - add _intro to question ID (after finished testing equivalence to output_patterns.yml)
-      - just use interview_label instead of varname(interview.title)
-</%doc>\
 ---
-id: ${ varname(interview.title) }
+id: ${ fix_id(interview.title) } intro
 continue button field: ${ interview.interview_label }_intro
 question: |
   ${ interview.title }
 subquestion: |
 ${ indent(interview.getting_started, 2) }
+% if getattr(interview, 'can_I_use_this_form', ''):
 
-% if hasattr(interview, 'can_I_use_this_form'):
 ${ indent(interview.can_I_use_this_form, by=2)}
 % endif
+% if getattr(interview, 'estimated_completion_minutes', ''):
 
-% if hasattr(interview, 'estimated_completion_minutes'):
-  Most people take about ${ interview.estimated_completion_minutes or "_______________"} minutes to complete this interview.
+  Most people take about ${ interview.estimated_completion_minutes } minutes to complete this interview.
 % endif
 <%doc>
     Main question loop
@@ -291,14 +341,14 @@ continue button field: ${ varname(question.question_text) }
 <%doc>
     End question loop
 </%doc>\
-% if generate_download_screen:
+% if generate_download_screen and signature_field_triggers:
 ---
 id: preview ${ interview.interview_label }
 question: |
   Preview your form before you sign it
 subquestion: |
-  Here is a preview of the form you will sign on the next page.   
-  
+  Here is a preview of the form you will sign on the next page.
+
   % if interview.court_related:
   <%text>${</%text> al_court_bundle.as_pdf(key='preview') <%text>}</%text>
   % else:
@@ -309,17 +359,17 @@ subquestion: |
   answers.
 
   <%text>${</%text> action_button_html(url_action('review_${ interview.interview_label }'), label=word('Edit answers'), color='info') <%text>}</%text>
-  
+
   Return to this interview tab to continue and sign your form.
-continue button field: ${ interview.interview_label }_preview_question    
+continue button field: ${ interview.interview_label }_preview_question
 % endif
 <%doc>
     TODO(qs): signature fields shouldn't depend on whether we have a download screen
 </%doc>\
-% if generate_download_screen:
+% if generate_download_screen and signature_field_triggers:
 ---
 code: |
-  signature_fields = ${ str(list(interview.all_fields.built_in_signature_triggers()) + [field.trigger_gather(interview.all_fields.custom_people_plurals) for field in interview.all_fields.signatures()] ) }
+  signature_fields = ${ repr(signature_field_triggers) }
 % endif
 % for custom_signature in interview.all_fields.custom_signatures():
 ---
@@ -345,7 +395,7 @@ code: |
 ---
 code: |
   # This is a placeholder for the addresses that will be searched
-  # for matching address to court. Edit if court venue is based on 
+  # for matching address to court. Edit if court venue is based on
   # a different address than the user's
   [user.address.address for user in users.complete_elements()]
   addresses_to_search = [user.address for user in users.complete_elements()]
@@ -361,10 +411,10 @@ event: review_${ interview.interview_label }
 question: |
   Review your answers
 review:
-  % for coll in interview.all_fields.find_parent_collections():
+  % for coll in review_collections:
 ${ review_yaml(coll) | trim }\
   % endfor
-% for coll in interview.all_fields.find_parent_collections():
+% for coll in review_collections:
   % if coll.var_type == 'list':
 ---
 id: ${ fix_id("edit " + coll.var_name) }
@@ -376,7 +426,6 @@ subquestion: |
 
   ${ "${ " + coll.var_name + ".add_action() }" }
 ${ table_page(coll) }
-
   % endif
 % endfor
 <%doc>
@@ -391,15 +440,13 @@ question: |
   All done
 subquestion: |
   Thank you <%text>${users}</%text>. Your form is ready to download and deliver.
-  
+
   Use the options on this page to view, download and send your form. Use the
   "Edit answers" button to fix any mistakes.
 
   <%text>${</%text> action_button_html(url_action('review_${ interview.interview_label }'), label=word('Edit answers'), color='info') <%text>}</%text>
-  
-  <%text>
-  ${ al_user_bundle.download_list_html() }
-  </%text>
+
+  <%text>${ al_user_bundle.download_list_html() }</%text>
 
   <%text>${</%text> al_user_bundle.send_button_html(show_editable_checkbox=${False if any(map(lambda templ: templ.mimetype == "application/pdf", interview.uploaded_templates)) else True}) <%text>}</%text>
 
@@ -415,8 +462,8 @@ event: ${ interview.interview_label }_thank_you
 question: |
   Thank You!
 subquestion: |
-  Thank you for submitting your answers! We appreciate your time. 
-  
+  Thank you for submitting your answers! We appreciate your time.
+
   A copy of your answers was saved in our database.
 
 progress: 100
@@ -451,10 +498,10 @@ objects:
   - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
   % endif
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
+  - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", ${ aldocument_kwargs })
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(filename="${ base_name(document.filename) }", enabled=True, has_addendum=${ interview.all_fields.has_addendum_fields() }, ${ "default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE" if interview.all_fields.has_addendum_fields() else ''})
+  - ${ varname(base_name(document.filename)) }: ALDocument.using(filename="${ base_name(document.filename) }", ${ aldocument_kwargs })
   % endfor
   % endif
 ---
@@ -504,11 +551,10 @@ template: al_recipient_bundle.title
 content: |
   All forms to file
 % endif
-# Each attachment defines a key in an ALDocument. We use `i` as the placeholder here so the same template is 
-# used for "preview" and "final" keys, and logic in the template checks the value of 
-# `i` to show or hide the user's signature
 % if interview.include_next_steps:
 ---
+${ attachment_key_comment }
+<% attachment_key_comment = "" %>\
 attachment:
   name: Post-interview-Instructions
   filename: ${ interview.interview_label }_next_steps
@@ -519,22 +565,25 @@ attachment:
 % endif
 % for document in interview.uploaded_templates:
 ---
+% if attachment_key_comment:
+${ attachment_key_comment }
+<% attachment_key_comment = "" %>\
+% endif
 attachment:
 % if len(interview.uploaded_templates) == 1:
   name: ${ interview.interview_label.replace('_',' ') }
   filename: ${ interview.interview_label }
-  variable name: ${ interview.interview_label }_attachment[i]
 % else:
   name: ${ base_name(document.filename).replace('_',' ') }
   filename: ${ base_name(document.filename) }
-  variable name: ${ varname(base_name(document.filename)) }[i]
 % endif
+  variable name: ${ attachment_variable_names[document.filename] }[i]
 % if document.mimetype == "application/pdf":
   skip undefined: True
   pdf template file: ${ document.filename }
   fields:
     % for field in interview.all_fields.matching_pdf_fields_from_file(document):
-${ attachment_yaml(field, attachment_name=f"{ interview.interview_label}_attachment") }\
+${ attachment_yaml(field, attachment_name=attachment_variable_names[document.filename]) }\
     % endfor
 % else:
   skip undefined: True
@@ -542,26 +591,28 @@ ${ attachment_yaml(field, attachment_name=f"{ interview.interview_label}_attachm
   tagged pdf: True
 % endif
 % endfor
-% if interview.all_fields.has_addendum_fields():
+% if has_addendum:
 ---
 code: |
+  % for attachment_variable_name in attachment_variable_names.values():
   % for field in interview.all_fields.addendum_fields():
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].label = "${ field.label }"
   % endfor
   ${ attachment_variable_name }.overflow_fields.gathered = True
-  % endif
+  % endfor
 <%doc>
-    End optional addendum code block    
-</%doc>
+    End optional addendum code block
+</%doc>\
+% endif
 % endif
 <%doc>
     End optional blocks related to attachments (if generating a file as output)
-</%doc>
+</%doc>\
 <%doc>
   HACK: add the name change questions directly to the Weaver output for now. See https://github.com/SuffolkLITLab/docassemble-AssemblyLine/pull/668#discussion_r1149774674
   We need a more generalized way to do this in the future but this can get us through LIT Con
-</%doc>
+</%doc>\
 % if showifdef("add_name_change_questions"):
 ---
 id: consent of parent 1

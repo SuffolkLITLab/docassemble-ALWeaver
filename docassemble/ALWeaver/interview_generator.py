@@ -113,6 +113,21 @@ _PERSON_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "guardians_ad_litem": {"ask_number": True},
 }
 
+# Objects AssemblyLine defines and configures itself. Re-declaring these in the
+# generated interview would clobber that setup -- `courts`, for instance, is an
+# ALCourtLoader-backed list whose gathering drives the court picker, and
+# `plaintiffs`/`defendants` are derived from `users` and `other_parties`.
+_AL_MANAGED_OBJECTS: Set[str] = {
+    "case_numbers",
+    "courts",
+    "defendants",
+    "docket_numbers",
+    "petitioners",
+    "plaintiffs",
+    "respondents",
+    "trial_court",
+}
+
 
 __all__ = [
     "attachment_download_html",
@@ -946,6 +961,62 @@ class DAField(DAObject):
         return f"{self.variable} ({self.raw_field_names}, {self.final_display_var})"
 
 
+def _with_progress_markers(entries: List[Tuple[str, bool]]) -> List[str]:
+    """Interleave ``set_progress()`` calls through an interview order block.
+
+    The percentage is derived from how far through the screens each marker
+    actually sits, so the bar climbs steadily instead of stalling: the old
+    version added a fixed increment sized for more steps than it ever emitted,
+    which left a twenty-screen interview showing 66% on its last question.
+
+    Progress tops out around 90 because the screens are not the whole interview
+    -- the signature flow and the download screen still follow, and the download
+    screen sets ``progress: 100`` itself.
+    """
+    screen_positions = [
+        index for index, (_, is_screen) in enumerate(entries) if is_screen
+    ]
+    total_screens = len(screen_positions)
+
+    # A progress step every 5 screens, unless the interview is short.
+    screen_divisor = 5 if total_screens > 20 else 3
+    markers: Dict[int, int] = {}
+    if total_screens > screen_divisor:
+        last_value = 0
+        for screens_so_far, entry_index in enumerate(screen_positions):
+            if not screens_so_far or screens_so_far % screen_divisor:
+                continue
+            value = round(screens_so_far / total_screens * 90)
+            if value <= last_value:
+                continue
+            markers[entry_index] = value
+            last_value = value
+
+    lines: List[str] = []
+    for index, (line, _is_screen) in enumerate(entries):
+        if index in markers:
+            lines.append(f"set_progress({markers[index]})")
+        lines.append(line)
+    return lines
+
+
+def _is_signature_only_collection(collection: "ParentCollection") -> bool:
+    """True for review-screen entries that only exist to be signed.
+
+    Signatures and ``signature_date`` are gathered by
+    ``basic_questions_signature_flow`` immediately before the download screen, so
+    an "Edit" link for them on the review screen would either be overwritten
+    moments later or let someone change a date they never picked.
+    """
+    if collection.var_type != "primitive":
+        return False
+    return all(
+        (getattr(field, "group", None) == DAFieldGroup.SIGNATURE)
+        or getattr(field, "final_display_var", "") == "signature_date"
+        for field in collection.fields
+    )
+
+
 class ParentCollection(object):
     """A ParentCollection is "highest" level of data structure containing some DAField.
     For example, the parent collection for `users[0].name.first` is `users`, since that is the list
@@ -1136,6 +1207,47 @@ class DAFieldList(DAList):
             )
             for var_and_type, fields in parent_coll_map.items()
         ]
+
+    def review_collections(
+        self, screen_order: Optional[Sequence[Any]] = None
+    ) -> List[ParentCollection]:
+        """The parent collections a review screen should offer, in asking order.
+
+        ``find_parent_collections`` groups fields by parent but hands them back in
+        whatever order the fields happen to sit in the field list, which is not the
+        order the interview asks for them. Sorting by first appearance in
+        ``screen_order`` means the review screen reads like a recap of what the user
+        just did rather than an arbitrary list.
+        """
+        collections = [
+            collection
+            for collection in self.find_parent_collections()
+            if not _is_signature_only_collection(collection)
+        ]
+        if not screen_order:
+            return collections
+
+        # Number every field in the order it is asked, so collections sort by
+        # their position *within* a screen too, not just by which screen they
+        # landed on.
+        position: Dict[str, int] = {}
+        for screen in screen_order:
+            fields = screen.field_list if hasattr(screen, "field_list") else [screen]
+            for field in fields:
+                variable = getattr(field, "variable", None)
+                if variable and variable not in position:
+                    position[variable] = len(position)
+        unplaced = len(position)
+
+        def sort_key(collection: ParentCollection) -> Tuple[int, str]:
+            positions = [
+                position[field.variable]
+                for field in collection.fields
+                if getattr(field, "variable", None) in position
+            ]
+            return (min(positions) if positions else unplaced, collection.var_name)
+
+        return sorted(collections, key=sort_key)
 
     def add_fields_from_file(self, document: Union[DAFile, DAFileList]) -> None:
         """
@@ -1613,22 +1725,9 @@ class DAQuestionList(DAList):
         if not screens:
             screens = list(self)
 
-        logic_list = []
-
-        total_num_screens = len(screens)
-
-        # We'll have a progress step every 5 screens,
-        # unless it's very short
-        if total_num_screens > 20:
-            screen_divisor = 5
-        else:
-            screen_divisor = 3
-
-        total_steps = (
-            round(total_num_screens / screen_divisor) + 2
-        )  # signature screen adds two steps
-        increment = int(100 / total_steps)
-        progress = 0
+        # Each entry is (line, counts_as_a_screen).  Only the screens count
+        # toward progress; navigation and bookkeeping lines do not.
+        logic_list: List[Tuple[str, bool]] = []
 
         saved_answer_name_flag = False
         current_section: Optional[str] = None
@@ -1636,11 +1735,8 @@ class DAQuestionList(DAList):
             if sections and index < len(sections):
                 section_id = str(sections[index] or "").strip()
                 if section_id and section_id != current_section:
-                    logic_list.append(f'nav.set_section("{section_id}")')
+                    logic_list.append((f'nav.set_section("{section_id}")', False))
                     current_section = section_id
-            if set_progress and index and index % screen_divisor == 0:
-                progress += increment
-                logic_list.append(f"set_progress({int(progress)})")
             if (
                 isinstance(question, DAQuestion)
                 and question.type == "question"
@@ -1654,11 +1750,14 @@ class DAQuestionList(DAList):
                 # Add the first field in every question to our logic tree
                 # This can be customized to control the order of questions later
                 if question.needs_continue_button_field:
-                    logic_list.append(varname(question.question_text))
+                    logic_list.append((varname(question.question_text), True))
                 else:
                     logic_list.append(
-                        question.field_list[0].trigger_gather(
-                            custom_plurals=all_fields.custom_people_plurals.values()
+                        (
+                            question.field_list[0].trigger_gather(
+                                custom_plurals=all_fields.custom_people_plurals.values()
+                            ),
+                            True,
                         )
                     )
             else:
@@ -1670,7 +1769,7 @@ class DAQuestionList(DAList):
                     question in all_fields.builtins()
                     and trigger_gather.endswith(".signature")
                 ):
-                    logic_list.append(trigger_gather)
+                    logic_list.append((trigger_gather, True))
                     # set the saved answer name so it includes the user's name in saved
                     # answer list
                     # NOTE: this is redundant now that we have a custom interview list, but leaving for now
@@ -1678,20 +1777,32 @@ class DAQuestionList(DAList):
                         trigger_gather == "users.gather()"
                         and not saved_answer_name_flag
                     ):
-                        logic_list.append("set_parts(subtitle=str(users))")
+                        logic_list.append(("set_parts(subtitle=str(users))", False))
                         saved_answer_name_flag = True
 
-        unique_lines: List[str] = []
+        unique_entries: List[Tuple[str, bool]] = []
         seen_non_nav: Set[str] = set()
-        for line in logic_list:
+        for line, is_screen in logic_list:
             if line.startswith('nav.set_section("'):
-                unique_lines.append(line)
+                # A section whose screens all deduplicated away leaves its
+                # `nav.set_section` stranded next to the following section's.
+                if unique_entries and unique_entries[-1][0].startswith(
+                    'nav.set_section("'
+                ):
+                    unique_entries[-1] = (line, False)
+                else:
+                    unique_entries.append((line, False))
                 continue
             if line in seen_non_nav:
                 continue
             seen_non_nav.add(line)
-            unique_lines.append(line)
-        return unique_lines
+            unique_entries.append((line, is_screen))
+        while unique_entries and unique_entries[-1][0].startswith('nav.set_section("'):
+            unique_entries.pop()
+
+        if not set_progress:
+            return [line for line, _ in unique_entries]
+        return _with_progress_markers(unique_entries)
 
 
 class DADataType(Enum):
@@ -1801,12 +1912,42 @@ class DAInterview(DAObject):
             self.questions.all_fields_used(all_fields=self.all_fields.custom())
         ) < len(self.all_fields.custom())
 
+    def _referenced_objects(self) -> Tuple[Set[str], Set[str]]:
+        """Names the generated interview actually treats as objects.
+
+        Everything the review screens, tables and interview order block reference
+        comes from :meth:`DAFieldList.find_parent_collections`, so that is the
+        authoritative answer to "what did we turn into an object?".  Returns a
+        ``(lists, singletons)`` pair: names used as ``x.gather()`` / ``x[0].attr``
+        and names used as ``x.attr`` respectively.
+        """
+        lists: Set[str] = set()
+        singletons: Set[str] = set()
+        for collection in self.all_fields.find_parent_collections():
+            var_name = collection.var_name
+            if collection.var_type == "list":
+                if var_name.isidentifier():
+                    lists.add(var_name)
+            elif "." in var_name:
+                root = var_name.split(".", 1)[0]
+                if root.isidentifier() and not keyword.iskeyword(root):
+                    singletons.add(root)
+        return lists, singletons
+
     def _guess_objects_list(self) -> List[_PersonObjectSpec]:
         """Build an objects list for the generated interview using field analysis heuristics.
 
         Mirrors the person candidate consolidation logic in assembly_line.yml and
         adds quantity guessing from field index numbers.  Always includes ``users``.
+
+        Every name the interview gathers as a list gets an entry, so a variable
+        like ``my_user[0].name.last`` can never end up referenced without a
+        matching ``objects`` block.  Conversely, a person the heuristics guessed
+        at but that no field actually uses as a list (a lone ``inspector_name``
+        text field, say) is dropped rather than declared and left unused.
         """
+        referenced_lists, referenced_singletons = self._referenced_objects()
+
         person_candidates: Set[str] = set(self.all_fields.get_person_candidates())
         person_candidates.add("users")
 
@@ -1817,10 +1958,16 @@ class DAInterview(DAObject):
             "respondents" in person_candidates and "petitioners" in person_candidates
         ):
             person_candidates.add("other_parties")
-        person_candidates.discard("petitioners")
-        person_candidates.discard("respondents")
-        person_candidates.discard("plaintiffs")
-        person_candidates.discard("defendants")
+
+        # `users` and `other_parties` back AssemblyLine's own party logic, so they
+        # are declared whether or not a field mentions them directly.
+        person_candidates = (person_candidates & referenced_lists) | (
+            {"users", "other_parties"} & person_candidates
+        )
+        person_candidates |= referenced_lists
+        person_candidates -= _AL_MANAGED_OBJECTS
+
+        singletons = referenced_singletons - _AL_MANAGED_OBJECTS - person_candidates
 
         quantities = self.all_fields._guess_people_quantities()
 
@@ -1834,6 +1981,8 @@ class DAInterview(DAObject):
             else:
                 params = dict(_PERSON_DEFAULT_PARAMS.get(person, {}))
             result.append(_PersonObjectSpec(name=person, params=params))
+        for singleton in sorted(singletons):
+            result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
         return result
 
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
@@ -5246,6 +5395,46 @@ def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
     return updated
 
 
+def _tidy_generated_yaml(yaml_text: str) -> str:
+    """Clean up the whitespace Mako leaves behind in a rendered interview.
+
+    Mako emits a newline for every control-flow line that isn't backslash-continued,
+    which leaves a run of blank lines wherever the template opens with a ``<%doc>``
+    or ``<%`` block and again wherever it closes with one.  The result is a file
+    that starts and ends with several blank lines, and that can have large blank
+    runs between blocks.  None of that changes what Docassemble parses, but it
+    makes the generated YAML look unfinished to the person who has to edit it next.
+
+    Applied to the rendered output rather than to ``output.mako`` so that custom
+    output templates from other packages get the same treatment.
+    """
+    lines = yaml_text.replace("\r\n", "\n").split("\n")
+
+    tidied: List[str] = []
+    blank_run = 0
+    for line in lines:
+        if line.strip():
+            blank_run = 0
+            tidied.append(line)
+            continue
+        blank_run += 1
+        # Keep single blank lines (they are meaningful inside Markdown block
+        # scalars) but collapse anything longer.
+        if blank_run < 2 and tidied:
+            tidied.append("")
+
+    while tidied and not tidied[0].strip():
+        tidied.pop(0)
+    while tidied and not tidied[-1].strip():
+        tidied.pop()
+
+    if not tidied:
+        return ""
+    if tidied[0].strip() != "---":
+        tidied.insert(0, "---")
+    return "\n".join(tidied) + "\n"
+
+
 def _repair_generated_yaml_with_lint(
     yaml_text: str, interview: DAInterview, max_passes: int = 3
 ) -> str:
@@ -5384,6 +5573,7 @@ def _render_interview_yaml(
         "objects": objects or [],
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
+        "review_collections": interview.all_fields.review_collections(screen_reordered),
         "navigation_sections": navigation_sections,
         "interview_order_lines": interview_order_lines,
         "package_version_number": __version__,
@@ -5406,8 +5596,8 @@ def _render_interview_yaml(
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }
-    yaml_text = template.render(**context)
-    return _repair_generated_yaml_with_lint(yaml_text, interview)
+    yaml_text = _tidy_generated_yaml(template.render(**context))
+    return _tidy_generated_yaml(_repair_generated_yaml_with_lint(yaml_text, interview))
 
 
 def _assign_next_steps_template(interview: DAInterview) -> None:
