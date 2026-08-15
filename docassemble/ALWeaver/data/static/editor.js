@@ -7580,6 +7580,7 @@
     html += '<div class="editor-dropzone-icon">&#128196;</div>';
     html += '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>';
     html += '<div class="text-muted small mt-1">or click to browse</div>';
+    html += '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>';
     html += '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">';
     html += '</div>';
     html += '<div id="upload-file-list" class="mt-2"></div>';
