@@ -1128,7 +1128,13 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
-        self.assertFalse(start_kwargs["generation_options"]["include_next_steps"])
+        self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
+        self.assertTrue(start_kwargs["generation_options"]["include_download_screen"])
+        self.assertTrue(
+            start_kwargs["generation_options"]["interview_overrides"][
+                "next_steps_enabled"
+            ]
+        )
         self.assertEqual(len(start_kwargs["uploaded_files"]), 1)
         self.assertEqual(start_kwargs["uploaded_files"][0]["filename"], docx_path.name)
         self.assertIsInstance(start_kwargs["uploaded_files"][0]["content_bytes"], bytes)

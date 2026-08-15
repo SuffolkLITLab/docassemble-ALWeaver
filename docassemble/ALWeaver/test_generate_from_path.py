@@ -244,6 +244,19 @@ question: |
                     for name in names
                 )
             )
+            self.assertEqual(len(result.template_paths), 1)
+            runtime_template = Path(result.template_paths[0])
+            self.assertTrue(runtime_template.exists())
+            with zipfile.ZipFile(runtime_template) as generated_docx:
+                document_xml = generated_docx.read("word/document.xml").decode(
+                    "utf-8"
+                )
+            self.assertIn("al_next_steps_document_title", document_xml)
+            self.assertIn("al_next_steps_what_happens_if_i_win", document_xml)
+            self.assertNotIn("interview.custom_next_steps_instructions", document_xml)
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn("id: alweaver assemblyline settings", yaml_text)
+            self.assertIn("al_next_steps_enabled = True", yaml_text)
             self.assertTrue(
                 any(
                     name.endswith("/data/templates/test_docx_no_pdf_field_names.docx")

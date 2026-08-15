@@ -303,6 +303,18 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("Unable to save metadata safely: ", editor)
         self.assertIn("Unable to save block: ", editor)
 
+    def test_assemblyline_settings_are_graphical_and_next_steps_reset_is_explicit(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('data-action="open-assemblyline-settings"', template)
+        self.assertIn("/api/assemblyline-settings", editor)
+        self.assertIn("data-al-setting", editor)
+        self.assertIn("Back up and replace with standard shell", editor)
+        self.assertIn("confirm_replace: true", editor)
+        self.assertIn('id="new-project-include-next-steps"', editor)
+        self.assertIn('id="new-project-output-type"', editor)
+
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble
         page would, so its bar has to be a real Bootstrap navbar at

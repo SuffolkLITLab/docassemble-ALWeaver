@@ -102,6 +102,7 @@ from .api_utils import (
     parse_bool,
     validate_upload_metadata,
 )
+from .assemblyline_settings import read_settings, update_settings
 
 try:
     from .editor_utils import (
@@ -3489,6 +3490,215 @@ def editor_api_save_metadata() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/assemblyline-settings", methods=["GET"])
+def editor_api_get_assemblyline_settings() -> Response:
+    """Return structured metadata and exact-name AssemblyLine variables."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        content = playground_read_yaml(uid, project, filename)
+        data = read_settings(content)
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(content),
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: AssemblyLine settings read error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/assemblyline-settings", methods=["POST"])
+def editor_api_save_assemblyline_settings() -> Response:
+    """Atomically update the editor-owned AssemblyLine settings block."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        submitted = post_data.get("settings")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        if not isinstance(submitted, dict):
+            raise ValueError("settings must be an object")
+
+        current = playground_read_yaml(uid, project, filename)
+        current_revision = source_revision(current)
+        if current_revision != expected_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": "The file changed since settings were loaded.",
+                        "expected_revision": expected_revision,
+                        "current_revision": current_revision,
+                    },
+                },
+                409,
+            )
+
+        updated = update_settings(current, submitted)
+        validation = validate_candidate_source(filename=filename, raw_yaml=updated)
+        if validation.blocking:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "invalid_settings_source",
+                        "message": "The settings would produce an invalid interview.",
+                        "details": {"diagnostics": validation.diagnostics},
+                    },
+                },
+                422,
+            )
+        playground_write_yaml(uid, project, filename, updated)
+        model = validation.model or parse_interview_yaml(updated)
+        data = read_settings(updated)
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(updated),
+                "raw_yaml": updated,
+                "blocks": model["blocks"],
+                "metadata_blocks": model["metadata_blocks"],
+                "include_blocks": model["include_blocks"],
+                "default_screen_parts_blocks": model["default_screen_parts_blocks"],
+                "order_blocks": model["order_blocks"],
+                "metadata_raw_yaml": metadata_source_slice(updated),
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: AssemblyLine settings save error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/next-steps-template/reset", methods=["POST"])
+def editor_api_reset_next_steps_template() -> Response:
+    """Replace a next-steps DOCX shell after making a recoverable backup."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        from .interview_generator import runtime_next_steps_template_for_form_type
+
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        if post_data.get("confirm_replace") is not True:
+            raise ValueError("confirm_replace must be true")
+        source = playground_read_yaml(uid, project, filename)
+        settings = read_settings(source)["values"]
+        form_type = str(settings.get("al_form_type") or "other")
+        template_match = re.search(
+            r"(?m)^\s*docx template file:\s*([^\s#]+_next_steps\.docx)\s*$",
+            source,
+        )
+        if not template_match:
+            raise ValueError("This interview does not reference a next-steps DOCX shell")
+        template_filename = os.path.basename(template_match.group(1).strip('"\''))
+        area, directory = _editor_storage_directory(
+            uid, project, SECTION_TO_STORAGE["templates"]
+        )
+        destination = os.path.join(directory, template_filename)
+        backup_filename: Optional[str] = None
+        if os.path.isfile(destination):
+            stem, extension = os.path.splitext(template_filename)
+            candidate = f"{stem}.pre-weaver-reset{extension}"
+            counter = 2
+            while os.path.exists(os.path.join(directory, candidate)):
+                candidate = f"{stem}.pre-weaver-reset-{counter}{extension}"
+                counter += 1
+            shutil.copyfile(destination, os.path.join(directory, candidate))
+            backup_filename = candidate
+
+        replacement = runtime_next_steps_template_for_form_type(form_type)
+        shutil.copyfile(replacement, destination)
+        area.finalize()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "filename": template_filename,
+                    "backup_filename": backup_filename,
+                    "form_type": form_type,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: next-steps template reset error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 RUNTIME_INSPECTION_ACTIONS = {
     "al_weaver.inspect_object",
     "al_weaver.inspect_variable",
@@ -6130,12 +6340,33 @@ def _complete_new_project_upload_job(
             storage_section=SECTION_TO_STORAGE["templates"],
             files=temp_paths,
         )
+        generated_template_files = first_result.get("generated_template_files", [])
+        generated_paths: List[str] = []
+        for generated_file in generated_template_files:
+            if not isinstance(generated_file, dict):
+                continue
+            generated_name = os.path.basename(str(generated_file.get("filename") or ""))
+            generated_bytes = generated_file.get("content_bytes")
+            if not generated_name or not isinstance(generated_bytes, (bytes, bytearray)):
+                continue
+            generated_path = os.path.join(temp_dir, generated_name)
+            with open(generated_path, "wb") as generated_handle:
+                generated_handle.write(bytes(generated_bytes))
+            generated_paths.append(generated_path)
+        if generated_paths:
+            _copy_files_to_section(
+                user_id=uid,
+                project_name=project_name,
+                storage_section=SECTION_TO_STORAGE["templates"],
+                files=generated_paths,
+            )
 
         result = {
             "project": project_name,
             "filename": "interview.yml",
             "generated_from": first_result.get("input_filename"),
             "uploaded_count": len(temp_paths),
+            "generated_template_count": len(generated_paths),
         }
         _update_new_project_job_state(
             job_id,
@@ -6743,6 +6974,31 @@ def _new_project_from_uploads(
     if not help_source_text:
         help_source_text = generation_notes
     use_llm_assist = parse_bool(request.form.get("use_llm_assist"), default=False)
+    output_type = request.form.get("output_type", "form").strip().lower()
+    if output_type not in {"form", "survey"}:
+        raise ValueError("output_type must be form or survey")
+    form_type = request.form.get("form_type", "auto").strip()
+    valid_form_types = {
+        "auto",
+        "starts_case",
+        "existing_case",
+        "appeal",
+        "other_form",
+        "letter",
+        "other",
+    }
+    if form_type not in valid_form_types:
+        raise ValueError("Unsupported AssemblyLine form type")
+    typical_role = request.form.get("typical_role", "auto").strip()
+    if typical_role not in {"auto", "plaintiff", "defendant", "unknown"}:
+        raise ValueError("Unsupported typical user role")
+    default_state = request.form.get("default_state", "").strip().upper()
+    include_next_steps = parse_bool(
+        request.form.get("include_next_steps"), default=True
+    )
+    enable_navigation = parse_bool(
+        request.form.get("enable_navigation"), default=True
+    )
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
@@ -6788,11 +7044,28 @@ def _new_project_from_uploads(
         if not uploaded_payloads:
             raise ValueError("No valid files were uploaded.")
 
+        interview_overrides: Dict[str, Any] = {
+            "enable_navigation": enable_navigation,
+            "next_steps_enabled": include_next_steps,
+        }
+        if form_type != "auto":
+            interview_overrides["form_type"] = form_type
+            interview_overrides["court_related"] = form_type != "letter"
+        if typical_role != "auto":
+            interview_overrides["typical_role"] = typical_role
+        if default_state:
+            interview_overrides["state"] = default_state
+            interview_overrides["jurisdiction"] = f"NAM-US-US+{default_state}"
+
         generation_options: Dict[str, Any] = {
             "create_package_zip": False,
-            "include_next_steps": False,
+            # Keep a durable disabled shell in form projects so the setting can
+            # be turned on later without reconstructing bundle/attachment YAML.
+            "include_next_steps": output_type == "form",
+            "include_download_screen": output_type == "form",
             "exact_name": uploaded_payloads[0]["filename"],
             "use_llm_assist": use_llm_assist,
+            "interview_overrides": interview_overrides,
         }
         if help_page_url:
             generation_options["help_page_url"] = help_page_url

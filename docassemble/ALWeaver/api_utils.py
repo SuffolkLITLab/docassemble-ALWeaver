@@ -242,6 +242,16 @@ def generate_interview_from_bytes(
             payload["yaml_text"] = result.yaml_text
         if result.yaml_path:
             payload["yaml_filename"] = os.path.basename(result.yaml_path)
+        payload["generated_template_files"] = []
+        for template_path in result.template_paths:
+            if os.path.isfile(template_path):
+                with open(template_path, "rb") as template_handle:
+                    payload["generated_template_files"].append(
+                        {
+                            "filename": os.path.basename(template_path),
+                            "content_bytes": template_handle.read(),
+                        }
+                    )
 
         if result.package_zip_path and os.path.exists(result.package_zip_path):
             payload["package_zip_filename"] = os.path.basename(result.package_zip_path)

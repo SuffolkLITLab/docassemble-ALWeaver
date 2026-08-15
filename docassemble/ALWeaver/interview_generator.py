@@ -63,6 +63,7 @@ import mako.template
 import more_itertools
 import os
 import re
+import shutil
 import tempfile
 import uuid
 import zipfile
@@ -85,6 +86,7 @@ class WeaverGenerationResult:
     yaml_text: str
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
+    template_paths: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -5600,7 +5602,62 @@ def _render_interview_yaml(
     return _tidy_generated_yaml(_repair_generated_yaml_with_lint(yaml_text, interview))
 
 
-def _assign_next_steps_template(interview: DAInterview) -> None:
+_NEXT_STEPS_RUNTIME_REPLACEMENTS = {
+    "interview.intro_prompt": "al_next_steps_intro_prompt",
+    "interview.title": "al_next_steps_title",
+    "interview.next_steps_document_title": "al_next_steps_document_title",
+    "interview.next_steps_document_purpose": "al_next_steps_document_purpose",
+    "interview.next_steps_document_concept": "al_next_steps_document_purpose",
+    "interview.customize_next_steps": "al_next_steps_enabled",
+    'interview.custom_next_steps_instructions["what_happens_next"]': "al_next_steps_what_happens_next",
+    'interview.custom_next_steps_instructions["what_can_decision_maker_do"]': "al_next_steps_what_can_decision_maker_do",
+    'interview.custom_next_steps_instructions["what_happens_if_i_win"]': "al_next_steps_what_happens_if_i_win",
+    "interview.next_steps_help_url": "al_next_steps_help_url",
+    "interview.generate_next_steps_qr_code": "al_next_steps_generate_qr_code",
+}
+
+
+def _runtime_next_steps_template(source_path: str) -> str:
+    """Return a DOCX shell that reads stable runtime settings variables.
+
+    The historical templates refer to the Weaver author's temporary
+    ``interview`` object. That object does not exist in a generated package.
+    Rewrite XML expressions in a temporary copy while leaving the bundled
+    source template (used by the question-driven Weaver) untouched.
+    """
+    handle = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    handle.close()
+    with zipfile.ZipFile(source_path, "r") as source_zip, zipfile.ZipFile(
+        handle.name, "w"
+    ) as target_zip:
+        for info in source_zip.infolist():
+            content = source_zip.read(info.filename)
+            if info.filename.endswith(".xml"):
+                text = content.decode("utf-8")
+                for old, new in _NEXT_STEPS_RUNTIME_REPLACEMENTS.items():
+                    text = text.replace(old, new)
+                text = text.replace(
+                    "[ Your local legal aid]",
+                    '{{ al_next_steps_help_organization or "Your local legal aid" }}',
+                )
+                # The old shells accidentally gated the granted-result section
+                # on a different answer. The runtime variables make the intended
+                # condition unambiguous.
+                mistaken_condition = "if al_next_steps_what_can_decision_maker_do %}"
+                condition_at = text.rfind(mistaken_condition)
+                if condition_at >= 0:
+                    text = (
+                        text[:condition_at]
+                        + "if al_next_steps_what_happens_if_i_win %}"
+                        + text[condition_at + len(mistaken_condition) :]
+                    )
+                content = text.encode("utf-8")
+            target_zip.writestr(info, content)
+    return handle.name
+
+
+def runtime_next_steps_template_for_form_type(form_type: str) -> str:
+    """Build a temporary reusable next-steps shell for an AssemblyLine form type."""
     template_map = {
         "starts_case": "next_steps_starts_case.docx",
         "existing_case": "next_steps_existing_case.docx",
@@ -5609,11 +5666,15 @@ def _assign_next_steps_template(interview: DAInterview) -> None:
         "other_form": "next_steps_other_form.docx",
         "other": "next_steps_other.docx",
     }
-    template_name = template_map.get(interview.form_type, "next_steps_other.docx")
-    template_path = _resolve_template_path(template_name)
+    template_name = template_map.get(form_type, "next_steps_other.docx")
+    return _runtime_next_steps_template(_resolve_template_path(template_name))
+
+
+def _assign_next_steps_template(interview: DAInterview) -> None:
     instructions_filename = f"{interview.interview_label}_next_steps.docx"
     interview.instructions = _LocalFile(
-        path=template_path, filename=instructions_filename
+        path=runtime_next_steps_template_for_form_type(interview.form_type),
+        filename=instructions_filename,
     )
 
 
@@ -5982,8 +6043,17 @@ def generate_interview_from_path(
     if artifacts.package_file:
         package_zip_path = artifacts.package_file.path()
 
+    generated_template_paths: List[str] = []
+    if include_next_steps and hasattr(interview, "instructions"):
+        next_steps_output_path = os.path.join(
+            os.path.dirname(yaml_path), interview.instructions.filename
+        )
+        shutil.copyfile(interview.instructions.path(), next_steps_output_path)
+        generated_template_paths.append(next_steps_output_path)
+
     return WeaverGenerationResult(
         yaml_text=artifacts.yaml_text,
         yaml_path=yaml_path,
         package_zip_path=package_zip_path,
+        template_paths=generated_template_paths,
     )
