@@ -6305,6 +6305,7 @@ def _complete_new_project_upload_job(
                     mimetype=str(mimetype) if mimetype else None,
                     generation_options=generation_options,
                     include_yaml_text=True,
+                    include_generated_template_bytes=True,
                 )
 
         if first_result is None:
