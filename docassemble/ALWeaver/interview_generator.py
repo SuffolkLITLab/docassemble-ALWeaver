@@ -57,6 +57,7 @@ import docassemble.base.pdftk
 import formfyxer
 import importlib
 import json
+import html
 import keyword
 import mako.runtime
 import mako.template
@@ -5633,27 +5634,81 @@ def _runtime_next_steps_template(source_path: str) -> str:
         for info in source_zip.infolist():
             content = source_zip.read(info.filename)
             if info.filename.endswith(".xml"):
-                text = content.decode("utf-8")
-                for old, new in _NEXT_STEPS_RUNTIME_REPLACEMENTS.items():
-                    text = text.replace(old, new)
-                text = text.replace(
-                    "[ Your local legal aid]",
-                    '{{ al_next_steps_help_organization or "Your local legal aid" }}',
+                content = _rewrite_next_steps_xml(content.decode("utf-8")).encode(
+                    "utf-8"
                 )
-                # The old shells accidentally gated the granted-result section
-                # on a different answer. The runtime variables make the intended
-                # condition unambiguous.
-                mistaken_condition = "if al_next_steps_what_can_decision_maker_do %}"
-                condition_at = text.rfind(mistaken_condition)
-                if condition_at >= 0:
-                    text = (
-                        text[:condition_at]
-                        + "if al_next_steps_what_happens_if_i_win %}"
-                        + text[condition_at + len(mistaken_condition) :]
-                    )
-                content = text.encode("utf-8")
             target_zip.writestr(info, content)
     return handle.name
+
+
+_WORD_PARAGRAPH_RE = re.compile(r"<w:p(?:\s[^>]*)?>.*?</w:p>", re.DOTALL)
+_WORD_TEXT_RE = re.compile(r"(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)", re.DOTALL)
+
+
+def _rewrite_next_steps_xml(xml_text: str) -> str:
+    """Replace template expressions even when Word splits them across runs."""
+    paragraphs = list(_WORD_PARAGRAPH_RE.finditer(xml_text))
+    logical_values: List[str] = []
+    for paragraph in paragraphs:
+        logical_values.append(
+            "".join(
+                html.unescape(match.group(2))
+                for match in _WORD_TEXT_RE.finditer(paragraph.group(0))
+            )
+        )
+
+    transformed: List[str] = []
+    for logical in logical_values:
+        updated = logical
+        for old, new in _NEXT_STEPS_RUNTIME_REPLACEMENTS.items():
+            updated = updated.replace(old, new)
+        updated = updated.replace(
+            "[ Your local legal aid]",
+            '{{ al_next_steps_help_organization or "Your local legal aid" }}',
+        )
+        transformed.append(updated)
+
+    mistaken_condition = "if al_next_steps_what_can_decision_maker_do %}"
+    condition_indices = [
+        index
+        for index, logical in enumerate(transformed)
+        if mistaken_condition in logical
+    ]
+    if condition_indices:
+        index = condition_indices[-1]
+        transformed[index] = transformed[index].replace(
+            mistaken_condition,
+            "if al_next_steps_what_happens_if_i_win %}",
+        )
+
+    pieces: List[str] = []
+    cursor = 0
+    for paragraph, original, updated in zip(paragraphs, logical_values, transformed):
+        pieces.append(xml_text[cursor : paragraph.start()])
+        paragraph_xml = paragraph.group(0)
+        if updated == original:
+            pieces.append(paragraph_xml)
+        else:
+            text_nodes = list(_WORD_TEXT_RE.finditer(paragraph_xml))
+            node_pieces: List[str] = []
+            node_cursor = 0
+            remaining = updated
+            for node_index, node in enumerate(text_nodes):
+                node_pieces.append(paragraph_xml[node_cursor : node.start()])
+                if node_index == len(text_nodes) - 1:
+                    replacement = remaining
+                else:
+                    original_length = len(html.unescape(node.group(2)))
+                    replacement = remaining[:original_length]
+                    remaining = remaining[original_length:]
+                escaped = html.escape(replacement, quote=False)
+                node_pieces.append(node.group(1) + escaped + node.group(3))
+                node_cursor = node.end()
+            node_pieces.append(paragraph_xml[node_cursor:])
+            pieces.append("".join(node_pieces))
+        cursor = paragraph.end()
+    pieces.append(xml_text[cursor:])
+    return "".join(pieces)
 
 
 def runtime_next_steps_template_for_form_type(form_type: str) -> str:
