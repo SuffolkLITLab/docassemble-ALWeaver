@@ -239,6 +239,8 @@ def _coerce_value(field: Mapping[str, Any], value: Any) -> Any:
         if not isinstance(value, bool):
             raise ValueError(f"{field['label']} must be true or false")
     elif kind == "integer":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return ""
         if isinstance(value, bool):
             raise ValueError(f"{field['label']} must be an integer")
         try:

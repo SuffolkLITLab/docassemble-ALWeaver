@@ -67,6 +67,24 @@ class AssemblyLineSettingsTest(unittest.TestCase):
         self.assertEqual(twice.count(f"id: {MANAGED_BLOCK_ID}"), 1)
         self.assertEqual(read_settings(twice)["values"]["github_user"], "second")
 
+    def test_optional_integer_metadata_round_trips_when_blank(self):
+        source = SOURCE.replace(
+            "  authors:\n    - Original Author\n",
+            "  authors:\n    - Original Author\n  estimated_completion_delta: ''\n",
+        )
+
+        updated = update_settings(
+            source,
+            {
+                **read_settings(source)["values"],
+                "AL_ORGANIZATION_TITLE": "Example Legal Aid",
+            },
+        )
+
+        values = read_settings(updated)["values"]
+        self.assertEqual(values["estimated_completion_delta"], "")
+        self.assertEqual(values["AL_ORGANIZATION_TITLE"], "Example Legal Aid")
+
     def test_rejects_runtime_logic_as_a_setting(self):
         with self.assertRaisesRegex(ValueError, "Unsupported settings"):
             update_settings(SOURCE, {"addresses_to_search": "[broken"})
