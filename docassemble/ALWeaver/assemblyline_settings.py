@@ -350,7 +350,7 @@ def update_settings(source: str, submitted: Mapping[str, Any]) -> str:
     for key, raw_value in submitted.items():
         field = METADATA_FIELDS.get(key) or CODE_FIELDS[key]
         value = _coerce_value(field, raw_value)
-        if key in METADATA_FIELDS:
+        if key in METADATA_FIELDS and value != current.get(key):
             metadata_updates[key] = value
         if key in CODE_FIELDS:
             code_values[key] = value

@@ -84,6 +84,7 @@ class AssemblyLineSettingsTest(unittest.TestCase):
         values = read_settings(updated)["values"]
         self.assertEqual(values["estimated_completion_delta"], "")
         self.assertEqual(values["AL_ORGANIZATION_TITLE"], "Example Legal Aid")
+        self.assertNotIn("can_I_use_this_form:", updated)
 
     def test_rejects_runtime_logic_as_a_setting(self):
         with self.assertRaisesRegex(ValueError, "Unsupported settings"):
