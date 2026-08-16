@@ -138,6 +138,7 @@ class test_api_utils(unittest.TestCase):
         self.assertIn("yaml_filename", result)
         self.assertEqual(result["yaml_filename"], "test_docx_no_pdf_field_names.yml")
         self.assertNotIn("package_zip_base64", result)
+        self.assertNotIn("generated_template_files", result)
 
 
 if __name__ == "__main__":

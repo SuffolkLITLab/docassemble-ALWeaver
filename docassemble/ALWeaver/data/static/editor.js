@@ -86,6 +86,9 @@
     validationMode: 'validation',
     validationSourceScope: 'saved_source',
     validationBaseRevisionMatches: null,
+    assemblyLineSettings: null,
+    assemblyLineSettingsDirty: false,
+    assemblyLineSettingsFilter: '',
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -179,7 +182,7 @@
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
-    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty;
+    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
     buttons.forEach(function (btn) {
       btn.disabled = !isDirty;
       var badge = btn.querySelector('.js-save-badge');
@@ -192,6 +195,8 @@
   function saveCurrentFile() {
     if (!isInterviewView()) {
       saveCurrentSectionFileIfDirty();
+    } else if (state.canvasMode === 'assemblyline-settings') {
+      saveAssemblyLineSettings();
     } else if (state.filename) {
       saveCurrentBlockIfDirty();
     }
@@ -231,7 +236,7 @@
   }
 
   function hasUnsavedChanges() {
-    return dirtyState.hasDirty(state.filename) || state.sectionDirty;
+    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
   }
 
   function sectionSnapshotKey() {
@@ -246,6 +251,12 @@
     var editor = _sourceEditors['section-file-source-editor'];
     if (editor) editor.setValue(savedContent);
     state.sectionDirty = false;
+    updateTopbarSaveState();
+    return true;
+  }
+
+  function discardAssemblyLineSettingsChanges() {
+    state.assemblyLineSettingsDirty = false;
     updateTopbarSaveState();
     return true;
   }
@@ -5366,7 +5377,8 @@
           if (choice === 'discard') {
             var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
             var sectionDiscarded = discardSectionChanges();
-            if (interviewDiscarded && sectionDiscarded) {
+            var settingsDiscarded = discardAssemblyLineSettingsChanges();
+            if (interviewDiscarded && sectionDiscarded && settingsDiscarded) {
               finish(true);
             } else if (errorBox) {
               errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
@@ -5379,6 +5391,7 @@
           saveCurrentSectionFileIfDirty()
             .then(function (sectionSaved) {
               if (!sectionSaved) return false;
+              if (state.assemblyLineSettingsDirty) return saveAssemblyLineSettings();
               return saveCurrentBlockIfDirty();
             })
             .then(function (saved) {
@@ -5690,6 +5703,139 @@
     body.innerHTML = html;
   }
 
+  function loadAssemblyLineSettings() {
+    if (!state.project || !state.filename) return Promise.resolve(false);
+    state.assemblyLineSettings = null;
+    state.assemblyLineSettingsDirty = false;
+    renderAssemblyLineSettings();
+    return apiGet('/api/assemblyline-settings?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+      .then(function (res) {
+        if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to load settings.');
+        state.assemblyLineSettings = res.data;
+        state.revision = res.data.revision || state.revision;
+        renderAssemblyLineSettings();
+        updateTopbarSaveState();
+        return true;
+      })
+      .catch(function (error) {
+        canvasContent.innerHTML = '<div class="alert alert-danger">' + esc(error.message || 'Unable to load AssemblyLine settings.') + '</div>';
+        return false;
+      });
+  }
+
+  function _settingsInput(field, value) {
+    var key = esc(field.key);
+    var kind = field.kind || 'text';
+    var common = ' data-al-setting="' + key + '" id="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '"';
+    var variableHint = '<div class="form-text editor-al-setting-key"><code>' + key + '</code></div>';
+    if (kind === 'boolean') {
+      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
+    }
+    if (kind === 'choice') {
+      var select = '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
+      (field.choices || []).forEach(function (choice) { select += '<option value="' + esc(choice) + '"' + (String(value) === String(choice) ? ' selected' : '') + '>' + esc(String(choice).replace(/_/g, ' ')) + '</option>'; });
+      return select + '</select>' + variableHint;
+    }
+    var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
+    if (kind === 'area' || kind === 'list' || kind === 'python') {
+      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + variableHint + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '');
+    }
+    return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
+  }
+
+  function applyAssemblyLineSettingsFilter() {
+    var query = String(state.assemblyLineSettingsFilter || '').trim().toLowerCase();
+    var visibleSections = 0;
+    document.querySelectorAll('[data-al-settings-section]').forEach(function (section) {
+      var sectionMatch = !query || String(section.getAttribute('data-search') || '').indexOf(query) !== -1;
+      var visibleItems = 0;
+      section.querySelectorAll('[data-al-settings-item]').forEach(function (item) {
+        var visible = sectionMatch || String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
+        item.classList.toggle('d-none', !visible);
+        if (visible) visibleItems += 1;
+      });
+      var visible = sectionMatch || visibleItems > 0;
+      section.classList.toggle('d-none', !visible);
+      if (visible) visibleSections += 1;
+    });
+    var empty = document.getElementById('assemblyline-settings-filter-empty');
+    if (empty) empty.classList.toggle('d-none', visibleSections > 0);
+  }
+
+  function renderAssemblyLineSettings() {
+    if (!state.assemblyLineSettings) {
+      canvasContent.innerHTML = '<div class="text-center py-5"><div class="spinner-border" role="status"></div><p class="text-muted mt-3">Loading AssemblyLine settings…</p></div>';
+      return;
+    }
+    var data = state.assemblyLineSettings;
+    var html = '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
+    html += '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' + (state.assemblyLineSettingsDirty ? '' : ' disabled') + '>Save settings</button></div></div></div>';
+    html += '<div class="editor-card"><div class="editor-card-body"><label class="editor-tiny" for="assemblyline-settings-filter">Filter settings</label><div class="input-group input-group-sm mt-1"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><input class="form-control" id="assemblyline-settings-filter" type="search" value="' + esc(state.assemblyLineSettingsFilter) + '" placeholder="Search by label or magic variable name" autocomplete="off"></div></div></div>';
+    (data.schema || []).forEach(function (section) {
+      var sectionSearch = [section.id, section.label].concat(section.notes || []).join(' ').toLowerCase();
+      html += '<div class="editor-card" data-al-settings-section data-search="' + esc(sectionSearch) + '"><div class="editor-card-header">' + esc(section.label) + '</div><div class="editor-card-body">';
+      if (section.readonly) {
+        html += '<div data-al-settings-item data-search="' + esc(sectionSearch) + '"><p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
+        (section.notes || []).forEach(function (note) { html += '<li class="mb-1">' + esc(note) + '</li>'; });
+        html += '</ul></div>';
+      } else {
+        html += '<div class="row g-3">';
+        (section.fields || []).forEach(function (field) {
+          var fieldSearch = [field.key, field.label, section.id, section.label].join(' ').toLowerCase();
+          html += '<div class="' + (field.pair ? 'col-12 col-md-6' : 'col-12') + '" data-al-settings-item data-search="' + esc(fieldSearch) + '">' + _settingsInput(field, data.values[field.key]) + '</div>';
+        });
+        html += '</div>';
+        if (section.id === 'next_steps') {
+          html += '<div class="alert alert-warning small mt-3 mb-0"><strong>Word document safety:</strong> changing these values updates YAML only and does not overwrite the DOCX shell. If you changed the form type and want the matching standard shell, use the explicit replacement below; Weaver first saves a backup.<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" id="reset-next-steps-template">Back up and replace with standard shell</button></div></div>';
+        }
+      }
+      html += '</div></div>';
+    });
+    html += '<div class="alert alert-light border d-none" id="assemblyline-settings-filter-empty">No settings match that filter.</div>';
+    html += '<p class="small text-muted">See the <a href="' + esc(data.docs_url) + '" target="_blank" rel="noopener">AssemblyLine special-variable documentation</a>.</p></div>';
+    canvasContent.innerHTML = html;
+    applyAssemblyLineSettingsFilter();
+  }
+
+  function collectAssemblyLineSettings() {
+    var values = {};
+    document.querySelectorAll('[data-al-setting]').forEach(function (input) {
+      var key = input.getAttribute('data-al-setting');
+      var field = null;
+      (state.assemblyLineSettings.schema || []).some(function (section) { return (section.fields || []).some(function (candidate) { if (candidate.key === key) { field = candidate; return true; } return false; }); });
+      if (!field) return;
+      if (field.kind === 'boolean') values[key] = input.checked;
+      else if (field.kind === 'integer') values[key] = input.value === '' ? '' : Number(input.value);
+      else if (field.kind === 'list') values[key] = input.value.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+      else values[key] = input.value;
+    });
+    return values;
+  }
+
+  function saveAssemblyLineSettings() {
+    if (!state.assemblyLineSettings || !state.assemblyLineSettingsDirty) return Promise.resolve(true);
+    return apiPost('/api/assemblyline-settings', {
+      project: state.project,
+      filename: state.filename,
+      expected_revision: state.assemblyLineSettings.revision || state.revision,
+      settings: collectAssemblyLineSettings(),
+    }).then(function (res) {
+      if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to save settings.');
+      state.assemblyLineSettings = res.data;
+      state.assemblyLineSettingsDirty = false;
+      refreshFromFileResponse(res.data);
+      state.canvasMode = 'assemblyline-settings';
+      renderAssemblyLineSettings();
+      updateTopbarSaveState();
+      _showSuccessBanner('AssemblyLine settings saved.');
+      return true;
+    }).catch(function (error) {
+      if (!isSupersededRequest(error)) window.alert(error.message || 'Unable to save AssemblyLine settings.');
+      return false;
+    });
+  }
+
   function renderCanvas() {
     disposeSourceEditors();
     updateLeftRailMode();
@@ -5707,6 +5853,8 @@
       renderProjectSelector();
     } else if (state.canvasMode === 'new-project') {
       renderNewProject();
+    } else if (state.canvasMode === 'assemblyline-settings') {
+      renderAssemblyLineSettings();
     } else if (state.canvasMode === 'full-yaml') {
       renderFullYaml();
     } else if (state.canvasMode === 'order-builder') {
@@ -7458,6 +7606,7 @@
     html += '<div class="editor-dropzone-icon">&#128196;</div>';
     html += '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>';
     html += '<div class="text-muted small mt-1">or click to browse</div>';
+    html += '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>';
     html += '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">';
     html += '</div>';
     html += '<div id="upload-file-list" class="mt-2"></div>';
@@ -7472,6 +7621,12 @@
     html += '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>';
     html += '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping.</div>';
     html += '</div>';
+    html += '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label><select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>';
+    html += '<div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label><select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select></div></div>';
+    html += '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label><input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA"></div>';
+    html += '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label><select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>';
+    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>';
+    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>';
     html += '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>';
     html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>';
     html += '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>';
@@ -8630,6 +8785,50 @@
       toggleFullYaml();
       return;
     }
+    if (uiAction === 'open-assemblyline-settings') {
+      if (!state.project || !state.filename) return;
+      function openAssemblyLineSettings() {
+        stashCurrentEditorState();
+        state.canvasMode = 'assemblyline-settings';
+        state.currentView = 'interview';
+        renderCanvas();
+        loadAssemblyLineSettings();
+      }
+      if (deferNavigationForUnsavedChanges('open AssemblyLine settings', openAssemblyLineSettings)) return;
+      openAssemblyLineSettings();
+      return;
+    }
+    if (target.id === 'close-assemblyline-settings') {
+      function closeAssemblyLineSettings() {
+        state.assemblyLineSettingsDirty = false;
+        state.canvasMode = 'question';
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('close AssemblyLine settings', closeAssemblyLineSettings)) return;
+      closeAssemblyLineSettings();
+      return;
+    }
+    if (target.id === 'save-assemblyline-settings') {
+      saveAssemblyLineSettings();
+      return;
+    }
+    if (target.id === 'reset-next-steps-template') {
+      if (!window.confirm('Replace the current next steps DOCX with the standard shell for the selected form type? Weaver will keep a backup in Templates.')) return;
+      var proceedWithReset = function () {
+        apiPost('/api/next-steps-template/reset', {
+          project: state.project,
+          filename: state.filename,
+          confirm_replace: true,
+        }).then(function (res) {
+          if (!res.success) throw new Error((res.error && res.error.message) || 'Unable to replace the template.');
+          var backup = res.data && res.data.backup_filename ? ' Backup: ' + res.data.backup_filename + '.' : '';
+          _showSuccessBanner('Next steps shell replaced.' + backup);
+        }).catch(function (error) { window.alert(error.message || 'Unable to replace the next steps template.'); });
+      };
+      if (state.assemblyLineSettingsDirty) saveAssemblyLineSettings().then(function (saved) { if (saved) proceedWithReset(); });
+      else proceedWithReset();
+      return;
+    }
     if (uiAction === 'open-runtime-inspector') {
       if (!state.project || !state.filename) return;
       function openRuntimeInspector() {
@@ -9338,12 +9537,24 @@
       var helpPageUrlInput = document.getElementById('new-project-help-page-url');
       var helpPageTitleInput = document.getElementById('new-project-help-page-title');
       var useLlmAssistInput = document.getElementById('new-project-use-llm-assist');
+      var outputTypeInput = document.getElementById('new-project-output-type');
+      var formTypeInput = document.getElementById('new-project-form-type');
+      var defaultStateInput = document.getElementById('new-project-default-state');
+      var userRoleInput = document.getElementById('new-project-user-role');
+      var includeNextStepsInput = document.getElementById('new-project-include-next-steps');
+      var enableNavigationInput = document.getElementById('new-project-enable-navigation');
       var githubUrlInput = document.getElementById('new-project-github-url');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
       var helpPageUrl = helpPageUrlInput ? helpPageUrlInput.value : '';
       var helpPageTitle = helpPageTitleInput ? helpPageTitleInput.value : '';
       var useLlmAssist = useLlmAssistInput ? useLlmAssistInput.checked : false;
+      var outputType = outputTypeInput ? outputTypeInput.value : 'form';
+      var formType = formTypeInput ? formTypeInput.value : 'auto';
+      var defaultState = defaultStateInput ? defaultStateInput.value.trim() : '';
+      var userRole = userRoleInput ? userRoleInput.value : 'auto';
+      var includeNextSteps = includeNextStepsInput ? includeNextStepsInput.checked : true;
+      var enableNavigation = enableNavigationInput ? enableNavigationInput.checked : true;
       var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
       if (githubUrl && _uploadedFiles.length > 0) {
         window.alert('Choose either a GitHub repository or uploaded documents, not both.');
@@ -9359,6 +9570,12 @@
         formData.append('help_page_url', helpPageUrl);
         formData.append('help_page_title', helpPageTitle);
         formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
+        formData.append('output_type', outputType);
+        formData.append('form_type', formType);
+        formData.append('default_state', defaultState);
+        formData.append('typical_role', userRole);
+        formData.append('include_next_steps', includeNextSteps ? 'true' : 'false');
+        formData.append('enable_navigation', enableNavigation ? 'true' : 'false');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
         apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {
@@ -9447,6 +9664,18 @@
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
+    if (target.id === 'assemblyline-settings-filter') {
+      state.assemblyLineSettingsFilter = target.value || '';
+      applyAssemblyLineSettingsFilter();
+      return;
+    }
+    if (target.matches('[data-al-setting]')) {
+      state.assemblyLineSettingsDirty = true;
+      var settingsSave = document.getElementById('save-assemblyline-settings');
+      if (settingsSave) settingsSave.disabled = false;
+      updateTopbarSaveState();
+      return;
+    }
     if (target.id === 'symbol-insert-search') {
       refreshSymbolInsertModalList(target.value || '');
       return;
@@ -9487,6 +9716,13 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-al-setting]')) {
+      state.assemblyLineSettingsDirty = true;
+      var settingsSave = document.getElementById('save-assemblyline-settings');
+      if (settingsSave) settingsSave.disabled = false;
+      updateTopbarSaveState();
+      return;
+    }
     if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
       markInterviewDirty();
       return;

@@ -14,12 +14,27 @@ from .interview_generator import (
     _LocalDAFileAdapter,
     generate_interview_from_path,
     generate_interview_artifacts,
+    _rewrite_next_steps_xml,
     _ensure_unique_question_ids,
     _with_progress_markers,
 )
 
 
 class TestGenerateInterviewFromPath(unittest.TestCase):
+    def test_next_steps_rewrite_handles_expressions_split_across_word_runs(self):
+        xml = (
+            '<w:document xmlns:w="word"><w:body><w:p>'
+            '<w:r><w:t>{% if interview.custom_next_steps_instructions["what_</w:t></w:r>'
+            '<w:r><w:t>happens_if_i_win"] %}</w:t></w:r>'
+            "</w:p></w:body></w:document>"
+        )
+
+        rewritten = _rewrite_next_steps_xml(xml)
+
+        self.assertIn("al_next_steps_what_happens_if_i_win", rewritten)
+        self.assertNotIn("interview.custom_next_steps_instructions", rewritten)
+        self.assertEqual(rewritten.count("<w:r>"), 2)
+
     @staticmethod
     def _offline_cluster_screens(fields, tools_token=None):
         """Deterministic fallback grouping for test runs without OpenAI credentials."""
@@ -244,6 +259,17 @@ question: |
                     for name in names
                 )
             )
+            self.assertEqual(len(result.template_paths), 1)
+            runtime_template = Path(result.template_paths[0])
+            self.assertTrue(runtime_template.exists())
+            with zipfile.ZipFile(runtime_template) as generated_docx:
+                document_xml = generated_docx.read("word/document.xml").decode("utf-8")
+            self.assertIn("al_next_steps_document_title", document_xml)
+            self.assertIn("al_next_steps_what_happens_if_i_win", document_xml)
+            self.assertNotIn("interview.custom_next_steps_instructions", document_xml)
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn("id: alweaver assemblyline settings", yaml_text)
+            self.assertIn("al_next_steps_enabled = True", yaml_text)
             self.assertTrue(
                 any(
                     name.endswith("/data/templates/test_docx_no_pdf_field_names.docx")

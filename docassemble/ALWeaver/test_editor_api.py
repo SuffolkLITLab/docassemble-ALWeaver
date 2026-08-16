@@ -1128,7 +1128,13 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
-        self.assertFalse(start_kwargs["generation_options"]["include_next_steps"])
+        self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
+        self.assertTrue(start_kwargs["generation_options"]["include_download_screen"])
+        self.assertTrue(
+            start_kwargs["generation_options"]["interview_overrides"][
+                "next_steps_enabled"
+            ]
+        )
         self.assertEqual(len(start_kwargs["uploaded_files"]), 1)
         self.assertEqual(start_kwargs["uploaded_files"][0]["filename"], docx_path.name)
         self.assertIsInstance(start_kwargs["uploaded_files"][0]["content_bytes"], bytes)
@@ -1261,6 +1267,48 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["data"]["raw_yaml"], expected)
         mock_write.assert_called_once_with(7, "default", "test.yml", expected)
+
+    def test_assemblyline_settings_get_returns_schema_and_revision(self):
+        source = "metadata:\n  title: Example\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=source),
+            patch.object(
+                api_editor,
+                "read_settings",
+                return_value={"schema": [], "values": {"title": "Example"}},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/assemblyline-settings?project=default&filename=test.yml"
+            ):
+                response = api_editor.editor_api_get_assemblyline_settings()
+
+        payload = response.get_json()["data"]
+        self.assertEqual(payload["values"]["title"], "Example")
+        self.assertEqual(payload["revision"], "test-revision")
+
+    def test_assemblyline_settings_save_rejects_stale_revision(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value="source"),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/assemblyline-settings",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "expected_revision": "old-revision",
+                    "settings": {"title": "Changed"},
+                },
+            ):
+                response = api_editor.editor_api_save_assemblyline_settings()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
 
 
 if __name__ == "__main__":

@@ -223,6 +223,25 @@ ${ indent(intro_prompt_value, by=2) }
 code: |
   al_form_type = "${ interview.form_type }"
 % endif
+% if generate_download_screen and interview.include_next_steps:
+---
+id: alweaver assemblyline settings
+initial: True
+code: |
+  # These exact-name variables drive the reusable next-steps DOCX shell and
+  # are editable in Weaver's AssemblyLine settings panel.
+  al_next_steps_enabled = ${ repr(bool(getattr(interview, "next_steps_enabled", True))) }
+  al_next_steps_intro_prompt = ${ repr(str(getattr(interview, "intro_prompt", "") or "")) }
+  al_next_steps_title = ${ repr(str(getattr(interview, "title", "") or "")) }
+  al_next_steps_document_title = ${ repr(str(getattr(interview, "next_steps_document_title", "form") or "form")) }
+  al_next_steps_document_purpose = ${ repr(str(getattr(interview, "next_steps_document_concept", "request") or "request")) }
+  al_next_steps_help_organization = ${ repr(str(getattr(interview, "next_steps_help_organization", "") or "")) }
+  al_next_steps_help_url = ${ repr(str(getattr(interview, "next_steps_help_url", getattr(interview, "help_page_url", "")) or "")) }
+  al_next_steps_generate_qr_code = ${ repr(bool(getattr(interview, "generate_next_steps_qr_code", False))) }
+  al_next_steps_what_happens_next = ${ repr(str(getattr(interview, "custom_next_steps_instructions", {}).get("what_happens_next", "") or "")) }
+  al_next_steps_what_can_decision_maker_do = ${ repr(str(getattr(interview, "custom_next_steps_instructions", {}).get("what_can_decision_maker_do", "") or "")) }
+  al_next_steps_what_happens_if_i_win = ${ repr(str(getattr(interview, "custom_next_steps_instructions", {}).get("what_happens_if_i_win", "") or "")) }
+% endif
 % if len(objects) > 0:
 ---
 objects:
@@ -495,7 +514,7 @@ code: |
 # ALDocument objects specify the metadata for each template
 objects:
   % if interview.include_next_steps:
-  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", enabled=True, has_addendum=False)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", enabled=al_next_steps_enabled, has_addendum=False)
   % endif
   % if len(interview.uploaded_templates) == 1:
   - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", ${ aldocument_kwargs })

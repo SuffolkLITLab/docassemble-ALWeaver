@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools==83.0.0"]
+# Docassemble still imports pkg_resources at runtime. setuptools 82+ removed it,
+# and dainstall may promote the build requirement into the server environment.
+requires = ["setuptools>=61,<82"]
 build-backend = "setuptools.build_meta"
 
 [project]
