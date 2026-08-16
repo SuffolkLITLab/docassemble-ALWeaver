@@ -319,21 +319,194 @@ def _replace_or_insert_managed(source: str, block: str) -> str:
     return source[:insertion] + document + source[insertion:]
 
 
+def _yaml_scalar(value: Any) -> str:
+    """Serialize one scalar without PyYAML's document-end marker."""
+    rendered = yaml.safe_dump(
+        value,
+        allow_unicode=True,
+        default_flow_style=True,
+        width=10_000,
+    ).strip()
+    if rendered.endswith("\n..."):
+        rendered = rendered[:-4]
+    elif rendered == "...":
+        rendered = "''"
+    return rendered
+
+
+def _literal_block_value(
+    value: str,
+    *,
+    content_indent: int,
+    newline: str,
+    original_fragment: str = "",
+) -> str:
+    """Render text as a literal block, retaining an existing chomping marker."""
+    header_match = re.match(r"^([|>][1-9]?[+-]?)", original_fragment)
+    if header_match:
+        header = header_match.group(1).replace(">", "|", 1)
+    else:
+        header = "|" if value.endswith(("\n", "\r")) else "|-"
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    if not normalized:
+        return header
+    indentation = " " * content_indent
+    return header + newline + newline.join(
+        indentation + line if line else "" for line in normalized.split("\n")
+    )
+
+
+def _metadata_value_fragment(
+    value: Any,
+    *,
+    value_node: Optional[yaml.Node],
+    original_fragment: str,
+    key_indent: int,
+    newline: str,
+) -> str:
+    """Serialize one changed value while favoring readable literal text."""
+    existing_block = isinstance(value_node, yaml.ScalarNode) and value_node.style in {
+        "|",
+        ">",
+    }
+    if isinstance(value, str) and (
+        existing_block or "\n" in value or "\r" in value
+    ):
+        return _literal_block_value(
+            value,
+            content_indent=key_indent + 2,
+            newline=newline,
+            original_fragment=original_fragment,
+        )
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        indentation = " " * (key_indent + 2)
+        items: List[str] = []
+        for item in value:
+            if isinstance(item, str) and ("\n" in item or "\r" in item):
+                literal = _literal_block_value(
+                    item,
+                    content_indent=key_indent + 4,
+                    newline=newline,
+                )
+                items.append("- " + literal)
+            else:
+                items.append("- " + _yaml_scalar(item))
+        if isinstance(value_node, yaml.SequenceNode) and not value_node.flow_style:
+            return items[0] + "".join(
+                newline + indentation + item for item in items[1:]
+            )
+        return newline + newline.join(indentation + item for item in items)
+    return _yaml_scalar(value)
+
+
+def _metadata_mapping_node(body: str) -> Optional[yaml.MappingNode]:
+    try:
+        root = yaml.compose(body)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    for key_node, value_node in root.value:
+        if (
+            isinstance(key_node, yaml.ScalarNode)
+            and key_node.value == "metadata"
+            and isinstance(value_node, yaml.MappingNode)
+        ):
+            return value_node
+    return None
+
+
 def _update_metadata(source: str, updates: Mapping[str, Any]) -> str:
-    metadata, location = _metadata(source)
+    """Patch changed metadata values without re-serializing the document."""
+    _metadata_values, location = _metadata(source)
     if location is None:
         raise ValueError("No metadata document was found")
-    for key, value in updates.items():
-        metadata[key] = value
     start, end, body = location
-    parsed = yaml.safe_load(body)
-    parsed["metadata"] = metadata
-    rendered = yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True).rstrip("\n")
-    leading = body[: len(body) - len(body.lstrip("\r\n"))]
-    trailing = body[len(body.rstrip("\r\n")) :]
-    newline = "\r\n" if "\r\n" in source else "\n"
-    rendered = rendered.replace("\n", newline)
-    return source[:start] + leading + rendered + trailing + source[end:]
+    metadata_node = _metadata_mapping_node(body)
+    if metadata_node is None:
+        raise ValueError("The metadata mapping could not be edited safely")
+    newline = "\r\n" if "\r\n" in body else "\n"
+    existing: Dict[str, Tuple[yaml.Node, yaml.Node]] = {}
+    for key_node, value_node in metadata_node.value:
+        if not isinstance(key_node, yaml.ScalarNode) or key_node.value in existing:
+            raise ValueError("The metadata mapping contains unsupported duplicate keys")
+        existing[str(key_node.value)] = (key_node, value_node)
+
+    operations: List[Tuple[int, int, str]] = []
+    missing: List[Tuple[str, Any]] = []
+    for key, value in updates.items():
+        if key not in existing:
+            missing.append((key, value))
+            continue
+        key_node, value_node = existing[key]
+        value_start = value_node.start_mark.index
+        value_end = value_node.end_mark.index
+        fragment = body[value_start:value_end]
+        replacement = _metadata_value_fragment(
+            value,
+            value_node=value_node,
+            original_fragment=fragment,
+            key_indent=key_node.start_mark.column,
+            newline=newline,
+        )
+        if fragment.endswith("\r\n") and not replacement.endswith(("\r", "\n")):
+            replacement += "\r\n"
+        elif fragment.endswith("\n") and not replacement.endswith(("\r", "\n")):
+            replacement += "\n"
+        elif fragment.endswith("\r") and not replacement.endswith(("\r", "\n")):
+            replacement += "\r"
+        operations.append((value_start, value_end, replacement))
+
+    if missing:
+        key_indent = (
+            metadata_node.value[0][0].start_mark.column
+            if metadata_node.value
+            else metadata_node.start_mark.column
+        )
+        insertion_at = len(body.rstrip("\r\n"))
+        addition_lines: List[str] = []
+        for key, value in missing:
+            fragment = _metadata_value_fragment(
+                value,
+                value_node=None,
+                original_fragment="",
+                key_indent=key_indent,
+                newline=newline,
+            )
+            separator = "" if fragment.startswith(newline) else " "
+            addition_lines.append(
+                " " * key_indent + key + ":" + separator + fragment
+            )
+        prefix = "" if insertion_at == 0 or body[:insertion_at].endswith(("\n", "\r")) else newline
+        operations.append(
+            (insertion_at, insertion_at, prefix + newline.join(addition_lines))
+        )
+
+    updated_body = body
+    for operation_start, operation_end, replacement in sorted(
+        operations, key=lambda item: item[0], reverse=True
+    ):
+        updated_body = (
+            updated_body[:operation_start]
+            + replacement
+            + updated_body[operation_end:]
+        )
+
+    # Refuse a patch that does not round-trip to the submitted values.
+    parsed = yaml.safe_load(updated_body)
+    parsed_metadata = parsed.get("metadata") if isinstance(parsed, dict) else None
+    if not isinstance(parsed_metadata, dict):
+        raise ValueError("The metadata mapping could not be edited safely")
+    for key, value in updates.items():
+        parsed_value = parsed_metadata.get(key)
+        if isinstance(value, str) and isinstance(parsed_value, str):
+            if parsed_value.rstrip("\r\n") != value.rstrip("\r\n"):
+                raise ValueError(f"Metadata value {key!r} did not round-trip safely")
+        elif parsed_value != value:
+            raise ValueError(f"Metadata value {key!r} did not round-trip safely")
+    return source[:start] + updated_body + source[end:]
 
 
 def update_settings(source: str, submitted: Mapping[str, Any]) -> str:

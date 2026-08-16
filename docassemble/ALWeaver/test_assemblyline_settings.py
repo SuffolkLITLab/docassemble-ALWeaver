@@ -61,6 +61,64 @@ class AssemblyLineSettingsTest(unittest.TestCase):
         self.assertFalse(result["values"]["speak_text"])
         list(yaml.safe_load_all(updated))
 
+    def test_metadata_update_preserves_untouched_literal_scalar_bytes(self):
+        updated = update_settings(SOURCE, {"title": "Updated"})
+
+        original_metadata = SOURCE.split("---", 1)[0]
+        updated_metadata = updated.split("---", 1)[0]
+        self.assertEqual(
+            updated_metadata,
+            original_metadata.replace("title: Original", "title: Updated"),
+        )
+        self.assertIn("  description: |\n    Existing description\n", updated)
+
+    def test_changed_multiline_metadata_uses_literal_block_style(self):
+        updated = update_settings(
+            SOURCE,
+            {"description": "First updated line\nSecond updated line"},
+        )
+
+        self.assertIn(
+            "  description: |\n    First updated line\n    Second updated line\n",
+            updated,
+        )
+        self.assertNotIn("description: '", updated)
+        self.assertEqual(
+            read_settings(updated)["values"]["description"].rstrip("\n"),
+            "First updated line\nSecond updated line",
+        )
+
+    def test_new_multiline_metadata_uses_literal_block_style(self):
+        updated = update_settings(
+            SOURCE,
+            {"can_I_use_this_form": "People filing a claim\nPeople responding"},
+        )
+
+        self.assertIn(
+            "  can_I_use_this_form: |-\n"
+            "    People filing a claim\n"
+            "    People responding",
+            updated,
+        )
+
+    def test_multiline_list_items_use_literal_block_style(self):
+        updated = update_settings(
+            SOURCE,
+            {"authors": ["First author\nSecond line"]},
+        )
+
+        self.assertIn(
+            "  authors:\n"
+            "    - |-\n"
+            "      First author\n"
+            "      Second line",
+            updated,
+        )
+        self.assertEqual(
+            read_settings(updated)["values"]["authors"],
+            ["First author\nSecond line"],
+        )
+
     def test_repeated_update_replaces_one_managed_block(self):
         once = update_settings(SOURCE, {"github_user": "first"})
         twice = update_settings(once, {"github_user": "second"})
