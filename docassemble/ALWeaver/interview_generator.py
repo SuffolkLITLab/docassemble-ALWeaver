@@ -162,6 +162,7 @@ __all__ = [
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
     "get_unhandled_field_type_warnings",
+    "merged_field_names",
     "rename_field_screen_fields",
     "pdf_rename_mapping",
     "indent_by",
@@ -1613,6 +1614,24 @@ class DAFieldList(DAList):
                 field_map[field.final_display_var] = field
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
+
+    def merged_fields(self) -> List[DAField]:
+        """Fields that more than one differently-named PDF field collapsed into.
+
+        FormFyxer's normalization is deliberately aggressive, so two fields the
+        author meant to keep apart can come back with the same name and end up
+        writing to a single variable. Repeats of one field -- the `__0`/`__1`
+        multiple-appearance names -- are not merges and are excluded.
+        """
+        merged = []
+        for field in self.elements:
+            distinct = {
+                remove_multiple_appearance_indicator(varname(raw_name))
+                for raw_name in getattr(field, "raw_field_names", [])
+            }
+            if len(distinct) > 1:
+                merged.append(field)
+        return merged
 
     def find_parent_collections(
         self, skip_skipped_and_code_fields: bool = True
@@ -4815,7 +4834,38 @@ def get_unhandled_field_type_warnings(fields: Iterable[DAField]) -> List[str]:
     ]
 
 
-def rename_field_screen_fields(pdf_field_names: Sequence[str]) -> List[Dict[str, Any]]:
+def merged_field_names(fields: Iterable[DAField]) -> List[str]:
+    """The raw PDF field names that normalization collapsed onto each other.
+
+    Args:
+        fields (Iterable[DAField]): the fields read from the uploaded PDF.
+
+    Returns:
+        List[str]: every raw name belonging to a field that more than one
+        differently-named PDF field merged into.
+    """
+    names = []
+    for field in fields:
+        distinct = {
+            remove_multiple_appearance_indicator(varname(raw_name))
+            for raw_name in getattr(field, "raw_field_names", [])
+        }
+        if len(distinct) > 1:
+            names.extend(field.raw_field_names)
+    return names
+
+
+MERGED_FIELD_HELP = (
+    "Two or more fields in this PDF were given the same name when it was "
+    "normalized, so they will all be filled with the same answer. If they are "
+    "meant to hold different answers, give each one its own name."
+)
+
+
+def rename_field_screen_fields(
+    pdf_field_names: Sequence[str],
+    merged_names: Iterable[str] = (),
+) -> List[Dict[str, Any]]:
     """Build the "Rename fields" screen for a PDF's existing field names.
 
     The answers are keyed by position rather than by field name. A field named
@@ -4823,21 +4873,33 @@ def rename_field_screen_fields(pdf_field_names: Sequence[str]) -> List[Dict[str,
     Docassemble variable name -- the `#`, the quotes and the nested brackets
     make `rename_fields['...']` unparseable, and the screen fails to load.
 
+    Fields that normalization merged together come first, since they are the
+    ones most likely to need a new name.
+
     Args:
         pdf_field_names (Sequence[str]): the field names currently in the PDF.
+        merged_names (Iterable[str]): names that ended up sharing a variable
+            with another field, from `merged_field_names`.
 
     Returns:
         List[Dict[str, Any]]: a Docassemble `fields` list.
     """
-    return [
-        {
+    merged = set(merged_names)
+    entries = []
+    for index, name in enumerate(pdf_field_names):
+        entry: Dict[str, Any] = {
             "label": name,
             "field": f"rename_fields[{index}]",
             "default": name,
             "label above field": True,
             "required": False,
         }
-        for index, name in enumerate(pdf_field_names)
+        if name in merged:
+            entry["help"] = MERGED_FIELD_HELP
+        entries.append(entry)
+    # Stable partition: merged first, everything else in its original order
+    return [entry for entry in entries if "help" in entry] + [
+        entry for entry in entries if "help" not in entry
     ]
 
 

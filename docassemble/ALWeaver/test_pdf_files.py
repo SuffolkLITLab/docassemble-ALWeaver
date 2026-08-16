@@ -6,6 +6,8 @@ from .interview_generator import (
     get_pdf_validation_errors,
     get_unhandled_field_type_warnings,
     pdf_field_type_str,
+    DAField,
+    merged_field_names,
     rename_field_screen_fields,
     pdf_rename_mapping,
 )
@@ -286,3 +288,57 @@ class test_rename_variables_are_valid_to_docassemble(unittest.TestCase):
         for entry in rename_field_screen_fields(self.AWKWARD_NAMES):
             with self.subTest(field=entry["field"]):
                 self.assertFalse(invalid_variable_name(entry["field"]))
+
+
+class test_merged_field_names(unittest.TestCase):
+    """FormFyxer's normalization can give two different fields the same name.
+
+    When it does, both PDF fields end up writing the same answer. The author
+    needs to see which ones so they can pull them back apart.
+    """
+
+    @staticmethod
+    def _field(*raw_field_names):
+        field = DAField()
+        field.fill_in_pdf_attributes(
+            (raw_field_names[0], "", 0, [0, 0, 100, 20], "/Tx"), {}
+        )
+        field.raw_field_names = list(raw_field_names)
+        return field
+
+    def test_differently_named_fields_that_merged(self):
+        fields = [
+            self._field("users1_name_first", "users1_name_full"),
+            self._field("docket_number"),
+        ]
+        self.assertEqual(
+            merged_field_names(fields), ["users1_name_first", "users1_name_full"]
+        )
+
+    def test_repeats_of_one_field_are_not_a_merge(self):
+        """`plaintiffs__3` and `plaintiffs__4` are the same field twice."""
+        fields = [self._field("plaintiffs__3", "plaintiffs__4")]
+        self.assertEqual(merged_field_names(fields), [])
+
+    def test_merged_fields_come_first_on_the_rename_screen(self):
+        names = ["a_field", "users1_name_first", "b_field", "users1_name_full"]
+        screen_fields = rename_field_screen_fields(
+            names, ["users1_name_first", "users1_name_full"]
+        )
+        self.assertEqual(
+            [entry["label"] for entry in screen_fields],
+            ["users1_name_first", "users1_name_full", "a_field", "b_field"],
+        )
+
+    def test_reordering_keeps_each_answer_pointed_at_its_own_field(self):
+        names = ["a_field", "users1_name_first", "b_field", "users1_name_full"]
+        screen_fields = rename_field_screen_fields(names, ["users1_name_full"])
+        by_label = {entry["label"]: entry["field"] for entry in screen_fields}
+        self.assertEqual(by_label["a_field"], "rename_fields[0]")
+        self.assertEqual(by_label["users1_name_full"], "rename_fields[3]")
+
+    def test_merged_fields_explain_themselves(self):
+        screen_fields = rename_field_screen_fields(["x", "y"], ["y"])
+        by_label = {entry["label"]: entry for entry in screen_fields}
+        self.assertIn("help", by_label["y"])
+        self.assertNotIn("help", by_label["x"])

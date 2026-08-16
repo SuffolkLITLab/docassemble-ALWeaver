@@ -456,12 +456,24 @@ code: |
     item[0] for item in interview.uploaded_templates[0].get_pdf_fields()
   ]
 ---
+code: |
+  merged_pdf_field_names = merged_field_names(interview.all_fields)
+---
 id: rename fields
 question: |
   Rename fields
+subquestion: |
+  % if merged_pdf_field_names:
+  :exclamation-triangle: **${ len(merged_pdf_field_names) } fields share a name
+  with another field**, so they will all be filled with the same answer.
+  They are listed first below. If any of them are meant to hold different
+  answers, give each one its own name.
+  % endif
 fields:
   - code: |
-      rename_field_screen_fields(pdf_field_names_to_rename)
+      rename_field_screen_fields(
+        pdf_field_names_to_rename, merged_pdf_field_names
+      )
 right: |
   #### Preview of PDF label placement
   
