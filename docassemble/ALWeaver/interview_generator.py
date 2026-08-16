@@ -169,6 +169,8 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
+    "split_option_field_name",
+    "option_label",
     "logic_to_code_block",
     "WeaverGenerationResult",
     "WeaverInterviewArtifacts",
@@ -262,6 +264,50 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optiona
 
     max_chars = num_rows * num_cols
     return max_chars
+
+
+# A PDF field named `service_method+by_mail` says "this checkbox is the `by_mail`
+# option of a question called `service_method`". `+` is deliberately not legal in
+# a Python identifier, so it can never be confused with part of a variable name.
+OPTION_SEPARATOR = "+"
+
+# Field types that ask with a list of `choices`
+CHOICE_FIELD_TYPES = [
+    "multiple choice radio",
+    "multiple choice checkboxes",
+    "multiple choice dropdown",
+    "multiple choice combobox",
+    "multiselect",
+]
+# The ones whose answer is a dict of ticked options rather than a single value
+MULTI_ANSWER_FIELD_TYPES = ["multiple choice checkboxes", "multiselect"]
+
+
+def split_option_field_name(raw_field_name: str) -> Optional[Tuple[str, str]]:
+    """Split a `parent+option` PDF field name into its two halves.
+
+    Args:
+        raw_field_name (str): a field name straight out of the PDF.
+
+    Returns:
+        Optional[Tuple[str, str]]: `(parent name, option value)`, or None if
+        this isn't an option field. Both halves have to be usable: a name like
+        `+mail` or `service_method+` is not a grouping, just an odd name.
+    """
+    if OPTION_SEPARATOR not in raw_field_name:
+        return None
+    parent, _, option = raw_field_name.partition(OPTION_SEPARATOR)
+    # Only the first `+` separates; anything after it is part of the option
+    parent_name = remove_multiple_appearance_indicator(varname(parent))
+    option_value = varname(remove_multiple_appearance_indicator(option))
+    if not parent_name or not option_value:
+        return None
+    return parent_name, option_value
+
+
+def option_label(option_value: str) -> str:
+    """A human-readable label for a `parent+option` choice."""
+    return option_value.replace("_", " ").capitalize()
 
 
 def varname(var_name: str) -> str:
@@ -601,10 +647,14 @@ class DAField(DAObject):
             custom_plurals = {}
         # The raw name of the field from the PDF: must go in attachment block
         self.raw_field_names = [pdf_field_tuple[0]]
-        # turns field_name into a valid python identifier: must be one per field
-        self.variable = remove_multiple_appearance_indicator(
-            varname(self.raw_field_names[0])
+        # `parent+option` says this field is one choice of a bigger question, so
+        # the variable is the parent and the part after the `+` is the answer
+        parent_and_option = split_option_field_name(self.raw_field_names[0])
+        name_for_variable = (
+            parent_and_option[0] if parent_and_option else self.raw_field_names[0]
         )
+        # turns field_name into a valid python identifier: must be one per field
+        self.variable = remove_multiple_appearance_indicator(varname(name_for_variable))
         # the variable, in python: i.e., users[1].name.first
         self.final_display_var = map_raw_to_final_display(
             self.variable, custom_people_plurals_map=custom_plurals
@@ -616,6 +666,13 @@ class DAField(DAObject):
         self.variable_name_guess = variable_name_guess
 
         self.export_value = pdf_field_tuple[5] if len(pdf_field_tuple) >= 6 else ""
+        if parent_and_option:
+            option_value = parent_and_option[1]
+            self.option_value = option_value
+            self.option_values = {self.raw_field_names[0]: option_value}
+            self.field_type_guess = "multiple choice radio"
+            self.choice_options = [option_value]
+            return
         if self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = "Date of " + self.variable[:-5].replace("_", " ")
@@ -654,6 +711,37 @@ class DAField(DAObject):
 
         if pdf_field_tuple[4] not in ["/Sig", "/Btn", "/Tx"]:
             self.field_type_unhandled = True
+
+    def is_option_group(self) -> bool:
+        """True if several `parent+option` PDF fields collapsed into this one."""
+        return bool(getattr(self, "option_values", None))
+
+    def choices_string(self) -> str:
+        """The newline-separated `Label: value` list a choice field asks with."""
+        return "\n".join(
+            f"{option_label(option)}: {option}"
+            for option in getattr(self, "choice_options", [])
+        )
+
+    def option_fill_expression(self, raw_field_name: str) -> str:
+        """What to write into one PDF field of a `parent+option` group.
+
+        A single-answer question (radio, dropdown, combobox) stores the chosen
+        option, so each box is ticked by comparing against it. A multi-answer
+        question (checkboxes, multiselect) stores a dict, so each box reads its
+        own key.
+
+        Args:
+            raw_field_name (str): the PDF field name to fill.
+
+        Returns:
+            str: a Python expression for the attachment block.
+        """
+        option = self.option_values[raw_field_name]
+        field_type = getattr(self, "field_type", None) or self.field_type_guess
+        if field_type in MULTI_ANSWER_FIELD_TYPES:
+            return f"{self.final_display_var}[{option!r}]"
+        return f"{self.final_display_var} == {option!r}"
 
     def mark_as_paired_yesno(self, paired_field_names: List[str]):
         """Marks this field as actually representing multiple template fields:
@@ -1133,12 +1221,43 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
+    def consolidate_options(self) -> None:
+        """Combine `parent+option` fields into one multiple-choice variable.
+
+        A form that has separate checkboxes for each way of serving papers can
+        name them `service_method+by_mail`, `service_method+in_hand` and so on.
+        Those are three PDF fields but one question, so they collapse into a
+        single `service_method` variable whose choices are the options. Each
+        original field keeps its place in `option_values` so the attachment can
+        tick the right box.
+        """
+        option_map: Dict[str, DAField] = {}
+        mark_to_remove: List[int] = []
+        for idx, field in enumerate(self.elements):
+            if not hasattr(field, "option_value"):
+                continue
+            first_field = option_map.get(field.variable)
+            if first_field is None:
+                option_map[field.variable] = field
+                continue
+            if field.option_value not in first_field.choice_options:
+                first_field.choice_options.append(field.option_value)
+            first_field.option_values.update(field.option_values)
+            first_field.raw_field_names += field.raw_field_names
+            mark_to_remove.append(idx)
+
+        self.delitem(*mark_to_remove)
+        self.there_are_any = len(self.elements) > 0
+
     def consolidate_radios(self) -> None:
         """Combines separate radio buttons into a single variable"""
         radio_map: Dict[str, Any] = defaultdict(list)
         mark_to_remove: List[int] = []
         for idx, field in enumerate(self.elements):
             if field.field_type_guess != "multiple choice radio":
+                continue
+            if hasattr(field, "option_values"):
+                # Already grouped by name; its choices are not PDF export values
                 continue
 
             if len(radio_map[field.variable_name_guess]) > 0:
@@ -1333,6 +1452,7 @@ class DAFieldList(DAList):
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
+        self.consolidate_options()
         self.consolidate_radios()
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
@@ -1538,6 +1658,9 @@ class DAFieldList(DAList):
                 field.field_type_guess if hasattr(field, "field_type_guess") else "text"
             )
             field.label = field.variable_name_guess
+            # A choice field with no `choices` renders an incomplete question
+            if field.field_type in CHOICE_FIELD_TYPES and not hasattr(field, "choices"):
+                field.choices = field.choices_string()
 
     def builtins(self):
         """Returns "built-in" fields, including ones the user indicated contain
@@ -5890,20 +6013,10 @@ def generate_interview_from_path(
     for field in interview.all_fields:
         if (
             hasattr(field, "field_type")
-            and field.field_type
-            in [
-                "multiple choice radio",
-                "multiple choice checkboxes",
-                "multiple choice dropdown",
-                "multiple choice combobox",
-                "multiselect",
-            ]
+            and field.field_type in CHOICE_FIELD_TYPES
             and not hasattr(field, "choices")
         ):
-            if hasattr(field, "choice_options"):
-                field.choices = "\n".join(field.choice_options)
-            else:
-                field.choices = ""
+            field.choices = field.choices_string()
     if screen_definitions:
         for screen in merged_screens or []:
             for field_entry in screen.get("fields", []) or []:

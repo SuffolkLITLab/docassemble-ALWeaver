@@ -129,7 +129,11 @@ edit:
 confirm: True\
 </%def>\
 <%def name="attachment_yaml(field, attachment_name)">\
-% if hasattr(field, "paired_yesno") and field.paired_yesno:
+% if field.is_option_group():
+      % for raw_name in field.raw_field_names:
+      - "${ raw_name }": <%text>${</%text> ${ field.option_fill_expression(raw_name) } }
+      % endfor
+% elif hasattr(field, "paired_yesno") and field.paired_yesno:
       % for raw_name in field.raw_field_names:
         % if remove_multiple_appearance_indicator(varname(raw_name)).endswith("_yes"):
       - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } }
