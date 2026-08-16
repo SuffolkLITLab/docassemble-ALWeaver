@@ -4,6 +4,8 @@ from .interview_generator import (
     DAFieldList,
     get_variable_name_warnings,
     get_pdf_validation_errors,
+    get_unhandled_field_type_warnings,
+    pdf_field_type_str,
 )
 from docassemble.base.util import DAStaticFile
 import docassemble.base.functions
@@ -92,3 +94,73 @@ class test_pdfs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class test_unhandled_pdf_field_types(unittest.TestCase):
+    """Drop-downs and list boxes have to be called out, not silently accepted.
+
+    Docassemble cannot fill a PDF `/Ch` field reliably, and the finished form
+    just comes back blank, so the author needs to hear about it while they can
+    still change the PDF.
+    """
+
+    def _fields(self):
+        dropdown_pdf = Path(__file__).parent / "test/test_dropdown_fields.pdf"
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        fields = DAFieldList()
+        fields.add_fields_from_file(
+            MockDAStaticFile(
+                full_path=str(dropdown_pdf),
+                extension="pdf",
+                mimetype="application/pdf",
+            )
+        )
+        fields.gathered = True
+        return fields
+
+    def test_choice_fields_are_flagged(self):
+        by_variable = {field.variable: field for field in self._fields()}
+        self.assertTrue(by_variable["favorite_color"].field_type_not_handled)
+        self.assertTrue(by_variable["pick_one"].field_type_not_handled)
+
+    def test_text_fields_are_not_flagged(self):
+        by_variable = {field.variable: field for field in self._fields()}
+        self.assertFalse(
+            getattr(by_variable["plain_text"], "field_type_not_handled", False)
+        )
+
+    def test_warnings_name_the_field_and_the_problem(self):
+        warnings = get_unhandled_field_type_warnings(self._fields())
+        self.assertEqual(len(warnings), 2)
+        self.assertTrue(any("favorite_color" in warning for warning in warnings))
+        self.assertTrue(all("drop-down" in warning for warning in warnings))
+
+    def test_no_warnings_for_an_ordinary_form(self):
+        push_button_pdf = Path(__file__).parent / "test/test_push_button.pdf"
+        docassemble.base.functions.this_thread.current_question = type("", (), {})
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+        fields = DAFieldList()
+        fields.add_fields_from_file(
+            MockDAStaticFile(
+                full_path=str(push_button_pdf),
+                extension="pdf",
+                mimetype="application/pdf",
+            )
+        )
+        fields.gathered = True
+        self.assertEqual(get_unhandled_field_type_warnings(fields), [])
+
+
+class test_pdf_field_type_str(unittest.TestCase):
+    def test_known_types(self):
+        self.assertEqual(pdf_field_type_str(("f", "", 0, [], "/Tx")), "Text")
+        self.assertEqual(pdf_field_type_str(("f", "", 0, [], "/Btn")), "Checkbox")
+        self.assertEqual(pdf_field_type_str(("f", "", 0, [], "/Sig")), "Signature")
+
+    def test_choice_type_is_called_out(self):
+        self.assertIn("Drop-down", pdf_field_type_str(("f", "", 0, [], "/Ch")))
+
+    def test_short_tuple_does_not_raise(self):
+        """The type lives at index 4, so a 4-item tuple used to IndexError."""
+        self.assertEqual(pdf_field_type_str(("f", "", 0, [])), "")
