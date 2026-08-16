@@ -3,6 +3,7 @@ import unittest
 from .interview_generator import (
     DAFieldList,
     get_docx_variables,
+    get_docx_boolean_variables,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
 )
@@ -244,3 +245,58 @@ class test_docxs(unittest.TestCase):
 
         matching_fields = get_pdf_variable_name_matches(pdf_variables_file)
         self.assertEqual(len(matching_fields), 0)
+
+
+class test_docx_boolean_guesses(unittest.TestCase):
+    def test_bare_condition_is_a_boolean(self):
+        self.assertEqual(
+            get_docx_boolean_variables("{%p if applicant_is_veteran %}{% endif %}"),
+            {"applicant_is_veteran"},
+        )
+        self.assertEqual(
+            get_docx_boolean_variables("{%p if not applicant_is_veteran %}{% endif %}"),
+            {"applicant_is_veteran"},
+        )
+
+    def test_boolean_operators_still_count(self):
+        self.assertEqual(
+            get_docx_boolean_variables(
+                "{%p if (a_var or b_var) and not c_var %}{% endif %}"
+                "{%p elif d_var %}{% endif %}"
+            ),
+            {"a_var", "b_var", "c_var", "d_var"},
+        )
+
+    def test_conditions_that_prove_nothing(self):
+        for template in (
+            "{%p if count_var > 2 %}{% endif %}",
+            '{% if i == "final" %}{% endif %}',
+            "{% if x_var is defined %}{% endif %}",
+            "{% if x_var | length %}{% endif %}",
+            "{% if a_var in b_var %}{% endif %}",
+        ):
+            with self.subTest(template=template):
+                self.assertEqual(get_docx_boolean_variables(template), set())
+
+    def test_known_assemblyline_attributes_keep_their_own_type(self):
+        for template in (
+            "{% if users[0].name.first %}{% endif %}",
+            "{% if users[0].address.address %}{% endif %}",
+            "{% if users[0].signature %}{% endif %}",
+        ):
+            with self.subTest(template=template):
+                self.assertEqual(get_docx_boolean_variables(template), set())
+
+    def test_custom_attribute_of_a_person_can_be_a_boolean(self):
+        self.assertEqual(
+            get_docx_boolean_variables("{% if users[0].is_veteran %}{% endif %}"),
+            {"users[0].is_veteran"},
+        )
+
+    def test_conditions_inside_a_loop_use_the_list(self):
+        self.assertEqual(
+            get_docx_boolean_variables(
+                "{% for item in mylist %}{% if item.flag %}{% endif %}{% endfor %}"
+            ),
+            {"mylist[0].flag"},
+        )
