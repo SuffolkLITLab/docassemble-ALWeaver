@@ -154,6 +154,7 @@ __all__ = [
     "get_docx_validation_errors",
     "get_docx_variables",
     "get_docx_boolean_variables",
+    "get_docx_function_type_hints",
     "get_fields",
     "get_help_document_text",
     "get_question_file_variables",
@@ -641,12 +642,14 @@ class DAField(DAObject):
         new_field_name: str,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
         used_as_condition: bool = False,
+        type_hint: Optional[str] = None,
     ):
         """The DAField class expects a few attributes to be filled in.
         We have a lot less info than for PDF fields, so the name carries most
-        of the guess; `used_as_condition` adds the one piece of context we can
-        read off the template, which is whether it tests the variable for
-        truthiness.
+        of the guess. Two pieces of context can be read off the template
+        itself: `type_hint`, when the author wrapped the variable in a display
+        function that only accepts one datatype, and `used_as_condition`, when
+        the template only ever tests the variable for truthiness.
         """
         self.raw_field_names: List[str] = [new_field_name]
         # For docx, we can't change the field name from the document itself, has to be the same
@@ -658,15 +661,21 @@ class DAField(DAObject):
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.variable_name_guess = variable_name_guess
 
-        if self.variable.endswith("_date"):
+        if self.variable.endswith(".signature"):
+            self.field_type_guess = "signature"
+        elif type_hint:
+            # The author wrapped this in something like `output_checkbox()`,
+            # which is a stronger signal than anything the name can give us
+            self.field_type_guess = type_hint
+            if type_hint == "date" and self.variable.endswith("_date"):
+                self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
+        elif self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
         elif self.variable.endswith("_value"):
             self.field_type_guess = "currency"
-        elif self.variable.endswith(".signature"):
-            self.field_type_guess = "signature"
         elif used_as_condition:
             # The template only ever asks "is this set?", so it's a yes/no
             self.field_type_guess = "yesno"
@@ -1443,12 +1452,14 @@ class DAFieldList(DAList):
             )
 
         boolean_fields: Set[str] = set()
+        type_hints: Dict[str, str] = {}
         if document_type == "docx":
             # Read the template once so the variables and the "used as a
             # condition" hints come from the same pass over the text
             docx_text = docx2python(document.path()).text
             all_fields: Iterable = get_docx_variables(docx_text)
             boolean_fields = get_docx_boolean_variables(docx_text)
+            type_hints = get_docx_function_type_hints(docx_text)
         else:
             all_fields = get_fields(document)
 
@@ -1512,7 +1523,9 @@ class DAFieldList(DAList):
                 else:
                     new_field.group = DAFieldGroup.CUSTOM
                 new_field.fill_in_docx_attributes(
-                    field, used_as_condition=field in boolean_fields
+                    field,
+                    used_as_condition=field in boolean_fields,
+                    type_hint=type_hints.get(field),
                 )
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
@@ -4124,6 +4137,84 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         if conditional_match:
             keep(_variables_in_jinja_expression(conditional_match.group(1)))
     return found
+
+
+# Functions an author can wrap a variable in inside a DOCX template that say
+# what the variable's datatype has to be. The hint applies to the first argument.
+DOCX_FUNCTION_TYPE_HINTS = {
+    "output_checkbox": "yesno",
+    "yesno": "yesno",
+    "noyes": "yesno",
+    "currency": "currency",
+    "format_date": "date",
+    "nice_date": "date",
+}
+DOCX_HINTING_FUNCTION_CALL = re.compile(
+    r"\b(" + "|".join(sorted(DOCX_FUNCTION_TYPE_HINTS)) + r")\s*\("
+)
+
+
+def _first_argument(expression: str, open_paren: int) -> Optional[str]:
+    """Return the first argument of a call whose `(` is at `open_paren`."""
+    depth = 0
+    for index in range(open_paren, len(expression)):
+        character = expression[index]
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                return expression[open_paren + 1 : index].strip()
+        elif character == "," and depth == 1:
+            return expression[open_paren + 1 : index].strip()
+    return None
+
+
+def get_docx_function_type_hints(text: str) -> Dict[str, str]:
+    """Read datatypes off the display functions a DOCX template wraps variables in.
+
+    `{{ output_checkbox(agrees_to_terms) }}` can only be rendered from a yes/no
+    answer, and `{{ currency(filing_fee) }}` from a currency one, so the author
+    has already told us the datatype without filling anything in.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Dict[str, str]: settable variable name -> Weaver field type.
+    """
+    hints: Dict[str, str] = {}
+    loop_scopes: List[Dict[str, Optional[str]]] = []
+    for match in JINJA_ANY_TAG.finditer(text):
+        if match.group(1) is None:
+            statement = JINJA_STATEMENT_PREFIX.sub("", match.group(2).strip())
+            statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+            for_match = JINJA_FOR_STATEMENT.match(statement)
+            if for_match:
+                loop_scopes.append(
+                    _loop_target_replacements(
+                        for_match.group(1), for_match.group(2), loop_scopes
+                    )
+                )
+                continue
+            if statement == "endfor":
+                if loop_scopes:
+                    loop_scopes.pop()
+                continue
+            expression = statement
+        else:
+            expression = match.group(1)
+        for call in DOCX_HINTING_FUNCTION_CALL.finditer(expression):
+            argument = _first_argument(expression, call.end() - 1)
+            if not argument or not JINJA_INDEXABLE_CHAIN.match(argument):
+                continue
+            resolved = _resolve_loop_variable(argument, loop_scopes)
+            if not resolved:
+                continue
+            settable = _settable_docx_variable(resolved)
+            if settable:
+                hints[settable] = DOCX_FUNCTION_TYPE_HINTS[call.group(1)]
+    return hints
 
 
 def get_docx_boolean_variables(text: str) -> Set[str]:

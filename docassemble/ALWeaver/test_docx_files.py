@@ -4,6 +4,7 @@ from .interview_generator import (
     DAFieldList,
     get_docx_variables,
     get_docx_boolean_variables,
+    get_docx_function_type_hints,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
 )
@@ -299,4 +300,41 @@ class test_docx_boolean_guesses(unittest.TestCase):
                 "{% for item in mylist %}{% if item.flag %}{% endif %}{% endfor %}"
             ),
             {"mylist[0].flag"},
+        )
+
+
+class test_docx_function_type_hints(unittest.TestCase):
+    def test_output_checkbox_marks_a_yesno(self):
+        self.assertEqual(
+            get_docx_function_type_hints("{{ output_checkbox(agrees_to_terms) }}"),
+            {"agrees_to_terms": "yesno"},
+        )
+
+    def test_extra_arguments_are_ignored(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                '{{ output_checkbox(users[0].is_veteran, "YES", "NO") }}'
+            ),
+            {"users[0].is_veteran": "yesno"},
+        )
+
+    def test_other_display_functions(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                "{{ currency(filing_fee) }}{{ format_date(hearing_day) }}"
+            ),
+            {"filing_fee": "currency", "hearing_day": "date"},
+        )
+
+    def test_only_a_plain_variable_gets_a_hint(self):
+        self.assertEqual(
+            get_docx_function_type_hints("{{ currency(round(raw_amount)) }}"), {}
+        )
+
+    def test_hints_inside_a_loop_use_the_list(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                "{% for item in mylist %}{{ output_checkbox(item.agreed) }}{% endfor %}"
+            ),
+            {"mylist[0].agreed": "yesno"},
         )
