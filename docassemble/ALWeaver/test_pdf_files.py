@@ -255,3 +255,34 @@ class test_rename_fields_screen(unittest.TestCase):
 
     def test_no_answers_means_no_renames(self):
         self.assertEqual(pdf_rename_mapping(self.AWKWARD_NAMES, {}), {})
+
+
+class test_rename_variables_are_valid_to_docassemble(unittest.TestCase):
+    """Check the generated variable names against Docassemble's own validator.
+
+    `invalid_variable_name` in `docassemble.base.parse` rejects anything
+    containing `(`, `)`, `{`, `}`, `*`, `^` or `#`, which is what produced
+    `Missing or invalid variable name "rename_fields['form1[0].#pageSet[0]...']"`
+    and stopped the rename screen from loading at all.
+    """
+
+    AWKWARD_NAMES = [
+        "form1[0].#pageSet[0].Page1[0].TextField4[1]",
+        "form1[0].BodyPage1[0].S1[0].CheckBox1[0]",
+        "weird (parens) and {braces}",
+        "star*and^caret",
+        "plain_name",
+    ]
+
+    def test_the_old_scheme_really_was_rejected(self):
+        from docassemble.base.parse import invalid_variable_name
+
+        old_style = f"rename_fields['{self.AWKWARD_NAMES[0]}']"
+        self.assertTrue(invalid_variable_name(old_style))
+
+    def test_every_generated_variable_is_accepted(self):
+        from docassemble.base.parse import invalid_variable_name
+
+        for entry in rename_field_screen_fields(self.AWKWARD_NAMES):
+            with self.subTest(field=entry["field"]):
+                self.assertFalse(invalid_variable_name(entry["field"]))
