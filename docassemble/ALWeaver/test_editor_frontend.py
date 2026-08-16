@@ -314,6 +314,10 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("confirm_replace: true", editor)
         self.assertIn('id="new-project-include-next-steps"', editor)
         self.assertIn('id="new-project-output-type"', editor)
+        self.assertIn('id="assemblyline-settings-filter"', editor)
+        self.assertIn("applyAssemblyLineSettingsFilter", editor)
+        self.assertIn("editor-al-setting-key", editor)
+        self.assertIn("field.pair ? 'col-12 col-md-6' : 'col-12'", editor)
 
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble

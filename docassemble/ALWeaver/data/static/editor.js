@@ -88,6 +88,7 @@
     validationBaseRevisionMatches: null,
     assemblyLineSettings: null,
     assemblyLineSettingsDirty: false,
+    assemblyLineSettingsFilter: '',
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
@@ -5726,19 +5727,39 @@
     var key = esc(field.key);
     var kind = field.kind || 'text';
     var common = ' data-al-setting="' + key + '" id="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '"';
+    var variableHint = '<div class="form-text editor-al-setting-key"><code>' + key + '</code></div>';
     if (kind === 'boolean') {
-      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label></div>';
+      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
     }
     if (kind === 'choice') {
       var select = '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
       (field.choices || []).forEach(function (choice) { select += '<option value="' + esc(choice) + '"' + (String(value) === String(choice) ? ' selected' : '') + '>' + esc(String(choice).replace(/_/g, ' ')) + '</option>'; });
-      return select + '</select>';
+      return select + '</select>' + variableHint;
     }
     var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
     if (kind === 'area' || kind === 'list' || kind === 'python') {
-      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '');
+      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + variableHint + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '');
     }
-    return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">';
+    return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
+  }
+
+  function applyAssemblyLineSettingsFilter() {
+    var query = String(state.assemblyLineSettingsFilter || '').trim().toLowerCase();
+    var visibleSections = 0;
+    document.querySelectorAll('[data-al-settings-section]').forEach(function (section) {
+      var sectionMatch = !query || String(section.getAttribute('data-search') || '').indexOf(query) !== -1;
+      var visibleItems = 0;
+      section.querySelectorAll('[data-al-settings-item]').forEach(function (item) {
+        var visible = sectionMatch || String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
+        item.classList.toggle('d-none', !visible);
+        if (visible) visibleItems += 1;
+      });
+      var visible = sectionMatch || visibleItems > 0;
+      section.classList.toggle('d-none', !visible);
+      if (visible) visibleSections += 1;
+    });
+    var empty = document.getElementById('assemblyline-settings-filter-empty');
+    if (empty) empty.classList.toggle('d-none', visibleSections > 0);
   }
 
   function renderAssemblyLineSettings() {
@@ -5750,16 +5771,19 @@
     var html = '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
     html += '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
     html += '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' + (state.assemblyLineSettingsDirty ? '' : ' disabled') + '>Save settings</button></div></div></div>';
+    html += '<div class="editor-card"><div class="editor-card-body"><label class="editor-tiny" for="assemblyline-settings-filter">Filter settings</label><div class="input-group input-group-sm mt-1"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><input class="form-control" id="assemblyline-settings-filter" type="search" value="' + esc(state.assemblyLineSettingsFilter) + '" placeholder="Search by label or magic variable name" autocomplete="off"></div></div></div>';
     (data.schema || []).forEach(function (section) {
-      html += '<div class="editor-card"><div class="editor-card-header">' + esc(section.label) + '</div><div class="editor-card-body">';
+      var sectionSearch = [section.id, section.label].concat(section.notes || []).join(' ').toLowerCase();
+      html += '<div class="editor-card" data-al-settings-section data-search="' + esc(sectionSearch) + '"><div class="editor-card-header">' + esc(section.label) + '</div><div class="editor-card-body">';
       if (section.readonly) {
-        html += '<p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
+        html += '<div data-al-settings-item data-search="' + esc(sectionSearch) + '"><p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
         (section.notes || []).forEach(function (note) { html += '<li class="mb-1">' + esc(note) + '</li>'; });
-        html += '</ul>';
+        html += '</ul></div>';
       } else {
         html += '<div class="row g-3">';
         (section.fields || []).forEach(function (field) {
-          html += '<div class="' + ((field.kind === 'area' || field.kind === 'list' || field.kind === 'python') ? 'col-12' : 'col-md-6') + '">' + _settingsInput(field, data.values[field.key]) + '</div>';
+          var fieldSearch = [field.key, field.label, section.id, section.label].join(' ').toLowerCase();
+          html += '<div class="' + (field.pair ? 'col-12 col-md-6' : 'col-12') + '" data-al-settings-item data-search="' + esc(fieldSearch) + '">' + _settingsInput(field, data.values[field.key]) + '</div>';
         });
         html += '</div>';
         if (section.id === 'next_steps') {
@@ -5768,8 +5792,10 @@
       }
       html += '</div></div>';
     });
+    html += '<div class="alert alert-light border d-none" id="assemblyline-settings-filter-empty">No settings match that filter.</div>';
     html += '<p class="small text-muted">See the <a href="' + esc(data.docs_url) + '" target="_blank" rel="noopener">AssemblyLine special-variable documentation</a>.</p></div>';
     canvasContent.innerHTML = html;
+    applyAssemblyLineSettingsFilter();
   }
 
   function collectAssemblyLineSettings() {
@@ -9638,6 +9664,11 @@
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
+    if (target.id === 'assemblyline-settings-filter') {
+      state.assemblyLineSettingsFilter = target.value || '';
+      applyAssemblyLineSettingsFilter();
+      return;
+    }
     if (target.matches('[data-al-setting]')) {
       state.assemblyLineSettingsDirty = true;
       var settingsSave = document.getElementById('save-assemblyline-settings');

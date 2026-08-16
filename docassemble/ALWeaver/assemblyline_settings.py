@@ -41,8 +41,8 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "id": "identity",
         "label": "Form identity and publishing",
         "fields": [
-            _field("title", "Title", scope="metadata"),
-            _field("short title", "Short title", scope="metadata"),
+            _field("title", "Title", scope="metadata", pair="title"),
+            _field("short title", "Short title", scope="metadata", pair="title"),
             _field("description", "Description", "area", scope="metadata"),
             _field("can_I_use_this_form", "Who can use this form?", "area", scope="metadata"),
             _field("before_you_start", "Before you start", "area", scope="metadata"),
@@ -59,8 +59,8 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
             _field("integrated_email_filing", "Integrated email filing", "boolean", False, scope="metadata"),
             _field("requires_notarization", "Requires notarization", "boolean", False, scope="metadata"),
             _field("unlisted", "Keep interview unlisted", "boolean", False, scope="metadata"),
-            _field("estimated_completion_minutes", "Estimated completion minutes", "integer", 10, scope="metadata"),
-            _field("estimated_completion_delta", "Estimate plus or minus", "integer", 5, scope="metadata"),
+            _field("estimated_completion_minutes", "Estimated completion minutes", "integer", 10, scope="metadata", pair="timing"),
+            _field("estimated_completion_delta", "Estimate plus or minus", "integer", 5, scope="metadata", pair="timing"),
         ],
     },
     {
@@ -69,8 +69,8 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "fields": [
             _field("AL_ORGANIZATION_TITLE", "Organization title"),
             _field("AL_ORGANIZATION_HOMEPAGE", "Organization homepage", "url"),
-            _field("AL_DEFAULT_COUNTRY", "Default country", default="US"),
-            _field("AL_DEFAULT_STATE", "Default state or province"),
+            _field("AL_DEFAULT_COUNTRY", "Default country", default="US", pair="locale"),
+            _field("AL_DEFAULT_STATE", "Default state or province", pair="locale"),
             _field("AL_DEFAULT_LANGUAGE", "Default document language", default="en"),
             _field("AL_DEFAULT_OVERFLOW_MESSAGE", "PDF overflow message", default="..."),
         ],
@@ -101,8 +101,8 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "id": "repository",
         "label": "Repository and feedback",
         "fields": [
-            _field("github_repo_name", "GitHub repository name"),
-            _field("github_user", "GitHub owner"),
+            _field("github_repo_name", "GitHub repository name", pair="github"),
+            _field("github_user", "GitHub owner", pair="github"),
         ],
     },
     {
@@ -110,10 +110,10 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "label": "Next steps document",
         "fields": [
             _field("al_next_steps_enabled", "Include next steps", "boolean", True),
-            _field("al_next_steps_document_title", "Document name", default="form"),
-            _field("al_next_steps_document_purpose", "Request name", default="request"),
-            _field("al_next_steps_help_organization", "Help organization"),
-            _field("al_next_steps_help_url", "Help URL", "url"),
+            _field("al_next_steps_document_title", "Document name", default="form", pair="document_names"),
+            _field("al_next_steps_document_purpose", "Request name", default="request", pair="document_names"),
+            _field("al_next_steps_help_organization", "Help organization", pair="help"),
+            _field("al_next_steps_help_url", "Help URL", "url", pair="help"),
             _field("al_next_steps_generate_qr_code", "Add a QR code", "boolean", False),
             _field("al_next_steps_what_happens_next", "What happens next", "area"),
             _field("al_next_steps_what_can_decision_maker_do", "What the decision maker can do", "area"),
