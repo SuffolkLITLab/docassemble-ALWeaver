@@ -146,6 +146,7 @@ __all__ = [
     "generate_interview_from_path",
     "generate_interview_artifacts",
     "get_character_limit",
+    "get_input_dimensions",
     "get_court_choices",
     "get_docx_validation_errors",
     "get_docx_variables",
@@ -241,6 +242,31 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optiona
     2: horizontal end
     3: vertical end
     """
+    dimensions = get_input_dimensions(pdf_field_tuple, char_width, row_height)
+    if not dimensions:
+        return None
+    num_rows, num_cols = dimensions
+    return num_rows * num_cols
+
+
+def get_input_dimensions(
+    pdf_field_tuple, char_width=6, row_height=12
+) -> Optional[Tuple[int, int]]:
+    """Estimate a PDF field's size in rows and characters per row.
+
+    The character limit is just the product of the two, but the addendum needs
+    the shape as well: `safe_value()` only preserves line breaks when it knows
+    how wide a line is.
+
+    Args:
+        pdf_field_tuple: a field tuple as returned by `get_pdf_fields`.
+        char_width (int): approximate pixels per character.
+        row_height (int): approximate pixels per row.
+
+    Returns:
+        Optional[Tuple[int, int]]: (rows, characters per row), or None when the
+        field has no usable bounding box.
+    """
     # Make sure it's the right kind of tuple
     if (
         len(pdf_field_tuple) < 4
@@ -254,14 +280,13 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optiona
     # 121 = 17-22
     # Average about 6 pixels width per character
     # about 12 pixels high is one row
-
     length = pdf_field_tuple[3][2] - pdf_field_tuple[3][0]
     height = pdf_field_tuple[3][3] - pdf_field_tuple[3][1]
     num_rows = int(height / row_height) if height > 12 else 1
     num_cols = int(length / char_width)
-
-    max_chars = num_rows * num_cols
-    return max_chars
+    if num_rows < 1 or num_cols < 1:
+        return None
+    return num_rows, num_cols
 
 
 def varname(var_name: str) -> str:
@@ -612,7 +637,12 @@ class DAField(DAObject):
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
-        self.maxlength = get_character_limit(pdf_field_tuple)
+        dimensions = get_input_dimensions(pdf_field_tuple)
+        if dimensions:
+            self.input_rows, self.input_width = dimensions
+            self.maxlength: Optional[int] = self.input_rows * self.input_width
+        else:
+            self.maxlength = None
         self.variable_name_guess = variable_name_guess
 
         self.export_value = pdf_field_tuple[5] if len(pdf_field_tuple) >= 6 else ""
@@ -696,6 +726,21 @@ class DAField(DAObject):
             and bool(self.maxlength)
             and not (hasattr(self, "send_to_addendum") and self.send_to_addendum)
         )
+
+    def safe_value_kwargs(self) -> str:
+        """Extra arguments for the generated `safe_value()` call, as YAML text.
+
+        `safe_value()` measures a multi-line answer in lines rather than
+        characters, and it works out how many lines fit by dividing the
+        overflow trigger by the input width. Left at its default of 80, a field
+        that is 25 characters wide over 3 rows looks like it holds no complete
+        lines at all, so passing the width we measured off the PDF is what makes
+        the split land in the right place.
+        """
+        input_width = getattr(self, "input_width", None)
+        if not input_width:
+            return ""
+        return f", input_width={input_width}"
 
     def _maxlength_str(self) -> str:
         if (
