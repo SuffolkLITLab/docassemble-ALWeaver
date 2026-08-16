@@ -155,6 +155,8 @@ __all__ = [
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
+    "rename_field_screen_fields",
+    "pdf_rename_mapping",
     "indent_by",
     "is_reserved_docx_label",
     "is_reserved_label",
@@ -4429,6 +4431,54 @@ def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
         for reason in (bad_name_reason(field) for field in fields)
         if reason is not None
     ]
+
+
+def rename_field_screen_fields(pdf_field_names: Sequence[str]) -> List[Dict[str, Any]]:
+    """Build the "Rename fields" screen for a PDF's existing field names.
+
+    The answers are keyed by position rather than by field name. A field named
+    `form1[0].#pageSet[0].Page1[0].TextField4[1]` cannot appear inside a
+    Docassemble variable name -- the `#`, the quotes and the nested brackets
+    make `rename_fields['...']` unparseable, and the screen fails to load.
+
+    Args:
+        pdf_field_names (Sequence[str]): the field names currently in the PDF.
+
+    Returns:
+        List[Dict[str, Any]]: a Docassemble `fields` list.
+    """
+    return [
+        {
+            "label": name,
+            "field": f"rename_fields[{index}]",
+            "default": name,
+            "label above field": True,
+            "required": False,
+        }
+        for index, name in enumerate(pdf_field_names)
+    ]
+
+
+def pdf_rename_mapping(
+    pdf_field_names: Sequence[str], answers: Mapping[int, str]
+) -> Dict[str, str]:
+    """Turn the "Rename fields" answers back into `{old name: new name}`.
+
+    Args:
+        pdf_field_names (Sequence[str]): the field names currently in the PDF,
+            in the same order they were shown on the screen.
+        answers (Mapping[int, str]): what the user typed, keyed by position.
+
+    Returns:
+        Dict[str, str]: the renames to apply, leaving out anything blank or
+        unchanged so no field is needlessly rewritten.
+    """
+    renames = {}
+    for index, old_name in enumerate(pdf_field_names):
+        new_name = str(answers.get(index, "") or "").strip()
+        if new_name and new_name != old_name:
+            renames[old_name] = new_name
+    return renames
 
 
 def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str, str]]:

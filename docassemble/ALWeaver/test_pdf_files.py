@@ -4,6 +4,8 @@ from .interview_generator import (
     DAFieldList,
     get_variable_name_warnings,
     get_pdf_validation_errors,
+    rename_field_screen_fields,
+    pdf_rename_mapping,
 )
 from docassemble.base.util import DAStaticFile
 import docassemble.base.functions
@@ -94,8 +96,6 @@ class test_pdfs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
 class test_reserved_person_prefixes(unittest.TestCase):
     """A base name that is already taken can't become an ALPeopleList.
 
@@ -134,3 +134,52 @@ class test_reserved_person_prefixes(unittest.TestCase):
         candidates = self._candidates_for("inspector_name_first", "landlord_email")
         self.assertIn("inspector", candidates)
         self.assertIn("landlord", candidates)
+
+
+class test_rename_fields_screen(unittest.TestCase):
+    """Brackets, dots and `#` in a PDF field name must not break the screen.
+
+    Keying the answers by field name produced Docassemble variables like
+    `rename_fields['form1[0].#pageSet[0].Page1[0].TextField4[1]']`, which
+    Docassemble rejects as an invalid variable name, so the whole screen
+    failed to load.
+    """
+
+    AWKWARD_NAMES = [
+        "form1[0].#pageSet[0].Page1[0].TextField4[1]",
+        "form1[0].BodyPage1[0].S1[0].CheckBox1[0]",
+        "plain_name",
+        "has 'quotes' and \"double quotes\"",
+    ]
+
+    def test_screen_fields_use_positional_variable_names(self):
+        screen_fields = rename_field_screen_fields(self.AWKWARD_NAMES)
+        self.assertEqual(len(screen_fields), len(self.AWKWARD_NAMES))
+        for index, entry in enumerate(screen_fields):
+            with self.subTest(index=index):
+                self.assertEqual(entry["field"], f"rename_fields[{index}]")
+                self.assertEqual(entry["label"], self.AWKWARD_NAMES[index])
+                self.assertEqual(entry["default"], self.AWKWARD_NAMES[index])
+
+    def test_mapping_uses_the_original_names(self):
+        renames = pdf_rename_mapping(
+            self.AWKWARD_NAMES,
+            {0: "users1_name_first", 1: "users1_is_veteran"},
+        )
+        self.assertEqual(
+            renames,
+            {
+                "form1[0].#pageSet[0].Page1[0].TextField4[1]": "users1_name_first",
+                "form1[0].BodyPage1[0].S1[0].CheckBox1[0]": "users1_is_veteran",
+            },
+        )
+
+    def test_blank_and_unchanged_answers_are_not_renames(self):
+        renames = pdf_rename_mapping(
+            self.AWKWARD_NAMES,
+            {0: "", 1: "   ", 2: "plain_name", 3: "quoted_field"},
+        )
+        self.assertEqual(renames, {self.AWKWARD_NAMES[3]: "quoted_field"})
+
+    def test_no_answers_means_no_renames(self):
+        self.assertEqual(pdf_rename_mapping(self.AWKWARD_NAMES, {}), {})
