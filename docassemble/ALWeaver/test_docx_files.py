@@ -155,6 +155,42 @@ class test_docxs(unittest.TestCase):
             {"mylist"},
         )
 
+    def test_variables_wrapped_in_function_calls(self):
+        """`{{ currency(some_amount) }}` still needs `some_amount` gathered."""
+        self.assertEqual(
+            get_docx_variables("{{ currency(some_amount) }}"), {"some_amount"}
+        )
+        self.assertEqual(
+            get_docx_variables("{{ currency(users[0].income) }}"), {"users[0].income"}
+        )
+        self.assertEqual(
+            get_docx_variables("{{ fix_punctuation(first_var, second_var) }}"),
+            {"first_var", "second_var"},
+        )
+        self.assertEqual(
+            get_docx_variables("{{ currency(round(raw_amount)) }}"), {"raw_amount"}
+        )
+
+    def test_function_call_arguments_inside_a_loop(self):
+        self.assertEqual(
+            get_docx_variables(
+                "{% for item in mylist %}{{ currency(item.amount) }}{% endfor %}"
+            ),
+            {"mylist", "mylist[0].amount"},
+        )
+
+    def test_inline_conditional_output(self):
+        self.assertEqual(
+            get_docx_variables("{{ a_var if b_var else c_var }}"),
+            {"a_var", "b_var", "c_var"},
+        )
+
+    def test_curly_quoted_arguments_are_not_variables(self):
+        """Word autocorrects quotes, and the text inside them is not a variable."""
+        self.assertEqual(
+            get_docx_variables("{{ format_date(some_date, “MMddyy”) }}"), {"some_date"}
+        )
+
     def test_reserved_docx_labels(self):
         reserved_labels_files = (
             Path(__file__).parent / "test/reserved_docx_variables.docx"

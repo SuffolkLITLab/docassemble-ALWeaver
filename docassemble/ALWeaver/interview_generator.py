@@ -3912,7 +3912,8 @@ JINJA_ANY_TAG = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.DOTALL)
 JINJA_SIMPLE_OUTPUT = re.compile(r"^ *([^\} ]+) *$")
 # A chain we can safely index into, i.e. `mylist` or `user.children`
 JINJA_INDEXABLE_CHAIN = re.compile(r"^[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*$")
-JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+# Straight and curly quotes -- Word likes to autocorrect the ones an author types
+JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”")
 # A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
 JINJA_VARIABLE_CHAIN = re.compile(
     r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*(?:\(\s*\))?)*"
@@ -3994,6 +3995,16 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
     return found
 
 
+def _has_identifier_root(chain: str) -> bool:
+    """True if the text up to the first `.` is a usable variable name.
+
+    `users[0].name.first` qualifies; `currency(some_amount)` does not, because
+    its root is a call rather than something the interview can assign to.
+    """
+    root = re.sub(r"\[.+\]", "", chain.split(".", 1)[0])
+    return root.isidentifier()
+
+
 def _resolve_loop_variable(
     chain: str, loop_scopes: Sequence[Dict[str, Optional[str]]]
 ) -> Optional[str]:
@@ -4071,8 +4082,12 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         if output is not None:
             # Simple single variable use, i.e. `{{ users[0].name.first }}`
             simple = JINJA_SIMPLE_OUTPUT.match(output)
-            if simple:
+            if simple and _has_identifier_root(simple.group(1)):
                 keep([simple.group(1)])
+            else:
+                # Something more involved, i.e. `{{ currency(some_amount) }}`.
+                # Pull the variables out of the expression instead of dropping it.
+                keep(_variables_in_jinja_expression(output))
             continue
         statement = JINJA_STATEMENT_PREFIX.sub("", raw_statement.strip())
         statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
