@@ -1679,11 +1679,12 @@ class DAFieldList(DAList):
                         # strip trailing numbers so we end up with just the people object, i.e. `users`
                         people.add(re.sub(r"\d+$", "", matches.groups()[0]))
         # A prefix like `from` (from a `from_phone` PDF field) is a Python
-        # keyword, so it can never be the name of a person list
+        # keyword, and one like `list` or `nav` is already taken by Python or
+        # Docassemble, so neither can be the name of a person list
         people = {
             person
             for person in people
-            if person.isidentifier() and not keyword.iskeyword(person)
+            if person.isidentifier() and not matching_reserved_names({person})
         }
         if custom_only:
             return people - set(reserved_pluralizers_map.values())

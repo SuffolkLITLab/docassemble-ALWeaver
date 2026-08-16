@@ -164,3 +164,43 @@ class test_pdf_field_type_str(unittest.TestCase):
     def test_short_tuple_does_not_raise(self):
         """The type lives at index 4, so a 4-item tuple used to IndexError."""
         self.assertEqual(pdf_field_type_str(("f", "", 0, [])), "")
+
+
+class test_reserved_person_prefixes(unittest.TestCase):
+    """A base name that is already taken can't become an ALPeopleList.
+
+    A fax cover sheet with a `from_phone_number` field used to make the Weaver
+    offer to turn `from` into a list of people, which generates
+    `objects:\n  - from: ALPeopleList` -- a syntax error, because `from` is a
+    Python keyword. The same goes for names Python or Docassemble has already
+    claimed, like `list` or `nav`.
+    """
+
+    @staticmethod
+    def _candidates_for(*field_names: str):
+        fields = DAFieldList()
+        for field_name in field_names:
+            field = fields.appendObject()
+            field.source_document_type = "pdf"
+            field.fill_in_pdf_attributes(
+                (field_name, "", 0, [0, 0, 100, 20], "/Tx"), {}
+            )
+        fields.gathered = True
+        return fields.get_person_candidates()
+
+    def test_python_keywords_are_not_people(self):
+        self.assertNotIn("from", self._candidates_for("from_phone_number"))
+        self.assertNotIn("class", self._candidates_for("class_name_first"))
+
+    def test_python_builtins_are_not_people(self):
+        self.assertNotIn("list", self._candidates_for("list_name_first"))
+        self.assertNotIn("type", self._candidates_for("type_name_first"))
+
+    def test_docassemble_reserved_names_are_not_people(self):
+        self.assertNotIn("nav", self._candidates_for("nav_name_first"))
+        self.assertNotIn("x", self._candidates_for("x_name_first"))
+
+    def test_ordinary_names_still_become_people(self):
+        candidates = self._candidates_for("inspector_name_first", "landlord_email")
+        self.assertIn("inspector", candidates)
+        self.assertIn("landlord", candidates)
