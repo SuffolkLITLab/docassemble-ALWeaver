@@ -14,6 +14,31 @@ The settings endpoint uses an expected source revision and validates the whole
 candidate interview before writing. It replaces only the metadata document and
 the Weaver-owned block; author-owned code blocks are not rewritten.
 
+The settings panel is searchable by section, friendly label, or exact metadata
+key/magic-variable name. Each control displays that exact name. Controls use a
+single-column layout by default; only related pairs, such as title/short title,
+country/state, repository owner/name, and the two timing values, share a row.
+
+## Question-driven workflow comparison
+
+| Original Weaver screen or decision | Graphical auto-draft coverage | Graphical access pattern |
+| --- | --- | --- |
+| Form identity, description, eligibility, preparation, and completion prose | AI proposes the descriptive draft; exact publishing fields remain reviewable | **AssemblyLine settings** at any time |
+| Output form versus data-only survey | Changes the generated interview structure and cannot be inferred safely | Deterministic project-creation choice |
+| Form type, typical role, and default state | Auto-draft may infer them, but a wrong value changes downstream AssemblyLine behavior | Deterministic project-creation choices, then **AssemblyLine settings** |
+| Template inspection, field typing, labels, and screen grouping | Core strength of auto-drafting; the graphical field and screen editors expose the result | Auto-draft followed by normal graphical editing |
+| Organization, locale, language, signatures, repository, and accessibility variables | Not all warrant interrupting project creation, but they should not require locating exact-name code assignments | Searchable **AssemblyLine settings** |
+| Next-steps inclusion and prose | Inclusion changes package structure; prose can be edited later | Creation-time include choice plus anytime `al_next_steps_*` settings |
+| Next-steps DOCX selection/customization | A normal settings save must not destroy Word edits | Explicit, confirmed **Back up and replace with standard shell** action only |
+| Bundles, signature fields, court routing, parties, menus, and order events | These are dynamic objects, executable logic, or interview structure—not scalar metadata | Their native object, field, order, data, or code editors |
+| Review and package download | Replaced by continuous graphical review, validation, and project files | Normal editor/project workflow |
+
+The creation dialog is therefore reserved for deterministic choices that alter
+the generated structure. The anytime panel handles scalar publishing metadata
+and literal predefined variables. Dynamic code and objects remain visible as
+advanced coverage boundaries instead of being deceptively flattened into text
+fields.
+
 ## Coverage of AssemblyLine special variables
 
 The settings panel directly supports:
@@ -84,4 +109,3 @@ project, but the generator currently builds attachment and question YAML from
 the first document. Until multi-document generation is implemented in
 `generate_interview_from_path`, the creation screen must describe this boundary
 plainly and must not imply that every uploaded file was automated.
-
