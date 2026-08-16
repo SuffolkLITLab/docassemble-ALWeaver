@@ -318,6 +318,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("applyAssemblyLineSettingsFilter", editor)
         self.assertIn("editor-al-setting-key", editor)
         self.assertIn("field.pair ? 'col-12 col-md-6' : 'col-12'", editor)
+        self.assertIn("input.value === '' ? '' : Number(input.value)", editor)
 
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble

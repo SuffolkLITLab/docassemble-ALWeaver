@@ -5806,7 +5806,7 @@
       (state.assemblyLineSettings.schema || []).some(function (section) { return (section.fields || []).some(function (candidate) { if (candidate.key === key) { field = candidate; return true; } return false; }); });
       if (!field) return;
       if (field.kind === 'boolean') values[key] = input.checked;
-      else if (field.kind === 'integer') values[key] = input.value === '' ? 0 : Number(input.value);
+      else if (field.kind === 'integer') values[key] = input.value === '' ? '' : Number(input.value);
       else if (field.kind === 'list') values[key] = input.value.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
       else values[key] = input.value;
     });
