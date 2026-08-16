@@ -33,6 +33,7 @@ from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
 from typing import (
     Any,
+    Container,
     Dict,
     List,
     NotRequired,
@@ -961,6 +962,35 @@ class DAField(DAObject):
         return f"{self.variable} ({self.raw_field_names}, {self.final_display_var})"
 
 
+INDEXED_LIST_REFERENCE = re.compile(r"^([A-Za-z_]\w*)\[(\d+)\]")
+
+
+def _guard_indexed_reference(line: str, known_lists: Container[str]) -> str:
+    """Wrap an interview order line that reaches past the first list item.
+
+    A form with a `users1_email` field wants a second user's email, but the
+    interview shouldn't force someone to add a second user just to get through
+    the order block. `users[1].email` becomes::
+
+        if users.number() > 1:
+          users[1].email
+
+    Args:
+        line (str): one line of the interview order block.
+        known_lists (Container[str]): names the interview gathers as lists.
+
+    Returns:
+        str: the line, guarded if it needed guarding.
+    """
+    match = INDEXED_LIST_REFERENCE.match(line)
+    if not match:
+        return line
+    list_name, index = match.group(1), int(match.group(2))
+    if index < 1 or list_name not in known_lists:
+        return line
+    return f"if {list_name}.number() > {index}:\n  {line}"
+
+
 def _with_progress_markers(entries: List[Tuple[str, bool]]) -> List[str]:
     """Interleave ``set_progress()`` calls through an interview order block.
 
@@ -1799,6 +1829,14 @@ class DAQuestionList(DAList):
             unique_entries.append((line, is_screen))
         while unique_entries and unique_entries[-1][0].startswith('nav.set_section("'):
             unique_entries.pop()
+
+        known_lists = set(generator_constants.RESERVED_PLURALIZERS_MAP.values()) | set(
+            all_fields.custom_people_plurals.values()
+        )
+        unique_entries = [
+            (_guard_indexed_reference(line, known_lists), is_screen)
+            for line, is_screen in unique_entries
+        ]
 
         if not set_progress:
             return [line for line, _ in unique_entries]

@@ -260,7 +260,7 @@ code: |
   user_ask_role = "${ interview.typical_role }"
   % endif
   % for line in interview_order_lines:
-  ${ line }
+${ indent_by(line, 2) }\
   % endfor
   % if not generate_download_screen:
   saved_report_data
