@@ -26,7 +26,7 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             '<w:document xmlns:w="word"><w:body><w:p>'
             '<w:r><w:t>{% if interview.custom_next_steps_instructions["what_</w:t></w:r>'
             '<w:r><w:t>happens_if_i_win"] %}</w:t></w:r>'
-            '</w:p></w:body></w:document>'
+            "</w:p></w:body></w:document>"
         )
 
         rewritten = _rewrite_next_steps_xml(xml)
@@ -263,9 +263,7 @@ question: |
             runtime_template = Path(result.template_paths[0])
             self.assertTrue(runtime_template.exists())
             with zipfile.ZipFile(runtime_template) as generated_docx:
-                document_xml = generated_docx.read("word/document.xml").decode(
-                    "utf-8"
-                )
+                document_xml = generated_docx.read("word/document.xml").decode("utf-8")
             self.assertIn("al_next_steps_document_title", document_xml)
             self.assertIn("al_next_steps_what_happens_if_i_win", document_xml)
             self.assertNotIn("interview.custom_next_steps_instructions", document_xml)

@@ -8,7 +8,6 @@ from docassemble.ALWeaver.assemblyline_settings import (
     update_settings,
 )
 
-
 SOURCE = """# keep header
 metadata:
   title: Original
@@ -108,10 +107,7 @@ class AssemblyLineSettingsTest(unittest.TestCase):
         )
 
         self.assertIn(
-            "  authors:\n"
-            "    - |-\n"
-            "      First author\n"
-            "      Second line",
+            "  authors:\n" "    - |-\n" "      First author\n" "      Second line",
             updated,
         )
         self.assertEqual(

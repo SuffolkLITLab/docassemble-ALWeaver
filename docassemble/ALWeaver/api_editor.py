@@ -3646,8 +3646,10 @@ def editor_api_reset_next_steps_template() -> Response:
             source,
         )
         if not template_match:
-            raise ValueError("This interview does not reference a next-steps DOCX shell")
-        template_filename = os.path.basename(template_match.group(1).strip('"\''))
+            raise ValueError(
+                "This interview does not reference a next-steps DOCX shell"
+            )
+        template_filename = os.path.basename(template_match.group(1).strip("\"'"))
         area, directory = _editor_storage_directory(
             uid, project, SECTION_TO_STORAGE["templates"]
         )
@@ -6348,7 +6350,9 @@ def _complete_new_project_upload_job(
                 continue
             generated_name = os.path.basename(str(generated_file.get("filename") or ""))
             generated_bytes = generated_file.get("content_bytes")
-            if not generated_name or not isinstance(generated_bytes, (bytes, bytearray)):
+            if not generated_name or not isinstance(
+                generated_bytes, (bytes, bytearray)
+            ):
                 continue
             generated_path = os.path.join(temp_dir, generated_name)
             with open(generated_path, "wb") as generated_handle:
@@ -6997,9 +7001,7 @@ def _new_project_from_uploads(
     include_next_steps = parse_bool(
         request.form.get("include_next_steps"), default=True
     )
-    enable_navigation = parse_bool(
-        request.form.get("enable_navigation"), default=True
-    )
+    enable_navigation = parse_bool(request.form.get("enable_navigation"), default=True)
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)

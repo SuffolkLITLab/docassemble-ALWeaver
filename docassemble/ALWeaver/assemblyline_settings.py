@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import yaml
 
-
 MANAGED_BLOCK_ID = "alweaver assemblyline settings"
 DOCS_URL = (
     "https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/"
@@ -44,23 +43,86 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
             _field("title", "Title", scope="metadata", pair="title"),
             _field("short title", "Short title", scope="metadata", pair="title"),
             _field("description", "Description", "area", scope="metadata"),
-            _field("can_I_use_this_form", "Who can use this form?", "area", scope="metadata"),
+            _field(
+                "can_I_use_this_form",
+                "Who can use this form?",
+                "area",
+                scope="metadata",
+            ),
             _field("before_you_start", "Before you start", "area", scope="metadata"),
-            _field("when_you_are_finished", "When you are finished", "area", scope="metadata"),
-            _field("landing_page_url", "Public landing page URL", "url", scope="metadata"),
+            _field(
+                "when_you_are_finished",
+                "When you are finished",
+                "area",
+                scope="metadata",
+            ),
+            _field(
+                "landing_page_url", "Public landing page URL", "url", scope="metadata"
+            ),
             _field("authors", "Authors", "list", [], scope="metadata"),
             _field("LIST_topics", "LIST topics", "list", [], scope="metadata"),
             _field("original_form", "Original form URLs", "list", [], scope="metadata"),
             _field("jurisdiction", "Jurisdiction code", scope="metadata"),
             _field("allowed_courts", "Allowed courts", "list", [], scope="both"),
-            _field("typical_role", "Typical user role", "choice", "unknown", scope="metadata", choices=["plaintiff", "defendant", "unknown", "na"]),
-            _field("efiling_enabled", "E-filing enabled", "boolean", False, scope="metadata"),
-            _field("integrated_efiling", "Integrated e-filing", "boolean", False, scope="metadata"),
-            _field("integrated_email_filing", "Integrated email filing", "boolean", False, scope="metadata"),
-            _field("requires_notarization", "Requires notarization", "boolean", False, scope="metadata"),
-            _field("unlisted", "Keep interview unlisted", "boolean", False, scope="metadata"),
-            _field("estimated_completion_minutes", "Estimated completion minutes", "integer", 10, scope="metadata", pair="timing"),
-            _field("estimated_completion_delta", "Estimate plus or minus", "integer", 5, scope="metadata", pair="timing"),
+            _field(
+                "typical_role",
+                "Typical user role",
+                "choice",
+                "unknown",
+                scope="metadata",
+                choices=["plaintiff", "defendant", "unknown", "na"],
+            ),
+            _field(
+                "efiling_enabled",
+                "E-filing enabled",
+                "boolean",
+                False,
+                scope="metadata",
+            ),
+            _field(
+                "integrated_efiling",
+                "Integrated e-filing",
+                "boolean",
+                False,
+                scope="metadata",
+            ),
+            _field(
+                "integrated_email_filing",
+                "Integrated email filing",
+                "boolean",
+                False,
+                scope="metadata",
+            ),
+            _field(
+                "requires_notarization",
+                "Requires notarization",
+                "boolean",
+                False,
+                scope="metadata",
+            ),
+            _field(
+                "unlisted",
+                "Keep interview unlisted",
+                "boolean",
+                False,
+                scope="metadata",
+            ),
+            _field(
+                "estimated_completion_minutes",
+                "Estimated completion minutes",
+                "integer",
+                10,
+                scope="metadata",
+                pair="timing",
+            ),
+            _field(
+                "estimated_completion_delta",
+                "Estimate plus or minus",
+                "integer",
+                5,
+                scope="metadata",
+                pair="timing",
+            ),
         ],
     },
     {
@@ -69,21 +131,57 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "fields": [
             _field("AL_ORGANIZATION_TITLE", "Organization title"),
             _field("AL_ORGANIZATION_HOMEPAGE", "Organization homepage", "url"),
-            _field("AL_DEFAULT_COUNTRY", "Default country", default="US", pair="locale"),
+            _field(
+                "AL_DEFAULT_COUNTRY", "Default country", default="US", pair="locale"
+            ),
             _field("AL_DEFAULT_STATE", "Default state or province", pair="locale"),
             _field("AL_DEFAULT_LANGUAGE", "Default document language", default="en"),
-            _field("AL_DEFAULT_OVERFLOW_MESSAGE", "PDF overflow message", default="..."),
+            _field(
+                "AL_DEFAULT_OVERFLOW_MESSAGE", "PDF overflow message", default="..."
+            ),
         ],
     },
     {
         "id": "interview",
         "label": "Interview behavior",
         "fields": [
-            _field("al_form_type", "Form type", "choice", "other", choices=["starts_case", "existing_case", "appeal", "other_form", "letter", "other"]),
-            _field("user_ask_role", "User role", "choice", "unknown", choices=["plaintiff", "defendant", "unknown"]),
-            _field("al_person_answering", "Person answering", "choice", "user", choices=["user", "attorney", "advocate", "other"]),
-            _field("al_form_requires_digital_signature", "Require a digital signature", "boolean", False),
-            _field("al_typed_signature_prefix", "Typed-signature prefix", default="/s/"),
+            _field(
+                "al_form_type",
+                "Form type",
+                "choice",
+                "other",
+                choices=[
+                    "starts_case",
+                    "existing_case",
+                    "appeal",
+                    "other_form",
+                    "letter",
+                    "other",
+                ],
+            ),
+            _field(
+                "user_ask_role",
+                "User role",
+                "choice",
+                "unknown",
+                choices=["plaintiff", "defendant", "unknown"],
+            ),
+            _field(
+                "al_person_answering",
+                "Person answering",
+                "choice",
+                "user",
+                choices=["user", "attorney", "advocate", "other"],
+            ),
+            _field(
+                "al_form_requires_digital_signature",
+                "Require a digital signature",
+                "boolean",
+                False,
+            ),
+            _field(
+                "al_typed_signature_prefix", "Typed-signature prefix", default="/s/"
+            ),
             _field("al_typed_signature_font", "Typed-signature font"),
             _field("speak_text", "Enable read-aloud control", "boolean", True),
         ],
@@ -92,7 +190,12 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "id": "language",
         "label": "Languages",
         "fields": [
-            _field("enable_al_language", "Enable AssemblyLine language switching", "boolean", True),
+            _field(
+                "enable_al_language",
+                "Enable AssemblyLine language switching",
+                "boolean",
+                True,
+            ),
             _field("al_user_default_language", "Default user language", default="en"),
             _field("al_interview_languages", "Supported languages", "list", ["en"]),
         ],
@@ -110,14 +213,32 @@ SETTINGS_SCHEMA: List[Dict[str, Any]] = [
         "label": "Next steps document",
         "fields": [
             _field("al_next_steps_enabled", "Include next steps", "boolean", True),
-            _field("al_next_steps_document_title", "Document name", default="form", pair="document_names"),
-            _field("al_next_steps_document_purpose", "Request name", default="request", pair="document_names"),
+            _field(
+                "al_next_steps_document_title",
+                "Document name",
+                default="form",
+                pair="document_names",
+            ),
+            _field(
+                "al_next_steps_document_purpose",
+                "Request name",
+                default="request",
+                pair="document_names",
+            ),
             _field("al_next_steps_help_organization", "Help organization", pair="help"),
             _field("al_next_steps_help_url", "Help URL", "url", pair="help"),
             _field("al_next_steps_generate_qr_code", "Add a QR code", "boolean", False),
             _field("al_next_steps_what_happens_next", "What happens next", "area"),
-            _field("al_next_steps_what_can_decision_maker_do", "What the decision maker can do", "area"),
-            _field("al_next_steps_what_happens_if_i_win", "What happens if the request is granted", "area"),
+            _field(
+                "al_next_steps_what_can_decision_maker_do",
+                "What the decision maker can do",
+                "area",
+            ),
+            _field(
+                "al_next_steps_what_happens_if_i_win",
+                "What happens if the request is granted",
+                "area",
+            ),
         ],
     },
     {
@@ -277,7 +398,9 @@ def _managed_block(values: Mapping[str, Any]) -> str:
             try:
                 ast.parse(rendered, mode="eval")
             except SyntaxError as exc:
-                raise ValueError(f"{CODE_FIELDS[key]['label']} is not valid Python") from exc
+                raise ValueError(
+                    f"{CODE_FIELDS[key]['label']} is not valid Python"
+                ) from exc
         else:
             rendered = repr(value)
         lines.append(f"  {key} = {rendered}")
@@ -295,7 +418,13 @@ def _replace_or_insert_managed(source: str, block: str) -> str:
         if isinstance(parsed, dict) and parsed.get("id") == MANAGED_BLOCK_ID:
             leading = body[: len(body) - len(body.lstrip("\r\n"))]
             trailing = body[len(body.rstrip("\r\n")) :]
-            return source[:start] + leading + block.rstrip("\r\n") + trailing + source[end:]
+            return (
+                source[:start]
+                + leading
+                + block.rstrip("\r\n")
+                + trailing
+                + source[end:]
+            )
 
     # Put initial settings before the first mandatory block. Existing document
     # bytes are otherwise untouched.
@@ -351,8 +480,12 @@ def _literal_block_value(
     if not normalized:
         return header
     indentation = " " * content_indent
-    return header + newline + newline.join(
-        indentation + line if line else "" for line in normalized.split("\n")
+    return (
+        header
+        + newline
+        + newline.join(
+            indentation + line if line else "" for line in normalized.split("\n")
+        )
     )
 
 
@@ -369,9 +502,7 @@ def _metadata_value_fragment(
         "|",
         ">",
     }
-    if isinstance(value, str) and (
-        existing_block or "\n" in value or "\r" in value
-    ):
+    if isinstance(value, str) and (existing_block or "\n" in value or "\r" in value):
         return _literal_block_value(
             value,
             content_indent=key_indent + 2,
@@ -476,10 +607,12 @@ def _update_metadata(source: str, updates: Mapping[str, Any]) -> str:
                 newline=newline,
             )
             separator = "" if fragment.startswith(newline) else " "
-            addition_lines.append(
-                " " * key_indent + key + ":" + separator + fragment
-            )
-        prefix = "" if insertion_at == 0 or body[:insertion_at].endswith(("\n", "\r")) else newline
+            addition_lines.append(" " * key_indent + key + ":" + separator + fragment)
+        prefix = (
+            ""
+            if insertion_at == 0 or body[:insertion_at].endswith(("\n", "\r"))
+            else newline
+        )
         operations.append(
             (insertion_at, insertion_at, prefix + newline.join(addition_lines))
         )
@@ -489,9 +622,7 @@ def _update_metadata(source: str, updates: Mapping[str, Any]) -> str:
         operations, key=lambda item: item[0], reverse=True
     ):
         updated_body = (
-            updated_body[:operation_start]
-            + replacement
-            + updated_body[operation_end:]
+            updated_body[:operation_start] + replacement + updated_body[operation_end:]
         )
 
     # Refuse a patch that does not round-trip to the submitted values.
