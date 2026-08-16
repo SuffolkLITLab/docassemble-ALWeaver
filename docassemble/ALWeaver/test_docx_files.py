@@ -97,6 +97,64 @@ class test_docxs(unittest.TestCase):
         )
         self.assertEqual(all_vars, {"users[0].name.first", "some_var"})
 
+    def test_for_loop_body_points_at_the_list(self):
+        """`item.attribute` inside a loop really means `mylist[0].attribute`."""
+        all_vars = get_docx_variables(
+            "{%p for item in mylist %}"
+            "{{ item.attribute }}{{ item.name.first }}{{ item }}"
+            "{%p endfor %}"
+            "{{ outside_var }}"
+        )
+        self.assertEqual(
+            all_vars,
+            {
+                "mylist",
+                "mylist[0].attribute",
+                "mylist[0].name.first",
+                "outside_var",
+            },
+        )
+
+    def test_for_loop_target_only_applies_inside_the_loop(self):
+        all_vars = get_docx_variables(
+            "{% for item in mylist %}{{ item.a }}{% endfor %}{{ item_standalone }}"
+        )
+        self.assertEqual(all_vars, {"mylist", "mylist[0].a", "item_standalone"})
+
+    def test_nested_for_loops(self):
+        all_vars = get_docx_variables(
+            "{% for parent in families %}"
+            "{% for kid in parent.children %}{{ kid.name.first }}{% endfor %}"
+            "{{ parent.role }}"
+            "{% endfor %}"
+        )
+        self.assertEqual(
+            all_vars,
+            {
+                "families",
+                "families[0].children",
+                "families[0].children[0].name.first",
+                "families[0].role",
+            },
+        )
+
+    def test_for_loop_conditions_use_the_list(self):
+        all_vars = get_docx_variables(
+            "{% for item in mylist %}{%p if item.flag %}{% endif %}{% endfor %}"
+        )
+        self.assertEqual(all_vars, {"mylist", "mylist[0].flag"})
+
+    def test_unindexable_loops_drop_their_targets(self):
+        """Nothing sensible to index means the loop body is skipped, not guessed at."""
+        self.assertEqual(
+            get_docx_variables("{% for k, v in mapping_var %}{{ v.attr }}{% endfor %}"),
+            {"mapping_var"},
+        )
+        self.assertEqual(
+            get_docx_variables("{% for x in mylist | sort %}{{ x.attr }}{% endfor %}"),
+            {"mylist"},
+        )
+
     def test_reserved_docx_labels(self):
         reserved_labels_files = (
             Path(__file__).parent / "test/reserved_docx_variables.docx"

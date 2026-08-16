@@ -3905,8 +3905,13 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
 JINJA_STATEMENT_TAG = re.compile(r"\{%(.*?)%\}", re.DOTALL)
 JINJA_STATEMENT_PREFIX = re.compile(r"^(?:tr|tc|p|r)?[+\-]?\s*")
 JINJA_STATEMENT_SUFFIX = re.compile(r"\s*[+\-]?$")
-JINJA_FOR_STATEMENT = re.compile(r"^for\s+.+?\s+in\s+(.+)$", re.DOTALL)
+JINJA_FOR_STATEMENT = re.compile(r"^for\s+(.+?)\s+in\s+(.+)$", re.DOTALL)
 JINJA_CONDITIONAL_STATEMENT = re.compile(r"^(?:el)?if\s+(.+)$", re.DOTALL)
+# Either kind of Jinja tag, in the order they appear, so `for` blocks can be tracked
+JINJA_ANY_TAG = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.DOTALL)
+JINJA_SIMPLE_OUTPUT = re.compile(r"^ *([^\} ]+) *$")
+# A chain we can safely index into, i.e. `mylist` or `user.children`
+JINJA_INDEXABLE_CHAIN = re.compile(r"^[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*$")
 JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
 # A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
 JINJA_VARIABLE_CHAIN = re.compile(
@@ -3989,28 +3994,103 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
     return found
 
 
-def _variables_in_jinja_statements(text: str) -> Set[str]:
-    """Find the variables used in the `{% ... %}` statements in a template.
+def _resolve_loop_variable(
+    chain: str, loop_scopes: Sequence[Dict[str, Optional[str]]]
+) -> Optional[str]:
+    """Rewrite a chain that starts with a `for` loop's target variable.
 
-    Handles the `for`, `if` and `elif` statements the Weaver knows how to turn
-    into questions, along with docxtpl's `{%p`/`{%r`/`{%tr`/`{%tc` prefixes and
-    Jinja's `-`/`+` whitespace control markers.
+    A template that says `{% for item in mylist %}{{ item.attribute }}{% endfor %}`
+    is not asking for a variable called `item` -- `item` only exists while the
+    template renders. What the interview actually has to gather is
+    `mylist[0].attribute`, so the loop target is swapped for an indexed
+    reference to the thing being looped over.
+
+    Args:
+        chain (str): a variable chain found inside the loop body.
+        loop_scopes (Sequence[Dict[str, Optional[str]]]): the enclosing `for`
+            loops, outermost first. Each maps a loop target to the indexed
+            replacement for it, or to None when there is nothing sensible to
+            index (an unpacked tuple, or an iterable that is a whole expression).
+
+    Returns:
+        Optional[str]: the rewritten chain, or None if it should be dropped.
+    """
+    root = re.split(r"[.\[]", chain, maxsplit=1)[0]
+    for scope in reversed(loop_scopes):
+        if root not in scope:
+            continue
+        replacement = scope[root]
+        remainder = chain[len(root) :]
+        # A bare `{{ item }}` says nothing beyond what the iterable already told us
+        if replacement is None or not remainder:
+            return None
+        return replacement + remainder
+    return chain
+
+
+def _loop_target_replacements(
+    targets: str,
+    iterable_expression: str,
+    loop_scopes: Sequence[Dict[str, Optional[str]]],
+) -> Dict[str, Optional[str]]:
+    """Work out what each target of a `for` statement should be rewritten to."""
+    names = [name.strip() for name in targets.split(",")]
+    if len(names) != 1 or not names[0].isidentifier():
+        # Tuple unpacking: there is no single indexed variable to point at
+        return {name: None for name in names if name.isidentifier()}
+    resolved = _resolve_loop_variable(iterable_expression.strip(), loop_scopes)
+    if resolved is None or not JINJA_INDEXABLE_CHAIN.match(resolved):
+        return {names[0]: None}
+    return {names[0]: f"{resolved}[0]"}
+
+
+def _raw_variables_from_template(text: str) -> Set[str]:
+    """Find every variable-looking chain in a DOCX template's Jinja tags.
+
+    Walks the tags in document order so that `for` loops can be tracked: inside
+    a loop body, references to the loop target are rewritten to point at the
+    list being looped over (see :func:`_resolve_loop_variable`).
 
     Args:
         text (str): the full text of a DOCX template.
 
     Returns:
-        Set[str]: the variable chains found in those statements.
+        Set[str]: the variable chains found, before any suffix mapping.
     """
     found: Set[str] = set()
-    for raw_statement in JINJA_STATEMENT_TAG.findall(text):
+    loop_scopes: List[Dict[str, Optional[str]]] = []
+
+    def keep(chains: Iterable[str]) -> None:
+        for chain in chains:
+            resolved = _resolve_loop_variable(chain, loop_scopes)
+            if resolved:
+                found.add(resolved)
+
+    for match in JINJA_ANY_TAG.finditer(text):
+        output, raw_statement = match.group(1), match.group(2)
+        if output is not None:
+            # Simple single variable use, i.e. `{{ users[0].name.first }}`
+            simple = JINJA_SIMPLE_OUTPUT.match(output)
+            if simple:
+                keep([simple.group(1)])
+            continue
         statement = JINJA_STATEMENT_PREFIX.sub("", raw_statement.strip())
         statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
-        for pattern in (JINJA_FOR_STATEMENT, JINJA_CONDITIONAL_STATEMENT):
-            match = pattern.match(statement)
-            if match:
-                found.update(_variables_in_jinja_expression(match.group(1)))
-                break
+        for_match = JINJA_FOR_STATEMENT.match(statement)
+        if for_match:
+            targets, iterable_expression = for_match.group(1), for_match.group(2)
+            keep(_variables_in_jinja_expression(iterable_expression))
+            loop_scopes.append(
+                _loop_target_replacements(targets, iterable_expression, loop_scopes)
+            )
+            continue
+        if statement == "endfor":
+            if loop_scopes:
+                loop_scopes.pop()
+            continue
+        conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
+        if conditional_match:
+            keep(_variables_in_jinja_expression(conditional_match.group(1)))
     return found
 
 
@@ -4026,13 +4106,7 @@ def get_docx_variables(text: str) -> set:
     Special handling for methods that look like they belong to Individual/Address classes.
     """
     #   Can be easily tested in a repl using the libs keyword and re
-    minimally_filtered = set()
-    for possible_variable in re.findall(
-        r"{{ *([^\} ]+) *}}", text
-    ):  # Simple single variable use
-        minimally_filtered.add(possible_variable)
-    # Variables inside `{% ... %}` statements: `for`, `if`, and `elif`
-    minimally_filtered.update(_variables_in_jinja_statements(text))
+    minimally_filtered = _raw_variables_from_template(text)
 
     fields = set()
 
