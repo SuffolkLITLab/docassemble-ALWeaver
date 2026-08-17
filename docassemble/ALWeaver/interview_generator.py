@@ -3899,6 +3899,121 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
     return list(dict.fromkeys(fields))
 
 
+# A Jinja statement tag, with the whole inside captured. docxtpl adds `p`, `r`,
+# `tr` and `tc` prefixes, and Jinja itself allows `-`/`+` whitespace control on
+# either end, so the modifiers are stripped from the captured text separately.
+JINJA_STATEMENT_TAG = re.compile(r"\{%(.*?)%\}", re.DOTALL)
+JINJA_STATEMENT_PREFIX = re.compile(r"^(?:tr|tc|p|r)?[+\-]?\s*")
+JINJA_STATEMENT_SUFFIX = re.compile(r"\s*[+\-]?$")
+JINJA_FOR_STATEMENT = re.compile(r"^for\s+.+?\s+in\s+(.+)$", re.DOTALL)
+JINJA_CONDITIONAL_STATEMENT = re.compile(r"^(?:el)?if\s+(.+)$", re.DOTALL)
+JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+# A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
+JINJA_VARIABLE_CHAIN = re.compile(
+    r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*(?:\(\s*\))?)*"
+)
+# Words that can start a chain but never name a variable we could gather. Jinja
+# operators and literals, plus the built-in tests that follow `is`.
+JINJA_NON_VARIABLE_WORDS = frozenset(
+    {
+        "and",
+        "boolean",
+        "callable",
+        "defined",
+        "divisibleby",
+        "else",
+        "eq",
+        "escaped",
+        "even",
+        "false",
+        "filter",
+        "float",
+        "ge",
+        "gt",
+        "in",
+        "integer",
+        "is",
+        "iterable",
+        "le",
+        "loop",
+        "lower",
+        "lt",
+        "mapping",
+        "ne",
+        "none",
+        "not",
+        "number",
+        "odd",
+        "or",
+        "recursive",
+        "sameas",
+        "sequence",
+        "string",
+        "true",
+        "undefined",
+        "upper",
+    }
+)
+
+
+def _variables_in_jinja_expression(expression: str) -> Set[str]:
+    """Pull everything that looks like a variable out of a Jinja expression.
+
+    Unlike a simple "first word wins" match, this finds variables wherever they
+    appear, so both sides of a comparison and both operands of `in` are picked
+    up.
+
+    Args:
+        expression (str): the inside of a Jinja `if`/`elif` test or the iterable
+            half of a `for` statement.
+
+    Returns:
+        Set[str]: the variable chains found in the expression.
+    """
+    # Blank out string literals so their contents are never read as variables
+    expression = JINJA_STRING_LITERAL.sub(" ", expression)
+    found = set()
+    for match in JINJA_VARIABLE_CHAIN.finditer(expression):
+        preceding = expression[: match.start()].rstrip()
+        # `.attribute` and `|filter` continue the chain before them
+        if preceding.endswith(".") or preceding.endswith("|"):
+            continue
+        # `some_function(x)` is a call, not something we can ask the user for
+        if expression[match.end() :].lstrip().startswith("("):
+            continue
+        chain = match.group(0)
+        root = re.split(r"[.\[]", chain, maxsplit=1)[0]
+        if root in JINJA_NON_VARIABLE_WORDS or keyword.iskeyword(root):
+            continue
+        found.add(chain)
+    return found
+
+
+def _variables_in_jinja_statements(text: str) -> Set[str]:
+    """Find the variables used in the `{% ... %}` statements in a template.
+
+    Handles the `for`, `if` and `elif` statements the Weaver knows how to turn
+    into questions, along with docxtpl's `{%p`/`{%r`/`{%tr`/`{%tc` prefixes and
+    Jinja's `-`/`+` whitespace control markers.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Set[str]: the variable chains found in those statements.
+    """
+    found: Set[str] = set()
+    for raw_statement in JINJA_STATEMENT_TAG.findall(text):
+        statement = JINJA_STATEMENT_PREFIX.sub("", raw_statement.strip())
+        statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+        for pattern in (JINJA_FOR_STATEMENT, JINJA_CONDITIONAL_STATEMENT):
+            match = pattern.match(statement)
+            if match:
+                found.update(_variables_in_jinja_expression(match.group(1)))
+                break
+    return found
+
+
 def get_docx_variables(text: str) -> set:
     """
     Given the string from a docx file with fairly simple
@@ -3916,19 +4031,8 @@ def get_docx_variables(text: str) -> set:
         r"{{ *([^\} ]+) *}}", text
     ):  # Simple single variable use
         minimally_filtered.add(possible_variable)
-    # Variables in the second parts of for loops (allow paragraph and whitespace flags)
-    for possible_variable in re.findall(
-        r"\{%[^ \t]* +for [A-Za-z\_][A-Za-z0-9\_]* in ([^\} ]+) +[^ \t]*%}", text
-    ):
-        minimally_filtered.add(possible_variable)
-    # Variables in very simple `if` statements (allow paragraph and whitespace flags)
-    for possible_variable in re.findall(r"{%[^ \t]* +if ([^\} ]+) +[^ \t]*%}", text):
-        minimally_filtered.add(possible_variable)
-    # Capture variables in `if` statements that contain a comparison
-    for possible_variable in re.findall(
-        r"{%[^ \t]* +if ([^\} ]+) ==|is|>|<|!=|<=|>= .* +[^ \t]*%}", text
-    ):
-        minimally_filtered.add(possible_variable)
+    # Variables inside `{% ... %}` statements: `for`, `if`, and `elif`
+    minimally_filtered.update(_variables_in_jinja_statements(text))
 
     fields = set()
 

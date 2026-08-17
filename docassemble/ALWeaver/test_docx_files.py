@@ -51,6 +51,52 @@ class test_docxs(unittest.TestCase):
         self.assertIn("children[0].address.county", all_vars)
         self.assertIn("milkman.attorney.firm", all_vars)
 
+    def test_whitespace_control_markers(self):
+        """`-` and `+` right next to the `%` shouldn't hide the statement."""
+        all_vars = get_docx_variables(
+            "{%- if trimmed_var -%}{% endif %}"
+            "{%+ if untrimmed_var +%}{% endif %}"
+            "{%p- if paragraph_var -%}{% endif %}"
+            "{%tr for row in table_rows %}{% endfor %}"
+        )
+        self.assertEqual(
+            all_vars,
+            {"trimmed_var", "untrimmed_var", "paragraph_var", "table_rows"},
+        )
+
+    def test_elif_statements(self):
+        all_vars = get_docx_variables(
+            "{%p if first_var %}{%p elif second_var %}{%p else %}{%p endif %}"
+        )
+        self.assertEqual(all_vars, {"first_var", "second_var"})
+
+    def test_in_operator(self):
+        all_vars = get_docx_variables("{%p if needle_var in haystack_var %}{% endif %}")
+        self.assertEqual(all_vars, {"needle_var", "haystack_var"})
+
+    def test_variables_on_either_side_of_a_comparison(self):
+        all_vars = get_docx_variables(
+            "{%p if 5 == right_side_var %}{% endif %}"
+            "{%p if left_side_var != other_side_var %}{% endif %}"
+        )
+        self.assertEqual(
+            all_vars, {"right_side_var", "left_side_var", "other_side_var"}
+        )
+
+    def test_operators_and_literals_are_not_variables(self):
+        all_vars = get_docx_variables(
+            "{%p if not a_var and b_var is defined %}{% endif %}"
+            '{%p if c_var == "final" and d_var != None %}{% endif %}'
+        )
+        self.assertEqual(all_vars, {"a_var", "b_var", "c_var", "d_var"})
+
+    def test_attributes_and_filters_do_not_start_new_variables(self):
+        all_vars = get_docx_variables(
+            "{%p if users[0].name.first %}{% endif %}"
+            "{%p if some_var | length %}{% endif %}"
+        )
+        self.assertEqual(all_vars, {"users[0].name.first", "some_var"})
+
     def test_reserved_docx_labels(self):
         reserved_labels_files = (
             Path(__file__).parent / "test/reserved_docx_variables.docx"
