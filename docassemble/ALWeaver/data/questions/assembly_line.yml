@@ -808,9 +808,41 @@ attachment:
       },
     )
 ---
+only sets: person_candidate_choices
 code: |
-  # HACK temporary LIT Con 2023
-  people_variables = DADict("people_variables", auto_gather=False, gathered=True)
+  # Pre-checked on the "People" screen. `get_person_candidates` screens out
+  # prefixes that describe a thing rather than a person, so what is left is
+  # worth offering -- but the author still gets the last word.
+  person_candidate_choices = sorted(
+    interview.all_fields.get_person_candidates(custom_only=True)
+  )
+---
+# If nothing looks like a person there is nothing to confirm, and the screen
+# below is never reached
+code: |
+  if not len(person_candidate_choices):
+    people_variables = DADict(
+      "people_variables", auto_gather=False, gathered=True
+    )
+---
+id: confirm people in your form
+question: |
+  Which of these are people?
+subquestion: |
+  The names below look like they refer to people, based on the other fields
+  they appear alongside in your ${ interview.uploaded_templates.as_noun("form") }.
+
+  Treating a name as a person links its parts together, so the Weaver can ask
+  for a full name, an address and a phone number with questions that already
+  exist. Getting it wrong costs you a whole list to fill in for a single
+  answer, so **uncheck anything that is not a person**.
+fields:
+  - Which of these are people?: people_variables
+    datatype: checkboxes
+    none of the above: False
+    label above field: True
+    code: |
+      person_candidate_choices
 ---
 code: |
   if len(people_variables.true_values()):
@@ -1395,24 +1427,7 @@ columns:
 id: information about people
 question: |
   "People" mentioned in your form
-#subquestion: |  
-#  The Weaver will treat fields that represent "people" as objects so that
-#  attributes like their name, address, and phone number are linked together.
 fields:
-  #- note: |
-  #    The list of names below look like names for people, based on
-  #    how you use them in your document.
-  #  show if:
-  #    code: |
-  #      len(interview.all_fields.get_person_candidates(custom_only=True)) > 0
-  #- Do any of these variable names represent people?: people_variables
-  #  datatype: checkboxes
-  #  code: |
-  #    interview.all_fields.get_person_candidates(custom_only=True)
-  #  help: |
-  #    "person" variables will get things like addresses, multi-part
-  #    names, and proper questions handled automatically. Using them
-  #    will help you save time writing your interview.
   - What role will the person using this interview have?: interview.typical_role
     input type: radio
     default: ${ interview.llm_draft_typical_role if hasattr(interview, "llm_draft_typical_role") else ("plaintiff" if interview.form_type == "starts_case" else "unknown") }
@@ -1456,13 +1471,6 @@ help: |
   
   If you are not sure: please review the form and talk to a subject matter 
   expert. This can always be fixed later.
----
-code: |
-  if (
-    interview.form_type == "starts_case"
-    and len(interview.all_fields.get_person_candidates(custom_only=True)) < 1
-  ):
-    people_variables = DADict(auto_gather=False, gathered=True)
 ---
 if: interview.form_type == "starts_case"
 code: |
