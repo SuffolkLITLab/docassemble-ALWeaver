@@ -26,6 +26,7 @@ from docassemble.base.util import (
 )
 from docx2python import docx2python
 from enum import Enum
+from functools import lru_cache
 from itertools import zip_longest, chain
 from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
@@ -89,6 +90,12 @@ class WeaverGenerationResult:
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
     template_paths: List[str] = field(default_factory=list)
+    #: `(old name, new name)` for the PDF fields renaming would improve. Only
+    #: applied when `normalize_field_names` was asked for; reported either way
+    #: so a caller can show them and offer to run again.
+    suggested_renames: List[Tuple[str, str]] = field(default_factory=list)
+    #: Whether `suggested_renames` were written into the template
+    renames_applied: bool = False
 
 
 @dataclass
@@ -163,6 +170,11 @@ __all__ = [
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
     "get_unhandled_field_type_warnings",
+    "field_name_is_usable",
+    "suggested_field_renames",
+    "merged_field_names",
+    "rename_field_screen_fields",
+    "pdf_rename_mapping",
     "indent_by",
     "is_reserved_docx_label",
     "is_reserved_label",
@@ -179,6 +191,8 @@ __all__ = [
     "varname",
     "split_option_field_name",
     "option_label",
+    "unlikely_person_prefix",
+    "person_prefix_needs_corroboration",
     "logic_to_code_block",
     "WeaverGenerationResult",
     "WeaverInterviewArtifacts",
@@ -340,6 +354,215 @@ def split_option_field_name(raw_field_name: str) -> Optional[Tuple[str, str]]:
 def option_label(option_value: str) -> str:
     """A human-readable label for a `parent+option` choice."""
     return option_value.replace("_", " ").capitalize()
+
+
+# Deciding that `X_name` means there is a person called `X` is a guess, and a
+# wrong guess is expensive: the generated interview declares `X: ALPeopleList`
+# and then gathers a whole list of people to fill in one text field. These rules
+# were tuned against the field names of ~200 real court forms.
+
+# If the last word of a candidate is one of these, the candidate names a thing,
+# a moment or an attribute rather than a person. `case_name` is the name of a
+# case; `hearing_by_phone` is how a hearing happens; `other_action_court_name`
+# is a court.
+NON_PERSON_FINAL_WORDS = frozenset(
+    {
+        # things a legal form talks about
+        "account",
+        "accounts",
+        "action",
+        "actions",
+        "address",
+        "amount",
+        "amounts",
+        "appeal",
+        "appeals",
+        "asset",
+        "assets",
+        "benefit",
+        "benefits",
+        "case",
+        "cases",
+        "claim",
+        "claims",
+        "count",
+        "county",
+        "court",
+        "courts",
+        "date",
+        "dates",
+        "debt",
+        "debts",
+        "description",
+        "document",
+        "documents",
+        "email",
+        "expense",
+        "expenses",
+        "fee",
+        "fees",
+        "form",
+        "forms",
+        "hearing",
+        "hearings",
+        "income",
+        "judgment",
+        "judgments",
+        "mail",
+        "method",
+        "motion",
+        "motions",
+        "notice",
+        "notices",
+        "number",
+        "order",
+        "orders",
+        "payment",
+        "payments",
+        "phone",
+        "properties",
+        "property",
+        "reason",
+        "reasons",
+        "status",
+        "time",
+        "total",
+        "trial",
+        "type",
+        "types",
+        "value",
+        # a name that ends here is describing a name, not a person
+        "maiden",
+        "name",
+        "names",
+        "signature",
+        # function words: the candidate got cut off mid-phrase
+        "a",
+        "an",
+        "and",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+        # determiners and adjectives, i.e. `new_name`, `debts_pay_in_own`
+        "all",
+        "any",
+        "both",
+        "current",
+        "each",
+        "first",
+        "former",
+        "last",
+        "new",
+        "next",
+        "old",
+        "own",
+        "previous",
+        "same",
+    }
+)
+
+# A candidate that starts like a question is a yes/no answer, not a person
+NON_PERSON_LEADING_WORDS = frozenset(
+    {
+        "are",
+        "can",
+        "did",
+        "do",
+        "does",
+        "had",
+        "has",
+        "have",
+        "is",
+        "may",
+        "must",
+        "needs",
+        "receiving",
+        "should",
+        "wants",
+        "was",
+        "were",
+        "will",
+        "would",
+    }
+)
+
+MINIMUM_PERSON_PREFIX_LENGTH = 3
+
+
+def _person_prefix_words(prefix: str) -> List[str]:
+    return [word for word in prefix.split("_") if word]
+
+
+@lru_cache(maxsize=None)
+def _indexed_person_prefix_pattern(reserved_prefixes: Tuple[str, ...]):
+    return re.compile(
+        r"^(?:" + "|".join(sorted(map(re.escape, reserved_prefixes))) + r")\d+_"
+    )
+
+
+def unlikely_person_prefix(
+    prefix: str,
+    reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+) -> Optional[str]:
+    """Say why `prefix` almost certainly does not name a person, or None.
+
+    Args:
+        prefix (str): the part of a field name before a person-ish suffix, i.e.
+            `inspector` from `inspector_name`.
+        reserved_prefixes: the AssemblyLine prefixes that already mean something.
+
+    Returns:
+        Optional[str]: a short reason the guess should be rejected, or None if
+        the prefix could plausibly name a person.
+    """
+    if len(prefix) < MINIMUM_PERSON_PREFIX_LENGTH:
+        return "too short to be a meaningful name"
+    # Must read as a snake_case variable, with no leading or trailing underscore
+    if not re.match(r"^[a-z][a-z0-9_]*[a-z0-9]$", prefix):
+        return "not a lowercase variable name"
+    words = _person_prefix_words(prefix)
+    if not words:
+        return "no words in the name"
+    if words[-1] in NON_PERSON_FINAL_WORDS:
+        return f"ends in `{words[-1]}`, which describes a thing rather than a person"
+    if words[0] in NON_PERSON_LEADING_WORDS:
+        return f"starts with `{words[0]}`, so it reads as a yes/no question"
+    # `users1_cell` from `users1_cell_phone`: an indexed AssemblyLine person
+    # already, so the rest of the name is one of their attributes
+    indexed_prefix = _indexed_person_prefix_pattern(tuple(reserved_prefixes))
+    if indexed_prefix.match(prefix):
+        return "is an attribute of an AssemblyLine person that already exists"
+    return None
+
+
+def person_prefix_needs_corroboration(
+    prefix: str,
+    reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+) -> bool:
+    """True if one lone person-ish suffix isn't enough to trust this prefix.
+
+    A prefix that starts with an AssemblyLine person word -- `user_affidavit`,
+    `spouse_employer_name_address`, `plaintiff_previous` -- is far more likely
+    to be an attribute of that person than a new list of people. Two or more
+    different person-ish suffixes (a name *and* a phone number, say) are enough
+    to overrule that.
+    """
+    words = _person_prefix_words(prefix)
+    if len(words) < 2:
+        return False
+    for length in range(len(words) - 1, 0, -1):
+        leading = "_".join(words[:length])
+        if leading in reserved_pluralizers_map:
+            return True
+    return False
 
 
 def varname(var_name: str) -> str:
@@ -1415,6 +1638,24 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
+    def merged_fields(self) -> List[DAField]:
+        """Fields that more than one differently-named PDF field collapsed into.
+
+        FormFyxer's normalization is deliberately aggressive, so two fields the
+        author meant to keep apart can come back with the same name and end up
+        writing to a single variable. Repeats of one field -- the `__0`/`__1`
+        multiple-appearance names -- are not merges and are excluded.
+        """
+        merged = []
+        for field in self.elements:
+            distinct = {
+                remove_multiple_appearance_indicator(varname(raw_name))
+                for raw_name in getattr(field, "raw_field_names", [])
+            }
+            if len(distinct) > 1:
+                merged.append(field)
+        return merged
+
     def find_parent_collections(
         self, skip_skipped_and_code_fields: bool = True
     ) -> List[ParentCollection]:
@@ -1643,15 +1884,22 @@ class DAFieldList(DAList):
         people_suffixes_map=generator_constants.PEOPLE_SUFFIXES_MAP,
         reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+        reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
         custom_only=False,
     ) -> Set[str]:
         """
         Identify the field names that appear to represent people in the list of
         string fields pulled from docx/PDF. Exclude people we know
         are singular Persons (such as trial_court).
+
+        Guessed prefixes are screened by :func:`unlikely_person_prefix`, and a
+        prefix that only :func:`person_prefix_needs_corroboration` accepts has
+        to turn up with two different person-ish suffixes before it counts.
         """
         people_vars = reserved_person_pluralizers_map.values()
         people = set()
+        # guessed prefix -> the distinct person-ish suffixes seen for it
+        guessed: Dict[str, Set[str]] = defaultdict(set)
         if custom_only:
             suffixes_to_use = set(people_suffixes_map.keys()) - set(["_name"])
         else:
@@ -1668,6 +1916,10 @@ class DAFieldList(DAList):
             else:
                 field_to_check = field.variable
             # Exact match
+            if field_to_check in reserved_whole_words:
+                # `user_preferred_language` means what it says; the trailing
+                # `_language` is not evidence of a `user_preferred` person
+                continue
             if field_to_check in people_vars:
                 people.add(field_to_check)
             elif field_to_check in undefined_person_prefixes:
@@ -1695,7 +1947,7 @@ class DAFieldList(DAList):
                         possible_suffix = re.sub(r"^\[\d+\]", "", matches.groups()[1])
                         # Look for suffixes normally associated with people like .name.first for a DOCX
                         if possible_suffix in people_suffixes:
-                            people.add(matches.groups()[0])
+                            guessed[matches.groups()[0]].add(possible_suffix)
             elif file_type == "pdf":
                 # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
                 # regex to check for matching suffixes, and catch things like mailing_address_address
@@ -1706,14 +1958,26 @@ class DAFieldList(DAList):
                         # Skip pre-defined but singular objects since they are not "people" that
                         # need to turn into lists.
                         # currently this is only trial_court
-                        # strip trailing numbers so we end up with just the people object, i.e. `users`
-                        people.add(re.sub(r"\d+$", "", matches.groups()[0]))
+                        # Trailing digits and underscores are an index, not part
+                        # of the name: `dependent_1_age` is about `dependent`
+                        prefix = re.sub(r"[_\d]+$", "", matches.groups()[0])
+                        suffix = field_to_check[len(matches.groups()[0]) :]
+                        guessed[prefix].add(suffix)
+
+        for prefix, suffixes_seen in guessed.items():
+            if unlikely_person_prefix(prefix):
+                continue
+            if person_prefix_needs_corroboration(prefix) and len(suffixes_seen) < 2:
+                continue
+            people.add(prefix)
+
         # A prefix like `from` (from a `from_phone` PDF field) is a Python
-        # keyword, so it can never be the name of a person list
+        # keyword, and one like `list` or `nav` is already taken by Python or
+        # Docassemble, so neither can be the name of a person list
         people = {
             person
             for person in people
-            if person.isidentifier() and not keyword.iskeyword(person)
+            if person.isidentifier() and not matching_reserved_names({person})
         }
         if custom_only:
             return people - set(reserved_pluralizers_map.values())
@@ -1731,11 +1995,19 @@ class DAFieldList(DAList):
         0-based index found per person type determines the quantity:
         index == 0 → ``"one"``, index >= 1 → ``"more"``.
 
+        People the author marked themselves count too. A form with
+        ``patient1_name_first`` and ``patient2_name_first`` says just as
+        plainly that there can be more than one patient as ``users2_name_first``
+        says there can be more than one user, and without this the generated
+        ``objects`` block leaves the list unconfigured.
+
         Returns:
             A dict mapping canonical person name → ``"one"`` or ``"more"``.
             Person types with no indexed fields are omitted.
         """
-        known_plurals = set(reserved_person_pluralizers_map.values())
+        known_plurals = set(reserved_person_pluralizers_map.values()) | set(
+            self.custom_people_plurals.values()
+        )
         max_indices: Dict[str, int] = {}
         for field_item in self:
             display_var = getattr(field_item, "final_display_var", None) or ""
@@ -1755,11 +2027,11 @@ class DAFieldList(DAList):
         }
 
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
+        """Scan the list of fields and see if any of them should be renamed
+        or marked as built-ins given the list of new, custom prefixes."""
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
         }
-        """Scan the list of fields and see if any of them should be renamed
-        or marked as built-ins given the list of new, custom prefixes."""
         for field in self:
             if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):
@@ -1786,19 +2058,19 @@ class DAFieldList(DAList):
         self.consolidate_duplicate_fields()
 
     def auto_mark_people_as_builtins(self):
+        """Mark the people the field names imply, without asking anyone.
+
+        This is what "I'm feeling lucky", the REST API, the editor's
+        new-project upload and `generate_interview_from_path` all rely on:
+        nobody confirms the guess, so whatever it decides ships in the
+        generated interview.
+
+        `custom_only=True` is the stricter reading -- a lone `X_name` field is
+        not enough on its own, since that turns a single text field into a list
+        of people to gather. Everything else the guess has to clear lives in
+        `get_person_candidates`.
         """
-        Mark people as built-ins if they match heuristics, without asking. For
-        use with "I'm feeling lucky" feature.
-        """
-        # Use stricter candidates to avoid false positives like generic `_name`
-        # fields becoming list gathers (e.g., `County.gather()`).
-        candidates = self.get_person_candidates(custom_only=True)
-        candidates = {
-            candidate
-            for candidate in candidates
-            if re.match(r"^[a-z][a-z0-9_]*$", candidate)
-        }
-        self.mark_people_as_builtins(candidates)
+        self.mark_people_as_builtins(self.get_person_candidates(custom_only=True))
 
     def auto_label_fields(self):
         for field in self.elements:
@@ -4851,6 +5123,167 @@ def get_unhandled_field_type_warnings(fields: Iterable[DAField]) -> List[str]:
     ]
 
 
+def field_name_is_usable(field_name: str) -> bool:
+    """True if a PDF field name can already be used as it is.
+
+    A name that is a lowercase snake_case identifier needs no help, and one
+    that already follows the AssemblyLine conventions needs even less. Renaming
+    those is not an improvement -- FormFyxer drops the index from
+    `users1_name_first`, which is how two different people end up sharing one
+    variable.
+    """
+    if not field_name:
+        return False
+    if is_reserved_label(field_name):
+        return True
+    return bool(re.match(r"^[a-z][a-z0-9_]*$", field_name))
+
+
+def suggested_field_renames(field_names: Sequence[str]) -> List[Tuple[str, str]]:
+    """The renames worth applying to a PDF's field names, oldest name first.
+
+    FormFyxer's renamer is deliberately aggressive: it rewrites every field,
+    strips the index off AssemblyLine names, and disambiguates collisions with
+    a `__1`/`__2` suffix -- which is exactly the marker the Weaver strips back
+    off, so the two fields end up writing the same answer. This narrows it to
+    the names that actually need help and drops any rename that would make two
+    fields share a variable.
+
+    Args:
+        field_names (Sequence[str]): the field names currently in the PDF.
+
+    Returns:
+        List[Tuple[str, str]]: `(old name, new name)` pairs to apply.
+    """
+    if not field_names:
+        return []
+    try:
+        new_names, _confidence = formfyxer.fallback_rename_fields(list(field_names))
+    except Exception as exc:
+        log(f"Unable to suggest field renames: {exc!r}")
+        return []
+
+    def variable_for(name: str) -> str:
+        """The variable a field name ends up writing to."""
+        stripped = remove_multiple_appearance_indicator(varname(name))
+        try:
+            return map_raw_to_final_display(stripped)
+        except ParsingException:
+            return stripped
+
+    # Anything we are leaving alone still occupies its variable
+    taken = {variable_for(name) for name in field_names if field_name_is_usable(name)}
+    renames: List[Tuple[str, str]] = []
+    for old_name, new_name in zip(field_names, new_names):
+        if field_name_is_usable(old_name) or new_name == old_name:
+            continue
+        # FormFyxer adds `__1`/`__2` to break ties, but that is the Weaver's
+        # multiple-appearance marker, so it merges the fields instead
+        new_name = remove_multiple_appearance_indicator(new_name)
+        # Only worth doing if the replacement is itself a name we could use;
+        # a field named "  " normalizes to "_", which helps nobody
+        if not field_name_is_usable(new_name):
+            continue
+        variable = variable_for(new_name)
+        if not variable or variable in taken:
+            # Renaming would put this field on top of another one
+            continue
+        taken.add(variable)
+        renames.append((old_name, new_name))
+    return renames
+
+
+def merged_field_names(fields: Iterable[DAField]) -> List[str]:
+    """The raw PDF field names that normalization collapsed onto each other.
+
+    Args:
+        fields (Iterable[DAField]): the fields read from the uploaded PDF.
+
+    Returns:
+        List[str]: every raw name belonging to a field that more than one
+        differently-named PDF field merged into.
+    """
+    names = []
+    for field in fields:
+        distinct = {
+            remove_multiple_appearance_indicator(varname(raw_name))
+            for raw_name in getattr(field, "raw_field_names", [])
+        }
+        if len(distinct) > 1:
+            names.extend(field.raw_field_names)
+    return names
+
+
+MERGED_FIELD_HELP = (
+    "Two or more fields in this PDF were given the same name when it was "
+    "normalized, so they will all be filled with the same answer. If they are "
+    "meant to hold different answers, give each one its own name."
+)
+
+
+def rename_field_screen_fields(
+    pdf_field_names: Sequence[str],
+    merged_names: Iterable[str] = (),
+) -> List[Dict[str, Any]]:
+    """Build the "Rename fields" screen for a PDF's existing field names.
+
+    The answers are keyed by position rather than by field name. A field named
+    `form1[0].#pageSet[0].Page1[0].TextField4[1]` cannot appear inside a
+    Docassemble variable name -- the `#`, the quotes and the nested brackets
+    make `rename_fields['...']` unparseable, and the screen fails to load.
+
+    Fields that normalization merged together come first, since they are the
+    ones most likely to need a new name.
+
+    Args:
+        pdf_field_names (Sequence[str]): the field names currently in the PDF.
+        merged_names (Iterable[str]): names that ended up sharing a variable
+            with another field, from `merged_field_names`.
+
+    Returns:
+        List[Dict[str, Any]]: a Docassemble `fields` list.
+    """
+    merged = set(merged_names)
+    entries = []
+    for index, name in enumerate(pdf_field_names):
+        entry: Dict[str, Any] = {
+            "label": name,
+            "field": f"rename_fields[{index}]",
+            "default": name,
+            "label above field": True,
+            "required": False,
+        }
+        if name in merged:
+            entry["help"] = MERGED_FIELD_HELP
+        entries.append(entry)
+    # Stable partition: merged first, everything else in its original order
+    return [entry for entry in entries if "help" in entry] + [
+        entry for entry in entries if "help" not in entry
+    ]
+
+
+def pdf_rename_mapping(
+    pdf_field_names: Sequence[str], answers: Mapping[int, str]
+) -> Dict[str, str]:
+    """Turn the "Rename fields" answers back into `{old name: new name}`.
+
+    Args:
+        pdf_field_names (Sequence[str]): the field names currently in the PDF,
+            in the same order they were shown on the screen.
+        answers (Mapping[int, str]): what the user typed, keyed by position.
+
+    Returns:
+        Dict[str, str]: the renames to apply, leaving out anything blank or
+        unchanged so no field is needlessly rewritten.
+    """
+    renames = {}
+    for index, old_name in enumerate(pdf_field_names):
+        new_name = str(answers.get(index, "") or "").strip()
+        if new_name and new_name != old_name:
+            renames[old_name] = new_name
+    return renames
+
+
 def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str, str]]:
     """
     Identify any variable names that look like they are intended to be for a PDF
@@ -6531,6 +6964,57 @@ def generate_interview_artifacts(
     )
 
 
+def _apply_field_name_normalization(
+    input_path: str,
+    *,
+    output_dir: Optional[str],
+    exact_name: str,
+    normalize_field_names: bool,
+) -> Tuple[List[Tuple[str, str]], bool, str]:
+    """Work out, and optionally apply, the field renames worth making.
+
+    Renaming happens on a copy. The caller handed us a path to their own file,
+    and a draft-generation call has no business rewriting it.
+
+    Args:
+        input_path (str): the template the caller gave us.
+        output_dir (Optional[str]): where generated files go, if anywhere.
+        exact_name (str): the filename the template should keep.
+        normalize_field_names (bool): whether to write the renames out.
+
+    Returns:
+        Tuple[List[Tuple[str, str]], bool, str]: the suggested renames, whether
+        they were applied, and the path to use as the template from here on.
+    """
+    if not input_path.lower().endswith(".pdf"):
+        return [], False, input_path
+    try:
+        field_names = [
+            item[0]
+            for item in _make_static_file_from_path(
+                input_path, filename=exact_name
+            ).get_pdf_fields()
+        ]
+    except Exception as exc:
+        log(f"Unable to read fields from {input_path}: {exc!r}")
+        return [], False, input_path
+
+    renames = suggested_field_renames(field_names)
+    if not renames or not normalize_field_names:
+        return renames, False, input_path
+
+    working_dir = output_dir or tempfile.mkdtemp(prefix="alweaver-normalize-")
+    os.makedirs(working_dir, exist_ok=True)
+    renamed_path = os.path.join(working_dir, f"normalized_{exact_name}")
+    shutil.copyfile(input_path, renamed_path)
+    try:
+        formfyxer.rename_pdf_fields(renamed_path, renamed_path, dict(renames))
+    except Exception as exc:
+        log(f"Unable to rename fields in {input_path}: {exc!r}")
+        return renames, False, input_path
+    return renames, True, renamed_path
+
+
 def generate_interview_from_path(
     input_path: str,
     *,
@@ -6551,6 +7035,7 @@ def generate_interview_from_path(
     interview_overrides: Optional[Dict[str, Any]] = None,
     field_definitions: Optional[List[FieldDefinition]] = None,
     screen_definitions: Optional[List[Screen]] = None,
+    normalize_field_names: bool = False,
 ) -> WeaverGenerationResult:
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
@@ -6566,6 +7051,12 @@ def generate_interview_from_path(
     _ensure_current_question_package()
     resolved_exact_name = os.path.basename(
         str(exact_name or os.path.basename(input_path) or input_path).strip()
+    )
+    suggested_renames, renames_applied, input_path = _apply_field_name_normalization(
+        input_path,
+        output_dir=output_dir,
+        exact_name=resolved_exact_name,
+        normalize_field_names=normalize_field_names,
     )
     da_file = _make_static_file_from_path(input_path, filename=resolved_exact_name)
 
@@ -6755,4 +7246,6 @@ def generate_interview_from_path(
         yaml_path=yaml_path,
         package_zip_path=package_zip_path,
         template_paths=generated_template_paths,
+        suggested_renames=suggested_renames,
+        renames_applied=renames_applied,
     )

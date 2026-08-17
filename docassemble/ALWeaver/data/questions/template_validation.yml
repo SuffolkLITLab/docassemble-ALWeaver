@@ -195,16 +195,61 @@ buttons:
 ---
 ############################### PDF validation ########################
 ---
+only sets: suggested_pdf_renames
+code: |
+  # What renaming would change, per document, worked out before we ask so the
+  # author can see it and so nothing is rewritten unless it is an improvement.
+  suggested_pdf_renames = {
+    document.filename: suggested_field_renames(
+      [item[0] for item in document.get_pdf_fields()]
+    )
+    for document in interview.uploaded_templates
+    if document.mimetype == "application/pdf"
+  }
+---
+id: rename fields automatically
+question: |
+  Rename this form's fields automatically?
+subquestion: |
+  Some of the fields in your
+  ${ interview.uploaded_templates.as_noun("form") } do not have names the
+  Weaver can work with. It can rename them for you:
+
+  % for filename, renames in suggested_pdf_renames.items():
+  % if renames:
+  % if len(suggested_pdf_renames) > 1:
+  **${ filename }**
+  % endif
+
+  Current name | Suggested name
+  -------------|---------------
+  % for old_name, new_name in renames:
+  `${ old_name }` | `${ new_name }`
+  % endfor
+
+  % endif
+  % endfor
+
+  Fields that already follow the
+  [AssemblyLine naming standard](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/docs/label_variables)
+  are left alone, and no field is renamed on top of another one.
+
+  You can edit any of these names yourself afterwards.
+fields:
+  - Rename these fields: yes_normalize_fields
+    datatype: yesnoradio
+    default: False
+---
+code: |
+  # Nothing to gain, so don't take up a screen asking
+  if not any(suggested_pdf_renames.values()):
+    yes_normalize_fields = False
+---
 code: |
   for document in interview.uploaded_templates:
-    if document.filename.endswith("pdf"):
-      formfyxer.parse_form(
-        document.path(),
-        title=os.path.basename(document.path()),
-        jur="MA",
-        normalize=1,
-        rewrite=1,
-      )
+    renames = dict(suggested_pdf_renames.get(document.filename, []))
+    if renames:
+      formfyxer.rename_pdf_fields(document.path(), document.path(), renames)
       document.commit()
   process_field_normalization = True
 ---
@@ -448,20 +493,32 @@ objects:
 code: |
   rename_fields = {}
 ---
+code: |
+  # Answers are keyed by position: a field name like
+  # `form1[0].#pageSet[0].Page1[0].TextField4[1]` cannot go inside a
+  # Docassemble variable name.
+  pdf_field_names_to_rename = [
+    item[0] for item in interview.uploaded_templates[0].get_pdf_fields()
+  ]
+---
+code: |
+  merged_pdf_field_names = merged_field_names(interview.all_fields)
+---
 id: rename fields
 question: |
   Rename fields
-fields: 
+subquestion: |
+  % if merged_pdf_field_names:
+  :exclamation-triangle: **${ len(merged_pdf_field_names) } fields share a name
+  with another field**, so they will all be filled with the same answer.
+  They are listed first below. If any of them are meant to hold different
+  answers, give each one its own name.
+  % endif
+fields:
   - code: |
-      [
-        {
-          item[0]: f"rename_fields['{item[0]}']",
-          "default": item[0],
-          "label above field": True,
-          "required": False,
-        }
-        for item in interview.uploaded_templates[0].get_pdf_fields()
-      ]
+      rename_field_screen_fields(
+        pdf_field_names_to_rename, merged_pdf_field_names
+      )
 right: |
   #### Preview of PDF label placement
   
@@ -472,11 +529,14 @@ right: |
 continue button field: display_rename_field_choices
 ---
 code: |
-  formfyxer.rename_pdf_fields(
-    interview.uploaded_templates[0].path(),
-    interview.uploaded_templates[0].path(),
-    rename_fields,
-  )
+  display_rename_field_choices
+  renames_to_apply = pdf_rename_mapping(pdf_field_names_to_rename, rename_fields)
+  if renames_to_apply:
+    formfyxer.rename_pdf_fields(
+      interview.uploaded_templates[0].path(),
+      interview.uploaded_templates[0].path(),
+      renames_to_apply,
+    )
 
   renamed_fields = True
 ---

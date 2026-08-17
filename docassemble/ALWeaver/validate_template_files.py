@@ -1,4 +1,5 @@
 import ast
+import builtins
 import importlib.util
 from pathlib import Path
 
@@ -59,7 +60,7 @@ all_reserved_names = set(
     + list(_declared_module_exports("docassemble.AssemblyLine.language"))
     + list(_declared_module_exports("docassemble.ALToolbox.misc"))
     + list(keyword.kwlist)
-    + list(dir(__builtins__))
+    + list(dir(builtins))
     + [
         "_attachment_email_address",
         "_attachment_include_editable",
@@ -131,7 +132,7 @@ all_reserved_names = set(
     ]
 )
 
-just_keywords_and_builtins = set(list(keyword.kwlist) + list(dir(__builtins__)))
+just_keywords_and_builtins = set(list(keyword.kwlist) + list(dir(builtins)))
 
 
 def matching_reserved_names(
@@ -146,7 +147,7 @@ def matching_reserved_names(
     for word in field_names:
         match = word_part.match(word)
         if match:
-            matches.add(match[0])
+            matches.add(match.group(1))
     if keywords_and_builtins_only:
         return matches.intersection(just_keywords_and_builtins)
     return matches.intersection(all_reserved_names)

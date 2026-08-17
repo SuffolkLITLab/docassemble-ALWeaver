@@ -7002,6 +7002,11 @@ def _new_project_from_uploads(
         request.form.get("include_next_steps"), default=True
     )
     enable_navigation = parse_bool(request.form.get("enable_navigation"), default=True)
+    # Off by default: renaming rewrites the template that ships in the project,
+    # so the author asks for it rather than discovering it happened.
+    normalize_field_names = parse_bool(
+        request.form.get("normalize_field_names"), default=False
+    )
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
@@ -7022,7 +7027,8 @@ def _new_project_from_uploads(
             f"request_id={request_id} user_id={uid} project={project_name} "
             f"files={len(uploaded_files)} notes_provided={bool(generation_notes)} "
             f"help_page_url={help_page_url!r} help_source_chars={len(help_source_text or '')} "
-            f"use_llm_assist={use_llm_assist}",
+            f"use_llm_assist={use_llm_assist} "
+            f"normalize_field_names={normalize_field_names}",
             "info",
         )
         for file_storage in uploaded_files:
@@ -7069,6 +7075,7 @@ def _new_project_from_uploads(
             "exact_name": uploaded_payloads[0]["filename"],
             "use_llm_assist": use_llm_assist,
             "interview_overrides": interview_overrides,
+            "normalize_field_names": normalize_field_names,
         }
         if help_page_url:
             generation_options["help_page_url"] = help_page_url
