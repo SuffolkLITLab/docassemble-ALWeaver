@@ -34,6 +34,19 @@ class MockDAStaticFile(DAStaticFile):
 
 
 class test_docxs(unittest.TestCase):
+    def test_matching_reserved_names_uses_base_name(self):
+        self.assertEqual(
+            matching_reserved_names({"list[0]", "class.attribute", "url_args[0]"}),
+            {"list", "class", "url_args"},
+        )
+        self.assertEqual(
+            matching_reserved_names(
+                {"list[0]", "class.attribute", "url_args[0]"},
+                keywords_and_builtins_only=True,
+            ),
+            {"list", "class"},
+        )
+
     def test_unmap_suffixes(self):
         unmap_suffixes_file = Path(__file__).parent / "test/unmap_suffixes.docx"
         docx_data = docx2python(unmap_suffixes_file)

@@ -26,6 +26,7 @@ from docassemble.base.util import (
 )
 from docx2python import docx2python
 from enum import Enum
+from functools import lru_cache
 from itertools import zip_longest, chain
 from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
@@ -487,6 +488,13 @@ def _person_prefix_words(prefix: str) -> List[str]:
     return [word for word in prefix.split("_") if word]
 
 
+@lru_cache(maxsize=None)
+def _indexed_person_prefix_pattern(reserved_prefixes: Tuple[str, ...]):
+    return re.compile(
+        r"^(?:" + "|".join(sorted(map(re.escape, reserved_prefixes))) + r")\d+_"
+    )
+
+
 def unlikely_person_prefix(
     prefix: str,
     reserved_prefixes=generator_constants.RESERVED_PREFIXES,
@@ -516,10 +524,8 @@ def unlikely_person_prefix(
         return f"starts with `{words[0]}`, so it reads as a yes/no question"
     # `users1_cell` from `users1_cell_phone`: an indexed AssemblyLine person
     # already, so the rest of the name is one of their attributes
-    indexed_prefix = (
-        r"^(?:" + "|".join(sorted(map(re.escape, reserved_prefixes))) + r")\d+_"
-    )
-    if re.match(indexed_prefix, prefix):
+    indexed_prefix = _indexed_person_prefix_pattern(tuple(reserved_prefixes))
+    if indexed_prefix.match(prefix):
         return "is an attribute of an AssemblyLine person that already exists"
     return None
 
@@ -1962,11 +1968,11 @@ class DAFieldList(DAList):
         }
 
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
+        """Scan the list of fields and see if any of them should be renamed
+        or marked as built-ins given the list of new, custom prefixes."""
         self.custom_people_plurals = {
             var_name: var_name for var_name in list(people_list)
         }
-        """Scan the list of fields and see if any of them should be renamed
-        or marked as built-ins given the list of new, custom prefixes."""
         for field in self:
             if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):

@@ -843,6 +843,9 @@ fields:
     label above field: True
     code: |
       person_candidate_choices
+    default:
+      code: |
+        person_candidate_choices
 ---
 code: |
   if len(people_variables.true_values()):

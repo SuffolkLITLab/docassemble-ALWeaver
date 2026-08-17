@@ -147,7 +147,7 @@ def matching_reserved_names(
     for word in field_names:
         match = word_part.match(word)
         if match:
-            matches.add(match[0])
+            matches.add(match.group(1))
     if keywords_and_builtins_only:
         return matches.intersection(just_keywords_and_builtins)
     return matches.intersection(all_reserved_names)
