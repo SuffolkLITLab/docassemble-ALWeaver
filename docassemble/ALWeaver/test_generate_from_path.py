@@ -490,7 +490,9 @@ question: |
                 self.assertEqual(undeclared, set(), f"undeclared in {source}")
 
         # The sanitary-code PDF is the concrete case that used to slip through:
-        # `my_user` and `some_identifier_mail` were gathered but never declared.
+        # `my_user` was gathered but never declared. `some_identifier_mail` is
+        # the opposite case -- a name ending in `mail` is not a person, so it
+        # stays a plain field and no object is invented for it.
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_interview_from_path(
                 str(
@@ -503,7 +505,11 @@ question: |
             )
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
         self.assertIn("  - my_user: ALPeopleList", yaml_text)
-        self.assertIn("  - some_identifier_mail: ALPeopleList", yaml_text)
+        self.assertNotIn("some_identifier_mail:", yaml_text)
+        self.assertIn(
+            '"some_identifier_mail_address_address": ${ some_identifier_mail_address_address }',
+            yaml_text,
+        )
         # `inspector_name` is a plain text field, so there is no `inspector` list.
         self.assertNotIn("  - inspector:", yaml_text)
 
@@ -572,4 +578,282 @@ class TestGuardIndexedReference(unittest.TestCase):
         self.assertEqual(
             _guard_indexed_reference("previous_names[1].first", self.KNOWN_LISTS),
             "previous_names[1].first",
+        )
+
+
+class TestAutoDraftPersonDetection(unittest.TestCase):
+    """The paths with no author to correct them: API, editor, plain Python.
+
+    All three reach `DAInterview.auto_assign_attributes`, so they get the same
+    person guessing as the interactive flow -- but none of them show the
+    confirmation screen, so a bad guess ships. These pin the guessing that
+    happens with nobody watching.
+    """
+
+    @staticmethod
+    def _offline_cluster(fields, tools_token=None):
+        unique = list(dict.fromkeys(fields or []))
+        return {
+            f"Screen {index // 4 + 1}": unique[index : index + 4]
+            for index in range(0, len(unique), 4)
+        }
+
+    def _generate(self, field_names, **options):
+        """Build a one-page PDF with these field names and draft an interview."""
+        import pikepdf
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "auto_draft.pdf")
+            pdf = pikepdf.Pdf.new()
+            page = pdf.add_blank_page(page_size=(612, 792))
+            fields = []
+            top = 730
+            for field_name in field_names:
+                fields.append(
+                    pdf.make_indirect(
+                        pikepdf.Dictionary(
+                            FT=pikepdf.Name("/Tx"),
+                            T=pikepdf.String(field_name),
+                            Ff=0,
+                            Type=pikepdf.Name("/Annot"),
+                            Subtype=pikepdf.Name("/Widget"),
+                            Rect=pikepdf.Array([50, top, 300, top + 16]),
+                            F=4,
+                            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                        )
+                    )
+                )
+                top -= 22
+            page.Annots = pikepdf.Array(fields)
+            pdf.Root.AcroForm = pdf.make_indirect(
+                pikepdf.Dictionary(
+                    Fields=pikepdf.Array(fields),
+                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                    NeedAppearances=True,
+                )
+            )
+            pdf.save(pdf_path)
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=self._offline_cluster,
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    **options,
+                )
+            return result, Path(result.yaml_path).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _people(yaml_text):
+        return set(re.findall(r"(?m)^  - (\w+): ALPeopleList", yaml_text))
+
+    def test_a_real_person_still_becomes_an_object(self):
+        _result, yaml_text = self._generate(
+            ["users1_name_first", "patient1_name_first", "patient1_phone_number"]
+        )
+        self.assertIn("patient", self._people(yaml_text))
+
+    def test_things_that_are_not_people_do_not(self):
+        _result, yaml_text = self._generate(
+            [
+                "users1_name_first",
+                "case_name",
+                "hearing_by_phone",
+                "users1_notary_signature",
+                "is_attorney_submission_method_email",
+                "real_properties1_address_on_one_line",
+            ]
+        )
+        people = self._people(yaml_text)
+        for name in (
+            "case",
+            "hearing_by",
+            "users1_notary",
+            "is_attorney_submission_method",
+            "real_properties",
+        ):
+            with self.subTest(name=name):
+                self.assertNotIn(name, people)
+
+    def test_a_custom_person_object_is_configured_not_just_declared(self):
+        """A bare `patient: ALPeopleList` makes the interview ask from scratch."""
+        _result, yaml_text = self._generate(
+            [
+                "users1_name_first",
+                "patient1_name_first",
+                "patient1_phone_number",
+                "patient2_name_first",
+            ]
+        )
+        self.assertIn(
+            "  - patient: ALPeopleList.using(there_are_any=True)",
+            yaml_text,
+            "the form has room for two patients, so the list should say so",
+        )
+        _result, yaml_text = self._generate(
+            ["users1_name_first", "patient1_name_first", "patient1_phone_number"]
+        )
+        self.assertIn(
+            "  - patient: ALPeopleList.using(ask_number=True,target_number=1)",
+            yaml_text,
+        )
+
+    def test_a_recognised_person_is_gathered_and_filled_in(self):
+        _result, yaml_text = self._generate(
+            ["users1_name_first", "patient1_name_first", "patient1_phone_number"]
+        )
+        self.assertIn("  patient.gather()", yaml_text)
+        self.assertIn('- "patient1_name_first": ${ patient[0].name.first }', yaml_text)
+        self.assertIn("table: patient.table", yaml_text)
+
+    def test_every_object_referenced_is_declared(self):
+        """The guess has to leave a runnable interview behind."""
+        _result, yaml_text = self._generate(
+            ["users1_name_first", "patient1_name_first", "patient1_phone_number"]
+        )
+        declared = set(re.findall(r"(?m)^  - (\w+):", yaml_text))
+        order = yaml_text.split("id: interview_order_", 1)[1].split("\n---\n", 1)[0]
+        referenced = set(
+            re.findall(r"(?m)^  (\w+)(?:\.gather\(\)|\[\d+\]|\.\w)", order)
+        )
+        # AssemblyLine supplies these itself
+        al_provided = {"users", "courts", "nav"}
+        self.assertEqual(referenced - declared - al_provided, set())
+
+
+class TestRestApiAutoDraft(unittest.TestCase):
+    """The REST API and the editor both go through `generate_interview_from_bytes`."""
+
+    def _generate(self, field_names, **options):
+        import pikepdf
+        from .api_utils import generate_interview_from_bytes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "api.pdf")
+            pdf = pikepdf.Pdf.new()
+            page = pdf.add_blank_page(page_size=(612, 792))
+            fields = []
+            top = 730
+            for field_name in field_names:
+                fields.append(
+                    pdf.make_indirect(
+                        pikepdf.Dictionary(
+                            FT=pikepdf.Name("/Tx"),
+                            T=pikepdf.String(field_name),
+                            Ff=0,
+                            Type=pikepdf.Name("/Annot"),
+                            Subtype=pikepdf.Name("/Widget"),
+                            Rect=pikepdf.Array([50, top, 300, top + 16]),
+                            F=4,
+                            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                        )
+                    )
+                )
+                top -= 22
+            page.Annots = pikepdf.Array(fields)
+            pdf.Root.AcroForm = pdf.make_indirect(
+                pikepdf.Dictionary(
+                    Fields=pikepdf.Array(fields),
+                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                    NeedAppearances=True,
+                )
+            )
+            pdf.save(pdf_path)
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=TestAutoDraftPersonDetection._offline_cluster,
+            ):
+                return generate_interview_from_bytes(
+                    filename="api.pdf",
+                    content_bytes=Path(pdf_path).read_bytes(),
+                    mimetype="application/pdf",
+                    generation_options={
+                        "create_package_zip": False,
+                        "include_next_steps": False,
+                        **options,
+                    },
+                )
+
+    def test_person_detection_matches_the_module(self):
+        payload = self._generate(
+            [
+                "users1_name_first",
+                "patient1_name_first",
+                "patient1_phone_number",
+                "case_name",
+                "hearing_by_phone",
+            ]
+        )
+        people = set(re.findall(r"(?m)^  - (\w+): ALPeopleList", payload["yaml_text"]))
+        self.assertIn("patient", people)
+        self.assertNotIn("case", people)
+        self.assertNotIn("hearing_by", people)
+
+
+class TestPersonObjectParity(unittest.TestCase):
+    """The two ways an objects block gets built should agree.
+
+    The interactive flow hands `generate_interview_artifacts` a list it built
+    from the author's answers; the automatic paths let the Weaver guess with
+    `_guess_objects_list`. Both go through `_normalize_objects`, so a person
+    the author confirmed without saying how many should end up configured the
+    same way as one the Weaver recognised on its own.
+    """
+
+    @staticmethod
+    def _interview(field_names):
+        from .interview_generator import DAFieldGroup, DAInterview, is_reserved_label
+
+        interview = DAInterview()
+        for field_name in field_names:
+            field = interview.all_fields.appendObject()
+            field.source_document_type = "pdf"
+            field.group = (
+                DAFieldGroup.BUILT_IN
+                if is_reserved_label(field_name)
+                else DAFieldGroup.CUSTOM
+            )
+            field.fill_in_pdf_attributes(
+                (field_name, "", 0, [0, 0, 100, 20], "/Tx"), {}
+            )
+        interview.all_fields.gathered = True
+        interview.all_fields.auto_label_fields()
+        interview.all_fields.auto_mark_people_as_builtins()
+        return interview
+
+    def test_a_confirmed_person_is_configured_like_a_guessed_one(self):
+        from .interview_generator import _normalize_objects, _PersonObjectSpec
+
+        interview = self._interview(
+            [
+                "users1_name_first",
+                "patient1_name_first",
+                "patient1_phone_number",
+                "patient2_name_first",
+            ]
+        )
+        # What the interactive flow passes when the author skipped the count
+        confirmed = _normalize_objects(
+            [
+                _PersonObjectSpec(name="users", params={}),
+                _PersonObjectSpec(name="patient", params={}),
+            ],
+            interview=interview,
+        )
+        guessed = interview._guess_objects_list()
+        self.assertEqual(
+            {spec.name: spec.params for spec in confirmed},
+            {spec.name: spec.params for spec in guessed},
+        )
+        self.assertEqual(
+            {spec.name: spec.params for spec in guessed},
+            {
+                "users": {"ask_number": True, "target_number": 1},
+                "patient": {"there_are_any": True},
+            },
         )
