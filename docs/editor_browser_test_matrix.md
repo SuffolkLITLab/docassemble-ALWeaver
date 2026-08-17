@@ -38,6 +38,7 @@ file-management cases are deleted by the test.
 | Reorder | Move a block to the bottom | Bodies move; comments, separators, empty docs, and counts remain | Pass |
 | Insert | Insert a question after an existing question | New document is added without changing any pre-existing byte | Pass |
 | Order builder | Open an existing mandatory order block | Existing screen references parse into the builder | Pass |
+| Screen preview | Open Preview on a question using `users[0].name_fields()` | Modal iframe loads Docassemble's `bundle.css` and labelauty; AL prompts appear as real inputs; interview source is unchanged | Not yet executed |
 | Assistant | Open assistant panel | Panel opens without changing interview source | Pass |
 | Project search | Preview and apply a selected replacement | Only selected exact span changes | Pass |
 | Download | Download current interview | Downloaded bytes equal `raw_yaml` | Pass |

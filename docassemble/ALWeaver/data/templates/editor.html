@@ -355,6 +355,52 @@
   </div>
 </div>
 
+<!-- Screen Preview Modal -->
+<div class="modal fade" id="screen-preview-modal" tabindex="-1" aria-labelledby="screen-preview-title">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny">Screen preview</div>
+          <h5 class="modal-title mt-1" id="screen-preview-title">Question</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close this preview"></button>
+      </div>
+      <div class="editor-screen-preview-tools">
+        <label class="editor-tiny" for="screen-preview-layout">Labels</label>
+        <select class="form-select form-select-sm editor-screen-preview-select" id="screen-preview-layout" title="Where field labels sit — Docassemble's default is to the left">
+          <option value="horizontal">Left of the field</option>
+          <option value="above">Above the field</option>
+          <option value="floating">Floating</option>
+        </select>
+        <label class="editor-tiny" for="screen-preview-back-label">Back button</label>
+        <select class="form-select form-select-sm editor-screen-preview-select" id="screen-preview-back-label" title="What the back button is called — AssemblyLine calls it Undo">
+          <option value="Undo">Undo</option>
+          <option value="Back">Back</option>
+        </select>
+        <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Preview width">
+          <button type="button" class="btn btn-outline-secondary active" data-preview-width="desktop" aria-pressed="true"><i class="fa-solid fa-desktop" aria-hidden="true"></i><span class="visually-hidden">Desktop width</span></button>
+          <button type="button" class="btn btn-outline-secondary" data-preview-width="tablet" aria-pressed="false"><i class="fa-solid fa-tablet-screen-button" aria-hidden="true"></i><span class="visually-hidden">Tablet width</span></button>
+          <button type="button" class="btn btn-outline-secondary" data-preview-width="phone" aria-pressed="false"><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i><span class="visually-hidden">Phone width</span></button>
+        </div>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="screen-preview-dark">
+          <label class="form-check-label editor-tiny" for="screen-preview-dark">Dark</label>
+        </div>
+      </div>
+      <div class="modal-body editor-screen-preview-body">
+        <div class="editor-screen-preview-stage" id="screen-preview-stage">
+          <iframe class="editor-screen-preview-frame" id="screen-preview-frame" title="Screen preview" sandbox="allow-same-origin allow-scripts"></iframe>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <span class="editor-tiny text-muted">Rendered with Docassemble's own stylesheets. Mako expressions and conditional logic are shown, not evaluated.</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Run the interview</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Order Step Preview Modal -->
 <div class="modal fade" id="order-preview-modal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -497,6 +543,7 @@
 <script src="/al/editor/static/editor_api_client.js"></script>
 <script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor_validation_source.js"></script>
+<script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>
 <script src="/al/editor/static/editor_agent_chat.js"></script>
 <script src="/al/editor/static/editor.js"></script>
