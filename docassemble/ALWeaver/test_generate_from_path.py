@@ -17,6 +17,7 @@ from .interview_generator import (
     _rewrite_next_steps_xml,
     _ensure_unique_question_ids,
     _with_progress_markers,
+    _guard_indexed_reference,
 )
 
 
@@ -161,8 +162,9 @@ question: |
             self.assertIn("docket_number", yaml_text)
             # This specific DOCX template includes a reference to users[1].email.
             # Ensure it shows up in the interview order so the generated interview
-            # actually collects it.
-            self.assertIn("users[1].email", yaml_text)
+            # actually collects it, guarded so a lone user isn't forced to add a
+            # second one just to get past the order block.
+            self.assertIn("if users.number() > 1:\n    users[1].email", yaml_text)
             # Deterministic generation guards.
             self.assertIn("id: edit users", yaml_text)
             self.assertIn("docassemble.MassAccess:massaccess.yml", yaml_text)
@@ -545,3 +547,29 @@ question: |
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGuardIndexedReference(unittest.TestCase):
+    KNOWN_LISTS = {"users", "other_parties"}
+
+    def test_second_item_gets_a_guard(self):
+        self.assertEqual(
+            _guard_indexed_reference("users[1].email", self.KNOWN_LISTS),
+            "if users.number() > 1:\n  users[1].email",
+        )
+        self.assertEqual(
+            _guard_indexed_reference("users[2].address.address", self.KNOWN_LISTS),
+            "if users.number() > 2:\n  users[2].address.address",
+        )
+
+    def test_first_item_is_left_alone(self):
+        for line in ("users[0].email", "users.gather()", "docket_number"):
+            with self.subTest(line=line):
+                self.assertEqual(_guard_indexed_reference(line, self.KNOWN_LISTS), line)
+
+    def test_unknown_lists_are_left_alone(self):
+        """We can only call `.number()` on something we know is a list."""
+        self.assertEqual(
+            _guard_indexed_reference("previous_names[1].first", self.KNOWN_LISTS),
+            "previous_names[1].first",
+        )
