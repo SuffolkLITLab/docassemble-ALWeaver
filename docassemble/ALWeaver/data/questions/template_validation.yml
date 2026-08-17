@@ -340,19 +340,21 @@ subquestion: |
   Name (bold if {reserved}) | Type |  Max length
   --------------------------|------|--------------
   % for field in interview.all_fields:
-  ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
+  ${":exclamation-triangle: " if ' ' in field.variable else ''} ${":exclamation-circle: " if len(remove_multiple_appearance_indicator(varname(field.variable))) == 0 else ''} ${":skull-crossbones: " if getattr(field, "field_type_not_handled", False) else ''} ${'**' + str(field.variable) + '**' if is_reserved_label(field.variable) or field.variable in possible_custom else field.variable} ${ ':question:' if field.variable in possible_custom else ''} | ${ field.field_type_guess } | ${ field.maxlength if hasattr(field, "maxlength") else 'n/a' }
   % endfor
-  
+
   % if 'space' in warnings:
   :exclamation-triangle: Indicates that the field name has a space in it.
   Replace any spaces with underscores in the PDF field name before continuing.
   % endif
-  
+
   % if 'not handled' in warnings:
-  :skull-crossbones: Indicates it's a field type that our interview generator
-  does not currently handle. 
-  If you can, make the field into a checkbox, text input, 
-  or digital signature field.
+  :skull-crossbones: Indicates a field type that our interview generator
+  does not handle:
+
+  % for reason in get_unhandled_field_type_warnings(interview.all_fields):
+  * ${ reason }
+  % endfor
   % endif
   
   % if len(possible_custom) > 0:

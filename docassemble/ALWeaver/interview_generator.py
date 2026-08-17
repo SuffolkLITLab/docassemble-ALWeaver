@@ -159,6 +159,7 @@ __all__ = [
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
+    "get_unhandled_field_type_warnings",
     "indent_by",
     "is_reserved_docx_label",
     "is_reserved_label",
@@ -742,8 +743,37 @@ class DAField(DAObject):
         else:
             self.field_type_guess = "text"
 
-        if pdf_field_tuple[4] not in ["/Sig", "/Btn", "/Tx"]:
-            self.field_type_unhandled = True
+        # `/Ch` is a drop-down or list box. Docassemble can't fill one reliably,
+        # so it needs to be called out rather than silently treated as text.
+        self.pdf_field_type = str(pdf_field_tuple[4])
+        if self.pdf_field_type not in ["/Sig", "/Btn", "/Tx"]:
+            self.field_type_not_handled = True
+
+    def mark_type_not_handled(self) -> None:
+        """Flag a field whose PDF type Docassemble can't fill.
+
+        Some PDFs declare a field's type on a parent field rather than on the
+        widget, so the field arrives here looking like plain text. Reading the
+        real type back out of the PDF catches those.
+        """
+        self.field_type_not_handled = True
+
+    def unhandled_type_reason(self) -> Optional[str]:
+        """A short explanation of why this field's PDF type won't work, if it won't."""
+        if not getattr(self, "field_type_not_handled", False):
+            return None
+        if getattr(self, "pdf_field_type", "") == "/Ch":
+            return (
+                f"`{ self.variable }` is a drop-down or list box. Docassemble cannot "
+                "fill those reliably, so it will be treated as a plain text field. "
+                "Change it to a text field, a checkbox, or a group of radio buttons."
+            )
+        return (
+            f"`{ self.variable }` uses a PDF field type "
+            f"(`{ getattr(self, 'pdf_field_type', 'unknown') }`) that the interview "
+            "generator does not handle. Change it to a text field, a checkbox, or a "
+            "digital signature field."
+        )
 
     def is_option_group(self) -> bool:
         """True if several `parent+option` PDF fields collapsed into this one."""
@@ -1481,6 +1511,16 @@ class DAFieldList(DAList):
                 new_field.fill_in_pdf_attributes(
                     pdf_field_tuple, self.custom_people_plurals
                 )
+                # Some PDFs declare the field type on a parent field, so a
+                # drop-down can reach us looking like plain text. pikepdf sees
+                # the type the PDF actually recorded.
+                if (
+                    pdf_field_name in pike_fields
+                    and hasattr(pike_fields[pdf_field_name], "FT")
+                    and str(pike_fields[pdf_field_name].FT) == "/Ch"
+                ):
+                    new_field.pdf_field_type = "/Ch"
+                    new_field.mark_type_not_handled()
                 if new_field.group == DAFieldGroup.BUILT_IN:
                     new_field.label = new_field.variable_name_guess
         else:
@@ -4326,7 +4366,8 @@ def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
 
 def pdf_field_type_str(field) -> str:
     """Gets a human readable string from a PDF field code, like '/Btn'"""
-    if not isinstance(field, tuple) or len(field) < 4 or not isinstance(field[4], str):
+    # The type lives at index 4, so a shorter tuple has nothing to report
+    if not isinstance(field, tuple) or len(field) < 5 or not isinstance(field[4], str):
         return ""
     else:
         if field[4] == "/Sig":
@@ -4335,6 +4376,8 @@ def pdf_field_type_str(field) -> str:
             return "Checkbox"
         elif field[4] == "/Tx":
             return "Text"
+        elif field[4] == "/Ch":
+            return "Drop-down or list box :skull-crossbones:"
         else:
             return ":skull-crossbones:"
 
@@ -4465,6 +4508,26 @@ def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     return [
         reason
         for reason in (bad_name_reason(field) for field in fields)
+        if reason is not None
+    ]
+
+
+def get_unhandled_field_type_warnings(fields: Iterable[DAField]) -> List[str]:
+    """Explain any fields whose PDF input type Docassemble can't fill.
+
+    Drop-downs and list boxes are the common case: they look like ordinary text
+    fields once the interview runs, so without a warning the author only finds
+    out when the finished PDF comes back blank.
+
+    Args:
+        fields (Iterable[DAField]): the fields read from the uploaded templates.
+
+    Returns:
+        List[str]: one sentence per problem field.
+    """
+    return [
+        reason
+        for reason in (field.unhandled_type_reason() for field in fields)
         if reason is not None
     ]
 
