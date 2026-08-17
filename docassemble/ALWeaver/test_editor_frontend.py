@@ -12,6 +12,7 @@ NODE_TESTS = (
     "test_editor_serializers.js",
     "test_editor_validation_source.js",
     "test_editor_agent_chat.js",
+    "test_editor_screen_preview.js",
 )
 
 
@@ -164,11 +165,14 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("'num_oranges'", editor)
         self.assertIn("al_individual_primitives", editor)
         self.assertIn("_syncGeneratedALFieldSets", editor)
-        self.assertIn("_alFieldMethodPreviewFields", editor)
-        self.assertIn("_renderALFieldMethodPreview", editor)
         self.assertIn("_renderQuestionFieldHelp(questionHelpTypes)", editor)
         self.assertIn("AssemblyLine.al_general.ALIndividual.name_fields", editor)
         self.assertIn("AssemblyLine.al_general.ALIndividual.address_fields", editor)
+        # The prompts these methods generate live in the screen-preview module,
+        # which reproduces the real AssemblyLine field lists.
+        screen_preview = (
+            self.package_dir / "data/static/editor_screen_preview.js"
+        ).read_text()
         for expected_label in (
             "First name",
             "Middle name",
@@ -180,9 +184,81 @@ class TestEditorFrontend(unittest.TestCase):
             "Choose one or more pronouns",
             "Language",
         ):
-            self.assertIn(expected_label, editor)
-        self.assertIn(".editor-al-field-preview", css)
+            self.assertIn(expected_label, screen_preview)
         self.assertIn(".editor-question-context-help", css)
+
+    def test_screen_preview_opens_a_modal_styled_by_docassemble(self):
+        """The preview must look like the running interview, not like the
+        editor. It renders in an iframe so Docassemble's own stylesheets and
+        the labelauty plugin can be loaded whole, with nothing leaking into the
+        editor chrome either way."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        screen_preview = (
+            self.package_dir / "data/static/editor_screen_preview.js"
+        ).read_text()
+
+        self.assertIn('id="screen-preview-modal"', template)
+        self.assertIn('id="screen-preview-frame"', template)
+        self.assertIn('data-preview-width="phone"', template)
+        self.assertIn("editor_screen_preview.js", template)
+        self.assertIn('data-action="open-screen-preview"', editor)
+        self.assertIn("function openScreenPreview()", editor)
+        self.assertIn(".editor-screen-preview-frame", css)
+
+        # Docassemble serves these at the same URLs on 1.9.x and 1.10.x.
+        self.assertIn("/static/app/bundle.css", screen_preview)
+        self.assertIn(
+            "/static/labelauty/source/jquery-labelauty.min.js", screen_preview
+        )
+        self.assertIn("da-to-labelauty", screen_preview)
+        self.assertIn("da-page-header", screen_preview)
+        self.assertIn("dafieldpart", screen_preview)
+
+        # Layout and back-button labelling are pickable, and the picker starts
+        # from what the interview itself declares.
+        self.assertIn('id="screen-preview-layout"', template)
+        self.assertIn('id="screen-preview-back-label"', template)
+        self.assertIn("labelLayoutFromFeatures(features)", editor)
+        self.assertIn("default screen parts", editor)
+        self.assertIn("DEFAULT_BACK_BUTTON_LABEL", editor)
+
+        # Expressions that become real screen furniture are drawn, not printed
+        # as ${ code }, and use the interview's own documents and templates.
+        self.assertIn("buildInterviewContext(state.blocks)", editor)
+        self.assertIn("/packagestatic/docassemble.AssemblyLine/aldocument.css", editor)
+        self.assertIn(
+            "/packagestatic/docassemble.ALToolbox/collapse_template.css", editor
+        )
+        for widget in (
+            "as_pdf",
+            "download_list_html",
+            "send_button_html",
+            "collapse_template",
+            "action_button_html",
+        ):
+            self.assertIn(widget, screen_preview)
+        # Docassemble's :icon: markup, per filter.get_icon_html.
+        self.assertIn("applyIconMarkup", screen_preview)
+        self.assertIn("fa-brands", screen_preview)
+        self.assertIn("da-paper-stack", screen_preview)
+        self.assertIn("al_doc_table", screen_preview)
+
+        # review: and table: blocks get the same preview, so the button is on
+        # those editors too and renderScreen picks the right renderer.
+        self.assertIn("PREVIEWABLE_BLOCK_TYPES", editor)
+        self.assertIn("function renderScreen(data, options)", screen_preview)
+        self.assertIn("daformreview", screen_preview)
+        self.assertIn("da-review-action", screen_preview)
+        self.assertIn("da-review-tabular", screen_preview)
+        self.assertIn("table-responsive", screen_preview)
+        self.assertIn("al_collapse_template", screen_preview)
+        self.assertIn("al_send_bundle", screen_preview)
+
+        # The in-place markdown preview it replaced is fully gone.
+        self.assertNotIn("markdownPreviewMode", editor)
+        self.assertNotIn("md-preview-wrapper", css)
 
     def test_the_assistant_is_absent_until_its_feature_flag_is_on(self):
         """The assistant drawer ships in the template but must not be reachable

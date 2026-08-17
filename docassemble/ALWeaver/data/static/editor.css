@@ -924,8 +924,15 @@ html, body {
   z-index: 1;
 }
 
+.editor-question-tabs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
 .editor-question-mandatory-switch {
-  margin: 0 0 6px;
+  margin: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2282,162 +2289,6 @@ html, body {
   color: rgba(255, 255, 255, 0.7);
 }
 
-/* ===== Markdown preview ===== */
-
-.md-preview-wrapper {
-  background: #f9fafb;
-  border: 1px solid var(--editor-border);
-  border-radius: var(--editor-radius-sm);
-  padding: 8px 12px;
-  min-height: 24px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--editor-fg);
-  overflow-y: auto;
-}
-
-.md-preview-label {
-  padding: 4px 10px;
-  min-height: unset;
-}
-
-.md-preview-wrapper .md-p {
-  margin: 2px 0;
-}
-
-.md-preview-wrapper .md-h {
-  font-weight: 700;
-  margin: 4px 0 2px;
-}
-
-.md-preview-wrapper h4.md-h { font-size: 14px; }
-.md-preview-wrapper h5.md-h { font-size: 13px; }
-.md-preview-wrapper h6.md-h { font-size: 13px; font-style: italic; }
-
-.md-preview-wrapper ul,
-.md-preview-wrapper ol {
-  padding-left: 20px;
-  margin: 4px 0;
-}
-
-.md-preview-wrapper .md-br {
-  height: 6px;
-}
-
-code.md-mako-expr {
-  background: #fef3c7;
-  color: #92400e;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.md-mako-line {
-  background: #fef3c7;
-  border-left: 3px solid #d97706;
-  padding: 2px 8px;
-  margin: 2px 0;
-  border-radius: 2px;
-}
-
-.md-mako-line code {
-  background: transparent;
-  color: #92400e;
-  font-size: 12px;
-  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-}
-
-/* Field preview row (markdown preview mode) */
-
-.editor-field-row-preview {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(80px, 100px) minmax(0, 1.35fr);
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid #f0f2f5;
-  align-items: start;
-}
-
-.editor-field-row-preview:last-child { border-bottom: none; }
-
-.editor-al-field-preview {
-  margin: 8px 0 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--editor-border);
-  border-radius: var(--editor-radius-sm);
-  background: #fff;
-}
-
-.editor-al-preview-control {
-  margin-bottom: 12px;
-}
-
-.editor-al-preview-control:last-of-type {
-  margin-bottom: 8px;
-}
-
-.editor-al-preview-label {
-  margin-bottom: 4px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.editor-al-preview-condition {
-  display: inline-block;
-  margin-left: 5px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: #eef2f6;
-  color: var(--editor-muted);
-  font-size: 10px;
-  font-weight: 500;
-  vertical-align: 1px;
-}
-
-.editor-al-preview-conditional {
-  padding-left: 10px;
-  border-left: 2px solid #d8dee6;
-}
-
-.editor-al-preview-input:disabled,
-.editor-al-preview-choice .form-check-input:disabled {
-  opacity: 1;
-  background-color: #fff;
-}
-
-.editor-al-preview-choice .form-check-input:disabled ~ .form-check-label {
-  opacity: 1;
-  color: var(--editor-fg);
-}
-
-.editor-al-preview-choices {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 3px 14px;
-}
-
-.editor-al-preview-choice {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.editor-al-preview-source {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 8px;
-  border-top: 1px solid #eef1f4;
-  color: var(--editor-muted);
-  font-size: 11px;
-}
-
-.editor-al-preview-source code {
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-
 .editor-question-context-help {
   display: flex;
   flex-wrap: wrap;
@@ -3539,4 +3390,64 @@ code.md-mako-expr {
   font-size: 0.8rem;
   color: var(--editor-muted);
   margin: 0 0 6px;
+}
+
+/* ===== Screen preview modal =====
+   The preview renders inside an iframe so Docassemble's own stylesheets can be
+   loaded whole, without any of their rules leaking into the editor chrome. */
+
+.editor-screen-preview-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--editor-border);
+  background: var(--editor-bg);
+}
+
+/* Bootstrap's .btn-close is a bare glyph; give it a hit area and a hover state
+   so it reads as the button it is. */
+#screen-preview-modal .modal-header .btn-close {
+  padding: 0.6rem;
+  border-radius: var(--editor-radius);
+}
+
+#screen-preview-modal .modal-header .btn-close:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.editor-screen-preview-body {
+  padding: 0;
+  background: var(--editor-bg);
+}
+
+.editor-screen-preview-stage {
+  display: flex;
+  justify-content: center;
+  height: min(72vh, 900px);
+  padding: 12px;
+  overflow: auto;
+}
+
+.editor-screen-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius);
+  background: #fff;
+  transition: max-width 0.15s ease;
+}
+
+.editor-screen-preview-stage[data-preview-width="tablet"] .editor-screen-preview-frame {
+  max-width: 820px;
+}
+
+.editor-screen-preview-stage[data-preview-width="phone"] .editor-screen-preview-frame {
+  max-width: 420px;
+}
+
+.editor-screen-preview-select {
+  width: auto;
+  min-width: 9rem;
 }

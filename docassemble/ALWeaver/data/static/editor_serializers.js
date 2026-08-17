@@ -130,7 +130,7 @@
         if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
         Object.keys(sfmods).forEach(function (key) { yaml += '    ' + key + ': ' + escapeYamlStr(sfmods[key]) + '\n'; });
       }
-    } else if ((state.markdownPreviewMode || state.questionBlockTab !== 'screen') && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
+    } else if (state.questionBlockTab !== 'screen' && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
       yaml += 'fields:\n';
       block.data.fields.forEach(function (field) {
         yaml += serializeQuestionFieldFromData(field);

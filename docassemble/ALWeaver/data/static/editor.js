@@ -78,7 +78,6 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
-    markdownPreviewMode: false,
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
@@ -438,93 +437,6 @@
     el.addEventListener('input', function () { _autoResize(el); });
   }
 
-  // -------------------------------------------------------------------------
-  // Lightweight Markdown renderer (supports Mako syntax display)
-  // -------------------------------------------------------------------------
-  function renderMarkdown(text) {
-    if (!text) return '<span class="text-muted fst-italic">(empty)</span>';
-    var lines = String(text).split('\n');
-    var html = '';
-    var inList = false;
-    var listTag = '';
-
-    function escH(s) {
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function closeList() {
-      if (inList) { html += '</' + listTag + '>'; inList = false; listTag = ''; }
-    }
-
-    function processInline(s) {
-      // Mako ${...} expressions — highlight, don't evaluate
-      s = s.replace(/\$\{([^}]*)\}/g, function (_, expr) {
-        return '<code class="md-mako-expr">${' + expr + '}</code>';
-      });
-      // Bold+italic ***t***
-      s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-      // Bold **t**
-      s = s.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
-      // Italic *t*
-      s = s.replace(/\*([\s\S]+?)\*/g, '<em>$1</em>');
-      // Inline code `t`
-      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // Links [label](url)
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      return s;
-    }
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-
-      // Mako % control lines
-      if (/^\s*%/.test(line)) {
-        closeList();
-        html += '<div class="md-mako-line"><code>' + escH(line) + '</code></div>';
-        continue;
-      }
-
-      // ATX header
-      var hm = line.match(/^(#{1,6})\s+(.*)$/);
-      if (hm) {
-        closeList();
-        var hl = Math.min(hm[1].length + 3, 6); // h4-h6 visually
-        html += '<h' + hl + ' class="md-h">' + processInline(escH(hm[2])) + '</h' + hl + '>';
-        continue;
-      }
-
-      // Unordered list  - / * / +
-      var ulm = line.match(/^[-*+]\s+(.+)$/);
-      if (ulm) {
-        if (!inList || listTag !== 'ul') { closeList(); html += '<ul>'; inList = true; listTag = 'ul'; }
-        html += '<li>' + processInline(escH(ulm[1])) + '</li>';
-        continue;
-      }
-
-      // Ordered list
-      var olm = line.match(/^\d+\.\s+(.+)$/);
-      if (olm) {
-        if (!inList || listTag !== 'ol') { closeList(); html += '<ol>'; inList = true; listTag = 'ol'; }
-        html += '<li>' + processInline(escH(olm[1])) + '</li>';
-        continue;
-      }
-
-      // Empty line
-      if (line.trim() === '') {
-        closeList();
-        html += '<div class="md-br"></div>';
-        continue;
-      }
-
-      // Normal paragraph line
-      closeList();
-      html += '<p class="md-p">' + processInline(escH(line)) + '</p>';
-    }
-
-    closeList();
-    return html;
-  }
-
   function captureInterviewModel() {
     return cloneData({
       blocks: state.blocks,
@@ -597,7 +509,6 @@
     state.canvasMode = 'question';
     state.questionEditMode = 'preview';
     state.advancedOpen = false;
-    state.markdownPreviewMode = false;
     state.fullYamlStash = {};
     var savedModel = captureInterviewModel();
     if (options.savedBlockId) {
@@ -940,167 +851,6 @@
       if (keyword) values[keyword.name] = keyword.value;
     });
     return values;
-  }
-
-  function _previewBooleanArgument(values, name, defaultValue) {
-    if (!Object.prototype.hasOwnProperty.call(values, name)) return defaultValue;
-    if (values[name] === 'True') return true;
-    if (values[name] === 'False') return false;
-    return null;
-  }
-
-  function _previewField(label, kind, options) {
-    var settings = options || {};
-    return {
-      label: label,
-      kind: kind || 'text',
-      choices: settings.choices || [],
-      optional: Boolean(settings.optional),
-      conditional: Boolean(settings.conditional),
-      hint: settings.hint || ''
-    };
-  }
-
-  function _alFieldMethodPreviewFields(methodName, args, receiver) {
-    var values = _keywordArgumentValues(args);
-    var fields = [];
-    var enabled;
-
-    if (methodName === 'name_fields') {
-      var personType = Object.prototype.hasOwnProperty.call(values, 'person_or_business')
-        ? _pythonStringLiteralValue(values.person_or_business)
-        : 'person';
-      if (personType === 'business') {
-        return [_previewField('Name of business or organization', 'text')];
-      }
-      if (personType !== 'person') {
-        fields.push(_previewField('Is this a person, or a business?', 'radio', {
-          choices: ['Person', 'Business or organization']
-        }));
-      }
-      if (personType === 'person') {
-        enabled = _previewBooleanArgument(values, 'show_title', false);
-        if (enabled !== false) fields.push(_previewField('Title', 'select', {
-          optional: true,
-          conditional: enabled === null,
-          choices: ['Mr.', 'Ms.', 'Mx.', 'Dr.']
-        }));
-      }
-      fields.push(_previewField('First name', 'text', { conditional: personType !== 'person' }));
-      fields.push(_previewField('Middle name', 'text', { optional: true, conditional: personType !== 'person' }));
-      fields.push(_previewField('Last name', 'text', { conditional: personType !== 'person' }));
-      enabled = _previewBooleanArgument(values, 'show_suffix', true);
-      if (enabled !== false) fields.push(_previewField('Suffix', 'select', {
-        optional: true,
-        conditional: personType !== 'person' || enabled === null,
-        choices: ['Jr', 'Sr', 'II', 'III']
-      }));
-      if (personType !== 'person') {
-        fields.push(_previewField('Name of business or organization', 'text', { conditional: true }));
-      }
-      return fields;
-    }
-
-    if (methodName === 'address_fields') {
-      var allowNoAddress = _previewBooleanArgument(values, 'allow_no_address', false);
-      if (allowNoAddress !== false) {
-        fields.push(_previewField('I do not have an address', 'yesno', { conditional: allowNoAddress === null }));
-        fields.push(_previewField('Anything else you want to add about the living situation?', 'area', {
-          optional: true,
-          conditional: true,
-          hint: 'Shown when no address is selected'
-        }));
-      }
-      fields.push(_previewField('Street address', 'text'));
-      fields.push(_previewField('Apartment', 'text', { optional: true }));
-      fields.push(_previewField('City', 'text'));
-      var showCountry = _previewBooleanArgument(values, 'show_country', false);
-      var countryCode = values.country_code ? _pythonStringLiteralValue(values.country_code) : 'US';
-      var isUsAddress = showCountry === false && countryCode === 'US';
-      fields.push(_previewField(isUsAddress ? 'State' : 'State / Province', isUsAddress ? 'select' : 'text'));
-      fields.push(_previewField(isUsAddress ? 'ZIP code' : 'Postal code', 'text', { optional: true }));
-      enabled = _previewBooleanArgument(values, 'show_county', false);
-      if (enabled !== false) fields.push(_previewField('County', 'text', { optional: true, conditional: enabled === null }));
-      if (showCountry !== false) fields.push(_previewField('Country', 'select', {
-        optional: true,
-        conditional: showCountry === null,
-        choices: ['United States', 'Canada', 'Mexico']
-      }));
-      enabled = _previewBooleanArgument(values, 'ask_if_impounded', false);
-      if (enabled !== false) fields.push(_previewField('Is this address impounded?', 'yesno', { conditional: enabled === null }));
-      return fields;
-    }
-
-    if (methodName === 'gender_fields') {
-      var genderChoices = values.choices
-        ? ['Configured choices', 'Prefer to write something else']
-        : ['Female', 'Male', 'Nonbinary', 'Prefer not to say', 'Prefer to write something else', 'Unknown'];
-      return [
-        _previewField('Gender', 'select', { choices: genderChoices }),
-        _previewField('Self-described gender', 'text', { conditional: true })
-      ];
-    }
-
-    if (methodName === 'pronoun_fields') {
-      var pronounChoices = values.choices
-        ? ['Configured choices', 'Something else', 'Prefer not to say']
-        : ['He/him/his', 'She/her/hers', 'They/them/theirs', 'Ze/zir/zirs', 'Something else', 'Prefer not to say'];
-      var showUnknown = values.show_unknown || "'guess'";
-      if (showUnknown === 'True') pronounChoices.push('Unknown');
-      else if (showUnknown !== 'False' && String(receiver || '') !== 'users[0]') pronounChoices.push('Unknown (when applicable)');
-      return [
-        _previewField('Choose one or more pronouns', 'checkboxes', { choices: pronounChoices, optional: true }),
-        _previewField('Self described pronouns', 'text', { conditional: true })
-      ];
-    }
-
-    if (methodName === 'language_fields') {
-      var languageChoices = values.choices
-        ? ['Configured languages', 'Other']
-        : ['English', 'Spanish', 'Other'];
-      var style = values.style ? _pythonStringLiteralValue(values.style) : 'radio';
-      return [
-        _previewField('Language', style === 'radio' ? 'radio' : 'select', { choices: languageChoices }),
-        _previewField('Other', 'text', { conditional: true })
-      ];
-    }
-    return fields;
-  }
-
-  function _renderALFieldMethodPreview(methodName, args, receiver) {
-    var fields = _alFieldMethodPreviewFields(methodName, args, receiver);
-    var html = '<div class="editor-al-field-preview">';
-    fields.forEach(function (field) {
-      var rowClass = 'editor-al-preview-control' + (field.conditional ? ' editor-al-preview-conditional' : '');
-      html += '<div class="' + rowClass + '">';
-      html += '<div class="editor-al-preview-label">' + esc(field.label);
-      if (!field.optional && field.kind !== 'yesno' && field.kind !== 'checkboxes') html += ' <span class="text-danger" aria-hidden="true">*</span>';
-      if (field.optional) html += ' <span class="text-muted">(optional)</span>';
-      if (field.conditional) html += ' <span class="editor-al-preview-condition">Conditional</span>';
-      html += '</div>';
-      if (field.hint) html += '<div class="editor-tiny text-muted mb-1">' + esc(field.hint) + '</div>';
-      if (field.kind === 'area') {
-        html += '<textarea class="form-control editor-al-preview-input" rows="2" disabled aria-hidden="true"></textarea>';
-      } else if (field.kind === 'select') {
-        html += '<select class="form-select editor-al-preview-input" disabled aria-hidden="true"><option></option>';
-        field.choices.forEach(function (choice) { html += '<option>' + esc(choice) + '</option>'; });
-        html += '</select>';
-      } else if (field.kind === 'radio' || field.kind === 'checkboxes' || field.kind === 'yesno') {
-        var choices = field.kind === 'yesno' ? ['Yes', 'No'] : field.choices;
-        html += '<div class="editor-al-preview-choices">';
-        choices.forEach(function (choice) {
-          var inputType = field.kind === 'checkboxes' ? 'checkbox' : 'radio';
-          html += '<label class="form-check editor-al-preview-choice"><input class="form-check-input" type="' + inputType + '" disabled aria-hidden="true"><span class="form-check-label">' + esc(choice) + '</span></label>';
-        });
-        html += '</div>';
-      } else {
-        html += '<input class="form-control editor-al-preview-input" type="text" disabled aria-hidden="true">';
-      }
-      html += '</div>';
-    });
-    html += '<div class="editor-al-preview-source"><span>' + esc(_fieldTypeLabel(methodName)) + '</span><code>' + esc(receiver) + '.' + esc(methodName) + '(...)</code></div>';
-    html += '</div>';
-    return html;
   }
 
   var FIELD_TYPE_DOC_ANCHORS = {
@@ -4354,7 +4104,7 @@
       || _generatedALFieldSets((blk.data && blk.data.fields) || []);
     syncQuestionMetaToData(blk);
     if (rows.length === 0) {
-      if (state.questionBlockTab === 'screen' && !state.markdownPreviewMode) {
+      if (state.questionBlockTab === 'screen') {
         blk.data.fields = [];
       }
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -6006,13 +5756,224 @@
     canvasContent.innerHTML = html;
   }
 
+  // -------------------------------------------------------------------------
+  // Screen preview modal
+  //
+  // The preview lives in an iframe so Docassemble's own stylesheets can be
+  // loaded whole — the same bundle.css, labelauty and Bootstrap theme the
+  // running interview uses — without any of it leaking into the editor chrome.
+  // -------------------------------------------------------------------------
+
+  var _screenPreviewWidth = 'desktop';
+  var _screenPreviewDark = false;
+  // null means "whatever this interview's features: block asks for".
+  var _screenPreviewLabelLayout = null;
+  // null means "whatever this interview's default screen parts declare".
+  var _screenPreviewBackLabel = null;
+
+  /* ``docassemble.SomePackage:data/static/thing.css`` -> /packagestatic URL.
+   * A bare filename refers to the interview's own package, which the editor
+   * cannot address from here, so those are skipped rather than guessed at. */
+  function _packageStaticUrl(reference) {
+    if (typeof reference !== 'string') return null;
+    var parts = reference.split(':');
+    if (parts.length !== 2) return null;
+    var pkg = parts[0].trim();
+    var path = parts[1].trim().replace(/^data\/static\//, '');
+    if (!pkg || !path) return null;
+    return '/packagestatic/' + encodeURIComponent(pkg) + '/' + path;
+  }
+
+  /* What the interview itself says about how its screens should look:
+   * stylesheets, label layout and button labels. Anything the file does not
+   * declare falls back to the AssemblyLine house style this editor builds for. */
+  function _screenPreviewContext() {
+    var assets = {};
+    var extraCss = [];
+    var includesAssemblyLine = false;
+    var declaredLayout = null;
+    var backLabel = null;
+    var continueLabel = null;
+
+    (state.blocks || []).forEach(function (blk) {
+      var d = blk && blk.data;
+      if (!d || typeof d !== 'object') return;
+      if (d.include) {
+        var refs = Array.isArray(d.include) ? d.include : [d.include];
+        refs.forEach(function (ref) {
+          if (typeof ref === 'string' && ref.indexOf('AssemblyLine') !== -1) includesAssemblyLine = true;
+        });
+      }
+      var parts = d['default screen parts'];
+      if (parts && typeof parts === 'object') {
+        if (parts['back button label']) backLabel = String(parts['back button label']).trim();
+        if (parts['continue button label']) continueLabel = String(parts['continue button label']).trim();
+      }
+      var features = d.features;
+      if (!features || typeof features !== 'object') return;
+      var layout = ALWeaverScreenPreview.labelLayoutFromFeatures(features);
+      if (layout) declaredLayout = layout;
+      if (features['bootstrap theme']) {
+        var themeUrl = _packageStaticUrl(features['bootstrap theme']);
+        if (themeUrl) assets.bootstrapCss = themeUrl;
+      }
+      if (features.css) {
+        var cssRefs = Array.isArray(features.css) ? features.css : [features.css];
+        cssRefs.forEach(function (ref) {
+          var url = _packageStaticUrl(ref);
+          if (url) extraCss.push(url);
+        });
+      }
+    });
+
+    // The stylesheets that style the document table, the send-email fieldset
+    // and the collapse widget. They come from AssemblyLine's and ALToolbox's
+    // own included YAML, which the editor never parses, so they are always
+    // linked rather than made contingent on spotting an include: line — an
+    // interview that pulls AssemblyLine in through an umbrella package still
+    // needs them, and a link to a package that is not installed just 404s.
+    extraCss.unshift(
+      '/packagestatic/docassemble.AssemblyLine/aldocument.css',
+      '/packagestatic/docassemble.ALToolbox/collapse_template.css'
+    );
+
+    if (includesAssemblyLine) {
+      extraCss.unshift('/packagestatic/docassemble.AssemblyLine/styles.css');
+      // AssemblyLine's own default screen parts, used when the file is silent.
+      if (!continueLabel) continueLabel = 'Next';
+    }
+    return {
+      assets: assets,
+      extraCss: extraCss,
+      declaredLayout: declaredLayout,
+      backLabel: backLabel,
+      continueLabel: continueLabel,
+    };
+  }
+
+  /* Keep the layout picker showing what is actually being rendered, and mark
+   * which option the interview itself declares. */
+  function _syncScreenPreviewLayoutControl(active, declared) {
+    var select = document.getElementById('screen-preview-layout');
+    if (!select) return;
+    Array.prototype.forEach.call(select.options, function (option) {
+      var base = option.getAttribute('data-layout-label') || option.textContent;
+      option.setAttribute('data-layout-label', base);
+      var isDeclared = declared
+        ? option.value === declared
+        : option.value === ALWeaverScreenPreview.DEFAULT_LABEL_LAYOUT;
+      option.textContent = base + (isDeclared ? (declared ? ' (this interview)' : ' (Docassemble default)') : '');
+    });
+    select.value = active;
+  }
+
+  function _syncScreenPreviewBackControl(active) {
+    var select = document.getElementById('screen-preview-back-label');
+    if (!select) return;
+    var known = Array.prototype.some.call(select.options, function (option) {
+      return option.value === active;
+    });
+    if (!known) {
+      // The interview declares a label of its own; offer it alongside the two
+      // house options rather than silently rendering something else.
+      var option = document.createElement('option');
+      option.value = active;
+      option.textContent = active;
+      select.appendChild(option);
+    }
+    select.value = active;
+  }
+
+  var PREVIEWABLE_BLOCK_TYPES = ['question', 'review', 'table'];
+
+  /* What to draw: the block's saved data, brought up to date with whatever the
+   * author has typed into the editor but not yet saved. */
+  function _screenPreviewData(block, notes) {
+    if (block.type === 'question') {
+      if (state.questionEditMode === 'preview') syncFieldsToData(block);
+      return block.data || {};
+    }
+    if (block.type === 'review') {
+      var data = {};
+      Object.keys(block.data || {}).forEach(function (key) { data[key] = block.data[key]; });
+      // The review editor writes straight to YAML on save rather than back into
+      // block.data, so read the live headline fields out of the form.
+      var questionEl = document.getElementById('review-question');
+      if (questionEl) data.question = questionEl.value;
+      var subEl = document.getElementById('review-subquestion');
+      if (subEl) data.subquestion = subEl.value;
+      var tabularEl = document.getElementById('review-tabular');
+      if (tabularEl && tabularEl.value.trim()) data.tabular = tabularEl.value.trim();
+      if (hasUnsavedChanges()) {
+        notes.push('Unsaved edits to individual review items appear here after you save.');
+      }
+      return data;
+    }
+    return block.data || {};
+  }
+
+  function openScreenPreview() {
+    var block = getSelectedBlock();
+    if (!block || PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) === -1) return;
+    if (typeof ALWeaverScreenPreview === 'undefined') return;
+
+    var titleEl = document.getElementById('screen-preview-title');
+    if (titleEl) titleEl.textContent = block.title || block.id || 'Screen';
+
+    var notes = [];
+    if (state.questionEditMode === 'yaml') {
+      // The YAML buffer is only re-parsed into block.data on save, so say so
+      // rather than showing a stale screen as if it were current.
+      notes.push('You are editing the YAML source. This preview shows the last parsed version of the block; save to see YAML edits here.');
+    }
+    var previewData = _screenPreviewData(block, notes);
+
+    var resolved = _screenPreviewContext();
+    // Docassemble puts labels to the left of fields unless the interview's
+    // features: block says otherwise, so follow the file rather than assume.
+    var declaredLayout = resolved.declaredLayout || ALWeaverScreenPreview.DEFAULT_LABEL_LAYOUT;
+    var labelLayout = _screenPreviewLabelLayout || declaredLayout;
+    _syncScreenPreviewLayoutControl(labelLayout, resolved.declaredLayout);
+
+    var declaredBackLabel = resolved.backLabel || ALWeaverScreenPreview.DEFAULT_BACK_BUTTON_LABEL;
+    var backLabel = _screenPreviewBackLabel || declaredBackLabel;
+    _syncScreenPreviewBackControl(backLabel);
+
+    var doc = ALWeaverScreenPreview.buildDocument(previewData, {
+      assets: resolved.assets,
+      extraCss: resolved.extraCss,
+      theme: _screenPreviewDark ? 'dark' : 'light',
+      labelLayout: labelLayout,
+      backButtonLabel: backLabel,
+      continueButtonLabel: resolved.continueLabel,
+      // Lets ${ bundle.download_list_html() } and ${ collapse_template(x) }
+      // show this interview's own documents and templates.
+      interview: ALWeaverScreenPreview.buildInterviewContext(state.blocks),
+      notes: notes,
+    });
+
+    var stage = document.getElementById('screen-preview-stage');
+    if (stage) stage.setAttribute('data-preview-width', _screenPreviewWidth);
+    var frame = document.getElementById('screen-preview-frame');
+    if (frame) frame.srcdoc = doc;
+
+    var modal = getOrCreateBootstrapModal('screen-preview-modal');
+    if (modal) modal.show();
+  }
+
+  function refreshScreenPreview() {
+    var frame = document.getElementById('screen-preview-frame');
+    var modalEl = document.getElementById('screen-preview-modal');
+    if (!frame || !modalEl || !modalEl.classList.contains('show')) return;
+    openScreenPreview();
+  }
+
   // --- Question block: rich field editor ---
   function renderQuestionBlock(block) {
     var data = block.data || {};
     var fields = data.fields || [];
     var questionHelpTypes = [];
     var isPreview = state.questionEditMode === 'preview';
-    var isMdPreview = isPreview && state.markdownPreviewMode;
     var html = '';
 
     // Header bar — matches Code / Objects pattern
@@ -6030,11 +5991,12 @@
     // Unified tab row: Screen | Question options | Preview | YAML
     html += '<div class="editor-question-tabs-row">';
     html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && !isMdPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && !isMdPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && isMdPreview ? 'active' : '') + '" id="question-preview-tab" data-question-mode="preview" data-question-preview="true"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
     html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
+    html += '<div class="editor-question-tabs-actions">';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     if (isPreview) {
       html += '<div class="form-check form-switch editor-question-mandatory-switch">';
       html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
@@ -6042,53 +6004,44 @@
       html += '</div>';
     }
     html += '</div>';
+    html += '</div>';
 
     if (isPreview) {
-      if (isMdPreview || state.questionBlockTab === 'screen') {
+      if (state.questionBlockTab === 'screen') {
       html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
 
       // Block ID — always visible at top
-      if (!isMdPreview) {
-        html += '<div class="editor-block-id-row">';
-        html += '<span class="editor-block-id-label">ID</span>';
-        html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' + esc(block.id) + '" placeholder="block_id" autocomplete="off">';
-        html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+      html += '<div class="editor-block-id-row">';
+      html += '<span class="editor-block-id-label">ID</span>';
+      html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' + esc(block.id) + '" placeholder="block_id" autocomplete="off">';
+      html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+      html += '</div>';
+      var eventFieldOpen = Boolean(data.event || _questionEventFieldOpen[block.id]);
+      if (eventFieldOpen) {
+        html += '<div class="editor-block-id-row editor-question-event-row">';
+        html += '<span class="editor-block-id-label">Event</span>';
+        html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '" placeholder="event_name" autocomplete="off">';
+        html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="remove-question-event" title="Remove event" aria-label="Remove event"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
         html += '</div>';
-        var eventFieldOpen = Boolean(data.event || _questionEventFieldOpen[block.id]);
-        if (eventFieldOpen) {
-          html += '<div class="editor-block-id-row editor-question-event-row">';
-          html += '<span class="editor-block-id-label">Event</span>';
-          html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '" placeholder="event_name" autocomplete="off">';
-          html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="remove-question-event" title="Remove event" aria-label="Remove event"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
-          html += '</div>';
-        } else {
-          html += '<button type="button" class="btn btn-sm btn-link editor-add-event-btn" id="add-question-event"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add event</button>';
-        }
+      } else {
+        html += '<button type="button" class="btn btn-sm btn-link editor-add-event-btn" id="add-question-event"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add event</button>';
       }
 
       // Question
-      html += '<div class="editor-form-group' + (isMdPreview ? '' : ' mt-2') + '">';
+      html += '<div class="editor-form-group mt-2">';
       html += '<label class="editor-tiny" for="q-title">Question</label>';
-      if (isMdPreview) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(data.question || '') + '</div>';
-      } else {
-        html += renderMarkdownToolbar('q-title', false);
-        html += '<textarea class="form-control editor-form-control" id="q-title" rows="1">' + esc(data.question || '') + '</textarea>';
-      }
+      html += renderMarkdownToolbar('q-title', false);
+      html += '<textarea class="form-control editor-form-control" id="q-title" rows="1">' + esc(data.question || '') + '</textarea>';
       html += '</div>';
 
       // Subquestion — always shown
       html += '<div class="editor-form-group">';
       html += '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
-      if (isMdPreview) {
-        html += '<div class="md-preview-wrapper">' + renderMarkdown(String(data.subquestion || '')) + '</div>';
-      } else {
-        html += renderMarkdownToolbar('q-subquestion', false);
-        html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' + esc(String(data.subquestion || '')) + '</textarea>';
-      }
+      html += renderMarkdownToolbar('q-subquestion', false);
+      html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' + esc(String(data.subquestion || '')) + '</textarea>';
       html += '</div>';
 
-      if (!isMdPreview && (data['continue button field'] || data['continue button label'])) {
+      if (data['continue button field'] || data['continue button label']) {
         html += '<div class="editor-info-box mt-2">';
         if (data['continue button field']) {
           html += '<div><strong>Continue button field:</strong> ' + esc(String(data['continue button field'])) + '</div>';
@@ -6102,11 +6055,9 @@
       // Fields section — merged into same card
       if (fields.length > 0) {
         html += '<div class="editor-section-legend mt-3">Fields</div>';
-        if (!isMdPreview) {
-          html += '<div class="editor-field-grid-header">';
-          html += '<div>Label</div><div>Type</div><div>Variable name</div><div></div>';
-          html += '</div>';
-        }
+        html += '<div class="editor-field-grid-header">';
+        html += '<div>Label</div><div>Type</div><div>Variable name</div><div></div>';
+        html += '</div>';
         fields.forEach(function (f, fi) {
           var label = '', varName = '', dtype = 'text', choices = '', codeExpr = '';
           var contentText = '';
@@ -6210,91 +6161,65 @@
           var showIfKey = fmods['hide if'] ? 'hide if' : 'show if';
           if (typeof showIfVal === 'object') showIfVal = JSON.stringify(showIfVal);
 
-          if (isMdPreview) {
-            if (isALMethodType) {
-              html += _renderALFieldMethodPreview(dtype, methodArgs, varName);
-            } else if (isStandaloneType) {
-              html += '<div class="editor-field-row-preview">';
-              if (dtype === 'html' || dtype === 'raw html') {
-                html += '<div class="md-preview-wrapper md-preview-label">' + String(label || '') + '</div>';
-              } else if (dtype === 'code') {
-                html += '<div class="md-preview-wrapper md-preview-label"><pre class="mb-0"><code>' + esc(String(label || '')) + '</code></pre></div>';
-              } else {
-                html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(String(label || '')) + '</div>';
-              }
-              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(_fieldTypeLabel(dtype)) + '</div>';
-              html += '<div></div>';
-              html += '</div>';
-            } else {
-              html += '<div class="editor-field-row-preview">';
-              html += '<div class="md-preview-wrapper md-preview-label">' + renderMarkdown(label) + '</div>';
-              html += '<div class="editor-tiny text-muted" style="align-self:start;padding-top:6px">' + esc(dtype) + '</div>';
-              html += '<div class="font-monospace editor-tiny" style="align-self:start;padding-top:6px">' + esc(varName) + '</div>';
-              html += '</div>';
-            }
+          html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
+          if (isALMethodType) {
+            html += '<input class="form-control editor-form-control" data-field-prop="label" value="' + esc(label) + '" readonly aria-label="Generated field group">';
+          } else if (isStandaloneType) {
+            html += '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' + esc(_fieldStandalonePlaceholder(dtype)) + '" title="Right-click for insert tools" rows="' + _fieldStandaloneRows(dtype) + '">' + esc(label) + '</textarea>';
           } else {
-            html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
-            if (isALMethodType) {
-              html += '<input class="form-control editor-form-control" data-field-prop="label" value="' + esc(label) + '" readonly aria-label="Generated field group">';
-            } else if (isStandaloneType) {
-              html += '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' + esc(_fieldStandalonePlaceholder(dtype)) + '" title="Right-click for insert tools" rows="' + _fieldStandaloneRows(dtype) + '">' + esc(label) + '</textarea>';
-            } else {
-              html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
-            }
-            html += _renderFieldTypeDropdown(fi, dtype);
-            if (isALMethodType) html += renderSymbolDatalist('al-individual-list-' + fi, 'al-individual', 120);
-            html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="' + (isALMethodType ? 'al-individual' : 'variable') + '"' + (isALMethodType ? ' list="al-individual-list-' + fi + '"' : '') + ' value="' + esc(varName) + '" placeholder="' + (isALMethodType ? 'users[i] or person' : 'variable_name') + '">';
-            if (isALMethodType) {
-              html += '<input type="hidden" data-field-method-args data-field-idx="' + fi + '" value="' + esc(methodArgs) + '">';
-            }
-            html += '<div class="editor-field-actions">';
-            if (!isStandaloneType && !isALMethodType) {
-              html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
-              html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
-              html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
-              html += '</div>';
-              var activeIndicators = _fieldActiveIndicators(dtype, fmods, choices, codeExpr);
-              if (activeIndicators.length > 0) {
-                html += '<div class="editor-field-indicators" aria-label="Active options">';
-                activeIndicators.slice(0, 3).forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
-                html += '</div>';
-              }
-            }
-            if (isALMethodType) {
-              html += '<div class="editor-field-kebab-wrapper">';
-              html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '" aria-label="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
-              html += '</div>';
-            } else if (dtype !== 'code') {
-              html += '<div class="editor-field-kebab-wrapper">';
-              html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
-              html += '</div>';
-            }
-            html += '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
-            html += '</div>';
-            html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
-            FIELD_TYPES.forEach(function (t) {
-              html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
-            });
-            html += '</select>';
-            html += '</div>';
-            if (hasChoices) {
-              html += '<div class="editor-field-choices-row">';
-              html += '<label class="editor-tiny" for="field-choices-' + fi + '">Options (one per line)</label>';
-              html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
-              html += '</div>';
-            }
-            if (!isALMethodType && dtype !== 'code') html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
+            html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
           }
-        });
-        if (!isMdPreview) {
-          html += '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
-          html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
-          html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
-          html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
+          html += _renderFieldTypeDropdown(fi, dtype);
+          if (isALMethodType) html += renderSymbolDatalist('al-individual-list-' + fi, 'al-individual', 120);
+          html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="' + (isALMethodType ? 'al-individual' : 'variable') + '"' + (isALMethodType ? ' list="al-individual-list-' + fi + '"' : '') + ' value="' + esc(varName) + '" placeholder="' + (isALMethodType ? 'users[i] or person' : 'variable_name') + '">';
+          if (isALMethodType) {
+            html += '<input type="hidden" data-field-method-args data-field-idx="' + fi + '" value="' + esc(methodArgs) + '">';
+          }
+          html += '<div class="editor-field-actions">';
+          if (!isStandaloneType && !isALMethodType) {
+            html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
+            html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
+            html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
+            html += '</div>';
+            var activeIndicators = _fieldActiveIndicators(dtype, fmods, choices, codeExpr);
+            if (activeIndicators.length > 0) {
+              html += '<div class="editor-field-indicators" aria-label="Active options">';
+              activeIndicators.slice(0, 3).forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
+              html += '</div>';
+            }
+          }
+          if (isALMethodType) {
+            html += '<div class="editor-field-kebab-wrapper">';
+            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '" aria-label="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html += '</div>';
+          } else if (dtype !== 'code') {
+            html += '<div class="editor-field-kebab-wrapper">';
+            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html += '</div>';
+          }
+          html += '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
           html += '</div>';
-        }
+          html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
+          FIELD_TYPES.forEach(function (t) {
+            html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
+          });
+          html += '</select>';
+          html += '</div>';
+          if (hasChoices) {
+            html += '<div class="editor-field-choices-row">';
+            html += '<label class="editor-tiny" for="field-choices-' + fi + '">Options (one per line)</label>';
+            html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
+            html += '</div>';
+          }
+          if (!isALMethodType && dtype !== 'code') html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
+        });
+        html += '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
+        html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
+        html += '</div>';
         html += _renderQuestionFieldHelp(questionHelpTypes);
-      } else if (!isMdPreview) {
+      } else {
         html += '<div class="editor-section-legend mt-3">Fields</div>';
         html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
         html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
@@ -6315,7 +6240,7 @@
 
       }
 
-      if (!isMdPreview && state.questionBlockTab === 'options') {
+      if (state.questionBlockTab === 'options') {
         html += renderAdvancedPanel(block);
       }
 
@@ -6335,7 +6260,7 @@
           onChange: function () { markInterviewDirty(); }
         });
       });
-    } else if (!isMdPreview) {
+    } else {
       // Auto-resize editable textareas
       var qTitle = document.getElementById('q-title');
       if (qTitle) _initAutoResize(qTitle, 36);
@@ -6405,6 +6330,7 @@
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title || 'Review') + '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Draft review</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isYaml ? 'Structured view' : 'Edit full YAML') + '</button>';
     html += '</div>';
@@ -6683,6 +6609,11 @@
     html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
     html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
     html += '</div>';
+    if (PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1) {
+      html += '<div class="d-flex gap-2 flex-wrap">';
+      html += '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See how this table will be drawn"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+      html += '</div>';
+    }
     html += '</div>';
 
     html += '<div class="editor-shell">';
@@ -8282,7 +8213,6 @@
           state.questionBlockTab = 'screen';
           state.advancedOpen = false;
           state.advancedShowMore = false;
-          state.markdownPreviewMode = false;
           renderOutline();
           renderCanvas();
         })) return;
@@ -8294,7 +8224,6 @@
         state.questionBlockTab = 'screen';
         state.advancedOpen = false;
         state.advancedShowMore = false;
-        state.markdownPreviewMode = false;
       }
       renderOutline();
       renderCanvas();
@@ -8899,6 +8828,22 @@
       }
       return;
     }
+    if (uiAction === 'open-screen-preview') {
+      openScreenPreview();
+      return;
+    }
+    var previewWidthButton = target.closest('[data-preview-width]');
+    if (previewWidthButton) {
+      _screenPreviewWidth = previewWidthButton.getAttribute('data-preview-width');
+      document.querySelectorAll('[data-preview-width]').forEach(function (btn) {
+        var isActive = btn === previewWidthButton;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+      var previewStage = document.getElementById('screen-preview-stage');
+      if (previewStage) previewStage.setAttribute('data-preview-width', _screenPreviewWidth);
+      return;
+    }
     if (uiAction === 'preview-interview') {
       if (!state.filename) return;
       promptAndSaveUnsavedChanges('open the interview').then(function (saved) {
@@ -8996,7 +8941,6 @@
       var nextEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
       function changeEditMode() {
         state.questionEditMode = nextEditMode;
-        state.markdownPreviewMode = false;
         renderCanvas();
       }
       if (deferNavigationForUnsavedChanges('switch editing modes', changeEditMode)) return;
@@ -9004,16 +8948,14 @@
       return;
     }
 
-    // Question tab with optional mode switching (Screen/Options tabs set preview mode, Preview tab enables markdown preview, YAML tab sets yaml mode)
+    // Question tab switching (Screen/Options tabs set the structured mode, YAML tab sets yaml mode)
     var questionModeButton = target.closest('[data-question-mode]');
     if (questionModeButton) {
       var qMode = questionModeButton.getAttribute('data-question-mode');
       var qTab = questionModeButton.getAttribute('data-question-tab');
-      var isPreviewTab = questionModeButton.getAttribute('data-question-preview') === 'true';
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
         function openQuestionYaml() {
           state.questionEditMode = 'yaml';
-          state.markdownPreviewMode = false;
           renderCanvas();
         }
         if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionYaml)) return;
@@ -9022,16 +8964,7 @@
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
         function openQuestionPreviewMode() {
           state.questionEditMode = 'preview';
-          if (qTab === 'screen' || qTab === 'options') {
-            state.questionBlockTab = qTab;
-            state.markdownPreviewMode = false;
-          } else if (isPreviewTab) {
-            var selectedForPreview = getSelectedBlock();
-            if (selectedForPreview && selectedForPreview.type === 'question') {
-              syncFieldsToData(selectedForPreview);
-            }
-            state.markdownPreviewMode = true;
-          }
+          if (qTab === 'screen' || qTab === 'options') state.questionBlockTab = qTab;
           renderCanvas();
         }
         if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionPreviewMode)) return;
@@ -9040,16 +8973,7 @@
       }
       if (qMode === 'preview') {
         stashCurrentEditorState();
-        if (qTab === 'screen' || qTab === 'options') {
-          state.questionBlockTab = qTab;
-          state.markdownPreviewMode = false;
-        } else if (isPreviewTab) {
-          var selectedForPreview = getSelectedBlock();
-          if (selectedForPreview && selectedForPreview.type === 'question') {
-            syncFieldsToData(selectedForPreview);
-          }
-          state.markdownPreviewMode = true;
-        }
+        if (qTab === 'screen' || qTab === 'options') state.questionBlockTab = qTab;
         renderCanvas();
       }
       return;
@@ -9917,6 +9841,30 @@
     html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="inline-cancel">Cancel</button>';
     html += '</div></div>';
     return html;
+  }
+
+  var _screenPreviewDarkToggle = document.getElementById('screen-preview-dark');
+  if (_screenPreviewDarkToggle) {
+    _screenPreviewDarkToggle.addEventListener('change', function () {
+      _screenPreviewDark = this.checked;
+      refreshScreenPreview();
+    });
+  }
+
+  var _screenPreviewLayoutSelect = document.getElementById('screen-preview-layout');
+  if (_screenPreviewLayoutSelect) {
+    _screenPreviewLayoutSelect.addEventListener('change', function () {
+      _screenPreviewLabelLayout = this.value;
+      refreshScreenPreview();
+    });
+  }
+
+  var _screenPreviewBackSelect = document.getElementById('screen-preview-back-label');
+  if (_screenPreviewBackSelect) {
+    _screenPreviewBackSelect.addEventListener('change', function () {
+      _screenPreviewBackLabel = this.value;
+      refreshScreenPreview();
+    });
   }
 
   document.getElementById('order-edit-save').addEventListener('click', function () {

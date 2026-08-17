@@ -68,7 +68,7 @@ function serialize(type, modifiers, methodArgs) {
       'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
       'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
     ],
-    state: { markdownPreviewMode: false, questionBlockTab: 'screen' },
+    state: { questionBlockTab: 'screen' },
     serializeQuestionFieldFromData() { throw new Error('unexpected fallback'); },
     appendQuestionAdvancedYaml(yaml) { return yaml; },
   });
