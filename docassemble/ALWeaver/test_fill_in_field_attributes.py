@@ -1,6 +1,11 @@
 # do not pre-load
 import unittest
-from .interview_generator import DAField, varname
+from .interview_generator import (
+    DAField,
+    get_character_limit,
+    get_input_dimensions,
+    varname,
+)
 
 
 class test_fill_in_pdf_attributes(unittest.TestCase):
@@ -104,3 +109,40 @@ class test_varname(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class test_input_dimensions(unittest.TestCase):
+    def test_single_row_field(self):
+        # 90 pixels wide, 20 tall: one row of 15 characters
+        self.assertEqual(
+            get_input_dimensions(("f", "", 0, [10, 10, 100, 30], "/Tx")), (1, 15)
+        )
+
+    def test_multi_row_field(self):
+        # 150 wide, 48 tall: 4 rows of 25 characters
+        self.assertEqual(
+            get_input_dimensions(("f", "", 0, [0, 0, 150, 48], "/Tx")), (4, 25)
+        )
+        self.assertEqual(get_character_limit(("f", "", 0, [0, 0, 150, 48], "/Tx")), 100)
+
+    def test_field_without_a_bounding_box(self):
+        self.assertIsNone(get_input_dimensions(("f", "", 0, None, "/Tx")))
+        self.assertIsNone(get_character_limit(("f", "", 0, None, "/Tx")))
+
+    def test_field_too_small_to_hold_a_character(self):
+        self.assertIsNone(get_input_dimensions(("f", "", 0, [0, 0, 3, 10], "/Tx")))
+
+
+class test_safe_value_kwargs(unittest.TestCase):
+    def test_line_width_comes_from_the_pdf_geometry(self):
+        field = DAField()
+        field.fill_in_pdf_attributes(("story", "", 0, [0, 0, 150, 48], "/Tx"), {})
+        self.assertEqual(field.input_width, 25)
+        self.assertEqual(field.input_rows, 4)
+        self.assertEqual(field.maxlength, 100)
+        self.assertEqual(field.safe_value_kwargs(), ", input_width=25")
+
+    def test_no_kwargs_without_a_measurable_field(self):
+        field = DAField()
+        field.fill_in_pdf_attributes(("story", "", 0, None, "/Tx"), {})
+        self.assertEqual(field.safe_value_kwargs(), "")

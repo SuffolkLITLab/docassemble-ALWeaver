@@ -158,7 +158,7 @@ confirm: True\
       % endif 
     % else: # all other variable types including text
       % if hasattr(field, "send_to_addendum") and field.send_to_addendum and attachment_name:
-      - "${ raw_name }": <%text>${</%text> ${ attachment_name }.safe_value("${ field.final_display_var }") }
+      - "${ raw_name }": <%text>${</%text> ${ attachment_name }.safe_value("${ field.final_display_var }"${ field.safe_value_kwargs() }) }
       % else:
       - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } }
       % endif
