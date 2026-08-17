@@ -3,6 +3,8 @@ import unittest
 from .interview_generator import (
     DAFieldList,
     get_docx_variables,
+    get_docx_boolean_variables,
+    get_docx_function_type_hints,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
 )
@@ -97,6 +99,100 @@ class test_docxs(unittest.TestCase):
         )
         self.assertEqual(all_vars, {"users[0].name.first", "some_var"})
 
+    def test_for_loop_body_points_at_the_list(self):
+        """`item.attribute` inside a loop really means `mylist[0].attribute`."""
+        all_vars = get_docx_variables(
+            "{%p for item in mylist %}"
+            "{{ item.attribute }}{{ item.name.first }}{{ item }}"
+            "{%p endfor %}"
+            "{{ outside_var }}"
+        )
+        self.assertEqual(
+            all_vars,
+            {
+                "mylist",
+                "mylist[0].attribute",
+                "mylist[0].name.first",
+                "outside_var",
+            },
+        )
+
+    def test_for_loop_target_only_applies_inside_the_loop(self):
+        all_vars = get_docx_variables(
+            "{% for item in mylist %}{{ item.a }}{% endfor %}{{ item_standalone }}"
+        )
+        self.assertEqual(all_vars, {"mylist", "mylist[0].a", "item_standalone"})
+
+    def test_nested_for_loops(self):
+        all_vars = get_docx_variables(
+            "{% for parent in families %}"
+            "{% for kid in parent.children %}{{ kid.name.first }}{% endfor %}"
+            "{{ parent.role }}"
+            "{% endfor %}"
+        )
+        self.assertEqual(
+            all_vars,
+            {
+                "families",
+                "families[0].children",
+                "families[0].children[0].name.first",
+                "families[0].role",
+            },
+        )
+
+    def test_for_loop_conditions_use_the_list(self):
+        all_vars = get_docx_variables(
+            "{% for item in mylist %}{%p if item.flag %}{% endif %}{% endfor %}"
+        )
+        self.assertEqual(all_vars, {"mylist", "mylist[0].flag"})
+
+    def test_unindexable_loops_drop_their_targets(self):
+        """Nothing sensible to index means the loop body is skipped, not guessed at."""
+        self.assertEqual(
+            get_docx_variables("{% for k, v in mapping_var %}{{ v.attr }}{% endfor %}"),
+            {"mapping_var"},
+        )
+        self.assertEqual(
+            get_docx_variables("{% for x in mylist | sort %}{{ x.attr }}{% endfor %}"),
+            {"mylist"},
+        )
+
+    def test_variables_wrapped_in_function_calls(self):
+        """`{{ currency(some_amount) }}` still needs `some_amount` gathered."""
+        self.assertEqual(
+            get_docx_variables("{{ currency(some_amount) }}"), {"some_amount"}
+        )
+        self.assertEqual(
+            get_docx_variables("{{ currency(users[0].income) }}"), {"users[0].income"}
+        )
+        self.assertEqual(
+            get_docx_variables("{{ fix_punctuation(first_var, second_var) }}"),
+            {"first_var", "second_var"},
+        )
+        self.assertEqual(
+            get_docx_variables("{{ currency(round(raw_amount)) }}"), {"raw_amount"}
+        )
+
+    def test_function_call_arguments_inside_a_loop(self):
+        self.assertEqual(
+            get_docx_variables(
+                "{% for item in mylist %}{{ currency(item.amount) }}{% endfor %}"
+            ),
+            {"mylist", "mylist[0].amount"},
+        )
+
+    def test_inline_conditional_output(self):
+        self.assertEqual(
+            get_docx_variables("{{ a_var if b_var else c_var }}"),
+            {"a_var", "b_var", "c_var"},
+        )
+
+    def test_curly_quoted_arguments_are_not_variables(self):
+        """Word autocorrects quotes, and the text inside them is not a variable."""
+        self.assertEqual(
+            get_docx_variables("{{ format_date(some_date, “MMddyy”) }}"), {"some_date"}
+        )
+
     def test_reserved_docx_labels(self):
         reserved_labels_files = (
             Path(__file__).parent / "test/reserved_docx_variables.docx"
@@ -150,3 +246,95 @@ class test_docxs(unittest.TestCase):
 
         matching_fields = get_pdf_variable_name_matches(pdf_variables_file)
         self.assertEqual(len(matching_fields), 0)
+
+
+class test_docx_boolean_guesses(unittest.TestCase):
+    def test_bare_condition_is_a_boolean(self):
+        self.assertEqual(
+            get_docx_boolean_variables("{%p if applicant_is_veteran %}{% endif %}"),
+            {"applicant_is_veteran"},
+        )
+        self.assertEqual(
+            get_docx_boolean_variables("{%p if not applicant_is_veteran %}{% endif %}"),
+            {"applicant_is_veteran"},
+        )
+
+    def test_boolean_operators_still_count(self):
+        self.assertEqual(
+            get_docx_boolean_variables(
+                "{%p if (a_var or b_var) and not c_var %}{% endif %}"
+                "{%p elif d_var %}{% endif %}"
+            ),
+            {"a_var", "b_var", "c_var", "d_var"},
+        )
+
+    def test_conditions_that_prove_nothing(self):
+        for template in (
+            "{%p if count_var > 2 %}{% endif %}",
+            '{% if i == "final" %}{% endif %}',
+            "{% if x_var is defined %}{% endif %}",
+            "{% if x_var | length %}{% endif %}",
+            "{% if a_var in b_var %}{% endif %}",
+        ):
+            with self.subTest(template=template):
+                self.assertEqual(get_docx_boolean_variables(template), set())
+
+    def test_known_assemblyline_attributes_keep_their_own_type(self):
+        for template in (
+            "{% if users[0].name.first %}{% endif %}",
+            "{% if users[0].address.address %}{% endif %}",
+            "{% if users[0].signature %}{% endif %}",
+        ):
+            with self.subTest(template=template):
+                self.assertEqual(get_docx_boolean_variables(template), set())
+
+    def test_custom_attribute_of_a_person_can_be_a_boolean(self):
+        self.assertEqual(
+            get_docx_boolean_variables("{% if users[0].is_veteran %}{% endif %}"),
+            {"users[0].is_veteran"},
+        )
+
+    def test_conditions_inside_a_loop_use_the_list(self):
+        self.assertEqual(
+            get_docx_boolean_variables(
+                "{% for item in mylist %}{% if item.flag %}{% endif %}{% endfor %}"
+            ),
+            {"mylist[0].flag"},
+        )
+
+
+class test_docx_function_type_hints(unittest.TestCase):
+    def test_output_checkbox_marks_a_yesno(self):
+        self.assertEqual(
+            get_docx_function_type_hints("{{ output_checkbox(agrees_to_terms) }}"),
+            {"agrees_to_terms": "yesno"},
+        )
+
+    def test_extra_arguments_are_ignored(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                '{{ output_checkbox(users[0].is_veteran, "YES", "NO") }}'
+            ),
+            {"users[0].is_veteran": "yesno"},
+        )
+
+    def test_other_display_functions(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                "{{ currency(filing_fee) }}{{ format_date(hearing_day) }}"
+            ),
+            {"filing_fee": "currency", "hearing_day": "date"},
+        )
+
+    def test_only_a_plain_variable_gets_a_hint(self):
+        self.assertEqual(
+            get_docx_function_type_hints("{{ currency(round(raw_amount)) }}"), {}
+        )
+
+    def test_hints_inside_a_loop_use_the_list(self):
+        self.assertEqual(
+            get_docx_function_type_hints(
+                "{% for item in mylist %}{{ output_checkbox(item.agreed) }}{% endfor %}"
+            ),
+            {"mylist[0].agreed": "yesno"},
+        )

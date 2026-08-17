@@ -154,6 +154,8 @@ __all__ = [
     "get_court_choices",
     "get_docx_validation_errors",
     "get_docx_variables",
+    "get_docx_boolean_variables",
+    "get_docx_function_type_hints",
     "get_fields",
     "get_help_document_text",
     "get_question_file_variables",
@@ -641,11 +643,15 @@ class DAField(DAObject):
         self,
         new_field_name: str,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+        used_as_condition: bool = False,
+        type_hint: Optional[str] = None,
     ):
         """The DAField class expects a few attributes to be filled in.
-        In a future version of this, maybe we can use context to identify
-        true/false variables. For now, we can only use the name.
-        We have a lot less info than for PDF fields.
+        We have a lot less info than for PDF fields, so the name carries most
+        of the guess. Two pieces of context can be read off the template
+        itself: `type_hint`, when the author wrapped the variable in a display
+        function that only accepts one datatype, and `used_as_condition`, when
+        the template only ever tests the variable for truthiness.
         """
         self.raw_field_names: List[str] = [new_field_name]
         # For docx, we can't change the field name from the document itself, has to be the same
@@ -657,15 +663,24 @@ class DAField(DAObject):
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.variable_name_guess = variable_name_guess
 
-        if self.variable.endswith("_date"):
+        if self.variable.endswith(".signature"):
+            self.field_type_guess = "signature"
+        elif type_hint:
+            # The author wrapped this in something like `output_checkbox()`,
+            # which is a stronger signal than anything the name can give us
+            self.field_type_guess = type_hint
+            if type_hint == "date" and self.variable.endswith("_date"):
+                self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
+        elif self.variable.endswith("_date"):
             self.field_type_guess = "date"
             self.variable_name_guess = f"Date of {variable_name_guess[:-5]}"
         elif self.variable.endswith("_amount"):
             self.field_type_guess = "currency"
         elif self.variable.endswith("_value"):
             self.field_type_guess = "currency"
-        elif self.variable.endswith(".signature"):
-            self.field_type_guess = "signature"
+        elif used_as_condition:
+            # The template only ever asks "is this set?", so it's a yes/no
+            self.field_type_guess = "yesno"
         else:
             self.field_type_guess = "text"
 
@@ -1487,7 +1502,6 @@ class DAFieldList(DAList):
                 self.add_fields_from_file(document)
             return None
 
-        all_fields = get_fields(document)
         if document.filename.lower().endswith("pdf"):
             document_type = "pdf"
         elif document.filename.lower().endswith("docx"):
@@ -1496,6 +1510,18 @@ class DAFieldList(DAList):
             raise Exception(
                 f"{document.filename} doesn't appear to be a PDF or DOCX file. Check the filename extension."
             )
+
+        boolean_fields: Set[str] = set()
+        type_hints: Dict[str, str] = {}
+        if document_type == "docx":
+            # Read the template once so the variables and the "used as a
+            # condition" hints come from the same pass over the text
+            docx_text = docx2python(document.path()).text
+            all_fields: Iterable = get_docx_variables(docx_text)
+            boolean_fields = get_docx_boolean_variables(docx_text)
+            type_hints = get_docx_function_type_hints(docx_text)
+        else:
+            all_fields = get_fields(document)
 
         if document_type == "pdf":
             # Use pikepdf to get more info about each field
@@ -1566,7 +1592,11 @@ class DAFieldList(DAList):
                     new_field.group = DAFieldGroup.SIGNATURE
                 else:
                     new_field.group = DAFieldGroup.CUSTOM
-                new_field.fill_in_docx_attributes(field)
+                new_field.fill_in_docx_attributes(
+                    field,
+                    used_as_condition=field in boolean_fields,
+                    type_hint=type_hints.get(field),
+                )
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
@@ -3983,9 +4013,15 @@ def get_question_file_variables(screens: List[Screen]) -> List[str]:
 JINJA_STATEMENT_TAG = re.compile(r"\{%(.*?)%\}", re.DOTALL)
 JINJA_STATEMENT_PREFIX = re.compile(r"^(?:tr|tc|p|r)?[+\-]?\s*")
 JINJA_STATEMENT_SUFFIX = re.compile(r"\s*[+\-]?$")
-JINJA_FOR_STATEMENT = re.compile(r"^for\s+.+?\s+in\s+(.+)$", re.DOTALL)
+JINJA_FOR_STATEMENT = re.compile(r"^for\s+(.+?)\s+in\s+(.+)$", re.DOTALL)
 JINJA_CONDITIONAL_STATEMENT = re.compile(r"^(?:el)?if\s+(.+)$", re.DOTALL)
-JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+# Either kind of Jinja tag, in the order they appear, so `for` blocks can be tracked
+JINJA_ANY_TAG = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.DOTALL)
+JINJA_SIMPLE_OUTPUT = re.compile(r"^ *([^\} ]+) *$")
+# A chain we can safely index into, i.e. `mylist` or `user.children`
+JINJA_INDEXABLE_CHAIN = re.compile(r"^[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*$")
+# Straight and curly quotes -- Word likes to autocorrect the ones an author types
+JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”")
 # A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
 JINJA_VARIABLE_CHAIN = re.compile(
     r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*(?:\(\s*\))?)*"
@@ -4067,29 +4103,276 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
     return found
 
 
-def _variables_in_jinja_statements(text: str) -> Set[str]:
-    """Find the variables used in the `{% ... %}` statements in a template.
+def _has_identifier_root(chain: str) -> bool:
+    """True if the text up to the first `.` is a usable variable name.
 
-    Handles the `for`, `if` and `elif` statements the Weaver knows how to turn
-    into questions, along with docxtpl's `{%p`/`{%r`/`{%tr`/`{%tc` prefixes and
-    Jinja's `-`/`+` whitespace control markers.
+    `users[0].name.first` qualifies; `currency(some_amount)` does not, because
+    its root is a call rather than something the interview can assign to.
+    """
+    root = re.sub(r"\[.+\]", "", chain.split(".", 1)[0])
+    return root.isidentifier()
+
+
+def _resolve_loop_variable(
+    chain: str, loop_scopes: Sequence[Dict[str, Optional[str]]]
+) -> Optional[str]:
+    """Rewrite a chain that starts with a `for` loop's target variable.
+
+    A template that says `{% for item in mylist %}{{ item.attribute }}{% endfor %}`
+    is not asking for a variable called `item` -- `item` only exists while the
+    template renders. What the interview actually has to gather is
+    `mylist[0].attribute`, so the loop target is swapped for an indexed
+    reference to the thing being looped over.
+
+    Args:
+        chain (str): a variable chain found inside the loop body.
+        loop_scopes (Sequence[Dict[str, Optional[str]]]): the enclosing `for`
+            loops, outermost first. Each maps a loop target to the indexed
+            replacement for it, or to None when there is nothing sensible to
+            index (an unpacked tuple, or an iterable that is a whole expression).
+
+    Returns:
+        Optional[str]: the rewritten chain, or None if it should be dropped.
+    """
+    root = re.split(r"[.\[]", chain, maxsplit=1)[0]
+    for scope in reversed(loop_scopes):
+        if root not in scope:
+            continue
+        replacement = scope[root]
+        remainder = chain[len(root) :]
+        # A bare `{{ item }}` says nothing beyond what the iterable already told us
+        if replacement is None or not remainder:
+            return None
+        return replacement + remainder
+    return chain
+
+
+def _loop_target_replacements(
+    targets: str,
+    iterable_expression: str,
+    loop_scopes: Sequence[Dict[str, Optional[str]]],
+) -> Dict[str, Optional[str]]:
+    """Work out what each target of a `for` statement should be rewritten to."""
+    names = [name.strip() for name in targets.split(",")]
+    if len(names) != 1 or not names[0].isidentifier():
+        # Tuple unpacking: there is no single indexed variable to point at
+        return {name: None for name in names if name.isidentifier()}
+    resolved = _resolve_loop_variable(iterable_expression.strip(), loop_scopes)
+    if resolved is None or not JINJA_INDEXABLE_CHAIN.match(resolved):
+        return {names[0]: None}
+    return {names[0]: f"{resolved}[0]"}
+
+
+def _raw_variables_from_template(text: str) -> Set[str]:
+    """Find every variable-looking chain in a DOCX template's Jinja tags.
+
+    Walks the tags in document order so that `for` loops can be tracked: inside
+    a loop body, references to the loop target are rewritten to point at the
+    list being looped over (see :func:`_resolve_loop_variable`).
 
     Args:
         text (str): the full text of a DOCX template.
 
     Returns:
-        Set[str]: the variable chains found in those statements.
+        Set[str]: the variable chains found, before any suffix mapping.
     """
     found: Set[str] = set()
-    for raw_statement in JINJA_STATEMENT_TAG.findall(text):
+    loop_scopes: List[Dict[str, Optional[str]]] = []
+
+    def keep(chains: Iterable[str]) -> None:
+        for chain in chains:
+            resolved = _resolve_loop_variable(chain, loop_scopes)
+            if resolved:
+                found.add(resolved)
+
+    for match in JINJA_ANY_TAG.finditer(text):
+        output, raw_statement = match.group(1), match.group(2)
+        if output is not None:
+            # Simple single variable use, i.e. `{{ users[0].name.first }}`
+            simple = JINJA_SIMPLE_OUTPUT.match(output)
+            if simple and _has_identifier_root(simple.group(1)):
+                keep([simple.group(1)])
+            else:
+                # Something more involved, i.e. `{{ currency(some_amount) }}`.
+                # Pull the variables out of the expression instead of dropping it.
+                keep(_variables_in_jinja_expression(output))
+            continue
         statement = JINJA_STATEMENT_PREFIX.sub("", raw_statement.strip())
         statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
-        for pattern in (JINJA_FOR_STATEMENT, JINJA_CONDITIONAL_STATEMENT):
-            match = pattern.match(statement)
-            if match:
-                found.update(_variables_in_jinja_expression(match.group(1)))
-                break
+        for_match = JINJA_FOR_STATEMENT.match(statement)
+        if for_match:
+            targets, iterable_expression = for_match.group(1), for_match.group(2)
+            keep(_variables_in_jinja_expression(iterable_expression))
+            loop_scopes.append(
+                _loop_target_replacements(targets, iterable_expression, loop_scopes)
+            )
+            continue
+        if statement == "endfor":
+            if loop_scopes:
+                loop_scopes.pop()
+            continue
+        conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
+        if conditional_match:
+            keep(_variables_in_jinja_expression(conditional_match.group(1)))
     return found
+
+
+# Functions an author can wrap a variable in inside a DOCX template that say
+# what the variable's datatype has to be. The hint applies to the first argument.
+DOCX_FUNCTION_TYPE_HINTS = {
+    "output_checkbox": "yesno",
+    "yesno": "yesno",
+    "noyes": "yesno",
+    "currency": "currency",
+    "format_date": "date",
+    "nice_date": "date",
+}
+DOCX_HINTING_FUNCTION_CALL = re.compile(
+    r"\b(" + "|".join(sorted(DOCX_FUNCTION_TYPE_HINTS)) + r")\s*\("
+)
+
+
+def _first_argument(expression: str, open_paren: int) -> Optional[str]:
+    """Return the first argument of a call whose `(` is at `open_paren`."""
+    depth = 0
+    for index in range(open_paren, len(expression)):
+        character = expression[index]
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                return expression[open_paren + 1 : index].strip()
+        elif character == "," and depth == 1:
+            return expression[open_paren + 1 : index].strip()
+    return None
+
+
+def get_docx_function_type_hints(text: str) -> Dict[str, str]:
+    """Read datatypes off the display functions a DOCX template wraps variables in.
+
+    `{{ output_checkbox(agrees_to_terms) }}` can only be rendered from a yes/no
+    answer, and `{{ currency(filing_fee) }}` from a currency one, so the author
+    has already told us the datatype without filling anything in.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Dict[str, str]: settable variable name -> Weaver field type.
+    """
+    hints: Dict[str, str] = {}
+    loop_scopes: List[Dict[str, Optional[str]]] = []
+    for match in JINJA_ANY_TAG.finditer(text):
+        if match.group(1) is None:
+            statement = JINJA_STATEMENT_PREFIX.sub("", match.group(2).strip())
+            statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+            for_match = JINJA_FOR_STATEMENT.match(statement)
+            if for_match:
+                loop_scopes.append(
+                    _loop_target_replacements(
+                        for_match.group(1), for_match.group(2), loop_scopes
+                    )
+                )
+                continue
+            if statement == "endfor":
+                if loop_scopes:
+                    loop_scopes.pop()
+                continue
+            expression = statement
+        else:
+            expression = match.group(1)
+        for call in DOCX_HINTING_FUNCTION_CALL.finditer(expression):
+            argument = _first_argument(expression, call.end() - 1)
+            if not argument or not JINJA_INDEXABLE_CHAIN.match(argument):
+                continue
+            resolved = _resolve_loop_variable(argument, loop_scopes)
+            if not resolved:
+                continue
+            settable = _settable_docx_variable(resolved)
+            if settable:
+                hints[settable] = DOCX_FUNCTION_TYPE_HINTS[call.group(1)]
+    return hints
+
+
+def get_docx_boolean_variables(text: str) -> Set[str]:
+    """Find the variables a DOCX template tests for truthiness.
+
+    `{%p if applicant_is_veteran %}` only makes sense if the variable is a
+    yes/no answer, so the Weaver can offer a better datatype guess than "text".
+    Only conditions made up entirely of plain variables joined by `and`/`or`
+    and negated with `not` count. Anything with a comparison, a literal, a
+    filter or an `in`/`is` test is left alone, because `{% if count > 2 %}`
+    says nothing about `count` being a boolean.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Set[str]: the settable variable names used as bare truthiness tests.
+    """
+    booleans: Set[str] = set()
+    loop_scopes: List[Dict[str, Optional[str]]] = []
+    for match in JINJA_ANY_TAG.finditer(text):
+        if match.group(1) is not None:
+            continue
+        statement = JINJA_STATEMENT_PREFIX.sub("", match.group(2).strip())
+        statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+        for_match = JINJA_FOR_STATEMENT.match(statement)
+        if for_match:
+            loop_scopes.append(
+                _loop_target_replacements(
+                    for_match.group(1), for_match.group(2), loop_scopes
+                )
+            )
+            continue
+        if statement == "endfor":
+            if loop_scopes:
+                loop_scopes.pop()
+            continue
+        conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
+        if not conditional_match:
+            continue
+        condition = conditional_match.group(1)
+        # Strip out the boolean operators and grouping we do allow; whatever is
+        # left has to be nothing but variable chains for the guess to hold.
+        remainder = re.sub(r"\b(?:not|and|or)\b|[()]", " ", condition)
+        chains = JINJA_VARIABLE_CHAIN.findall(remainder)
+        # Anything left over once the chains are removed is an operator, a
+        # literal or a filter, and the guess no longer holds
+        if not chains or re.sub(r"\s+", "", remainder) != "".join(chains):
+            continue
+        # A leftover reserved word means a test or membership check, i.e.
+        # `x is defined` or `x in y`, which says nothing about x being boolean
+        if any(
+            re.split(r"[.\[]", chain, maxsplit=1)[0] in JINJA_NON_VARIABLE_WORDS
+            or keyword.iskeyword(re.split(r"[.\[]", chain, maxsplit=1)[0])
+            for chain in chains
+        ):
+            continue
+        for chain in chains:
+            resolved = _resolve_loop_variable(chain, loop_scopes)
+            if not resolved:
+                continue
+            settable = _settable_docx_variable(resolved)
+            if settable and not _has_known_person_suffix(settable):
+                booleans.add(settable)
+    return booleans
+
+
+def _has_known_person_suffix(
+    variable: str,
+    reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
+) -> bool:
+    """True if the variable ends in an AssemblyLine attribute we already know the type of.
+
+    `{% if users[0].name.first %}` is a template guarding against a missing
+    name, not a sign that `users[0].name.first` is a yes/no answer.
+    """
+    return any(
+        suffix.startswith(".") and variable.endswith(suffix)
+        for suffix in set(reserved_suffixes_map.values())
+    )
 
 
 def get_docx_variables(text: str) -> set:
@@ -4104,66 +4387,64 @@ def get_docx_variables(text: str) -> set:
     Special handling for methods that look like they belong to Individual/Address classes.
     """
     #   Can be easily tested in a repl using the libs keyword and re
-    minimally_filtered = set()
-    for possible_variable in re.findall(
-        r"{{ *([^\} ]+) *}}", text
-    ):  # Simple single variable use
-        minimally_filtered.add(possible_variable)
-    # Variables inside `{% ... %}` statements: `for`, `if`, and `elif`
-    minimally_filtered.update(_variables_in_jinja_statements(text))
+    minimally_filtered = _raw_variables_from_template(text)
 
     fields = set()
 
     for possible_var in minimally_filtered:
-        # If no suffix exists, it's just the whole string
-        prefix = re.findall(r"([^.]*)(?:\..+)*", possible_var)
-        if not prefix[0]:
-            continue  # This should never occur as they're all strings
-        prefix_with_key = prefix[0]  # might have brackets
-
-        prefix_root = re.sub(r"\[.+\]", "", prefix_with_key)  # no brackets
-        # Filter out non-identifiers (invalid variable names), like functions
-        if not prefix_root.isidentifier():
-            continue
-
-        if ".mailing_address" in possible_var:  # a mailing address
-            if ".mailing_address.county" in possible_var:  # a county is special
-                fields.add(possible_var)
-            else:  # all other mailing addresses (replaces .zip and such)
-                fields.add(
-                    re.sub(
-                        r"\.mailing_address.*", ".mailing_address.address", possible_var
-                    )
-                )
-            continue
-
-        # Help gathering actual address as an attribute when document says something
-        # like address.block()
-        if ".address" in possible_var:  # an address
-            if ".address.county" in possible_var:  # a county is special
-                fields.add(possible_var)
-            else:  # all other addresses and methods on addresses (replaces .address_block() and .address.block())
-                fields.add(re.sub(r"\.address.*", ".address.address", possible_var))
-            # fields.add( prefix_with_key ) # Can't recall who added or what was this supposed to do?
-            # It will add an extra, erroneous entry of the object root, which usually doesn't
-            # make sense for a docassemble question
-            continue
-
-        if ".name" in possible_var:  # a name
-            if ".name.text" in possible_var:  # Names for non-Individuals
-                fields.add(possible_var)
-            else:  # Names for Individuals
-                fields.add(re.sub(r"\.name.*", ".name.first", possible_var))
-            continue
-
-        # Replace any methods at the end of the variable with the attributes they use
-        possible_var = substitute_suffix(
-            possible_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX
-        )
-        methods_removed = re.sub(r"(.*)\..*\(.*\)", "\\1", possible_var)
-        fields.add(methods_removed)
+        settable_var = _settable_docx_variable(possible_var)
+        if settable_var:
+            fields.add(settable_var)
 
     return fields
+
+
+def _settable_docx_variable(possible_var: str) -> Optional[str]:
+    """Turn one raw template reference into the variable an interview can set.
+
+    Args:
+        possible_var (str): a variable chain as it appears in the template.
+
+    Returns:
+        Optional[str]: the settable variable name, or None if the chain isn't
+        something a question could define.
+    """
+    # If no suffix exists, it's just the whole string
+    prefix = re.findall(r"([^.]*)(?:\..+)*", possible_var)
+    if not prefix[0]:
+        return None  # This should never occur as they're all strings
+    prefix_with_key = prefix[0]  # might have brackets
+
+    prefix_root = re.sub(r"\[.+\]", "", prefix_with_key)  # no brackets
+    # Filter out non-identifiers (invalid variable names), like functions
+    if not prefix_root.isidentifier():
+        return None
+
+    if ".mailing_address" in possible_var:  # a mailing address
+        if ".mailing_address.county" in possible_var:  # a county is special
+            return possible_var
+        # all other mailing addresses (replaces .zip and such)
+        return re.sub(r"\.mailing_address.*", ".mailing_address.address", possible_var)
+
+    # Help gathering actual address as an attribute when document says something
+    # like address.block()
+    if ".address" in possible_var:  # an address
+        if ".address.county" in possible_var:  # a county is special
+            return possible_var
+        # all other addresses and methods on addresses (replaces .address_block() and .address.block())
+        return re.sub(r"\.address.*", ".address.address", possible_var)
+
+    if ".name" in possible_var:  # a name
+        if ".name.text" in possible_var:  # Names for non-Individuals
+            return possible_var
+        # Names for Individuals
+        return re.sub(r"\.name.*", ".name.first", possible_var)
+
+    # Replace any methods at the end of the variable with the attributes they use
+    possible_var = substitute_suffix(
+        possible_var, generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX
+    )
+    return re.sub(r"(.*)\..*\(.*\)", "\\1", possible_var)
 
 
 ########################################################
