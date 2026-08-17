@@ -46,6 +46,12 @@ class test_pdfs(unittest.TestCase):
         )
 
     def test_person_candidates(self):
+        """`have_served_other_party_email` is a yes/no about how service happened.
+
+        The Weaver used to read the trailing `_email` as proof that
+        `have_served_other_party` was a list of people, and declared
+        `have_served_other_party: ALPeopleList` in the generated interview.
+        """
         person_pdf = (
             Path(__file__).parent / "data/sources/test_civil_docketing_statement.pdf"
         )
@@ -57,16 +63,12 @@ class test_pdfs(unittest.TestCase):
         fields = DAFieldList()
         fields.add_fields_from_file(da_pdf)
         fields.gathered = True
-        self.assertIn(
+        self.assertNotIn(
             "have_served_other_party", fields.get_person_candidates(custom_only=True)
         )
+        # An author who disagrees can still say it is a person
         fields.mark_people_as_builtins(["have_served_other_party"])
-        fields = DAFieldList()
-        fields.add_fields_from_file(da_pdf)
-        fields.gathered = True
-        self.assertIn(
-            "have_served_other_party", fields.get_person_candidates(custom_only=True)
-        )
+        self.assertIn("have_served_other_party", fields.custom_people_plurals.values())
 
     def test_python_keyword_is_not_a_person(self):
         """A `from_phone` field must not turn into a `from` person list, since

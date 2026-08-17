@@ -169,6 +169,8 @@ __all__ = [
     "to_yaml_file",
     "using_string",
     "varname",
+    "unlikely_person_prefix",
+    "person_prefix_needs_corroboration",
     "logic_to_code_block",
     "WeaverGenerationResult",
     "WeaverInterviewArtifacts",
@@ -262,6 +264,210 @@ def get_character_limit(pdf_field_tuple, char_width=6, row_height=12) -> Optiona
 
     max_chars = num_rows * num_cols
     return max_chars
+
+
+# Deciding that `X_name` means there is a person called `X` is a guess, and a
+# wrong guess is expensive: the generated interview declares `X: ALPeopleList`
+# and then gathers a whole list of people to fill in one text field. These rules
+# were tuned against the field names of ~200 real court forms.
+
+# If the last word of a candidate is one of these, the candidate names a thing,
+# a moment or an attribute rather than a person. `case_name` is the name of a
+# case; `hearing_by_phone` is how a hearing happens; `other_action_court_name`
+# is a court.
+NON_PERSON_FINAL_WORDS = frozenset(
+    {
+        # things a legal form talks about
+        "account",
+        "accounts",
+        "action",
+        "actions",
+        "address",
+        "amount",
+        "amounts",
+        "appeal",
+        "appeals",
+        "asset",
+        "assets",
+        "benefit",
+        "benefits",
+        "case",
+        "cases",
+        "claim",
+        "claims",
+        "count",
+        "county",
+        "court",
+        "courts",
+        "date",
+        "dates",
+        "debt",
+        "debts",
+        "description",
+        "document",
+        "documents",
+        "email",
+        "expense",
+        "expenses",
+        "fee",
+        "fees",
+        "form",
+        "forms",
+        "hearing",
+        "hearings",
+        "income",
+        "judgment",
+        "judgments",
+        "mail",
+        "method",
+        "motion",
+        "motions",
+        "notice",
+        "notices",
+        "number",
+        "order",
+        "orders",
+        "payment",
+        "payments",
+        "phone",
+        "properties",
+        "property",
+        "reason",
+        "reasons",
+        "status",
+        "time",
+        "total",
+        "trial",
+        "type",
+        "types",
+        "value",
+        # a name that ends here is describing a name, not a person
+        "maiden",
+        "name",
+        "names",
+        "signature",
+        # function words: the candidate got cut off mid-phrase
+        "a",
+        "an",
+        "and",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+        # determiners and adjectives, i.e. `new_name`, `debts_pay_in_own`
+        "all",
+        "any",
+        "both",
+        "current",
+        "each",
+        "first",
+        "former",
+        "last",
+        "new",
+        "next",
+        "old",
+        "own",
+        "previous",
+        "same",
+    }
+)
+
+# A candidate that starts like a question is a yes/no answer, not a person
+NON_PERSON_LEADING_WORDS = frozenset(
+    {
+        "are",
+        "can",
+        "did",
+        "do",
+        "does",
+        "had",
+        "has",
+        "have",
+        "is",
+        "may",
+        "must",
+        "needs",
+        "receiving",
+        "should",
+        "wants",
+        "was",
+        "were",
+        "will",
+        "would",
+    }
+)
+
+MINIMUM_PERSON_PREFIX_LENGTH = 3
+
+
+def _person_prefix_words(prefix: str) -> List[str]:
+    return [word for word in prefix.split("_") if word]
+
+
+def unlikely_person_prefix(
+    prefix: str,
+    reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+) -> Optional[str]:
+    """Say why `prefix` almost certainly does not name a person, or None.
+
+    Args:
+        prefix (str): the part of a field name before a person-ish suffix, i.e.
+            `inspector` from `inspector_name`.
+        reserved_prefixes: the AssemblyLine prefixes that already mean something.
+
+    Returns:
+        Optional[str]: a short reason the guess should be rejected, or None if
+        the prefix could plausibly name a person.
+    """
+    if len(prefix) < MINIMUM_PERSON_PREFIX_LENGTH:
+        return "too short to be a meaningful name"
+    # Must read as a snake_case variable, with no leading or trailing underscore
+    if not re.match(r"^[a-z][a-z0-9_]*[a-z0-9]$", prefix):
+        return "not a lowercase variable name"
+    words = _person_prefix_words(prefix)
+    if not words:
+        return "no words in the name"
+    if words[-1] in NON_PERSON_FINAL_WORDS:
+        return f"ends in `{words[-1]}`, which describes a thing rather than a person"
+    if words[0] in NON_PERSON_LEADING_WORDS:
+        return f"starts with `{words[0]}`, so it reads as a yes/no question"
+    # `users1_cell` from `users1_cell_phone`: an indexed AssemblyLine person
+    # already, so the rest of the name is one of their attributes
+    indexed_prefix = (
+        r"^(?:" + "|".join(sorted(map(re.escape, reserved_prefixes))) + r")\d+_"
+    )
+    if re.match(indexed_prefix, prefix):
+        return "is an attribute of an AssemblyLine person that already exists"
+    return None
+
+
+def person_prefix_needs_corroboration(
+    prefix: str,
+    reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+) -> bool:
+    """True if one lone person-ish suffix isn't enough to trust this prefix.
+
+    A prefix that starts with an AssemblyLine person word -- `user_affidavit`,
+    `spouse_employer_name_address`, `plaintiff_previous` -- is far more likely
+    to be an attribute of that person than a new list of people. Two or more
+    different person-ish suffixes (a name *and* a phone number, say) are enough
+    to overrule that.
+    """
+    words = _person_prefix_words(prefix)
+    if len(words) < 2:
+        return False
+    for length in range(len(words) - 1, 0, -1):
+        leading = "_".join(words[:length])
+        if leading in reserved_pluralizers_map:
+            return True
+    return False
 
 
 def varname(var_name: str) -> str:
@@ -1375,15 +1581,22 @@ class DAFieldList(DAList):
         people_suffixes_map=generator_constants.PEOPLE_SUFFIXES_MAP,
         reserved_person_pluralizers_map=generator_constants.RESERVED_PERSON_PLURALIZERS_MAP,
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+        reserved_whole_words=generator_constants.RESERVED_WHOLE_WORDS,
         custom_only=False,
     ) -> Set[str]:
         """
         Identify the field names that appear to represent people in the list of
         string fields pulled from docx/PDF. Exclude people we know
         are singular Persons (such as trial_court).
+
+        Guessed prefixes are screened by :func:`unlikely_person_prefix`, and a
+        prefix that only :func:`person_prefix_needs_corroboration` accepts has
+        to turn up with two different person-ish suffixes before it counts.
         """
         people_vars = reserved_person_pluralizers_map.values()
         people = set()
+        # guessed prefix -> the distinct person-ish suffixes seen for it
+        guessed: Dict[str, Set[str]] = defaultdict(set)
         if custom_only:
             suffixes_to_use = set(people_suffixes_map.keys()) - set(["_name"])
         else:
@@ -1400,6 +1613,10 @@ class DAFieldList(DAList):
             else:
                 field_to_check = field.variable
             # Exact match
+            if field_to_check in reserved_whole_words:
+                # `user_preferred_language` means what it says; the trailing
+                # `_language` is not evidence of a `user_preferred` person
+                continue
             if field_to_check in people_vars:
                 people.add(field_to_check)
             elif field_to_check in undefined_person_prefixes:
@@ -1427,7 +1644,7 @@ class DAFieldList(DAList):
                         possible_suffix = re.sub(r"^\[\d+\]", "", matches.groups()[1])
                         # Look for suffixes normally associated with people like .name.first for a DOCX
                         if possible_suffix in people_suffixes:
-                            people.add(matches.groups()[0])
+                            guessed[matches.groups()[0]].add(possible_suffix)
             elif file_type == "pdf":
                 # If it's a PDF name that wasn't transformed by map_raw_to_final_display, do one last check
                 # regex to check for matching suffixes, and catch things like mailing_address_address
@@ -1438,8 +1655,19 @@ class DAFieldList(DAList):
                         # Skip pre-defined but singular objects since they are not "people" that
                         # need to turn into lists.
                         # currently this is only trial_court
-                        # strip trailing numbers so we end up with just the people object, i.e. `users`
-                        people.add(re.sub(r"\d+$", "", matches.groups()[0]))
+                        # Trailing digits and underscores are an index, not part
+                        # of the name: `dependent_1_age` is about `dependent`
+                        prefix = re.sub(r"[_\d]+$", "", matches.groups()[0])
+                        suffix = field_to_check[len(matches.groups()[0]) :]
+                        guessed[prefix].add(suffix)
+
+        for prefix, suffixes_seen in guessed.items():
+            if unlikely_person_prefix(prefix):
+                continue
+            if person_prefix_needs_corroboration(prefix) and len(suffixes_seen) < 2:
+                continue
+            people.add(prefix)
+
         # A prefix like `from` (from a `from_phone` PDF field) is a Python
         # keyword, and one like `list` or `nav` is already taken by Python or
         # Docassemble, so neither can be the name of a person list
@@ -1464,11 +1692,19 @@ class DAFieldList(DAList):
         0-based index found per person type determines the quantity:
         index == 0 → ``"one"``, index >= 1 → ``"more"``.
 
+        People the author marked themselves count too. A form with
+        ``patient1_name_first`` and ``patient2_name_first`` says just as
+        plainly that there can be more than one patient as ``users2_name_first``
+        says there can be more than one user, and without this the generated
+        ``objects`` block leaves the list unconfigured.
+
         Returns:
             A dict mapping canonical person name → ``"one"`` or ``"more"``.
             Person types with no indexed fields are omitted.
         """
-        known_plurals = set(reserved_person_pluralizers_map.values())
+        known_plurals = set(reserved_person_pluralizers_map.values()) | set(
+            self.custom_people_plurals.values()
+        )
         max_indices: Dict[str, int] = {}
         for field_item in self:
             display_var = getattr(field_item, "final_display_var", None) or ""
@@ -1519,19 +1755,19 @@ class DAFieldList(DAList):
         self.consolidate_duplicate_fields()
 
     def auto_mark_people_as_builtins(self):
+        """Mark the people the field names imply, without asking anyone.
+
+        This is what "I'm feeling lucky", the REST API, the editor's
+        new-project upload and `generate_interview_from_path` all rely on:
+        nobody confirms the guess, so whatever it decides ships in the
+        generated interview.
+
+        `custom_only=True` is the stricter reading -- a lone `X_name` field is
+        not enough on its own, since that turns a single text field into a list
+        of people to gather. Everything else the guess has to clear lives in
+        `get_person_candidates`.
         """
-        Mark people as built-ins if they match heuristics, without asking. For
-        use with "I'm feeling lucky" feature.
-        """
-        # Use stricter candidates to avoid false positives like generic `_name`
-        # fields becoming list gathers (e.g., `County.gather()`).
-        candidates = self.get_person_candidates(custom_only=True)
-        candidates = {
-            candidate
-            for candidate in candidates
-            if re.match(r"^[a-z][a-z0-9_]*$", candidate)
-        }
-        self.mark_people_as_builtins(candidates)
+        self.mark_people_as_builtins(self.get_person_candidates(custom_only=True))
 
     def auto_label_fields(self):
         for field in self.elements:
