@@ -362,8 +362,6 @@ fields:
     accept: |
       "application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 validation code: |
-  # HACK Litcon 2023: remove these confusing checkboxes for now
-  yes_normalize_fields = False
   for document in interview.uploaded_templates:
     if document.mimetype == "application/pdf":
       try:

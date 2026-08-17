@@ -63,6 +63,7 @@ import mako.template
 import more_itertools
 import os
 import re
+import shutil
 import tempfile
 import uuid
 import zipfile
@@ -85,6 +86,12 @@ class WeaverGenerationResult:
     yaml_text: str
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
+    #: `(old name, new name)` for the PDF fields renaming would improve. Only
+    #: applied when `normalize_field_names` was asked for; reported either way
+    #: so a caller can show them and offer to run again.
+    suggested_renames: List[Tuple[str, str]] = field(default_factory=list)
+    #: Whether `suggested_renames` were written into the template
+    renames_applied: bool = False
 
 
 @dataclass
@@ -155,6 +162,8 @@ __all__ = [
     "get_pdf_validation_errors",
     "get_pdf_variable_name_matches",
     "get_variable_name_warnings",
+    "field_name_is_usable",
+    "suggested_field_renames",
     "merged_field_names",
     "rename_field_screen_fields",
     "pdf_rename_mapping",
@@ -4452,6 +4461,76 @@ def get_variable_name_warnings(fields: Iterable[DAField]) -> Iterable[str]:
     ]
 
 
+def field_name_is_usable(field_name: str) -> bool:
+    """True if a PDF field name can already be used as it is.
+
+    A name that is a lowercase snake_case identifier needs no help, and one
+    that already follows the AssemblyLine conventions needs even less. Renaming
+    those is not an improvement -- FormFyxer drops the index from
+    `users1_name_first`, which is how two different people end up sharing one
+    variable.
+    """
+    if not field_name:
+        return False
+    if is_reserved_label(field_name):
+        return True
+    return bool(re.match(r"^[a-z][a-z0-9_]*$", field_name))
+
+
+def suggested_field_renames(field_names: Sequence[str]) -> List[Tuple[str, str]]:
+    """The renames worth applying to a PDF's field names, oldest name first.
+
+    FormFyxer's renamer is deliberately aggressive: it rewrites every field,
+    strips the index off AssemblyLine names, and disambiguates collisions with
+    a `__1`/`__2` suffix -- which is exactly the marker the Weaver strips back
+    off, so the two fields end up writing the same answer. This narrows it to
+    the names that actually need help and drops any rename that would make two
+    fields share a variable.
+
+    Args:
+        field_names (Sequence[str]): the field names currently in the PDF.
+
+    Returns:
+        List[Tuple[str, str]]: `(old name, new name)` pairs to apply.
+    """
+    if not field_names:
+        return []
+    try:
+        new_names, _confidence = formfyxer.fallback_rename_fields(list(field_names))
+    except Exception as exc:
+        log(f"Unable to suggest field renames: {exc!r}")
+        return []
+
+    def variable_for(name: str) -> str:
+        """The variable a field name ends up writing to."""
+        stripped = remove_multiple_appearance_indicator(varname(name))
+        try:
+            return map_raw_to_final_display(stripped)
+        except ParsingException:
+            return stripped
+
+    # Anything we are leaving alone still occupies its variable
+    taken = {variable_for(name) for name in field_names if field_name_is_usable(name)}
+    renames: List[Tuple[str, str]] = []
+    for old_name, new_name in zip(field_names, new_names):
+        if field_name_is_usable(old_name) or new_name == old_name:
+            continue
+        # FormFyxer adds `__1`/`__2` to break ties, but that is the Weaver's
+        # multiple-appearance marker, so it merges the fields instead
+        new_name = remove_multiple_appearance_indicator(new_name)
+        # Only worth doing if the replacement is itself a name we could use;
+        # a field named "  " normalizes to "_", which helps nobody
+        if not field_name_is_usable(new_name):
+            continue
+        variable = variable_for(new_name)
+        if not variable or variable in taken:
+            # Renaming would put this field on top of another one
+            continue
+        taken.add(variable)
+        renames.append((old_name, new_name))
+    return renames
+
+
 def merged_field_names(fields: Iterable[DAField]) -> List[str]:
     """The raw PDF field names that normalization collapsed onto each other.
 
@@ -6110,6 +6189,57 @@ def generate_interview_artifacts(
     )
 
 
+def _apply_field_name_normalization(
+    input_path: str,
+    *,
+    output_dir: Optional[str],
+    exact_name: str,
+    normalize_field_names: bool,
+) -> Tuple[List[Tuple[str, str]], bool, str]:
+    """Work out, and optionally apply, the field renames worth making.
+
+    Renaming happens on a copy. The caller handed us a path to their own file,
+    and a draft-generation call has no business rewriting it.
+
+    Args:
+        input_path (str): the template the caller gave us.
+        output_dir (Optional[str]): where generated files go, if anywhere.
+        exact_name (str): the filename the template should keep.
+        normalize_field_names (bool): whether to write the renames out.
+
+    Returns:
+        Tuple[List[Tuple[str, str]], bool, str]: the suggested renames, whether
+        they were applied, and the path to use as the template from here on.
+    """
+    if not input_path.lower().endswith(".pdf"):
+        return [], False, input_path
+    try:
+        field_names = [
+            item[0]
+            for item in _make_static_file_from_path(
+                input_path, filename=exact_name
+            ).get_pdf_fields()
+        ]
+    except Exception as exc:
+        log(f"Unable to read fields from {input_path}: {exc!r}")
+        return [], False, input_path
+
+    renames = suggested_field_renames(field_names)
+    if not renames or not normalize_field_names:
+        return renames, False, input_path
+
+    working_dir = output_dir or tempfile.mkdtemp(prefix="alweaver-normalize-")
+    os.makedirs(working_dir, exist_ok=True)
+    renamed_path = os.path.join(working_dir, f"normalized_{exact_name}")
+    shutil.copyfile(input_path, renamed_path)
+    try:
+        formfyxer.rename_pdf_fields(renamed_path, renamed_path, dict(renames))
+    except Exception as exc:
+        log(f"Unable to rename fields in {input_path}: {exc!r}")
+        return renames, False, input_path
+    return renames, True, renamed_path
+
+
 def generate_interview_from_path(
     input_path: str,
     *,
@@ -6130,6 +6260,7 @@ def generate_interview_from_path(
     interview_overrides: Optional[Dict[str, Any]] = None,
     field_definitions: Optional[List[FieldDefinition]] = None,
     screen_definitions: Optional[List[Screen]] = None,
+    normalize_field_names: bool = False,
 ) -> WeaverGenerationResult:
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
@@ -6145,6 +6276,12 @@ def generate_interview_from_path(
     _ensure_current_question_package()
     resolved_exact_name = os.path.basename(
         str(exact_name or os.path.basename(input_path) or input_path).strip()
+    )
+    suggested_renames, renames_applied, input_path = _apply_field_name_normalization(
+        input_path,
+        output_dir=output_dir,
+        exact_name=resolved_exact_name,
+        normalize_field_names=normalize_field_names,
     )
     da_file = _make_static_file_from_path(input_path, filename=resolved_exact_name)
 
@@ -6335,4 +6472,6 @@ def generate_interview_from_path(
         yaml_text=artifacts.yaml_text,
         yaml_path=yaml_path,
         package_zip_path=package_zip_path,
+        suggested_renames=suggested_renames,
+        renames_applied=renames_applied,
     )

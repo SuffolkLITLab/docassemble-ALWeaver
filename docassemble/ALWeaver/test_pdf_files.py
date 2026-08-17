@@ -6,6 +6,8 @@ from .interview_generator import (
     get_pdf_validation_errors,
     DAField,
     merged_field_names,
+    field_name_is_usable,
+    suggested_field_renames,
     rename_field_screen_fields,
     pdf_rename_mapping,
 )
@@ -270,3 +272,72 @@ class test_merged_field_names(unittest.TestCase):
         by_label = {entry["label"]: entry for entry in screen_fields}
         self.assertIn("help", by_label["y"])
         self.assertNotIn("help", by_label["x"])
+
+
+class test_suggested_field_renames(unittest.TestCase):
+    """Normalization should only touch names that need the help.
+
+    FormFyxer's renamer rewrites every field: it drops the index from
+    `users1_name_first` and breaks ties with a `__1`/`__2` suffix, which is the
+    Weaver's multiple-appearance marker, so the fields it disambiguates end up
+    writing the same answer.
+    """
+
+    def test_names_that_already_work_are_left_alone(self):
+        for names in (
+            ["users1_name_first", "users2_name_first"],
+            ["docket_number", "signature_date"],
+            ["inspector_name", "patient1_phone_number"],
+        ):
+            with self.subTest(names=names):
+                self.assertEqual(suggested_field_renames(names), [])
+
+    def test_human_readable_labels_get_renamed(self):
+        renames = dict(suggested_field_renames(["Name", "Signature", "City State Zip"]))
+        self.assertEqual(renames["Name"], "users_name")
+        self.assertEqual(renames["Signature"], "users_signature")
+        self.assertEqual(renames["City State Zip"], "city_state_zip")
+
+    def test_xfa_style_names_get_renamed(self):
+        renames = dict(
+            suggested_field_renames(
+                [
+                    "form1[0].#pageSet[0].Page1[0].TextField4[1]",
+                    "form1[0].BodyPage1[0].S1[0].TextField4[0]",
+                ]
+            )
+        )
+        self.assertEqual(len(renames), 2)
+        for new_name in renames.values():
+            self.assertRegex(new_name, r"^[a-z][a-z0-9_]*$")
+        self.assertEqual(len(set(renames.values())), 2, "renamed onto each other")
+
+    def test_a_rename_never_merges_two_fields(self):
+        """`Text1` and `Text2` both normalize to `text`; only one can have it."""
+        renames = suggested_field_renames(["Text1", "Text2", "Text3"])
+        self.assertEqual(len(renames), 1)
+        self.assertEqual(renames[0][1], "text")
+
+    def test_the_multiple_appearance_marker_is_not_used_to_break_ties(self):
+        for _old, new_name in suggested_field_renames(["Text1", "Text2"]):
+            with self.subTest(new_name=new_name):
+                self.assertNotRegex(new_name, r"__\d+$")
+
+    def test_renames_never_collide_with_a_name_left_alone(self):
+        renames = suggested_field_renames(["city_state_zip", "City State Zip"])
+        self.assertEqual(renames, [])
+
+    def test_empty_input(self):
+        self.assertEqual(suggested_field_renames([]), [])
+
+
+class test_field_name_is_usable(unittest.TestCase):
+    def test_usable(self):
+        for name in ("users1_name_first", "docket_number", "inspector_name", "foo"):
+            with self.subTest(name=name):
+                self.assertTrue(field_name_is_usable(name))
+
+    def test_not_usable(self):
+        for name in ("Name", "City State Zip", "Text1", "", "form1[0].Page1[0]"):
+            with self.subTest(name=name):
+                self.assertFalse(field_name_is_usable(name))
