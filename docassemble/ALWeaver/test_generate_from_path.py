@@ -527,14 +527,8 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestAutoDraftPersonDetection(unittest.TestCase):
-    """The paths with no author to correct them: API, editor, plain Python.
-
-    All three reach `DAInterview.auto_assign_attributes`, so they get the same
-    person guessing as the interactive flow -- but none of them show the
-    confirmation screen, so a bad guess ships. These pin the guessing that
-    happens with nobody watching.
-    """
+class _TestAutoDraftBase(unittest.TestCase):
+    """Shared helpers for automatic-draft regression tests."""
 
     @staticmethod
     def _offline_cluster(fields, tools_token=None):
@@ -592,6 +586,9 @@ class TestAutoDraftPersonDetection(unittest.TestCase):
                     **options,
                 )
             return result, Path(result.yaml_path).read_text(encoding="utf-8")
+
+class TestAutoDraftPersonDetection(_TestAutoDraftBase):
+    """Automatic drafts use the same person heuristics as the interactive flow."""
 
     @staticmethod
     def _people(yaml_text):
@@ -671,7 +668,92 @@ class TestAutoDraftPersonDetection(unittest.TestCase):
         self.assertEqual(referenced - declared - al_provided, set())
 
 
-class TestRestApiAutoDraft(unittest.TestCase):
+class TestAutoDraftFieldNameNormalization(_TestAutoDraftBase):
+    AWKWARD = ["Name", "Signature", "City State Zip", "users1_name_first"]
+
+    @staticmethod
+    def _attachment_fields(yaml_text):
+        return re.findall(r'(?m)^      - "([^"]+)"', yaml_text)
+
+    def test_off_by_default_but_reported(self):
+        result, yaml_text = self._generate(self.AWKWARD)
+        self.assertFalse(result.renames_applied)
+        self.assertIn("Name", self._attachment_fields(yaml_text))
+        self.assertEqual(
+            dict(result.suggested_renames)["Name"],
+            "users_name",
+            "a caller needs to be able to offer the rename it didn't apply",
+        )
+
+    def test_applied_when_asked_for(self):
+        result, yaml_text = self._generate(self.AWKWARD, normalize_field_names=True)
+        self.assertTrue(result.renames_applied)
+        attachment_fields = self._attachment_fields(yaml_text)
+        self.assertIn("users_name", attachment_fields)
+        self.assertIn("city_state_zip", attachment_fields)
+        self.assertNotIn("Name", attachment_fields)
+        # Already a good name, so left exactly as it was
+        self.assertIn("users1_name_first", attachment_fields)
+
+    def test_nothing_to_do_is_not_reported_as_something(self):
+        result, _yaml_text = self._generate(
+            ["users1_name_first", "docket_number"], normalize_field_names=True
+        )
+        self.assertEqual(result.suggested_renames, [])
+        self.assertFalse(result.renames_applied)
+
+    def test_the_callers_own_file_is_never_rewritten(self):
+        """`generate_interview_from_path` is given someone else's PDF."""
+        import hashlib
+        import pikepdf
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "caller_owned.pdf")
+            pdf = pikepdf.Pdf.new()
+            page = pdf.add_blank_page(page_size=(612, 792))
+            field = pdf.make_indirect(
+                pikepdf.Dictionary(
+                    FT=pikepdf.Name("/Tx"),
+                    T=pikepdf.String("Name"),
+                    Ff=0,
+                    Type=pikepdf.Name("/Annot"),
+                    Subtype=pikepdf.Name("/Widget"),
+                    Rect=pikepdf.Array([50, 700, 300, 716]),
+                    F=4,
+                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                )
+            )
+            page.Annots = pikepdf.Array([field])
+            pdf.Root.AcroForm = pdf.make_indirect(
+                pikepdf.Dictionary(
+                    Fields=pikepdf.Array([field]),
+                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                    NeedAppearances=True,
+                )
+            )
+            pdf.save(pdf_path)
+            before = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
+
+            output_dir = os.path.join(tmpdir, "out")
+            os.makedirs(output_dir)
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=self._offline_cluster,
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=output_dir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    normalize_field_names=True,
+                )
+            self.assertTrue(result.renames_applied)
+            after = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
+            self.assertEqual(before, after)
+
+
+class TestRestApiFieldNameNormalization(unittest.TestCase):
     """The REST API and the editor both go through `generate_interview_from_bytes`."""
 
     def _generate(self, field_names, **options):
@@ -712,7 +794,7 @@ class TestRestApiAutoDraft(unittest.TestCase):
             with patch.object(
                 interview_generator_module.formfyxer,
                 "cluster_screens",
-                side_effect=TestAutoDraftPersonDetection._offline_cluster,
+                side_effect=_TestAutoDraftBase._offline_cluster,
             ):
                 return generate_interview_from_bytes(
                     filename="api.pdf",
@@ -724,6 +806,28 @@ class TestRestApiAutoDraft(unittest.TestCase):
                         **options,
                     },
                 )
+
+    def test_renames_are_reported_and_can_be_asked_for(self):
+        payload = self._generate(["Name", "users1_name_first"])
+        self.assertFalse(payload["field_renames_applied"])
+        self.assertEqual(
+            payload["suggested_field_renames"],
+            [{"from": "Name", "to": "users_name"}],
+        )
+
+        applied = self._generate(
+            ["Name", "users1_name_first"], normalize_field_names=True
+        )
+        self.assertTrue(applied["field_renames_applied"])
+        self.assertIn('- "users_name"', applied["yaml_text"])
+
+    def test_the_option_survives_the_api_option_parsing(self):
+        from .api_utils import coerce_generation_options
+
+        self.assertEqual(
+            coerce_generation_options({"normalize_field_names": "true"}),
+            {"normalize_field_names": True},
+        )
 
     def test_person_detection_matches_the_module(self):
         payload = self._generate(

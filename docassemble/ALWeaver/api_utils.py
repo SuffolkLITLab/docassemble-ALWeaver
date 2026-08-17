@@ -101,6 +101,7 @@ def coerce_generation_options(raw_options: Mapping[str, Any]) -> Dict[str, Any]:
         "include_next_steps",
         "include_download_screen",
         "use_llm_assist",
+        "normalize_field_names",
     ):
         if key in raw_options and raw_options.get(key) is not None:
             options[key] = parse_bool(raw_options.get(key), default=False)
@@ -238,6 +239,14 @@ def generate_interview_from_bytes(
         )
 
         payload: Dict[str, Any] = {"input_filename": safe_filename}
+        # Report these either way: a caller that did not ask for renaming can
+        # show what it would do and offer to run again with it turned on.
+        if result.suggested_renames:
+            payload["suggested_field_renames"] = [
+                {"from": old_name, "to": new_name}
+                for old_name, new_name in result.suggested_renames
+            ]
+            payload["field_renames_applied"] = result.renames_applied
         if include_yaml_text:
             payload["yaml_text"] = result.yaml_text
         if result.yaml_path:
@@ -298,6 +307,15 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
                                         "use_llm_assist": {"type": "boolean"},
+                                        "normalize_field_names": {
+                                            "type": "boolean",
+                                            "description": (
+                                                "Rename PDF fields whose names cannot be used as "
+                                                "variables. Names that already work are left alone, "
+                                                "and no field is renamed onto another one. The "
+                                                "suggested renames are reported either way."
+                                            ),
+                                        },
                                         "field_definitions": {"type": "string"},
                                         "screen_definitions": {"type": "string"},
                                         "interview_overrides": {"type": "string"},
@@ -338,6 +356,15 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
                                         "use_llm_assist": {"type": "boolean"},
+                                        "normalize_field_names": {
+                                            "type": "boolean",
+                                            "description": (
+                                                "Rename PDF fields whose names cannot be used as "
+                                                "variables. Names that already work are left alone, "
+                                                "and no field is renamed onto another one. The "
+                                                "suggested renames are reported either way."
+                                            ),
+                                        },
                                         "field_definitions": {
                                             "type": "array",
                                             "items": {"type": "object"},
