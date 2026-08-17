@@ -102,6 +102,8 @@ class test_pdfs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
 class test_unhandled_pdf_field_types(unittest.TestCase):
     """Drop-downs and list boxes have to be called out, not silently accepted.
 

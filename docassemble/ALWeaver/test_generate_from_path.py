@@ -579,6 +579,8 @@ class TestGuardIndexedReference(unittest.TestCase):
             _guard_indexed_reference("previous_names[1].first", self.KNOWN_LISTS),
             "previous_names[1].first",
         )
+
+
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
@@ -638,6 +640,7 @@ class _TestAutoDraftBase(unittest.TestCase):
                     **options,
                 )
             return result, Path(result.yaml_path).read_text(encoding="utf-8")
+
 
 class TestAutoDraftPersonDetection(_TestAutoDraftBase):
     """Automatic drafts use the same person heuristics as the interactive flow."""
