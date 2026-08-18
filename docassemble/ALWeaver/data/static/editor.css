@@ -951,7 +951,8 @@ html, body {
 }
 
 .editor-field-type-dropdown {
-  min-width: 190px;
+  width: 100%;
+  min-width: 0;
 }
 
 .editor-field-type-btn {
@@ -960,6 +961,7 @@ html, body {
   gap: 6px;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   padding: 6px 10px;
   font-size: 12px;
   text-transform: capitalize;
@@ -967,6 +969,10 @@ html, body {
 
 .editor-field-type-btn span {
   flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: left;
 }
 

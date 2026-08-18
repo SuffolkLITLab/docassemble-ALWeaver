@@ -6644,10 +6644,10 @@
             html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
             html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
             html += '</div>';
-            var activeIndicators = _fieldActiveIndicators(dtype, fmods, choices, codeExpr);
+            var activeIndicators = _fieldActiveIndicators(fmods);
             if (activeIndicators.length > 0) {
               html += '<div class="editor-field-indicators" aria-label="Active options">';
-              activeIndicators.slice(0, 3).forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
+              activeIndicators.forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
               html += '</div>';
             }
           }
@@ -7193,13 +7193,13 @@
     return map[key] || 'fa-input-text';
   }
 
-  function _fieldActiveIndicators(dtype, fmods, choices, codeExpr) {
+  function _fieldActiveIndicators(fmods) {
     var indicators = [];
-    if (CHOICE_TYPES.indexOf(dtype) !== -1 && choices) indicators.push('choices');
-    if (codeExpr) indicators.push('code');
-    if (fmods['show if'] || fmods['hide if'] || fmods['enable if'] || fmods['disable if']) indicators.push('logic');
-    if (fmods.default || fmods.help || fmods.hint) indicators.push('display');
-    if (fmods.validate || fmods['validation code']) indicators.push('validation');
+    // Only flag consequential settings that are otherwise hidden in the
+    // settings panel. Choices and code are visible in the field editor, while
+    // a generic "display" badge does not tell an author what needs attention.
+    if (fmods['show if'] || fmods['hide if'] || fmods['enable if'] || fmods['disable if']) indicators.push('Conditional');
+    if (fmods.validate || fmods['validation code']) indicators.push('Validation');
     return indicators;
   }
 
