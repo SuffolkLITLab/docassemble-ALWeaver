@@ -354,6 +354,148 @@
     return bootstrap.Modal.getOrCreateInstance(modalEl);
   }
 
+  // -------------------------------------------------------------------------
+  // LIST topic picker
+  //
+  // Typing taxonomy codes by hand means knowing them by heart, so the code
+  // fields get a picker instead. It is built the way ALToolbox's
+  // `al_tree_select` is -- ordinary <details>/<summary> groups around ordinary
+  // checkboxes -- so keyboard, screen reader and find-in-page all work with no
+  // ARIA tree bookkeeping. The taxonomy itself comes from the same
+  // `get_LIST_codes()` reader the question-driven Weaver uses.
+  // -------------------------------------------------------------------------
+  var listTopics = {
+    groups: null,
+    loading: null,
+    targetId: null,
+    separator: ', ',
+  };
+
+  function loadListTopics() {
+    if (listTopics.groups) return Promise.resolve(listTopics.groups);
+    if (listTopics.loading) return listTopics.loading;
+    listTopics.loading = apiGet('/api/list-topics').then(function (res) {
+      listTopics.loading = null;
+      if (!res.success || !res.data) throw new Error('Unable to load the LIST taxonomy.');
+      listTopics.groups = res.data.groups || [];
+      return listTopics.groups;
+    }).catch(function (error) {
+      listTopics.loading = null;
+      throw error;
+    });
+    return listTopics.loading;
+  }
+
+  function _readTopicCodes(input) {
+    if (!input) return [];
+    return String(input.value || '')
+      .split(/[\n,]/)
+      .map(function (part) { return part.trim(); })
+      .filter(Boolean);
+  }
+
+  function renderListTopicsTree(selected) {
+    var tree = document.getElementById('list-topics-tree');
+    if (!tree) return;
+    var chosen = {};
+    (selected || []).forEach(function (code) { chosen[code] = true; });
+    var html = '';
+    (listTopics.groups || []).forEach(function (group, groupIndex) {
+      var groupId = 'list-topic-group-' + groupIndex;
+      html += '<details class="editor-topic-group" data-topic-group open>';
+      html += '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">' + esc(group.label) + '</span>';
+      html += '<span class="badge text-bg-primary editor-topic-count" data-topic-count hidden></span></summary>';
+      html += '<div class="editor-topic-children">';
+      (group.topics || []).forEach(function (topic, topicIndex) {
+        var inputId = groupId + '-' + topicIndex;
+        var searchText = (topic.label + ' ' + topic.code).toLowerCase();
+        html += '<div class="form-check editor-topic-item" data-topic-item data-search="' + esc(searchText) + '">';
+        html += '<input class="form-check-input" type="checkbox" id="' + esc(inputId) + '" data-topic-code="' + esc(topic.code) + '"' + (chosen[topic.code] ? ' checked' : '') + '>';
+        html += '<label class="form-check-label' + (topic.heading ? ' fw-semibold' : '') + '" for="' + esc(inputId) + '">' + esc(topic.label);
+        html += ' <span class="text-muted font-monospace editor-tiny">' + esc(topic.code) + '</span></label>';
+        html += '</div>';
+      });
+      html += '</div></details>';
+    });
+    tree.innerHTML = html;
+    updateListTopicsCounts();
+  }
+
+  function updateListTopicsCounts() {
+    var tree = document.getElementById('list-topics-tree');
+    if (!tree) return;
+    var total = 0;
+    tree.querySelectorAll('[data-topic-group]').forEach(function (group) {
+      var checked = group.querySelectorAll('input[data-topic-code]:checked').length;
+      total += checked;
+      var badge = group.querySelector('[data-topic-count]');
+      if (badge) {
+        badge.textContent = checked ? String(checked) : '';
+        badge.hidden = checked === 0;
+      }
+    });
+    var count = document.getElementById('list-topics-selected-count');
+    if (count) count.textContent = total === 1 ? '1 topic selected' : total + ' topics selected';
+  }
+
+  function applyListTopicsFilter() {
+    var field = document.getElementById('list-topics-filter');
+    var tree = document.getElementById('list-topics-tree');
+    if (!tree) return;
+    var query = String((field && field.value) || '').trim().toLowerCase();
+    var anyVisible = false;
+    tree.querySelectorAll('[data-topic-group]').forEach(function (group) {
+      var visibleItems = 0;
+      group.querySelectorAll('[data-topic-item]').forEach(function (item) {
+        var visible = !query || String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
+        item.classList.toggle('d-none', !visible);
+        if (visible) visibleItems += 1;
+      });
+      group.classList.toggle('d-none', visibleItems === 0);
+      if (visibleItems) {
+        anyVisible = true;
+        // A filter that leaves matches inside a closed group hides them, so
+        // open the group while a filter is running.
+        if (query) group.open = true;
+      }
+    });
+    var empty = document.getElementById('list-topics-empty');
+    if (empty) empty.classList.toggle('d-none', anyVisible);
+  }
+
+  function openListTopicsPicker(targetId, separator) {
+    var input = document.getElementById(targetId);
+    if (!input) return;
+    listTopics.targetId = targetId;
+    listTopics.separator = separator || ', ';
+    var tree = document.getElementById('list-topics-tree');
+    if (tree) tree.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
+    var filter = document.getElementById('list-topics-filter');
+    if (filter) filter.value = '';
+    var modal = getOrCreateBootstrapModal('list-topics-modal');
+    if (modal) modal.show();
+    loadListTopics().then(function () {
+      renderListTopicsTree(_readTopicCodes(input));
+      applyListTopicsFilter();
+    }).catch(function (error) {
+      if (tree) tree.innerHTML = '<div class="alert alert-danger">' + esc(error.message || 'Unable to load the LIST taxonomy.') + '</div>';
+    });
+  }
+
+  function applyListTopicsSelection() {
+    var input = document.getElementById(listTopics.targetId);
+    var tree = document.getElementById('list-topics-tree');
+    if (!input || !tree) return;
+    var codes = [];
+    tree.querySelectorAll('input[data-topic-code]:checked').forEach(function (box) {
+      codes.push(box.getAttribute('data-topic-code'));
+    });
+    input.value = codes.join(listTopics.separator);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    closeBootstrapModal('list-topics-modal');
+  }
+
   function closeBootstrapModal(elementId) {
     var modalEl = document.getElementById(elementId);
     if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
@@ -386,6 +528,14 @@
         'id: objects_' + stamp + '\n' +
         'objects:\n' +
         '  - user: Individual\n'
+      );
+    }
+    if (kind === 'comment') {
+      // No id: a comment block is prose about the interview, and docassemble
+      // has nothing to reach it by.
+      return (
+        'comment: |\n' +
+        '  Explain what the blocks below do, and why.\n'
       );
     }
     if (kind === 'attachment') {
@@ -1905,9 +2055,13 @@
   // Escaping
   // -------------------------------------------------------------------------
   function esc(text) {
+    // Serializing a text node escapes &, < and > but leaves quotes alone, and
+    // almost every call here lands inside a double-quoted HTML attribute --
+    // block YAML in a title=, a help string in data-bs-content=. A quote in the
+    // value would end the attribute early, so escape those too.
     var el = document.createElement('span');
-    el.textContent = text || '';
-    return el.innerHTML;
+    el.textContent = text === null || text === undefined ? '' : text;
+    return el.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function cloneData(value) {
@@ -2361,7 +2515,8 @@
       html += '<label class="editor-tiny mt-2" for="insert-image-width">Width (optional)</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-image-width" placeholder="100% or 250px">';
       html += '<label class="editor-tiny mt-2" for="insert-image-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-image-alt" placeholder="Describe the image">';
+      html += '<input class="form-control form-control-sm mt-1" id="insert-image-alt">';
+      html += '<div class="editor-tiny mt-1">Describe the image for someone who cannot see it. Leave blank only if the image is decorative.</div>';
     } else if (action === 'table') {
       html += '<label class="editor-tiny" for="insert-table-cols">Columns</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-table-cols" type="number" min="2" max="8" value="2">';
@@ -2373,14 +2528,16 @@
       html += '<label class="editor-tiny mt-2" for="insert-file-width">Width (optional)</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-file-width" placeholder="100% or 250px">';
       html += '<label class="editor-tiny mt-2" for="insert-file-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-file-alt" placeholder="Accessible description">';
+      html += '<input class="form-control form-control-sm mt-1" id="insert-file-alt">';
+      html += '<div class="editor-tiny mt-1">Describe the file for someone using a screen reader.</div>';
     } else if (action === 'qr') {
       html += '<label class="editor-tiny" for="insert-qr-text">QR text or URL</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-qr-text" value="https://">';
       html += '<label class="editor-tiny mt-2" for="insert-qr-width">Width (optional)</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-qr-width" placeholder="200px">';
       html += '<label class="editor-tiny mt-2" for="insert-qr-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-qr-alt" placeholder="QR code description">';
+      html += '<input class="form-control form-control-sm mt-1" id="insert-qr-alt">';
+      html += '<div class="editor-tiny mt-1">Say where the QR code leads, for people who cannot scan it.</div>';
     } else if (action === 'youtube') {
       html += '<label class="editor-tiny" for="insert-youtube-id">YouTube video ID</label>';
       html += '<input class="form-control form-control-sm mt-1" id="insert-youtube-id" placeholder="RpgYyuLt7Dx">';
@@ -4864,6 +5021,16 @@
     return null;
   }
 
+  function blockQuickView(block, limit) {
+    // Hovering an outline row previews the block, so a row whose title is thin
+    // (a comment, an unnamed code block) is still recognisable at a glance.
+    var body = String((block && block.yaml) || '').replace(/\r\n/g, '\n').trim();
+    if (!body) return String((block && block.title) || '');
+    var max = limit || 400;
+    if (body.length > max) body = body.slice(0, max - 1).replace(/\s+\S*$/, '') + '\u2026';
+    return body;
+  }
+
   function typeClass(type) {
     if (type === 'question') return 'editor-outline-type-q';
     if (type === 'review') return 'editor-outline-type-review';
@@ -4872,6 +5039,7 @@
     if (type === 'metadata') return 'editor-outline-type-meta';
     if (type === 'includes') return 'editor-outline-type-inc';
     if (type === 'commented') return 'editor-outline-type-disabled';
+    if (type === 'comment') return 'editor-outline-type-comment';
     return 'editor-outline-type-oth';
   }
 
@@ -4884,6 +5052,7 @@
     if (type === 'metadata') return 'Meta';
     if (type === 'includes') return 'Inc';
     if (type === 'default_screen_parts') return 'Def';
+    if (type === 'comment') return 'Comment';
     return type.charAt(0).toUpperCase() + type.slice(1, 3);
   }
 
@@ -4975,7 +5144,7 @@
       var tc = typeClass(displayType);
       var lintFindings = getBlockLintFindings(block.id);
       var lintClass = lintFindings.length ? (' ' + getBlockLintFeedbackClass(lintFindings)) : '';
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + lintClass + '" data-block-id="' + esc(block.id) + '">';
+      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + lintClass + '" data-block-id="' + esc(block.id) + '" title="' + esc(blockQuickView(block)) + '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       if (isOutlineDragEnabled()) {
@@ -5369,7 +5538,7 @@
   var _validationInFlight = false;
 
   function getValidationDrawerTitle() {
-    return state.validationMode === 'style' ? 'Style check' : 'Errors & Warnings';
+    return state.validationMode === 'style' ? 'Style suggestions' : 'Errors & Warnings';
   }
 
   function runCurrentValidationCheck() {
@@ -5540,15 +5709,19 @@
     if (title) title.textContent = getValidationDrawerTitle();
     var count = state.validationErrors.length;
     var summary = _validationSummary(state.validationErrors);
-    var hasProblems = (summary.error + summary.warning) > 0;
+    var isStyleMode = state.validationMode === 'style';
+    // The style check reports house style, not validity. Nothing it finds stops
+    // a save, so it must not dress the topbar up the way a broken file does.
+    var hasProblems = !isStyleMode && (summary.error + summary.warning) > 0;
     var levelClass = summary.error > 0 ? 'validation-error' : (summary.warning > 0 ? 'validation-warning' : 'validation-info');
+    if (isStyleMode) levelClass = 'validation-info';
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-validation-badge]'), function (badge) {
       badge.textContent = count > 0 ? String(count) : '';
       badge.classList.toggle('d-none', count === 0);
-      badge.classList.toggle('validation-error', summary.error > 0);
-      badge.classList.toggle('validation-warning', summary.error === 0 && summary.warning > 0);
-      badge.classList.toggle('validation-info', summary.error === 0 && summary.warning === 0 && summary.info > 0);
+      badge.classList.toggle('validation-error', !isStyleMode && summary.error > 0);
+      badge.classList.toggle('validation-warning', !isStyleMode && summary.error === 0 && summary.warning > 0);
+      badge.classList.toggle('validation-info', isStyleMode || (summary.error === 0 && summary.warning === 0 && summary.info > 0));
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-btn'), function (btn) {
@@ -5558,7 +5731,7 @@
 
     // Show/hide the alert icon — only visible when there are actual errors
     Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-icon'), function (icon) {
-      icon.classList.toggle('d-none', count === 0);
+      icon.classList.toggle('d-none', isStyleMode || count === 0);
     });
 
     drawer.classList.toggle('editor-validation-has-issues', hasProblems);
@@ -5573,8 +5746,8 @@
       return;
     }
     drawer.classList.add('open');
-    var scopeText = state.validationMode === 'style'
-      ? 'This style check covers the saved source.'
+    var scopeText = isStyleMode
+      ? 'Suggestions from the shared house-style checker, against the saved source. None of these stop the interview from running or from being saved.'
       : (state.validationSourceScope === 'unsaved_source'
         ? 'This validation covers the unsaved source currently in the editor.'
         : 'This validation covers the saved source.');
@@ -5583,7 +5756,8 @@
       scopeHtml += '<div class="alert alert-warning py-1 px-2 small mb-2">The saved file changed after this editor buffer was loaded. These results still cover the local buffer; reload or merge before saving.</div>';
     }
     if (count === 0) {
-      body.innerHTML = scopeHtml + '<div class="text-muted small p-2">No errors or warnings found.</div>';
+      body.innerHTML = scopeHtml + '<div class="text-muted small p-2">'
+        + (isStyleMode ? 'No style suggestions.' : 'No errors or warnings found.') + '</div>';
       return;
     }
     var sortedErrors = (state.validationErrors || []).slice().sort(function (a, b) {
@@ -5594,9 +5768,9 @@
       return Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0);
     });
     var html = scopeHtml + '<div class="editor-validation-summary small text-muted mb-2">'
-      + summary.error + ' errors, '
-      + summary.warning + ' warnings, '
-      + summary.info + ' infos'
+      + (isStyleMode
+        ? (summary.warning + ' suggestions, ' + summary.info + ' notes')
+        : (summary.error + ' errors, ' + summary.warning + ' warnings, ' + summary.info + ' infos'))
       + '</div>';
     html += '<ul class="editor-validation-list">';
     sortedErrors.forEach(function (err) {
@@ -5640,11 +5814,108 @@
       });
   }
 
+  function _settingServerDefaultHtml(field, value) {
+    // Several of these also exist server-wide. Setting one here quietly overrides
+    // the whole server for this interview, so say what is being overridden.
+    if (!field || !field.has_server_default) return '';
+    var settings = state.assemblyLineSettings || {};
+    var entry = (settings.server_defaults || {})[field.key];
+    if (!entry) return '';
+    var serverValue = String(entry.value || '');
+    var origin = entry.source === 'config'
+      ? ('the server configuration' + (entry.config_key ? ' (' + entry.config_key + ')' : ''))
+      : 'AssemblyLine';
+    var current = (value === null || value === undefined) ? '' : String(value);
+    var overriding = current !== '' && current !== serverValue;
+    var html = '<div class="form-text editor-al-setting-server-default' + (overriding ? ' is-overriding' : '') + '">';
+    if (overriding) {
+      html += '<i class="fa-solid fa-circle-arrow-up me-1" aria-hidden="true"></i>Overrides ' + esc(origin) + ' for this interview only';
+    } else {
+      html += 'Comes from ' + esc(origin) + ' unless you set it here';
+    }
+    if (serverValue) html += ': <code>' + esc(serverValue) + '</code>';
+    html += '</div>';
+    return html;
+  }
+
+  function _settingsExplainerHtml(data) {
+    var explainer = (data && data.explainer) || '';
+    var html = '<p>' + esc(explainer) + '</p>';
+    html += '<p class="mb-0">Each section names the YAML block it writes to, and each control shows the exact metadata key or variable name, so you can always go and read or edit the YAML directly.</p>';
+    return html;
+  }
+
+  function _settingsSectionDocumentsHtml(section) {
+    // Say where a section's values land. Nothing here is magic -- it is all
+    // ordinary YAML -- and an author who knows which block to open can go and
+    // read it, or edit it by hand instead.
+    var documents = (section && section.documents) || [];
+    if (!documents.length) return '';
+    var html = '<div class="editor-al-settings-documents">';
+    html += '<span class="editor-tiny">Saved to</span> ';
+    documents.forEach(function (document_, index) {
+      if (index) html += ' <span class="editor-tiny">and</span> ';
+      html += '<code class="editor-al-settings-document" title="' + esc(document_.description) + '">' + esc(document_.id) + '</code>';
+      html += '<span class="editor-tiny"> ' + (document_.kind === 'metadata' ? 'block' : 'code block') + '</span>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function _settingComputedBlock(field) {
+    // The interview works this one out at runtime, so there is no stored value
+    // for the panel to edit.
+    var settings = state.assemblyLineSettings || {};
+    return (settings.computed || {})[field.key] || '';
+  }
+
+  function _settingComputedHtml(field) {
+    var blockId = _settingComputedBlock(field);
+    if (!blockId) return '';
+    var html = '<div class="form-text editor-al-setting-computed">';
+    html += '<i class="fa-solid fa-lock me-1" aria-hidden="true"></i>';
+    html += 'Your interview works this out while it runs, so there is no stored value for this panel to edit. ';
+    html += 'The expression above lives in the <code>' + esc(blockId) + '</code> block: open that block in the outline, or use YAML source, and edit it there. ';
+    html += 'Saving here leaves it exactly as it is.';
+    html += '</div>';
+    return html;
+  }
+
+  function _settingSourceHtml(field) {
+    // This value lives in a block the author wrote, so say so: saving edits it
+    // there rather than adding a second assignment of the same name.
+    var settings = state.assemblyLineSettings || {};
+    var managedId = settings.managed_block_id || 'alweaver assemblyline settings';
+    var source = (settings.sources || {})[field.key];
+    if (!source || source === managedId) return '';
+    return '<div class="form-text editor-al-setting-external">'
+      + '<i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>'
+      + 'Kept in your own <code>' + esc(source) + '</code>. Changing it here edits that block; Weaver does not add a second copy.'
+      + '</div>';
+  }
+
   function _settingsInput(field, value) {
     var key = esc(field.key);
     var kind = field.kind || 'text';
     var common = ' data-al-setting="' + key + '" id="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '"';
-    var variableHint = '<div class="form-text editor-al-setting-key"><code>' + key + '</code></div>';
+    var helpText = field && field.help ? '<div class="form-text editor-al-setting-help">' + esc(field.help) + '</div>' : '';
+    var computedBlock = _settingComputedBlock(field);
+    var variableHint = helpText
+      + (computedBlock
+        ? _settingComputedHtml(field)
+        : _settingServerDefaultHtml(field, value) + _settingSourceHtml(field))
+      + '<div class="form-text editor-al-setting-key"><code>' + key + '</code></div>';
+    if (computedBlock) {
+      // Whatever the field's normal control is, a computed setting holds an
+      // expression rather than a value. A checkbox or a dropdown would have to
+      // pick some position to sit in and would misreport the interview, so the
+      // expression is shown as read-only text instead.
+      var computedId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
+      return '<label class="editor-tiny" for="' + computedId + '">' + esc(field.label) + '</label>'
+        + '<input class="form-control form-control-sm mt-1 font-monospace"' + common + ' value="'
+        + esc(value === null || value === undefined ? '' : value) + '" readonly disabled aria-disabled="true">'
+        + variableHint;
+    }
     if (kind === 'boolean') {
       return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
     }
@@ -5654,8 +5925,16 @@
       return select + '</select>' + variableHint;
     }
     var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
+    if (field.key === 'LIST_topics') {
+      var topicsId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
+      return '<label class="editor-tiny" for="' + topicsId + '">' + esc(field.label) + '</label>'
+        + '<textarea class="form-control form-control-sm mt-1" rows="3"' + common + '>' + esc(rendered) + '</textarea>'
+        + '<div class="mt-1"><button class="btn btn-sm btn-outline-secondary" type="button" data-open-list-topics="' + topicsId + '" data-topic-separator="newline"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
+        + '<div class="form-text">One code per line.</div>'
+        + variableHint;
+    }
     if (kind === 'area' || kind === 'list' || kind === 'python') {
-      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + variableHint + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '');
+      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
     }
     return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
   }
@@ -5686,12 +5965,15 @@
     }
     var data = state.assemblyLineSettings;
     var html = '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings ';
+    html += '<button type="button" class="btn btn-sm btn-link p-0 align-baseline editor-al-settings-explainer" data-al-settings-explainer data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true" data-bs-title="What is this page?" data-bs-content="' + esc(_settingsExplainerHtml(data)) + '">What is this?</button>';
+    html += '</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
     html += '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' + (state.assemblyLineSettingsDirty ? '' : ' disabled') + '>Save settings</button></div></div></div>';
     html += '<div class="editor-card"><div class="editor-card-body"><label class="editor-tiny" for="assemblyline-settings-filter">Filter settings</label><div class="input-group input-group-sm mt-1"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><input class="form-control" id="assemblyline-settings-filter" type="search" value="' + esc(state.assemblyLineSettingsFilter) + '" placeholder="Search by label or magic variable name" autocomplete="off"></div></div></div>';
     (data.schema || []).forEach(function (section) {
       var sectionSearch = [section.id, section.label].concat(section.notes || []).join(' ').toLowerCase();
       html += '<div class="editor-card" data-al-settings-section data-search="' + esc(sectionSearch) + '"><div class="editor-card-header">' + esc(section.label) + '</div><div class="editor-card-body">';
+      html += _settingsSectionDocumentsHtml(section);
       if (section.readonly) {
         html += '<div data-al-settings-item data-search="' + esc(sectionSearch) + '"><p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
         (section.notes || []).forEach(function (note) { html += '<li class="mb-1">' + esc(note) + '</li>'; });
@@ -5699,7 +5981,7 @@
       } else {
         html += '<div class="row g-3">';
         (section.fields || []).forEach(function (field) {
-          var fieldSearch = [field.key, field.label, section.id, section.label].join(' ').toLowerCase();
+          var fieldSearch = [field.key, field.label, field.help || '', section.id, section.label].join(' ').toLowerCase();
           html += '<div class="' + (field.pair ? 'col-12 col-md-6' : 'col-12') + '" data-al-settings-item data-search="' + esc(fieldSearch) + '">' + _settingsInput(field, data.values[field.key]) + '</div>';
         });
         html += '</div>';
@@ -5713,12 +5995,26 @@
     html += '<p class="small text-muted">See the <a href="' + esc(data.docs_url) + '" target="_blank" rel="noopener">AssemblyLine special-variable documentation</a>.</p></div>';
     canvasContent.innerHTML = html;
     applyAssemblyLineSettingsFilter();
+    _initSettingsPopovers();
+  }
+
+  function _initSettingsPopovers() {
+    if (typeof bootstrap === 'undefined' || !bootstrap.Popover) return;
+    document.querySelectorAll('[data-al-settings-explainer]').forEach(function (trigger) {
+      var existing = bootstrap.Popover.getInstance(trigger);
+      if (existing) existing.dispose();
+      bootstrap.Popover.getOrCreateInstance(trigger);
+    });
   }
 
   function collectAssemblyLineSettings() {
     var values = {};
+    var computed = (state.assemblyLineSettings || {}).computed || {};
     document.querySelectorAll('[data-al-setting]').forEach(function (input) {
       var key = input.getAttribute('data-al-setting');
+      // A computed setting is displayed but never submitted: its control holds
+      // the author's expression as text, which is not a value.
+      if (computed[key]) return;
       var field = null;
       (state.assemblyLineSettings.schema || []).some(function (section) { return (section.fields || []).some(function (candidate) { if (candidate.key === key) { field = candidate; return true; } return false; }); });
       if (!field) return;
@@ -5879,7 +6175,7 @@
     html += '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
     html += '<div class="row g-2 align-items-end">';
     html += '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
-    html += '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" placeholder="Derived from repository"></div>';
+    html += '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name"><div class="text-muted small mt-1">Leave blank to name the project after the repository.</div></div>';
     html += '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
     html += '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
@@ -6967,10 +7263,13 @@
     var availableTabs = isStandalone ? ['logic'] : ['basic', 'logic', 'help', 'validation', 'appearance', 'metadata', 'more'];
     if (availableTabs.indexOf(activeTab) === -1) activeTab = availableTabs[0];
 
-    function row(labelFor, labelText, controlHtml, rowClass) {
+    function row(labelFor, labelText, controlHtml, rowClass, hintText) {
       var out = '<div class="' + (rowClass || 'editor-field-mod-row') + '">';
       if (labelText) out += '<label class="editor-tiny" for="' + esc(labelFor) + '">' + esc(labelText) + '</label>';
       out += controlHtml;
+      // A hint that says what the value has to look like stays on screen: a
+      // placeholder is gone exactly when the author starts typing.
+      if (hintText) out += '<div class="editor-tiny editor-field-mod-hint">' + esc(hintText) + '</div>';
       out += '</div>';
       return out;
     }
@@ -7021,7 +7320,7 @@
         '<div><label class="editor-tiny" for="fmod-aota-' + fi + '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' + fi + '" data-fmod="all of the above" data-field-idx="' + fi + '" value="' + esc(String(fmods['all of the above'] !== undefined ? fmods['all of the above'] : '')) + '"></div>'
       );
       out += row('fmod-shuffle-' + fi, 'shuffle', '<select class="form-select editor-form-control" id="fmod-shuffle-' + fi + '" data-fmod="shuffle" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.shuffle ? ' selected' : '') + '>Yes</option></select>');
-      out += row('fmod-disableothers-' + fi, 'disable others', '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' + fi + '" data-fmod="disable others" data-field-idx="' + fi + '" value="' + esc(typeof fmods['disable others'] === 'boolean' ? String(fmods['disable others']) : String(fmods['disable others'] || '')) + '" placeholder="True or list of variables">');
+      out += row('fmod-disableothers-' + fi, 'disable others', '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' + fi + '" data-fmod="disable others" data-field-idx="' + fi + '" value="' + esc(typeof fmods['disable others'] === 'boolean' ? String(fmods['disable others']) : String(fmods['disable others'] || '')) + '">', null, 'True, or a list of variable names.');
       return out;
     }
 
@@ -7063,7 +7362,7 @@
       }
       out += row('fmod-validate-' + fi, 'validate', '<input class="form-control editor-form-control font-monospace" id="fmod-validate-' + fi + '" data-fmod="validate" data-field-idx="' + fi + '" value="' + esc(String(fmods.validate || '')) + '" placeholder="function_name or lambda">');
       out += row('fmod-validation-code-' + fi, 'validation code', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-code-' + fi + '" data-fmod="validation code" data-field-idx="' + fi + '" rows="2" placeholder="Python to validate">' + esc(String(fmods['validation code'] || '')) + '</textarea>');
-      out += row('fmod-validation-messages-' + fi, 'validation messages', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-messages-' + fi + '" data-fmod="validation messages" data-field-idx="' + fi + '" rows="2" placeholder="YAML dict of rule: message">' + esc(typeof fmods['validation messages'] === 'object' ? JSON.stringify(fmods['validation messages'], null, 2) : String(fmods['validation messages'] || '')) + '</textarea>');
+      out += row('fmod-validation-messages-' + fi, 'validation messages', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-messages-' + fi + '" data-fmod="validation messages" data-field-idx="' + fi + '" rows="2">' + esc(typeof fmods['validation messages'] === 'object' ? JSON.stringify(fmods['validation messages'], null, 2) : String(fmods['validation messages'] || '')) + '</textarea>', null, 'A YAML mapping of rule name to the message shown when it fails.');
       if (['file', 'files'].indexOf(dtype) !== -1 || fmods.accept !== undefined) {
         out += row('fmod-accept-' + fi, 'accept', '<input class="form-control editor-form-control" id="fmod-accept-' + fi + '" data-fmod="accept" data-field-idx="' + fi + '" value="' + esc(String(fmods.accept || '')) + '">');
       }
@@ -7078,7 +7377,7 @@
       out += row('fmod-floating-label-' + fi, 'floating label', '<select class="form-select editor-form-control" id="fmod-floating-label-' + fi + '" data-fmod="floating label" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['floating label'] ? ' selected' : '') + '>Yes</option></select>');
       out += row('fmod-grid-' + fi, 'grid', '<input class="form-control editor-form-control font-monospace" id="fmod-grid-' + fi + '" data-fmod="grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods.grid === 'object' ? JSON.stringify(fmods.grid) : String(fmods.grid || '')) + '" placeholder="1-12">');
       out += row('fmod-item-grid-' + fi, 'item grid', '<input class="form-control editor-form-control font-monospace" id="fmod-item-grid-' + fi + '" data-fmod="item grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods['item grid'] === 'object' ? JSON.stringify(fmods['item grid']) : String(fmods['item grid'] || '')) + '" placeholder="1-12">');
-      out += row('fmod-rows-' + fi, 'rows', '<input class="form-control editor-form-control font-monospace" id="fmod-rows-' + fi + '" data-fmod="rows" data-field-idx="' + fi + '" value="' + esc(String(fmods.rows || '')) + '" placeholder="textarea rows">');
+      out += row('fmod-rows-' + fi, 'rows', '<input class="form-control editor-form-control font-monospace" id="fmod-rows-' + fi + '" data-fmod="rows" data-field-idx="' + fi + '" value="' + esc(String(fmods.rows || '')) + '">', null, 'How many rows tall the textarea is.');
       out += row('fmod-inline-width-' + fi, 'inline width', '<input class="form-control editor-form-control font-monospace" id="fmod-inline-width-' + fi + '" data-fmod="inline width" data-field-idx="' + fi + '" value="' + esc(String(fmods['inline width'] || '')) + '" placeholder="15em">');
       return out;
     }
@@ -7091,13 +7390,13 @@
 
     function renderMoreTab() {
       var out = '';
-      out += row('fmod-address-auto-' + fi, 'address autocomplete', '<textarea class="form-control editor-form-control font-monospace" id="fmod-address-auto-' + fi + '" data-fmod="address autocomplete" data-field-idx="' + fi + '" rows="3" placeholder="True or YAML">' + esc(String(fmods['address autocomplete'] || '')) + '</textarea>');
+      out += row('fmod-address-auto-' + fi, 'address autocomplete', '<textarea class="form-control editor-form-control font-monospace" id="fmod-address-auto-' + fi + '" data-fmod="address autocomplete" data-field-idx="' + fi + '" rows="3">' + esc(String(fmods['address autocomplete'] || '')) + '</textarea>', null, 'True, or YAML options for the autocompleter.');
       out += row('fmod-maximum-image-size-' + fi, 'maximum image size', '<input class="form-control editor-form-control font-monospace" id="fmod-maximum-image-size-' + fi + '" data-fmod="maximum image size" data-field-idx="' + fi + '" value="' + esc(String(fmods['maximum image size'] || '')) + '">');
       out += row('fmod-image-upload-type-' + fi, 'image upload type', '<input class="form-control editor-form-control" id="fmod-image-upload-type-' + fi + '" data-fmod="image upload type" data-field-idx="' + fi + '" value="' + esc(String(fmods['image upload type'] || '')) + '" placeholder="jpeg">');
       out += row('fmod-persistent-' + fi, 'persistent', '<select class="form-select editor-form-control" id="fmod-persistent-' + fi + '" data-fmod="persistent" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.persistent ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.persistent === false || fmods.persistent === 'False' ? ' selected' : '') + '>No</option></select>');
       out += row('fmod-private-' + fi, 'private', '<select class="form-select editor-form-control" id="fmod-private-' + fi + '" data-fmod="private" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.private ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.private === false || fmods.private === 'False' ? ' selected' : '') + '>No</option></select>');
-      out += row('fmod-allow-users-' + fi, 'allow users', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-users-' + fi + '" data-fmod="allow users" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow users'] || '')) + '" placeholder="emails or user ids">');
-      out += row('fmod-allow-privileges-' + fi, 'allow privileges', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-privileges-' + fi + '" data-fmod="allow privileges" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow privileges'] || '')) + '" placeholder="developer, user">');
+      out += row('fmod-allow-users-' + fi, 'allow users', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-users-' + fi + '" data-fmod="allow users" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow users'] || '')) + '">', null, 'Email addresses or user IDs, separated by commas.');
+      out += row('fmod-allow-privileges-' + fi, 'allow privileges', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-privileges-' + fi + '" data-fmod="allow privileges" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow privileges'] || '')) + '">', null, 'Privilege names, separated by commas \u2014 for example developer, user.');
       out += row('fmod-file-css-class-' + fi, 'file css class', '<input class="form-control editor-form-control" id="fmod-file-css-class-' + fi + '" data-fmod="file css class" data-field-idx="' + fi + '" value="' + esc(String(fmods['file css class'] || '')) + '">');
       out += row('fmod-object-labeler-' + fi, 'object labeler', '<input class="form-control editor-form-control font-monospace" id="fmod-object-labeler-' + fi + '" data-fmod="object labeler" data-field-idx="' + fi + '" value="' + esc(String(fmods['object labeler'] || '')) + '" placeholder="lambda y: y.name">');
       return out;
@@ -7743,9 +8042,26 @@
   }
 
   var _uploadedFiles = [];
+  // What the create-project screen filled in for the author, so a later upload
+  // can update its own guess without stepping on anything they typed.
+  var _suggestedValues = {};
+
+  function _newProjectSection(id, title, expanded, bodyHtml) {
+    var headingId = 'new-project-heading-' + id;
+    var panelId = 'new-project-panel-' + id;
+    var html = '<div class="accordion-item">';
+    html += '<h2 class="accordion-header" id="' + headingId + '">';
+    html += '<button class="accordion-button' + (expanded ? '' : ' collapsed') + '" type="button" data-bs-toggle="collapse" data-bs-target="#' + panelId + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" aria-controls="' + panelId + '">' + esc(title) + '</button>';
+    html += '</h2>';
+    html += '<div id="' + panelId + '" class="accordion-collapse collapse' + (expanded ? ' show' : '') + '" aria-labelledby="' + headingId + '">';
+    html += '<div class="accordion-body">' + bodyHtml + '</div>';
+    html += '</div></div>';
+    return html;
+  }
 
   function renderNewProject() {
     _uploadedFiles = [];
+    _suggestedValues = { 'new-project-name': 'NewProject' };
     var html = '<div class="editor-new-project-shell">';
 
     // Header
@@ -7761,46 +8077,101 @@
     html += '</div></div>';
     html += '</div></div>';
 
-    // File upload zone
-    html += '<div class="editor-card"><div class="editor-card-header">Template files (optional)</div><div class="editor-card-body">';
-    html += '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>';
-    html += '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">';
-    html += '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>';
-    html += '<div class="text-muted small text-center mb-3">or upload a document</div>';
-    html += '<div class="editor-dropzone" id="upload-dropzone">';
-    html += '<div class="editor-dropzone-icon">&#128196;</div>';
-    html += '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>';
-    html += '<div class="text-muted small mt-1">or click to browse</div>';
-    html += '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>';
-    html += '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">';
-    html += '</div>';
-    html += '<div id="upload-file-list" class="mt-2"></div>';
-    html += '</div></div>';
+    // The screen asks for a lot at once, so each group is an accordion section.
+    // They are independent rather than exclusive (no data-bs-parent): filling a
+    // form is not a wizard, and closing the section you just typed into to open
+    // the next one would be hostile.
+    html += '<div class="accordion editor-new-project-accordion" id="new-project-accordion">';
 
-    // Project form
-    html += '<div class="editor-card"><div class="editor-card-header">Project settings</div><div class="editor-card-body">';
-    html += '<div class="d-grid gap-3">';
-    html += '<div><label class="editor-tiny" for="new-project-name">Project name</label><input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject"></div>';
-    html += '<div class="form-check form-switch m-0">';
-    html += '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>';
-    html += '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>';
-    html += '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping.</div>';
+    html += _newProjectSection('files', 'Template files', true,
+      '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">'
+      + '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>'
+      + '<div class="text-muted small text-center mb-3">or upload a document</div>'
+      + '<div class="editor-dropzone" id="upload-dropzone">'
+      + '<div class="editor-dropzone-icon">&#128196;</div>'
+      + '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>'
+      + '<div class="text-muted small mt-1">or click to browse</div>'
+      + '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>'
+      + '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">'
+      + '</div>'
+      + '<div id="upload-file-list" class="mt-2"></div>');
+
+    // Basics: what an author has to decide, and what the document cannot answer.
+    html += _newProjectSection('basics', 'Project settings', true,
+      '<div class="d-grid gap-3">'
+      + '<div><label class="editor-tiny" for="new-project-name">Project name</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">'
+      + '<div class="text-muted small mt-1">Suggested from the first uploaded document. Playground project names are letters and digits only.</div></div>'
+      + '<div><label class="editor-tiny" for="new-project-filename">Interview filename</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-filename" value="">'
+      + '<div class="text-muted small mt-1">Leave blank and Weaver names the file after the document. AssemblyLine\'s convention is a descriptive name when the package holds one interview, and <code>main.yml</code> for a runnable file in a package with several.</div></div>'
+      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label>'
+      + '<select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>'
+      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA">'
+      + '<div class="text-muted small mt-1">Preselects the state in address questions and sets the jurisdiction.</div></div></div>'
+      + '<div class="form-check form-switch m-0">'
+      + '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>'
+      + '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>'
+      + '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping. Variable names are always derived from the template\'s field labels, with or without this.</div>'
+      + '</div>'
+      + '</div>');
+
+    // Advanced: things Weaver can decide on its own, or that are already right.
+    html += _newProjectSection('advanced', 'Advanced settings', false,
+      '<div class="d-grid gap-3">'
+      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label>'
+      + '<select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select>'
+      + '<div class="text-muted small mt-1">Drives party wording and the next-steps document.</div></div>'
+      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label>'
+      + '<select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>'
+      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>'
+      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>'
+      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact question wording into your interview instead of leaving it in AssemblyLine\'s question library. It does not change how template field labels become variables.</div></div>'
+      + '</div>');
+
+    // Publishing metadata. AssemblyLine and CourtFormsOnline read these from the
+    // interview's `metadata` block; a project created without them starts out
+    // failing the shared metadata style rule, and nothing else can supply the
+    // jurisdiction or the landing page for you.
+    html += _newProjectSection('metadata', 'Publishing metadata', false,
+      '<p class="text-muted small">These become the interview\'s <code>metadata</code> block. Anything you skip Weaver fills in with a guess, and you can revise it later in AssemblyLine settings.</p>'
+      + '<div class="d-grid gap-3">'
+      + '<div class="row g-3"><div class="col-md-8"><label class="editor-tiny" for="new-project-title">Title</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-title">'
+      + '<div class="text-muted small mt-1">The form name people see in listings and on the interview\'s first screen. Suggested from the uploaded document\'s name.</div></div>'
+      + '<div class="col-md-4"><label class="editor-tiny" for="new-project-short-title">Short title</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-short-title" maxlength="25">'
+      + '<div class="text-muted small mt-1">Up to 25 characters, used where space is tight.</div></div></div>'
+      + '<div><label class="editor-tiny" for="new-project-description">Description</label>'
+      + '<textarea class="form-control form-control-sm mt-1" id="new-project-description" rows="2"></textarea>'
+      + '<div class="text-muted small mt-1">One or two sentences saying what the form does. Shown on listing pages.</div></div>'
+      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-jurisdiction">Jurisdiction code</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-jurisdiction" placeholder="NAM-US-US+MA">'
+      + '<div class="text-muted small mt-1">Leave blank to derive it from the default state.</div></div>'
+      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-landing-page-url">Public landing page URL</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-landing-page-url" type="url">'
+      + '<div class="text-muted small mt-1">Where this form is published for the public. Defaults to courtformsonline.org.</div></div></div>'
+      + '<div><label class="editor-tiny" for="new-project-list-topics">LIST topics</label>'
+      + '<div class="input-group input-group-sm mt-1"><input class="form-control" id="new-project-list-topics">'
+      + '<button class="btn btn-outline-secondary" type="button" data-open-list-topics="new-project-list-topics"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
+      + '<div class="text-muted small mt-1">Codes from the LIST/NSMI taxonomy, for example <code>HO-00-00-00-00, HO-05-00-00-00</code>. Referral sites use them to categorise the form.</div></div>'
+      + '</div>');
+
+    html += _newProjectSection('context', 'Drafting context', false,
+      '<div class="d-grid gap-3">'
+      + '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>'
+      + '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>'
+      + '<input class="form-control form-control-sm mt-1" id="new-project-help-page-title">'
+      + '<div class="text-muted small mt-1">The title shown to users on the link to that reference page.</div></div>'
+      + '<div><label class="editor-tiny" for="new-project-notes">Extra context for Weaver (optional)</label>'
+      + '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="4" placeholder="E.g. special instructions or local context"></textarea>'
+      + '<div class="text-muted small mt-1">This text is passed through as drafting context and works whether or not AI is enabled.</div></div>'
+      + '</div>');
+
     html += '</div>';
-    html += '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label><select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>';
-    html += '<div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label><select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select></div></div>';
-    html += '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label><input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA"></div>';
-    html += '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label><select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>';
-    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>';
-    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>';
-    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact questions into your interview instead of leaving them in AssemblyLine\'s generic object blocks.</div></div>';
-    html += '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>';
-    html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>';
-    html += '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>';
-    html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-title" placeholder="Page title shown to users"></div>';
-    html += '<div><label class="editor-tiny" for="new-project-notes">Extra context for Weaver (optional)</label>';
-    html += '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="4" placeholder="E.g. desired title, jurisdiction, special instructions, local context"></textarea>';
-    html += '<div class="text-muted small mt-1">This text is passed through as drafting context and works whether or not AI is enabled.</div></div>';
-    html += '</div></div></div>';
 
     html += '<div class="editor-upload-modal d-none" id="upload-progress-modal" role="dialog" aria-modal="true" aria-labelledby="upload-progress-title">';
     html += '<div class="editor-upload-modal-backdrop"></div>';
@@ -7847,6 +8218,66 @@
       if (!isDupe) _uploadedFiles.push(f);
     }
     _renderFileList();
+    _suggestNamesFromUpload();
+  }
+
+  // The server derives the interview's title from the document's filename the
+  // same way (`_apply_exact_name_to_interview`). Filling the fields in here
+  // means the author sees that guess while they can still change it, instead of
+  // meeting it after the project exists.
+  function _titleFromFilename(filename) {
+    var base = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').trim();
+    if (!base) return '';
+    // Underscores separate words; hyphens usually belong to a form number
+    // (MC-030, CJ-P 34), so they stay.
+    var words = base.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim().split(' ');
+    var titled = words.map(function (word) {
+      // Leave anything carrying a capital or a digit alone: those are acronyms
+      // and form numbers, and lowercasing them makes the guess worse.
+      if (/[A-Z0-9]/.test(word)) return word;
+      return word.toLowerCase();
+    });
+    if (titled.length && !/[A-Z0-9]/.test(titled[0])) {
+      titled[0] = titled[0].charAt(0).toUpperCase() + titled[0].slice(1);
+    }
+    return titled.join(' ').trim();
+  }
+
+  function _projectNameFromTitle(title) {
+    // Mirrors normalize_project_name: playground names are alphanumeric only
+    // and cannot start with a digit.
+    var parts = String(title || '').split(/[^A-Za-z0-9]+/).filter(Boolean);
+    var name = parts.map(function (part) {
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    }).join('');
+    if (!name) return '';
+    if (/^[0-9]/.test(name)) name = 'P' + name;
+    if (name.toLowerCase() === 'default') name = name + 'Project';
+    return name;
+  }
+
+  function _suggestNamesFromUpload() {
+    if (!_uploadedFiles.length) return;
+    var title = _titleFromFilename(_uploadedFiles[0].name);
+    if (!title) return;
+    var shortTitle = title.slice(0, 25);
+    var projectName = _projectNameFromTitle(title);
+
+    // Only fill a field the author has not touched. `_suggestedValues` records
+    // what we put there, so replacing the first document updates a suggestion
+    // but never overwrites something typed by hand.
+    function suggest(elementId, value) {
+      var input = document.getElementById(elementId);
+      if (!input || !value) return;
+      var current = String(input.value || '').trim();
+      if (current && current !== _suggestedValues[elementId]) return;
+      input.value = value;
+      _suggestedValues[elementId] = value;
+    }
+
+    suggest('new-project-name', projectName);
+    suggest('new-project-title', title);
+    suggest('new-project-short-title', shortTitle);
   }
 
   function _renderFileList() {
@@ -8462,6 +8893,38 @@
       }
       renderOutline();
       renderCanvas();
+      return;
+    }
+
+    // LIST topic picker
+    if (target.closest('[data-open-list-topics]')) {
+      var topicTrigger = target.closest('[data-open-list-topics]');
+      openListTopicsPicker(
+        topicTrigger.getAttribute('data-open-list-topics'),
+        topicTrigger.getAttribute('data-topic-separator') === 'newline' ? '\n' : ', '
+      );
+      return;
+    }
+    if (target.id === 'list-topics-apply') {
+      applyListTopicsSelection();
+      return;
+    }
+    if (target.id === 'list-topics-expand' || target.id === 'list-topics-collapse') {
+      var shouldOpen = target.id === 'list-topics-expand';
+      document.querySelectorAll('#list-topics-tree [data-topic-group]').forEach(function (group) {
+        group.open = shouldOpen;
+      });
+      return;
+    }
+    if (target.id === 'list-topics-clear') {
+      document.querySelectorAll('#list-topics-tree input[data-topic-code]').forEach(function (box) {
+        box.checked = false;
+      });
+      updateListTopicsCounts();
+      return;
+    }
+    if (target.matches('#list-topics-tree input[data-topic-code]')) {
+      updateListTopicsCounts();
       return;
     }
 
@@ -9719,6 +10182,7 @@
       var removeIdx = parseInt(removeBtn.getAttribute('data-remove-upload'), 10);
       _uploadedFiles.splice(removeIdx, 1);
       _renderFileList();
+      _suggestNamesFromUpload();
       return;
     }
 
@@ -9736,6 +10200,13 @@
       var enableNavigationInput = document.getElementById('new-project-enable-navigation');
       var copyBaselineQuestionsInput = document.getElementById('new-project-copy-baseline-questions');
       var githubUrlInput = document.getElementById('new-project-github-url');
+      var filenameInput = document.getElementById('new-project-filename');
+      var titleInput = document.getElementById('new-project-title');
+      var shortTitleInput = document.getElementById('new-project-short-title');
+      var descriptionInput = document.getElementById('new-project-description');
+      var jurisdictionInput = document.getElementById('new-project-jurisdiction');
+      var landingPageUrlInput = document.getElementById('new-project-landing-page-url');
+      var listTopicsInput = document.getElementById('new-project-list-topics');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
       var helpPageUrl = helpPageUrlInput ? helpPageUrlInput.value : '';
@@ -9770,6 +10241,13 @@
         formData.append('include_next_steps', includeNextSteps ? 'true' : 'false');
         formData.append('enable_navigation', enableNavigation ? 'true' : 'false');
         formData.append('copy_baseline_questions', copyBaselineQuestions ? 'true' : 'false');
+        formData.append('interview_filename', filenameInput ? filenameInput.value.trim() : '');
+        formData.append('interview_title', titleInput ? titleInput.value.trim() : '');
+        formData.append('interview_short_title', shortTitleInput ? shortTitleInput.value.trim() : '');
+        formData.append('interview_description', descriptionInput ? descriptionInput.value.trim() : '');
+        formData.append('jurisdiction', jurisdictionInput ? jurisdictionInput.value.trim() : '');
+        formData.append('landing_page_url', landingPageUrlInput ? landingPageUrlInput.value.trim() : '');
+        formData.append('list_topics', listTopicsInput ? listTopicsInput.value.trim() : '');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
         apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {
@@ -9786,7 +10264,7 @@
                 var jobData = jobPayload.data || {};
                 _hideUploadProgressModal();
                 state.project = jobData.project || queuedProject;
-                state.filename = jobData.filename || 'interview.yml';
+                state.filename = jobData.filename || 'main.yml';
                 state.canvasMode = 'question';
                 _uploadedFiles = [];
                 _showSuccessBanner('Project "' + esc(state.project) + '" created successfully.');
@@ -9858,6 +10336,10 @@
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
+    if (target.id === 'list-topics-filter') {
+      applyListTopicsFilter();
+      return;
+    }
     if (target.id === 'assemblyline-settings-filter') {
       state.assemblyLineSettingsFilter = target.value || '';
       applyAssemblyLineSettingsFilter();

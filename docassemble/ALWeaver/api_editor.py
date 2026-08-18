@@ -24,6 +24,7 @@ Provides:
     POST /al/editor/api/draft-order — generate a draft order from blocks
     POST /al/editor/api/draft-review-screen — generate draft review YAML
     GET  /al/editor/api/preview-url — get the interview preview URL
+    GET  /al/editor/api/list-topics — LIST taxonomy codes for the topic picker
     GET  /al/editor/api/weaver/validate — validate a saved YAML file
     POST /al/editor/api/validate-source — validate a submitted source buffer
     POST /al/editor/api/project/search — search every text file in a project
@@ -198,6 +199,8 @@ from .editor_agent_models import (
     store_progress,
 )
 from .editor_agent_validation import (
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
     annotate_lint_findings,
     block_line_span,
     block_lookup_map,
@@ -589,6 +592,28 @@ def _normalize_new_filename(raw: Optional[str]) -> str:
     return value
 
 
+# AssemblyLine's YAML coding style: a runnable file is `main.yml`, and a package
+# with a single interview may instead carry a descriptive name derived from the
+# document (`eviction.yml`).  https://assemblyline.suffolklitlab.org/docs/coding_style/yaml
+DEFAULT_NEW_INTERVIEW_FILENAME = "main.yml"
+
+
+def _normalize_new_interview_filename(raw: Optional[str]) -> Optional[str]:
+    """An author-supplied interview filename, or None to use the derived name."""
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    return _normalize_new_filename(value)
+
+
+def _normalize_generated_filename(raw: Optional[str]) -> str:
+    """The filename Weaver derived for a generated interview, or the AL default."""
+    try:
+        return _normalize_new_filename(raw)
+    except ValueError:
+        return DEFAULT_NEW_INTERVIEW_FILENAME
+
+
 def _normalize_renamed_storage_filename(
     raw: Optional[str], existing_filename: str
 ) -> str:
@@ -708,6 +733,28 @@ def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, 
     from docassemble.ALDashboard.interview_linter import lint_interview_content
 
     return lint_interview_content(raw_yaml, include_llm=include_llm)
+
+
+def _demote_style_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Cap style findings at ``warning``.
+
+    The style checker is house style, not validity: it never runs inside
+    `validate_candidate_source()` and it never stops a save. ALDashboard grades
+    its own rules red/yellow/green, and red arrives here as `error` -- the same
+    level a YAML file that will not load produces. An interview that runs fine
+    but has a thin `metadata` block should not be reported the same way.
+    """
+    demoted: List[Dict[str, Any]] = []
+    for finding in findings:
+        item = dict(finding)
+        if _lint_level_from_severity(item.get("level") or item.get("severity")) == (
+            SEVERITY_ERROR
+        ):
+            item["level"] = SEVERITY_WARNING
+            item["severity"] = SEVERITY_WARNING
+            item["style_original_level"] = SEVERITY_ERROR
+        demoted.append(item)
+    return demoted
 
 
 def _is_text_editable(filename: str, mimetype: str) -> bool:
@@ -3088,8 +3135,10 @@ def editor_api_style_check() -> Response:
         )
         if not isinstance(findings, list):
             findings = []
-        annotated_findings = _annotate_lint_findings(
-            findings, model["blocks"], source_name="style-check"
+        annotated_findings = _demote_style_findings(
+            _annotate_lint_findings(
+                findings, model["blocks"], source_name="style-check"
+            )
         )
         summary = _lint_summary_for_findings(annotated_findings)
 
@@ -3907,6 +3956,106 @@ def editor_api_save_metadata() -> Response:
         )
 
 
+def _resolve_server_defaults() -> Dict[str, Dict[str, Any]]:
+    """What each server-wide AssemblyLine setting resolves to right now.
+
+    Several of these settings exist server-wide as well as per interview, so
+    typing a value into the panel silently overrides the whole server for this
+    one interview. The panel says so, which means it needs the value being
+    overridden.
+    """
+    from .assemblyline_settings import ASSEMBLY_LINE_FALLBACKS, SERVER_DEFAULTS
+
+    resolved: Dict[str, Dict[str, Any]] = {}
+    for key, config_key in SERVER_DEFAULTS.items():
+        entry: Dict[str, Any] = {
+            "config_key": config_key,
+            "value": "",
+            "source": "assemblyline",
+        }
+        if config_key:
+            config_value = _daconfig().get(config_key)
+            if config_value not in (None, ""):
+                entry["value"] = str(config_value)
+                entry["source"] = "config"
+        if not entry["value"]:
+            entry["value"] = ASSEMBLY_LINE_FALLBACKS.get(key, "")
+        resolved[key] = entry
+    return resolved
+
+
+LIST_TAXONOMY_FILE = "data/sources/list-taxonomy.csv"
+LIST_TAXONOMY_URL = "https://taxonomy.legal"
+
+
+def _list_topic_groups() -> List[Dict[str, Any]]:
+    """The LIST taxonomy, grouped for a picker.
+
+    `get_LIST_codes()` is the same reader the question-driven Weaver's topics
+    screen uses, so the editor and the classic flow offer the same codes in the
+    same relevance order.
+    """
+    from .list_taxonomy import get_LIST_codes
+
+    csv_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), LIST_TAXONOMY_FILE
+    )
+    groups: List[Dict[str, Any]] = []
+    index: Dict[str, Dict[str, Any]] = {}
+    for entry in get_LIST_codes(csv_path) or []:
+        if not isinstance(entry, dict):
+            continue
+        code = str(entry.get("value") or "").strip()
+        label = str(entry.get("label") or "").strip()
+        group_label = str(entry.get("group") or "Other").strip() or "Other"
+        if not code or not label:
+            continue
+        group = index.get(group_label)
+        if group is None:
+            group = {"label": group_label, "topics": []}
+            index[group_label] = group
+            groups.append(group)
+        # A group's own heading code (XX-00-00-00-00) is a valid answer too, and
+        # reads first because it is the broadest one in the group.
+        is_heading = code.endswith("-00-00-00-00")
+        topic = {"code": code, "label": label, "heading": is_heading}
+        if is_heading:
+            group["topics"].insert(0, topic)
+            group["code"] = code
+        else:
+            group["topics"].append(topic)
+    return groups
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/list-topics", methods=["GET"])
+def editor_api_list_topics() -> Response:
+    """Return the LIST taxonomy so the editor can offer a topic picker."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "groups": _list_topic_groups(),
+                    "docs_url": LIST_TAXONOMY_URL,
+                },
+            }
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: LIST topics error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/assemblyline-settings", methods=["GET"])
 def editor_api_get_assemblyline_settings() -> Response:
     """Return structured metadata and exact-name AssemblyLine variables."""
@@ -3924,6 +4073,7 @@ def editor_api_get_assemblyline_settings() -> Response:
                 "project": project,
                 "filename": filename,
                 "revision": source_revision(content),
+                "server_defaults": _resolve_server_defaults(),
             }
         )
         return jsonify({"success": True, "request_id": request_id, "data": data})
@@ -6867,6 +7017,7 @@ def _complete_new_project_upload_job(
     uploaded_files: List[Dict[str, Any]],
     generation_options: Dict[str, Any],
     debug_requested: bool,
+    interview_filename: Optional[str] = None,
 ) -> Dict[str, Any]:
     stage = "start"
     temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
@@ -6933,7 +7084,12 @@ def _complete_new_project_upload_job(
             message="Writing generated interview YAML.",
             progress=70,
         )
-        playground_write_yaml(uid, project_name, "interview.yml", yaml_text)
+        # Weaver already derived a descriptive name from the document; the
+        # author may have overridden it on the creation screen.
+        yaml_filename = interview_filename or _normalize_generated_filename(
+            first_result.get("yaml_filename")
+        )
+        playground_write_yaml(uid, project_name, yaml_filename, yaml_text)
 
         stage = "copy_templates"
         _update_new_project_job_state(
@@ -6974,7 +7130,7 @@ def _complete_new_project_upload_job(
 
         result = {
             "project": project_name,
-            "filename": "interview.yml",
+            "filename": yaml_filename,
             "generated_from": first_result.get("input_filename"),
             "uploaded_count": len(temp_paths),
             "generated_template_count": len(generated_paths),
@@ -7028,6 +7184,7 @@ def _start_new_project_upload_job(
     uploaded_files: List[Dict[str, Any]],
     generation_options: Dict[str, Any],
     debug_requested: bool,
+    interview_filename: Optional[str] = None,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
     queued_at = time.time()
@@ -7061,6 +7218,7 @@ def _start_new_project_upload_job(
                 "uploaded_files": uploaded_files,
                 "generation_options": generation_options,
                 "debug_requested": debug_requested,
+                "interview_filename": interview_filename,
             },
         )
     except Exception as exc:
@@ -7537,8 +7695,11 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "continue button field: intro_screen\n"
         )
 
-    # Write starter YAML
-    playground_write_yaml(uid, project_name, "interview.yml", starter_yaml)
+    # Write starter YAML. There is no document to name it after, so a blank
+    # project gets AssemblyLine's functional name for a runnable file.
+    playground_write_yaml(
+        uid, project_name, DEFAULT_NEW_INTERVIEW_FILENAME, starter_yaml
+    )
 
     return jsonify(
         {
@@ -7546,7 +7707,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "request_id": request_id,
             "data": {
                 "project": project_name,
-                "filename": "interview.yml",
+                "filename": DEFAULT_NEW_INTERVIEW_FILENAME,
                 "template_id": template_id,
             },
         }
@@ -7620,6 +7781,24 @@ def _new_project_from_uploads(
     normalize_field_names = parse_bool(
         request.form.get("normalize_field_names"), default=False
     )
+    # Publishing metadata. The generator can invent a title from the filename and
+    # `_ensure_required_metadata_values()` backfills the rest, but the values an
+    # author actually knows -- jurisdiction, topics, landing page -- can only come
+    # from the author, and a project created without them starts life failing the
+    # shared metadata style rule.
+    interview_title = request.form.get("interview_title", "").strip()
+    interview_short_title = request.form.get("interview_short_title", "").strip()
+    interview_description = request.form.get("interview_description", "").strip()
+    jurisdiction = request.form.get("jurisdiction", "").strip()
+    landing_page_url = request.form.get("landing_page_url", "").strip()
+    list_topics = [
+        topic.strip()
+        for topic in request.form.get("list_topics", "").split(",")
+        if topic.strip()
+    ]
+    interview_filename = _normalize_new_interview_filename(
+        request.form.get("interview_filename", "")
+    )
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
@@ -7670,6 +7849,21 @@ def _new_project_from_uploads(
             "enable_navigation": enable_navigation,
             "next_steps_enabled": include_next_steps,
         }
+        if interview_title:
+            interview_overrides["title"] = interview_title
+        if interview_short_title:
+            interview_overrides["short_title"] = interview_short_title
+        if interview_description:
+            interview_overrides["description"] = interview_description
+        if landing_page_url:
+            interview_overrides["landing_page_url"] = landing_page_url
+        if list_topics:
+            # output.mako builds `LIST_topics` from the category selections, so
+            # freeform topics travel as `other_categories`.
+            interview_overrides["has_other_categories"] = True
+            interview_overrides["other_categories"] = ", ".join(list_topics)
+        if jurisdiction:
+            interview_overrides["jurisdiction"] = jurisdiction
         if form_type != "auto":
             interview_overrides["form_type"] = form_type
             interview_overrides["court_related"] = form_type != "letter"
@@ -7677,7 +7871,8 @@ def _new_project_from_uploads(
             interview_overrides["typical_role"] = typical_role
         if default_state:
             interview_overrides["state"] = default_state
-            interview_overrides["jurisdiction"] = f"NAM-US-US+{default_state}"
+            if not jurisdiction:
+                interview_overrides["jurisdiction"] = f"NAM-US-US+{default_state}"
 
         generation_options: Dict[str, Any] = {
             "create_package_zip": False,
@@ -7711,6 +7906,7 @@ def _new_project_from_uploads(
             uploaded_files=uploaded_payloads,
             generation_options=generation_options,
             debug_requested=debug_requested,
+            interview_filename=interview_filename,
         )
 
         return jsonify_with_status(

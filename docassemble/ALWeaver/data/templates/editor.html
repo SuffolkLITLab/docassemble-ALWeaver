@@ -375,6 +375,43 @@
   </div>
 </div>
 
+<!-- LIST topic picker -->
+<div class="modal fade" id="list-topics-modal" tabindex="-1" aria-labelledby="list-topics-modal-title">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="list-topics-modal-title">Choose LIST topics</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          Topics come from the <a href="https://taxonomy.legal" target="_blank" rel="noopener">LIST taxonomy</a>
+          (formerly NSMIv2). They help people find this form once it is published.
+        </p>
+        <label class="editor-tiny" for="list-topics-filter">Filter topics</label>
+        <div class="input-group input-group-sm mt-1 mb-2">
+          <span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span>
+          <input class="form-control" id="list-topics-filter" type="search" autocomplete="off">
+        </div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+          <div class="editor-tiny" id="list-topics-selected-count" role="status" aria-live="polite"></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="list-topics-expand">Expand all</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="list-topics-collapse">Collapse all</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="list-topics-clear">Clear all</button>
+          </div>
+        </div>
+        <div id="list-topics-tree"></div>
+        <div class="alert alert-light border d-none mt-2" id="list-topics-empty">No topics match that filter.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="list-topics-apply">Use these topics</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Insert Block Modal -->
 <div class="modal fade" id="insert-modal" tabindex="-1">
   <div class="modal-dialog">
@@ -388,6 +425,7 @@
           <button type="button" class="btn btn-primary text-start" data-insert="question">New question screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="ai-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="review">New review screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="code">New code block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="objects">New objects block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="attachment">New attachment block</button>
+          <button type="button" class="btn btn-outline-secondary text-start" data-insert="comment">New comment block</button>
           <button type="button" class="btn btn-outline-secondary text-start" data-insert="other">New YAML block</button>
         </div>
         <div class="mt-3">

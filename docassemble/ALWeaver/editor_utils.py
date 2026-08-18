@@ -59,6 +59,7 @@ BLOCK_TYPE_TABLE = "table"
 BLOCK_TYPE_TEMPLATE = "template"
 BLOCK_TYPE_TERMS = "terms"
 BLOCK_TYPE_SECTIONS = "sections"
+BLOCK_TYPE_COMMENT = "comment"
 BLOCK_TYPE_COMMENTED = "commented"
 BLOCK_TYPE_OTHER = "other"
 
@@ -66,6 +67,14 @@ BLOCK_TYPE_OTHER = "other"
 _METADATA_KEYS = {"metadata"}
 _INCLUDE_KEYS = {"include", "includes"}
 _DEFAULT_SCREEN_KEYS = {"default screen parts"}
+# Keys that may sit alongside `comment:` without making the block something else.
+_COMMENT_ONLY_ALLOWED_KEYS = {
+    "comment",
+    "id",
+    "_commented",
+    "_commented_type",
+    "_commented_yaml",
+}
 
 _METADATA_DOCUMENT_TYPES = {
     BLOCK_TYPE_METADATA,
@@ -518,6 +527,10 @@ def _detect_block_type(block: Dict[str, Any]) -> str:
         return BLOCK_TYPE_CODE
     if "objects" in block:
         return BLOCK_TYPE_OBJECTS
+    if "comment" in block and not (set(block) - _COMMENT_ONLY_ALLOWED_KEYS):
+        # A standalone `comment:` document is prose about the interview, not a
+        # nameless "other" block.
+        return BLOCK_TYPE_COMMENT
     return BLOCK_TYPE_OTHER
 
 
@@ -557,9 +570,36 @@ def _extract_order_block_label(code_str: str, block: Dict[str, Any]) -> str:
     return lines[0].strip()[:60] if lines else "Code block"
 
 
+def _first_line_title(text: str, limit: int = 70) -> str:
+    """Title a prose block by its first non-empty line, trimmed for the outline."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            if len(stripped) > limit:
+                return stripped[: limit - 1].rstrip() + "\u2026"
+            return stripped
+    return ""
+
+
+def _question_title(text: str) -> str:
+    """Title a question by its first line of actual prose.
+
+    A generated question often opens with Mako -- `% if user_started_case:` --
+    and copying that into the outline gives a row that looks like every other
+    row that starts the same way. Skip the directives and title the block by
+    what the user will read.
+    """
+    prose_lines = [
+        line
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith(("%", "#"))
+    ]
+    return _first_line_title("\n".join(prose_lines)) or _first_line_title(text)
+
+
 def _extract_title(block: Dict[str, Any], block_type: str) -> str:
     if block_type == BLOCK_TYPE_QUESTION:
-        return str(block.get("question", "Untitled question"))
+        return _question_title(str(block.get("question") or "")) or "Untitled question"
     if block_type == BLOCK_TYPE_CODE:
         code_str = str(block.get("code", ""))
         block_id_key = str(block.get("id", ""))
@@ -577,6 +617,8 @@ def _extract_title(block: Dict[str, Any], block_type: str) -> str:
         return (
             str(meta.get("title", "Metadata")) if isinstance(meta, dict) else "Metadata"
         )
+    if block_type == BLOCK_TYPE_COMMENT:
+        return _first_line_title(str(block.get("comment") or "")) or "Comment"
     if block_type == BLOCK_TYPE_INCLUDES:
         return "Includes"
     if block_type == BLOCK_TYPE_DEFAULT_SCREEN_PARTS:
@@ -601,6 +643,10 @@ def _extract_title(block: Dict[str, Any], block_type: str) -> str:
         if block.get("variable name") == "al_nav_sections":
             return "AL navigation sections (al_nav_sections)"
         return "Sections"
+    for key in block:
+        if str(key).startswith("_"):
+            continue
+        return str(key).replace("_", " ").capitalize()
     return "Block"
 
 

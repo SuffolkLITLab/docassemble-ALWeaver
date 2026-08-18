@@ -14,10 +14,66 @@ The settings endpoint uses an expected source revision and validates the whole
 candidate interview before writing. It replaces only the metadata document and
 the Weaver-owned block; author-owned code blocks are not rewritten.
 
-The settings panel is searchable by section, friendly label, or exact metadata
-key/magic-variable name. Each control displays that exact name. Controls use a
-single-column layout by default; only related pairs, such as title/short title,
-country/state, repository owner/name, and the two timing values, share a row.
+The settings panel is searchable by section, friendly label, help text, or exact
+metadata key/magic-variable name. Each control displays that exact name. Controls
+use a single-column layout by default; only related pairs, such as title/short
+title, country/state, repository owner/name, and the two timing values, share a
+row.
+
+Every control also carries help text. The question-driven Weaver explained each
+value on the screen that asked for it; the graphical panel shows all of them at
+once, so the explanation -- where the value appears and what else it changes --
+travels with the control in `FIELD_HELP`.
+
+Each section also names the YAML documents its values are written to --
+`metadata` for publishing values, the Weaver-owned
+`alweaver assemblyline settings` block for predefined variables. That list is
+derived from the fields' own `scope`, not written out by hand, so it cannot drift
+when a field moves between the two. When `read_settings()` finds one of those variables already assigned in an
+author-owned code block, that block keeps ownership of the name: the control says
+so, `rewrite_external_code_assignments()` edits the assignment where it already
+lives, and the key is left out of the managed block, which carries a comment
+saying where it went. Writing Weaver's copy as well would leave two blocks
+assigning one name with the winner decided by document order.
+
+Only a value the author actually changed on the panel is written, so unchanged
+author code keeps its own quoting and spacing byte for byte. Every rewrite is
+re-read before it is kept, and a block whose `code:` is not a literal block
+scalar is skipped rather than guessed at.
+
+A setting the interview *computes* is a separate case, and the panel does not
+own it at all. `_code_assignments()` reports whether each assignment is a literal
+or an expression, and `read_settings()` returns the expressions as `computed`,
+mapped to the block holding them. Those controls render read-only: whatever the
+field's normal control would be, the expression is shown as disabled monospace
+text, because a checkbox or a dropdown would have to choose some position and
+would misreport what the interview does. The note under the control says the
+value is worked out while the interview runs, names the block, and tells the
+author to open that block in the outline or in YAML source and edit it there.
+
+`update_settings()` ignores anything submitted for a computed key rather than
+validating it, and the managed block records `# <name> is computed by your own
+code, and is left alone.` in place of an assignment. That is also what makes the
+panel usable at all on such an interview: `_coerce_value()` judges a value
+against the field's kind, so an expression sitting in a choice- or boolean-typed
+setting used to fail validation and block every save with "Form type has an
+unsupported value".
+
+A "What is this?" popover on the panel heading carries `PANEL_EXPLAINER`, which
+states the distinction the page rests on: publishing metadata describes the form
+to listing sites, while predefined variables have a special meaning to
+AssemblyLine and change how the interview behaves. Both are ordinary YAML the
+author can open and edit directly, which is the reason each section names its
+block and each control shows its exact name.
+
+Some AssemblyLine settings also exist server-wide, and writing one here overrides
+the whole server for this interview only. `SERVER_DEFAULTS` records which
+Docassemble configuration key supplies each of those (`AL_ORGANIZATION_TITLE` from
+`appname`, `AL_ORGANIZATION_HOMEPAGE` from `app homepage`), and
+`ASSEMBLY_LINE_FALLBACKS` records what `al_settings.yml` falls back to when the
+server says nothing. The GET endpoint resolves both and returns them as
+`server_defaults`, so each such control can name the value it is standing in front
+of and flag when the interview is actually overriding it.
 
 ## Question-driven workflow comparison
 

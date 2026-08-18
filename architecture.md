@@ -39,9 +39,14 @@ Other files:
 - `configuration_capabilities.yml`: currently describes the list of optional
   packages someone can install in a generated package with the
   Weaver--envisioned to allow more flexible configuration in the future
-- `output_patterns.yml`: this file contains small Mako templates that are used
-  to build the YAML file that the Weaver produces. It is set up as a series of
-  small templates right now rather a single large template.
+The Mako templates that build the YAML the Weaver produces live in
+`docassemble/ALWeaver/data/templates`: `output.mako` is the body,
+`output_defs.mako` holds shared helpers, and `question_library.mako` holds the
+AssemblyLine person questions copied into a generated interview.
+`_render_interview_yaml()` (`interview_generator.py`) resolves and concatenates
+them. (An older `data/sources/output_patterns.yml` no longer exists;
+`assembly_line.yml` still names it in a `DAInterview.using(template_path=...)`
+argument that is not read.)
 
 This directory also contains test files for unit testing with ALKiln (see below for more information.)
 

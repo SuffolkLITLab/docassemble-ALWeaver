@@ -171,5 +171,51 @@ class TestEditorSourcePreservation(unittest.TestCase):
             update_block_in_yaml(duplicated, "intro", "id: intro\nquestion: Edited\n")
 
 
+class TestEditorBlockTitles(unittest.TestCase):
+    """The outline has to name a block well enough to find it again."""
+
+    def test_a_standalone_comment_is_titled_by_its_first_line(self):
+        source = (
+            "---\n"
+            "comment: |\n"
+            "  The questions below are copies of the questions in AssemblyLine's\n"
+            "  ql_baseline.yml, rewritten to name this interview's own objects.\n"
+        )
+        block = parse_interview_yaml(source)["blocks"][0]
+        self.assertEqual(block["type"], "comment")
+        self.assertEqual(
+            block["title"],
+            "The questions below are copies of the questions in AssemblyLine's",
+        )
+
+    def test_a_long_comment_first_line_is_trimmed(self):
+        source = "comment: |\n  " + ("word " * 40).strip() + "\n"
+        block = parse_interview_yaml(source)["blocks"][0]
+        self.assertLessEqual(len(block["title"]), 70)
+        self.assertTrue(block["title"].endswith("\u2026"))
+
+    def test_a_comment_alongside_other_keys_is_not_a_comment_block(self):
+        source = "comment: Explains the screen\nquestion: |\n  Hello\n"
+        block = parse_interview_yaml(source)["blocks"][0]
+        self.assertEqual(block["type"], "question")
+
+    def test_a_question_is_titled_by_its_prose_not_its_mako(self):
+        source = (
+            "question: |\n"
+            "  % if user_started_case:\n"
+            "  Name of the defendant\n"
+            "  % else:\n"
+            "  Name of the plaintiff\n"
+            "  % endif\n"
+        )
+        block = parse_interview_yaml(source)["blocks"][0]
+        self.assertEqual(block["title"], "Name of the defendant")
+
+    def test_an_unrecognised_block_is_named_after_its_first_key(self):
+        source = "features:\n  navigation: True\n"
+        block = parse_interview_yaml(source)["blocks"][0]
+        self.assertEqual(block["title"], "Features")
+
+
 if __name__ == "__main__":
     unittest.main()

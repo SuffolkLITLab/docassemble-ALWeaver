@@ -648,6 +648,7 @@ html, body {
 .editor-outline-type {
   font-size: 9px;
   letter-spacing: 0.04em;
+  white-space: nowrap;
   color: var(--editor-muted);
   background: #f1f3f7;
   padding: 1px 5px;
@@ -2283,6 +2284,7 @@ html, body {
 .editor-outline-type-obj { background: #d1fae5; color: #065f46; }
 .editor-outline-type-meta { background: #ede9fe; color: #5b21b6; }
 .editor-outline-type-inc { background: #fce7f3; color: #9d174d; }
+.editor-outline-type-comment { background: #fff7ed; color: #9a3412; }
 .editor-outline-type-oth { background: #f1f3f7; color: var(--editor-muted); }
 
 /* ===== Drag handle (order builder) ===== */
@@ -3511,4 +3513,96 @@ html, body {
 .editor-screen-preview-select {
   width: auto;
   min-width: 9rem;
+}
+
+/* ===== AssemblyLine settings panel ===== */
+
+.editor-al-setting-help {
+  color: var(--editor-muted);
+}
+
+.editor-al-setting-server-default {
+  color: var(--editor-muted);
+}
+
+.editor-al-setting-server-default.is-overriding {
+  color: #92400e;
+}
+
+.editor-al-setting-key {
+  opacity: 0.75;
+}
+
+.editor-field-mod-hint {
+  color: var(--editor-muted);
+  margin-top: 2px;
+}
+
+/* ===== LIST topic picker =====
+   Mirrors ALToolbox's al_tree_select: plain <details> groups, plain checkboxes. */
+
+.editor-topic-group {
+  border: 1px solid var(--editor-border, #e3e6ee);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.editor-topic-summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: revert;
+}
+
+.editor-topic-summary-label {
+  flex: 1 1 auto;
+}
+
+.editor-topic-count {
+  flex: 0 0 auto;
+}
+
+.editor-topic-children {
+  padding: 0 12px 10px 28px;
+}
+
+.editor-topic-item {
+  margin-bottom: 2px;
+}
+
+/* ===== Create-project accordion ===== */
+
+.editor-new-project-accordion .accordion-button {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.editor-new-project-accordion .accordion-body {
+  padding-top: 12px;
+}
+
+.editor-al-settings-documents {
+  margin-bottom: 12px;
+  color: var(--editor-muted);
+  font-size: 11px;
+}
+
+.editor-al-settings-document {
+  font-size: 11px;
+}
+
+.editor-al-settings-explainer {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.editor-al-setting-external {
+  color: #1e40af;
+}
+
+.editor-al-setting-computed {
+  color: var(--editor-muted);
 }
