@@ -360,6 +360,23 @@ continue button field: ${ varname(question.question_text) }
 <%doc>
     End question loop
 </%doc>\
+<%doc>
+    Editable copies of the AssemblyLine questions about the people in this
+    interview. `question_library.mako` holds the wording; `question_library.py`
+    decides which blocks belong here. The list is empty when the author turned
+    off "Copy the AssemblyLine questions about people into my interview".
+</%doc>\
+% if baseline_questions:
+---
+comment: |
+  The questions below are copies of the questions in AssemblyLine's
+  ql_baseline.yml, rewritten to name this interview's own objects instead of the
+  generic `x`. Edit them freely: they replace the AssemblyLine versions. Delete
+  one to go back to the AssemblyLine wording.
+% for baseline_question in baseline_questions:
+${ baseline_question_yaml(baseline_question) }\
+% endfor
+% endif
 % if generate_download_screen and signature_field_triggers:
 ---
 id: preview ${ interview.interview_label }

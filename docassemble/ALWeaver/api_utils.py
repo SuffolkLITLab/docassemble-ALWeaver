@@ -100,6 +100,7 @@ def coerce_generation_options(raw_options: Mapping[str, Any]) -> Dict[str, Any]:
         "create_package_zip",
         "include_next_steps",
         "include_download_screen",
+        "copy_baseline_questions",
         "use_llm_assist",
         "normalize_field_names",
     ):
@@ -318,6 +319,16 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "copy_baseline_questions": {
+                                            "type": "boolean",
+                                            "description": (
+                                                "Copy AssemblyLine's questions about people into "
+                                                "the generated interview, specialized for the "
+                                                "objects it declares, instead of relying on the "
+                                                "generic object questions in ql_baseline.yml. "
+                                                "Defaults to true."
+                                            ),
+                                        },
                                         "use_llm_assist": {"type": "boolean"},
                                         "normalize_field_names": {
                                             "type": "boolean",
@@ -367,6 +378,16 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "copy_baseline_questions": {
+                                            "type": "boolean",
+                                            "description": (
+                                                "Copy AssemblyLine's questions about people into "
+                                                "the generated interview, specialized for the "
+                                                "objects it declares, instead of relying on the "
+                                                "generic object questions in ql_baseline.yml. "
+                                                "Defaults to true."
+                                            ),
+                                        },
                                         "use_llm_assist": {"type": "boolean"},
                                         "normalize_field_names": {
                                             "type": "boolean",
@@ -487,6 +508,7 @@ def build_docs_html() -> str:
   -F "use_llm_assist=true" \\
   -F "help_page_url=https://example.com/reference" \\
   -F "include_next_steps=false" \\
+  -F "copy_baseline_questions=true" \\
   -F "create_package_zip=true" \\
   {WEAVER_API_BASE_PATH}</pre>
   <h2>Optional async mode</h2>
@@ -506,6 +528,7 @@ def build_docs_html() -> str:
   "use_llm_assist": true,
   "help_page_url": "https://example.com/reference",
   "include_next_steps": false,
+  "copy_baseline_questions": true,
   "create_package_zip": true,
   "mode": "sync"
 }}</pre>

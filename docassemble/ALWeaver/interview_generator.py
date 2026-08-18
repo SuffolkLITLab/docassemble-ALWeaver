@@ -1,5 +1,6 @@
 from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
+from .question_library import baseline_question_specs
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
@@ -6592,14 +6593,22 @@ def _render_interview_yaml(
     )
 
     output_defs_path = _resolve_template_path("output_defs.mako")
+    question_library_path = _resolve_template_path("question_library.mako")
     output_mako_ref = get_output_mako_package_and_path(output_mako_choice)
     output_mako_path = _resolve_template_path(output_mako_ref)
     with open(output_defs_path, "r", encoding="utf-8") as defs_handle:
         output_defs_text = defs_handle.read()
+    with open(question_library_path, "r", encoding="utf-8") as library_handle:
+        question_library_text = library_handle.read()
     with open(output_mako_path, "r", encoding="utf-8") as mako_handle:
         output_mako_text = mako_handle.read()
 
-    template_text = output_defs_text + "\n" + output_mako_text
+    # The question library ships as its own file so authors can keep it in sync
+    # with AssemblyLine's ql_baseline.yml, but its defs have to be part of the same
+    # Mako template as the output template that calls them.
+    template_text = (
+        output_defs_text + "\n" + question_library_text + "\n" + output_mako_text
+    )
     # This template renders docassemble YAML, not HTML output.
     template = mako.template.Template(
         template_text, input_encoding="utf-8"
@@ -6661,6 +6670,7 @@ def _render_interview_yaml(
     context = {
         "interview": interview,
         "objects": objects or [],
+        "baseline_questions": baseline_question_specs(interview, objects or []),
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
         "review_collections": interview.all_fields.review_collections(screen_reordered),
@@ -7028,6 +7038,7 @@ def generate_interview_from_path(
     create_package_zip: bool = True,
     include_next_steps: bool = True,
     include_download_screen: bool = True,
+    copy_baseline_questions: bool = True,
     use_llm_assist: bool = False,
     help_page_url: Optional[str] = None,
     help_page_title: Optional[str] = None,
@@ -7086,6 +7097,7 @@ def generate_interview_from_path(
 
     interview.output_mako_choice = output_mako_choice
     interview.include_next_steps = include_next_steps
+    interview.copy_baseline_questions = bool(copy_baseline_questions)
     interview.use_llm_assist = bool(use_llm_assist)
     if help_page_url is not None:
         interview.help_page_url = str(help_page_url).strip()

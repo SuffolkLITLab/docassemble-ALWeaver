@@ -7002,6 +7002,9 @@ def _new_project_from_uploads(
         request.form.get("include_next_steps"), default=True
     )
     enable_navigation = parse_bool(request.form.get("enable_navigation"), default=True)
+    copy_baseline_questions = parse_bool(
+        request.form.get("copy_baseline_questions"), default=True
+    )
     # Off by default: renaming rewrites the template that ships in the project,
     # so the author asks for it rather than discovering it happened.
     normalize_field_names = parse_bool(
@@ -7072,6 +7075,7 @@ def _new_project_from_uploads(
             # be turned on later without reconstructing bundle/attachment YAML.
             "include_next_steps": output_type == "form",
             "include_download_screen": output_type == "form",
+            "copy_baseline_questions": copy_baseline_questions,
             "exact_name": uploaded_payloads[0]["filename"],
             "use_llm_assist": use_llm_assist,
             "interview_overrides": interview_overrides,
