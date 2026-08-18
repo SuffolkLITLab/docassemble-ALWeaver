@@ -2939,6 +2939,23 @@
     return step.children;
   }
 
+  // --- if / elif / else chains -------------------------------------------
+  //
+  // A chain is stored the way Python means it: each `elif` is an `else` branch
+  // holding exactly one condition.  That keeps one shape on the wire and lets
+  // the parser and serializer round-trip a chain of any length.  Authors think
+  // in flat chains though, so these helpers read that nesting back as the list
+  // of links the order builder draws and edits.
+
+  // The logic itself lives in editor_serializers.js so the node suite can
+  // exercise it directly; these are the names the builder reads it through.
+  function getConditionChain(step) { return window.ALWeaverSerializers.getConditionChain(step); }
+  function getChainTail(step) { return window.ALWeaverSerializers.getChainTail(step); }
+  function chainHasFinalElse(step) { return window.ALWeaverSerializers.chainHasFinalElse(step); }
+  function isChainLink(step, parentStep) { return window.ALWeaverSerializers.isChainLink(step, parentStep); }
+  function appendChainElif(step, newLink) { return window.ALWeaverSerializers.appendChainElif(step, newLink); }
+  function removeChainLink(parentStep, link) { return window.ALWeaverSerializers.removeChainLink(parentStep, link); }
+
   function findBlockByInvoke(step) {
     if (!step) return null;
     if (step.blockId) {
@@ -2969,10 +2986,15 @@
     if (!step) return '';
     if (step.kind === 'screen' || step.kind === 'gather') return '';
     if (step.kind === 'condition') {
+      var conditionChain = getConditionChain(step);
+      var conditionTail = conditionChain[conditionChain.length - 1];
       var childCount = Array.isArray(step.children) ? step.children.length : 0;
-      var elseCount = Array.isArray(step.else_children) ? step.else_children.length : 0;
       var parts = [childCount + ' then'];
-      if (step.has_else) parts.push(elseCount + ' else');
+      if (conditionChain.length > 1) parts.push((conditionChain.length - 1) + ' else if');
+      if (conditionTail.has_else) {
+        var elseCount = Array.isArray(conditionTail.else_children) ? conditionTail.else_children.length : 0;
+        parts.push(elseCount + ' else');
+      }
       return parts.join(' · ');
     }
     if (step.kind === 'section') return step.value || '';
@@ -3163,16 +3185,23 @@
       else if (step.kind === 'progress') lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
       else if (step.kind === 'gather' || step.kind === 'screen' || step.kind === 'function') lines.push(prefix + String(step.invoke || ''));
       else if (step.kind === 'condition') {
-        lines.push(prefix + 'if ' + String(step.condition || step.summary || 'True') + ':');
-        if (Array.isArray(step.children) && step.children.length) {
-          lines.push(renderOrderCodePreview(step.children, indent + 2));
-        } else {
-          lines.push(new Array(indent + 3).join(' ') + 'pass');
-        }
-        if (step.has_else) {
+        // Walk the chain so the preview shows the `elif` the server will
+        // actually write, rather than a ladder of nested `if`.
+        var chainLinks = getConditionChain(step);
+        chainLinks.forEach(function (link, linkIndex) {
+          var keyword = linkIndex === 0 ? 'if ' : 'elif ';
+          lines.push(prefix + keyword + String(link.condition || link.summary || 'True') + ':');
+          if (Array.isArray(link.children) && link.children.length) {
+            lines.push(renderOrderCodePreview(link.children, indent + 2));
+          } else {
+            lines.push(new Array(indent + 3).join(' ') + 'pass');
+          }
+        });
+        var previewTail = chainLinks[chainLinks.length - 1];
+        if (previewTail.has_else) {
           lines.push(prefix + 'else:');
-          if (Array.isArray(step.else_children) && step.else_children.length) {
-            lines.push(renderOrderCodePreview(step.else_children, indent + 2));
+          if (Array.isArray(previewTail.else_children) && previewTail.else_children.length) {
+            lines.push(renderOrderCodePreview(previewTail.else_children, indent + 2));
           } else {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
@@ -7405,6 +7434,55 @@
     return html;
   }
 
+  /* One `elif` link: the condition row plus the steps it guards.
+
+     Deliberately not a drag target -- an elif is a branch of the chain it
+     belongs to, not a step you can drop somewhere else, and the steps *inside*
+     it stay draggable through the drop list renderOrderBranch emits. */
+  function renderOrderChainLink(step, depth) {
+    var condition = cleanOrderText(step.condition || step.summary || 'condition');
+    var thenCount = Array.isArray(step.children) ? step.children.length : 0;
+    var html = '<div class="editor-order-step-shell editor-order-chain-link" style="--order-depth:' + depth + '">';
+    html += '<div class="editor-order-step editor-order-step-condition" data-step-id="' + esc(step.id) + '" tabindex="0">';
+    html += '<div class="editor-order-step-top">';
+    html += '<div class="editor-order-step-main">';
+    html += '<span class="editor-order-chain-keyword" aria-hidden="true">elif</span>';
+    html += '<span class="editor-order-title editor-order-title-meta" data-editable="true" data-step-id="' + esc(step.id) + '">' + esc(condition) + '</span>';
+    html += '<span class="editor-order-detail">' + thenCount + ' then</span>';
+    html += '</div>';
+    html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
+    html += '<div class="editor-order-step-actions">';
+    html += '<div class="dropdown">';
+    html += '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions for this else if branch</span></button>';
+    html += '<ul class="dropdown-menu dropdown-menu-end">';
+    html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit condition</button></li>';
+    html += renderOrderChainBranchMenuItems(step);
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove this else if</button></li>';
+    html += '</ul></div>';
+    html += '</div>';
+    html += '<span class="editor-order-type editor-order-type-condition">else if</span>';
+    html += '</div>';
+    html += '</div>';
+    if (_inlineEditStepId === step.id) html += renderInlineEditRow(step);
+    html += '<div class="editor-order-children">';
+    html += renderOrderBranch(step, depth + 1, 'then', 'Then');
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  /* "Add else if" is always available on a chain; "Add else" only until the
+     chain already ends in one. Both act on the end of the chain, so they mean
+     the same thing whichever link they were opened from. */
+  function renderOrderChainBranchMenuItems(step) {
+    var html = '<li><button class="dropdown-item" type="button" data-step-action="add-elif" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else if branch</button></li>';
+    if (!chainHasFinalElse(step)) {
+      html += '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
+    }
+    return html;
+  }
+
   function renderOrderStepTree(stepList, depth, parentStepId, branch) {
     var html = '';
     depth = depth || 0;
@@ -7414,7 +7492,6 @@
     stepList.forEach(function (step, index) {
       var presentation = getOrderStepPresentation(step);
       var isCollapsed = Boolean(state.orderCollapsed[step.id]);
-      var hasElse = Boolean(step.has_else);
       var typeLabel = getOrderStepTypeLabel(step);
       html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
       html += '<div class="editor-order-step editor-order-step-' + esc(step.kind) + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '" tabindex="0">';
@@ -7441,8 +7518,8 @@
       if (step.kind === 'condition') {
         html += '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' + esc(step.id) + '"><i class="fa-solid ' + (isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up') + ' me-2" aria-hidden="true"></i>' + (isCollapsed ? 'Expand branches' : 'Collapse branches') + '</button></li>';
       }
-      if (step.kind === 'condition' && !hasElse) {
-        html += '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
+      if (step.kind === 'condition') {
+        html += renderOrderChainBranchMenuItems(step);
       }
       var hasBlockRef = (step.kind === 'screen' || step.kind === 'gather') && !!step.invoke;
       if (hasBlockRef) {
@@ -7468,9 +7545,17 @@
         html += renderInlineEditRow(step);
       }
       if (step.kind === 'condition') {
+        // The whole chain is drawn flat inside this one collapsible region, so
+        // `elif` reads as a sibling of `if` instead of burying each branch a
+        // level deeper than the last.
+        var chain = getConditionChain(step);
+        var chainTail = chain[chain.length - 1];
         html += '<div class="editor-order-children' + (isCollapsed ? ' d-none' : '') + '">';
         html += renderOrderBranch(step, depth + 1, 'then', 'Then');
-        if (hasElse) html += renderOrderBranch(step, depth + 1, 'else', 'Else');
+        for (var linkIndex = 1; linkIndex < chain.length; linkIndex++) {
+          html += renderOrderChainLink(chain[linkIndex], depth);
+        }
+        if (chainTail.has_else) html += renderOrderBranch(chainTail, depth + 1, 'else', 'Else');
         html += '</div>';
       }
       html += '</div>';
@@ -9479,7 +9564,11 @@
       var stepRecord = findStepRecord(state.orderSteps, targetStepId, null);
       if (!stepRecord) return;
       if (action === 'remove') {
-        stepRecord.list.splice(stepRecord.index, 1);
+        // Removing an `elif` has to close the chain up behind it, or the
+        // branch it was holding for the rest of the chain is dropped too.
+        if (!removeChainLink(stepRecord.parent, stepRecord.step)) {
+          stepRecord.list.splice(stepRecord.index, 1);
+        }
         delete state.selectedOrderStepIds[targetStepId];
         syncActiveOrderStepMap();
         markOrderDirty();
@@ -9491,9 +9580,17 @@
       } else if (action === 'toggle-collapse') {
         state.orderCollapsed[targetStepId] = !state.orderCollapsed[targetStepId];
         renderCanvas();
-      } else if (action === 'add-else') {
-        stepRecord.step.has_else = true;
-        if (!Array.isArray(stepRecord.step.else_children)) stepRecord.step.else_children = [];
+      } else if (action === 'add-else' || action === 'add-elif') {
+        // Both attach at the end of the chain, so it does not matter which
+        // link the menu was opened from.
+        if (action === 'add-elif') {
+          var newLink = appendChainElif(stepRecord.step, createOrderStep('condition'));
+          _lastInsertedOrderStepId = newLink.id;
+        } else {
+          var chainTailStep = getChainTail(stepRecord.step);
+          chainTailStep.has_else = true;
+          if (!Array.isArray(chainTailStep.else_children)) chainTailStep.else_children = [];
+        }
         state.orderCollapsed[targetStepId] = false;
         syncActiveOrderStepMap();
         markOrderDirty();
