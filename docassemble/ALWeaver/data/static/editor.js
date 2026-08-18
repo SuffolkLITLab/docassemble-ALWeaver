@@ -7558,6 +7558,7 @@
     html += '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label><select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>';
     html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>';
     html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>';
+    html += '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact questions into your interview instead of leaving them in AssemblyLine\'s generic object blocks.</div></div>';
     html += '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>';
     html += '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>';
     html += '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>';
@@ -9467,6 +9468,7 @@
       var userRoleInput = document.getElementById('new-project-user-role');
       var includeNextStepsInput = document.getElementById('new-project-include-next-steps');
       var enableNavigationInput = document.getElementById('new-project-enable-navigation');
+      var copyBaselineQuestionsInput = document.getElementById('new-project-copy-baseline-questions');
       var githubUrlInput = document.getElementById('new-project-github-url');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
@@ -9479,6 +9481,7 @@
       var userRole = userRoleInput ? userRoleInput.value : 'auto';
       var includeNextSteps = includeNextStepsInput ? includeNextStepsInput.checked : true;
       var enableNavigation = enableNavigationInput ? enableNavigationInput.checked : true;
+      var copyBaselineQuestions = copyBaselineQuestionsInput ? copyBaselineQuestionsInput.checked : true;
       var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
       if (githubUrl && _uploadedFiles.length > 0) {
         window.alert('Choose either a GitHub repository or uploaded documents, not both.');
@@ -9500,6 +9503,7 @@
         formData.append('typical_role', userRole);
         formData.append('include_next_steps', includeNextSteps ? 'true' : 'false');
         formData.append('enable_navigation', enableNavigation ? 'true' : 'false');
+        formData.append('copy_baseline_questions', copyBaselineQuestions ? 'true' : 'false');
         _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
         apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {

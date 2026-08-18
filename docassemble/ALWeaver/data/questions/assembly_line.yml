@@ -1514,9 +1514,25 @@ subquestion: |
   ${ collapse_template(why_count_people_template) }
 fields:
   - code: people_quantity_question
+  - Copy the AssemblyLine questions about people into my interview?: interview.copy_baseline_questions
+    datatype: yesno
+    default: True
+    help: |
+      ${ copy_baseline_questions_help }
 continue button field: ask_people_quantity_question
 ---
-template: why_count_people_template 
+template: copy_baseline_questions_help
+content: |
+  AssemblyLine asks about names, addresses, and contact information with
+  "generic object" questions that work for any list of people. They are
+  hard to copy and edit, because you have to rewrite every `x` into the name
+  of your own object.
+
+  Leave this checked and the Weaver writes those questions into your interview
+  file for you, already pointing at your own objects. They work exactly the same
+  way until you edit them, and you can delete any you don't want to change.
+---
+template: why_count_people_template
 subject: |
   Why do you need to know?
 content: |
@@ -2629,6 +2645,9 @@ code: |
   interview.original_form = "NA"
   interview.typical_role = "anonymous"
   interview_label_draft = interview.short_title.lower()
+  if not defined("interview.copy_baseline_questions"):
+    # Survey interviews can skip the screen that offers this.
+    interview.copy_baseline_questions = True
 
   no_template_default_values = True
 ---
@@ -2802,6 +2821,9 @@ code: |
   interview.customize_next_steps = (
     True  # Populate next steps with LLM drafts, but don't show preview screens
   )
+  # Auto-drafting skips the screen that offers this, and a draft that copies in
+  # the AssemblyLine questions about people is the more useful starting point.
+  interview.copy_baseline_questions = True
   interview.enable_navigation = True
   interview.has_other_categories = False
   interview_sections_defaults_loaded = True

@@ -286,6 +286,11 @@ review:
       % for item in people_quantities:
       - ${ item }: ${ people_quantities[item]  }
       % endfor
+  - Edit: interview.copy_baseline_questions
+    button: |
+      **Copy the AssemblyLine questions about people into the interview**
+
+      ${ word(yesno(interview.copy_baseline_questions)) }
   - raw html: |
       ${ next_accordion("Next steps instructions") }
     show if: |

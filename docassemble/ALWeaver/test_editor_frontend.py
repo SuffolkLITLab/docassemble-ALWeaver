@@ -396,6 +396,20 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("field.pair ? 'col-12 col-md-6' : 'col-12'", editor)
         self.assertIn("input.value === '' ? '' : Number(input.value)", editor)
 
+    def test_new_project_offers_to_copy_the_assemblyline_person_questions(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="new-project-copy-baseline-questions"', editor)
+        self.assertIn(
+            "formData.append('copy_baseline_questions', copyBaselineQuestions ? 'true' : 'false')",
+            editor,
+        )
+        # The point of the option is that it is on unless somebody turns it off.
+        self.assertIn(
+            "copyBaselineQuestionsInput ? copyBaselineQuestionsInput.checked : true",
+            editor,
+        )
+
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble
         page would, so its bar has to be a real Bootstrap navbar at
