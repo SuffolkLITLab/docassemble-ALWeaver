@@ -118,6 +118,28 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("apiPost('/api/github/pull'", editor)
         self.assertIn("Local changes will be preserved", editor)
 
+    def test_people_list_quantity_has_a_control_instead_of_a_text_box(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        # The control only claims ALPeopleList, and only when the parameter
+        # list is one it fully understands.
+        self.assertIn("var PEOPLE_LIST_CLASSES = ['ALPeopleList'];", editor)
+        self.assertIn("readPeopleListQuantity(usingArgs)", editor)
+        self.assertIn("return quantity && quantity.editable ? quantity : null;", editor)
+        self.assertIn("How many people?", editor)
+        self.assertIn("Other .using() parameters", editor)
+
+        # Both the save path and the redraw path recompose through the same
+        # helper, so the two can't drift apart.
+        self.assertEqual(editor.count("composePeopleListUsingArgs("), 2)
+        self.assertIn("function _syncObjectEditorRowsFromDom()", editor)
+        self.assertIn("target.matches('[data-obj-quantity-mode]')", editor)
+        self.assertIn("target.matches('[data-obj-prop=\"class\"]')", editor)
+
+        self.assertIn(".editor-obj-quantity", css)
+        self.assertIn(".editor-obj-quantity-number", css)
+
     def test_new_project_accepts_an_unrestricted_github_url(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 

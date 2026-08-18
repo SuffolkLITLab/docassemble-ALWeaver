@@ -225,7 +225,10 @@ def _split_top_level_commas(text: str) -> List[str]:
             depth += 1
         elif char in ")]}":
             depth = max(0, depth - 1)
-        elif char == "," and depth == 0:
+        elif char in ",\n" and depth == 0:
+            # Newlines separate arguments as well as commas: a multi-argument
+            # call is displayed one argument per line with the commas removed,
+            # and that display form comes back through here on the way out.
             segment = "".join(current[:-1]).strip()
             if segment:
                 parts.append(segment)
@@ -278,9 +281,12 @@ def _compose_object_using_expression(class_name: str, using_args: str) -> str:
         return cleaned_class_name
     if "\n" not in cleaned_args:
         return f"{cleaned_class_name}.using({cleaned_args})"
-    indented_args = "\n".join(
-        f"  {line}" if line else "" for line in cleaned_args.splitlines()
-    )
+    # The display form drops the commas between arguments. Put them back, or
+    # the composed expression is not valid Python.
+    arguments = _split_top_level_commas(cleaned_args)
+    if not arguments:
+        return cleaned_class_name
+    indented_args = ",\n".join(f"  {argument}" for argument in arguments)
     return f"{cleaned_class_name}.using(\n{indented_args}\n)"
 
 

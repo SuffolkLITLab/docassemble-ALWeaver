@@ -136,6 +136,134 @@ modifierKeys.forEach((key) => {
 });
 
 // ---------------------------------------------------------------------------
+// ALPeopleList quantity — "Setting the number of people in a group"
+// ---------------------------------------------------------------------------
+
+const {
+  splitUsingArgs,
+  readPeopleListQuantity,
+  composePeopleListUsingArgs,
+  PEOPLE_LIST_QUANTITY_MODES,
+} = serializers;
+
+// The editor normalizes any multi-argument `.using()` call onto separate lines
+// before the browser sees it, so newlines separate arguments just like commas.
+// Testing only the comma form hid this: the docs' own "exactly one" example
+// reaches this code as two lines and got no control at all.
+assert.deepStrictEqual(
+  splitUsingArgs('ask_number=True\ntarget_number=1'),
+  ['ask_number=True', 'target_number=1']
+);
+const normalizedExactly = readPeopleListQuantity('ask_number=True\ntarget_number=1');
+assert.strictEqual(normalizedExactly.editable, true);
+assert.strictEqual(normalizedExactly.mode, 'exactly');
+assert.strictEqual(normalizedExactly.number, 1);
+
+const normalizedWithOthers = readPeopleListQuantity(
+  "ask_number=True\ntarget_number=2\ncomplete_attribute='name'"
+);
+assert.strictEqual(normalizedWithOthers.editable, true);
+assert.strictEqual(normalizedWithOthers.mode, 'exactly');
+assert.strictEqual(normalizedWithOthers.number, 2);
+assert.strictEqual(normalizedWithOthers.otherArgs, "complete_attribute='name'");
+
+// A newline inside brackets or quotes is not a separator.
+assert.deepStrictEqual(splitUsingArgs('elements=[\n  a,\n  b\n]'), ['elements=[\n  a,\n  b\n]']);
+assert.deepStrictEqual(splitUsingArgs('title="two\nlines"'), ['title="two\nlines"']);
+
+// Splitting on top-level commas.
+assert.deepStrictEqual(splitUsingArgs(''), []);
+assert.deepStrictEqual(splitUsingArgs('a=1, b=2'), ['a=1', 'b=2']);
+assert.deepStrictEqual(splitUsingArgs('a=[1, 2], b=f(3, 4)'), ['a=[1, 2]', 'b=f(3, 4)']);
+assert.deepStrictEqual(splitUsingArgs('a="x, y", b=2'), ['a="x, y"', 'b=2']);
+// Unbalanced input is refused rather than half-parsed.
+assert.strictEqual(splitUsingArgs('a=[1, 2'), null);
+assert.strictEqual(splitUsingArgs("a='unterminated"), null);
+
+// The three shapes the AssemblyLine docs describe.
+const bare = readPeopleListQuantity('');
+assert.strictEqual(bare.editable, true);
+assert.strictEqual(bare.mode, 'ask');
+
+const atLeastOne = readPeopleListQuantity('there_are_any=True');
+assert.strictEqual(atLeastOne.editable, true);
+assert.strictEqual(atLeastOne.mode, 'at_least_one');
+
+const exactlyOne = readPeopleListQuantity('ask_number=True, target_number=1');
+assert.strictEqual(exactlyOne.editable, true);
+assert.strictEqual(exactlyOne.mode, 'exactly');
+assert.strictEqual(exactlyOne.number, 1);
+
+const askCount = readPeopleListQuantity('ask_number=True');
+assert.strictEqual(askCount.editable, true);
+assert.strictEqual(askCount.mode, 'ask_count');
+
+// Parameters the control does not own survive untouched, in source order.
+const withOthers = readPeopleListQuantity('there_are_any=True, complete_attribute="name"');
+assert.strictEqual(withOthers.editable, true);
+assert.strictEqual(withOthers.mode, 'at_least_one');
+assert.strictEqual(withOthers.otherArgs, 'complete_attribute="name"');
+
+// Anything the control cannot fully account for is left to the author.
+[
+  'target_number=how_many',            // an expression, not a literal
+  'ask_number=True, target_number=n+1',
+  'there_are_any=False',               // a real setting, but not one of the modes
+  'there_are_any=True, ask_number=True',
+  'there_are_any=True, there_are_any=True',
+  'target_number=2',                   // target without ask_number
+  'there_are_any=maybe_any',
+  '**overrides',
+  'ask_number=[1',                     // unbalanced
+].forEach((args) => {
+  assert.strictEqual(readPeopleListQuantity(args).editable, false, args);
+  // A refusal must hand the original text back for the plain editor.
+  assert.strictEqual(readPeopleListQuantity(args).otherArgs, args, args);
+});
+
+// Composing is the exact inverse for every mode the control offers.
+assert.strictEqual(composePeopleListUsingArgs('ask', 1, ''), '');
+assert.strictEqual(composePeopleListUsingArgs('at_least_one', 1, ''), 'there_are_any=True');
+assert.strictEqual(composePeopleListUsingArgs('ask_count', 1, ''), 'ask_number=True');
+assert.strictEqual(
+  composePeopleListUsingArgs('exactly', 1, ''),
+  'ask_number=True, target_number=1'
+);
+assert.strictEqual(
+  composePeopleListUsingArgs('exactly', 3, 'complete_attribute="name"'),
+  'ask_number=True, target_number=3, complete_attribute="name"'
+);
+// A blank or nonsense count falls back to one rather than writing target_number=NaN.
+assert.strictEqual(
+  composePeopleListUsingArgs('exactly', '', ''),
+  'ask_number=True, target_number=1'
+);
+
+// Every offered mode round-trips through read -> compose -> read.
+PEOPLE_LIST_QUANTITY_MODES.forEach((mode) => {
+  const args = composePeopleListUsingArgs(mode.value, 2, 'complete_attribute="name"');
+  const parsed = readPeopleListQuantity(args);
+  assert.strictEqual(parsed.editable, true, mode.value);
+  assert.strictEqual(parsed.mode, mode.value, mode.value);
+  assert.strictEqual(parsed.otherArgs, 'complete_attribute="name"', mode.value);
+  if (mode.value === 'exactly') assert.strictEqual(parsed.number, 2);
+});
+
+// Reading a list and composing it again without touching the control is a no-op.
+[
+  '',
+  'there_are_any=True',
+  'ask_number=True',
+  'ask_number=True, target_number=1',
+  'ask_number=True, target_number=4, complete_attribute="name"',
+].forEach((args) => {
+  const parsed = readPeopleListQuantity(args);
+  assert.strictEqual(
+    composePeopleListUsingArgs(parsed.mode, parsed.number, parsed.otherArgs),
+    args,
+    args
+  );
+});
 // if / elif / else chains in the interview order
 // ---------------------------------------------------------------------------
 

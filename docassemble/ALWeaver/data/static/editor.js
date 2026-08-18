@@ -3965,15 +3965,107 @@
     });
   }
 
+  // Lists of people are the one `.using()` call authors are routinely told to
+  // write by hand -- "Setting the number of people in a group" in the
+  // AssemblyLine authoring docs -- so the three parameters that answer that
+  // question get a real control instead of a text box.  Everything else in the
+  // call is left in the author's own words next to it.
+  var PEOPLE_LIST_CLASSES = ['ALPeopleList'];
+
+  function _isPeopleListClass(className) {
+    return PEOPLE_LIST_CLASSES.indexOf(String(className || '').trim()) !== -1;
+  }
+
+  /* Returns the quantity state for a people list whose parameters this control
+     can safely own, or null -- meaning render the plain text box, because
+     rewriting a parameter list we did not fully understand would lose part of
+     what the author wrote. */
+  function _peopleListQuantity(className, usingArgs) {
+    if (!_isPeopleListClass(className)) return null;
+    if (!window.ALWeaverSerializers || !window.ALWeaverSerializers.readPeopleListQuantity) return null;
+    var quantity = window.ALWeaverSerializers.readPeopleListQuantity(usingArgs);
+    return quantity && quantity.editable ? quantity : null;
+  }
+
+  function _renderPeopleListQuantity(oi, quantity) {
+    var modes = (window.ALWeaverSerializers && window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) || [];
+    var groupName = 'editor-obj-quantity-' + oi;
+    var html = '<fieldset class="editor-form-group editor-form-group-compact editor-obj-quantity" data-obj-quantity="1">';
+    html += '<legend class="editor-tiny">How many people?</legend>';
+    modes.forEach(function (modeOption, mi) {
+      var inputId = groupName + '-' + mi;
+      var checked = quantity.mode === modeOption.value ? ' checked' : '';
+      html += '<div class="form-check">';
+      html += '<input class="form-check-input" type="radio" name="' + groupName + '" id="' + inputId + '" value="' + esc(modeOption.value) + '" data-obj-quantity-mode="1"' + checked + '>';
+      html += '<label class="form-check-label" for="' + inputId + '">' + esc(modeOption.label);
+      html += '<span class="editor-obj-hint">' + esc(modeOption.hint) + '</span></label>';
+      if (modeOption.value === 'exactly') {
+        html += '<div class="editor-obj-quantity-number' + (quantity.mode === 'exactly' ? '' : ' d-none') + '">';
+        html += '<label class="editor-tiny" for="' + groupName + '-number">Number of people</label>';
+        html += '<input class="form-control editor-form-control editor-obj-input" id="' + groupName + '-number" type="number" min="0" step="1" value="' + esc(String(quantity.number)) + '" data-obj-quantity-number="1">';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</fieldset>';
+    return html;
+  }
+
+  /* Read the object rows currently on screen back into the block, so a redraw
+     keeps edits that have not been saved yet. */
+  function _syncObjectEditorRowsFromDom() {
+    var block = getSelectedBlock();
+    if (!block || block.type !== 'objects') return;
+    var rows = $$('.editor-obj-row');
+    if (!rows.length) return;
+    block.editor_objects = rows.map(function (row) {
+      var nameEl = row.querySelector('[data-obj-prop="name"]');
+      var modeEl = row.querySelector('[data-obj-prop="mode"]');
+      var classEl = row.querySelector('[data-obj-prop="class"]');
+      var usingArgsEl = row.querySelector('[data-obj-prop="using-args"]');
+      var rawExprEl = row.querySelector('[data-obj-prop="expression"]');
+      var mode = modeEl ? String(modeEl.value || 'raw') : 'raw';
+      var className = classEl ? String(classEl.value || '').trim() : '';
+      var usingArgs = usingArgsEl ? String(usingArgsEl.value || '').trim() : '';
+      var quantityEl = row.querySelector('[data-obj-quantity]');
+      if (quantityEl && window.ALWeaverSerializers && window.ALWeaverSerializers.composePeopleListUsingArgs) {
+        var checkedMode = row.querySelector('[data-obj-quantity-mode]:checked');
+        var numberEl = row.querySelector('[data-obj-quantity-number]');
+        usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
+          checkedMode ? String(checkedMode.value || 'ask') : 'ask',
+          numberEl ? numberEl.value : 1,
+          usingArgs
+        );
+      }
+      var rawExpression = rawExprEl ? String(rawExprEl.value || '').trim() : '';
+      return {
+        name: nameEl ? String(nameEl.value || '').trim() : '',
+        mode: mode,
+        class_name: className,
+        using_args: usingArgs,
+        raw_expression: mode === 'using' ? _composeObjectExpression(className || 'DAObject', usingArgs) : rawExpression,
+        expression: mode === 'using' ? _composeObjectExpression(className || 'DAObject', usingArgs) : rawExpression,
+        is_document_bundle: className === 'ALDocumentBundle',
+      };
+    });
+  }
+
   function _composeObjectExpression(className, usingArgs) {
     var cleanClass = String(className || '').trim();
     var cleanArgs = String(usingArgs || '').trim();
     if (!cleanClass) return '';
     if (!cleanArgs) return cleanClass;
     if (cleanArgs.indexOf('\n') === -1) return cleanClass + '.using(' + cleanArgs + ')';
-    var indentedArgs = cleanArgs.split('\n').map(function (line) {
-      return line ? '  ' + line : '';
-    }).join('\n');
+    // A multi-argument call is shown one argument per line with the commas
+    // stripped, and that is the form that comes back here on save. Put the
+    // commas back, or what gets written is not valid Python.
+    var argList = window.ALWeaverSerializers.splitUsingArgs(cleanArgs);
+    if (argList === null || !argList.length) {
+      argList = cleanArgs.split('\n').map(function (line) { return line.trim(); })
+        .filter(function (line) { return line !== ''; });
+    }
+    if (!argList.length) return cleanClass;
+    var indentedArgs = argList.map(function (arg) { return '  ' + arg; }).join(',\n');
     return cleanClass + '.using(\n' + indentedArgs + '\n)';
   }
 
@@ -4015,6 +4107,16 @@
         if (mode === 'using') {
           var className = classEl ? String(classEl.value || '').trim() : '';
           var usingArgs = usingArgsEl ? String(usingArgsEl.value || '').trim() : '';
+          var quantityEl = row.querySelector('[data-obj-quantity]');
+          if (quantityEl && window.ALWeaverSerializers && window.ALWeaverSerializers.composePeopleListUsingArgs) {
+            var checkedMode = row.querySelector('[data-obj-quantity-mode]:checked');
+            var numberEl = row.querySelector('[data-obj-quantity-number]');
+            usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
+              checkedMode ? String(checkedMode.value || 'ask') : 'ask',
+              numberEl ? numberEl.value : 1,
+              usingArgs
+            );
+          }
           expression = _composeObjectExpression(className || 'DAObject', usingArgs);
         } else {
           expression = rawExprEl ? String(rawExprEl.value || '').trim() : '';
@@ -6617,9 +6719,20 @@
           }
           html += '</div>';
           if (mode === 'using') {
+            var quantity = _peopleListQuantity(className, usingArgs);
+            if (quantity) {
+              html += _renderPeopleListQuantity(oi, quantity);
+              usingArgs = quantity.otherArgs;
+            }
             html += '<div class="editor-form-group editor-form-group-compact">';
-            html += '<label class="editor-tiny" for="editor-obj-using-' + oi + '">.using() parameters</label>';
-            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="4" placeholder="elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;">' + esc(usingArgs) + '</textarea>';
+            html += '<label class="editor-tiny" for="editor-obj-using-' + oi + '">' + (quantity ? 'Other .using() parameters' : '.using() parameters') + '</label>';
+            // The quantity control owns the parameters a people list is
+            // usually configured with, so suggesting bundle parameters next to
+            // it would point at the wrong thing.
+            var usingPlaceholder = quantity
+              ? 'complete_attribute=&quot;name&quot;'
+              : 'elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;';
+            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="' + (quantity ? 2 : 4) + '" placeholder="' + usingPlaceholder + '">' + esc(usingArgs) + '</textarea>';
             if (obj.is_document_bundle) {
               html += '<div class="editor-obj-hint">Common <code>ALDocumentBundle</code> params: <code>elements=[...]</code>, <code>filename=...</code>, <code>title=...</code>, <code>enabled=True</code>.</div>';
             }
@@ -9806,6 +9919,21 @@
     }
     if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
       markInterviewDirty();
+      return;
+    }
+    if (target.matches('[data-obj-quantity-mode]')) {
+      var quantityRow = target.closest('.editor-obj-row');
+      var numberWrap = quantityRow && quantityRow.querySelector('.editor-obj-quantity-number');
+      if (numberWrap) numberWrap.classList.toggle('d-none', target.value !== 'exactly');
+      markInterviewDirty();
+      return;
+    }
+    // Typing a class name in or out of ALPeopleList decides whether the
+    // quantity control applies, so commit the row and redraw it.
+    if (target.matches('[data-obj-prop="class"]')) {
+      _syncObjectEditorRowsFromDom();
+      markInterviewDirty();
+      renderCanvas();
       return;
     }
     if (target.id === 'section-upload-input') {
