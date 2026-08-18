@@ -642,6 +642,20 @@ class _TestAutoDraftBase(unittest.TestCase):
             return result, Path(result.yaml_path).read_text(encoding="utf-8")
 
 
+class TestAutoDraftFinalScreen(_TestAutoDraftBase):
+    def test_final_download_sets_progress_to_100_first(self):
+        """Both YAML and editor auto-drafting use this generated main order."""
+        _result, yaml_text = self._generate(["users1_name_first", "rent_amount"])
+
+        main_order = yaml_text.split("###################### Main order", 1)[1].split(
+            "\n---\n", 1
+        )[0]
+        self.assertRegex(
+            main_order,
+            r"(?m)^  set_progress\(100\)\n  \w+_download$",
+        )
+
+
 class TestAutoDraftPersonDetection(_TestAutoDraftBase):
     """Automatic drafts use the same person heuristics as the interactive flow."""
 
