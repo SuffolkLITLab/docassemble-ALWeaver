@@ -178,7 +178,15 @@
     },
   ];
 
-  /* Split a `.using()` argument list on top-level commas.
+  /* Split a `.using()` argument list into its arguments.
+
+     Top-level commas separate arguments, and so do newlines: the editor
+     normalizes any call with more than one argument onto separate lines
+     before the browser ever sees it (`_format_object_using_args`), so
+     `ask_number=True, target_number=1` arrives here as two lines with no
+     comma between them. Splitting on commas alone made every multi-argument
+     call look like one malformed argument.
+
      Returns null when brackets or quotes are unbalanced, because a partial
      split would silently drop an argument. */
   function splitUsingArgs(argText) {
@@ -210,7 +218,7 @@
         depth--;
         if (depth < 0) return null;
       }
-      if (ch === ',' && depth === 0) {
+      if ((ch === ',' || ch === '\n') && depth === 0) {
         parts.push(current);
         current = '';
         continue;

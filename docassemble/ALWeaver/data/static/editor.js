@@ -4027,9 +4027,16 @@
     if (!cleanClass) return '';
     if (!cleanArgs) return cleanClass;
     if (cleanArgs.indexOf('\n') === -1) return cleanClass + '.using(' + cleanArgs + ')';
-    var indentedArgs = cleanArgs.split('\n').map(function (line) {
-      return line ? '  ' + line : '';
-    }).join('\n');
+    // A multi-argument call is shown one argument per line with the commas
+    // stripped, and that is the form that comes back here on save. Put the
+    // commas back, or what gets written is not valid Python.
+    var argList = window.ALWeaverSerializers.splitUsingArgs(cleanArgs);
+    if (argList === null || !argList.length) {
+      argList = cleanArgs.split('\n').map(function (line) { return line.trim(); })
+        .filter(function (line) { return line !== ''; });
+    }
+    if (!argList.length) return cleanClass;
+    var indentedArgs = argList.map(function (arg) { return '  ' + arg; }).join(',\n');
     return cleanClass + '.using(\n' + indentedArgs + '\n)';
   }
 
@@ -6690,7 +6697,13 @@
             }
             html += '<div class="editor-form-group editor-form-group-compact">';
             html += '<label class="editor-tiny" for="editor-obj-using-' + oi + '">' + (quantity ? 'Other .using() parameters' : '.using() parameters') + '</label>';
-            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="' + (quantity ? 2 : 4) + '" placeholder="elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;">' + esc(usingArgs) + '</textarea>';
+            // The quantity control owns the parameters a people list is
+            // usually configured with, so suggesting bundle parameters next to
+            // it would point at the wrong thing.
+            var usingPlaceholder = quantity
+              ? 'complete_attribute=&quot;name&quot;'
+              : 'elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;';
+            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="' + (quantity ? 2 : 4) + '" placeholder="' + usingPlaceholder + '">' + esc(usingArgs) + '</textarea>';
             if (obj.is_document_bundle) {
               html += '<div class="editor-obj-hint">Common <code>ALDocumentBundle</code> params: <code>elements=[...]</code>, <code>filename=...</code>, <code>title=...</code>, <code>enabled=True</code>.</div>';
             }

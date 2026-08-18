@@ -146,7 +146,32 @@ const {
   PEOPLE_LIST_QUANTITY_MODES,
 } = serializers;
 
-// Splitting only ever happens on top-level commas.
+// The editor normalizes any multi-argument `.using()` call onto separate lines
+// before the browser sees it, so newlines separate arguments just like commas.
+// Testing only the comma form hid this: the docs' own "exactly one" example
+// reaches this code as two lines and got no control at all.
+assert.deepStrictEqual(
+  splitUsingArgs('ask_number=True\ntarget_number=1'),
+  ['ask_number=True', 'target_number=1']
+);
+const normalizedExactly = readPeopleListQuantity('ask_number=True\ntarget_number=1');
+assert.strictEqual(normalizedExactly.editable, true);
+assert.strictEqual(normalizedExactly.mode, 'exactly');
+assert.strictEqual(normalizedExactly.number, 1);
+
+const normalizedWithOthers = readPeopleListQuantity(
+  "ask_number=True\ntarget_number=2\ncomplete_attribute='name'"
+);
+assert.strictEqual(normalizedWithOthers.editable, true);
+assert.strictEqual(normalizedWithOthers.mode, 'exactly');
+assert.strictEqual(normalizedWithOthers.number, 2);
+assert.strictEqual(normalizedWithOthers.otherArgs, "complete_attribute='name'");
+
+// A newline inside brackets or quotes is not a separator.
+assert.deepStrictEqual(splitUsingArgs('elements=[\n  a,\n  b\n]'), ['elements=[\n  a,\n  b\n]']);
+assert.deepStrictEqual(splitUsingArgs('title="two\nlines"'), ['title="two\nlines"']);
+
+// Splitting on top-level commas.
 assert.deepStrictEqual(splitUsingArgs(''), []);
 assert.deepStrictEqual(splitUsingArgs('a=1, b=2'), ['a=1', 'b=2']);
 assert.deepStrictEqual(splitUsingArgs('a=[1, 2], b=f(3, 4)'), ['a=[1, 2]', 'b=f(3, 4)']);
