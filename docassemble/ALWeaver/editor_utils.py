@@ -1206,6 +1206,7 @@ _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
 _RE_IF = re.compile(r"if\s+(.+):$")
+_RE_ELIF = re.compile(r"elif\s+(.+):$")
 _RE_ELSE = re.compile(r"else:$")
 
 
@@ -1369,7 +1370,7 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
             if (
                 stop_on_else_indent is not None
                 and indent == stop_on_else_indent
-                and _RE_ELSE.match(stripped_line)
+                and (_RE_ELSE.match(stripped_line) or _RE_ELIF.match(stripped_line))
             ):
                 break
 
@@ -1396,18 +1397,12 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
                 children, next_index, step_counter = _parse_block(
                     index + 1, child_indent, step_counter, stop_on_else_indent=indent
                 )
-                else_children: List[Dict[str, Any]] = []
-                has_else = False
-                if next_index < len(raw_lines):
-                    next_line = raw_lines[next_index]
-                    if _line_indent(next_line) == indent and _RE_ELSE.match(
-                        next_line.strip()
-                    ):
-                        has_else = True
-                        else_child_indent = _next_child_indent(next_index + 1, indent)
-                        else_children, next_index, step_counter = _parse_block(
-                            next_index + 1, else_child_indent, step_counter
-                        )
+                (
+                    has_else,
+                    else_children,
+                    next_index,
+                    step_counter,
+                ) = _parse_conditional_tail(next_index, indent, step_counter)
                 steps.append(
                     {
                         "id": step_id,
@@ -1428,6 +1423,63 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
 
         return steps, index, step_counter
 
+    def _parse_conditional_tail(
+        index: int, indent: int, step_counter: int
+    ) -> Tuple[bool, List[Dict[str, Any]], int, int]:
+        """Parse the ``elif``/``else`` tail of an ``if`` block at ``indent``.
+
+        ``elif`` is represented as an ``else`` branch holding a single nested
+        condition step, which is what it means in Python.  Keeping it in the
+        existing shape means a chain of any length round-trips through
+        :func:`serialize_order_steps` and renders in the order builder without
+        a separate step kind for it.  Before this, an ``elif`` was not
+        recognised at all: it became a raw step and its body became *sibling*
+        steps, so saving the order block silently moved those screens out of
+        the branch and ran them unconditionally.
+        """
+        if index >= len(raw_lines):
+            return False, [], index, step_counter
+
+        line = raw_lines[index]
+        if _line_indent(line) != indent:
+            return False, [], index, step_counter
+        stripped = line.strip()
+
+        elif_match = _RE_ELIF.match(stripped)
+        if elif_match:
+            step_counter += 1
+            step_id = f"step-{step_counter}"
+            child_indent = _next_child_indent(index + 1, indent)
+            children, next_index, step_counter = _parse_block(
+                index + 1, child_indent, step_counter, stop_on_else_indent=indent
+            )
+            (
+                nested_has_else,
+                nested_else_children,
+                next_index,
+                step_counter,
+            ) = _parse_conditional_tail(next_index, indent, step_counter)
+            nested_step = {
+                "id": step_id,
+                "kind": STEP_CONDITION,
+                "label": "Condition",
+                "summary": elif_match.group(1),
+                "condition": elif_match.group(1),
+                "children": children,
+                "has_else": nested_has_else,
+                "else_children": nested_else_children,
+            }
+            return True, [nested_step], next_index, step_counter
+
+        if _RE_ELSE.match(stripped):
+            else_child_indent = _next_child_indent(index + 1, indent)
+            else_children, next_index, step_counter = _parse_block(
+                index + 1, else_child_indent, step_counter
+            )
+            return True, else_children, next_index, step_counter
+
+        return False, [], index, step_counter
+
     parsed_steps, _next_index, _final_counter = _parse_block(0, 0, 0)
     return parsed_steps
 
@@ -1436,6 +1488,41 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
     """Convert structured order steps back into Python code for a mandatory
     code block."""
     lines: List[str] = []
+
+    def _append_condition(step: Dict[str, Any], indent: int, keyword: str) -> None:
+        """Write one link of an ``if``/``elif``/``else`` chain.
+
+        An ``else`` branch whose only content is a condition is written back as
+        ``elif`` rather than as a nested ``if``.  That is the same code either
+        way, and it is what :func:`parse_order_code` produces for an ``elif``,
+        so a chain survives a parse/serialize round trip unchanged.
+        """
+        prefix = " " * indent
+        condition = str(step.get("condition") or step.get("summary") or "True")
+        lines.append(f"{prefix}{keyword} {condition}:")
+        children = step.get("children") or []
+        if children:
+            _append_steps(children, indent + 2)
+        else:
+            lines.append(f"{' ' * (indent + 2)}pass")
+
+        if not step.get("has_else"):
+            return
+
+        else_children = step.get("else_children") or []
+        if (
+            len(else_children) == 1
+            and isinstance(else_children[0], dict)
+            and else_children[0].get("kind") == STEP_CONDITION
+        ):
+            _append_condition(else_children[0], indent, "elif")
+            return
+
+        lines.append(f"{prefix}else:")
+        if else_children:
+            _append_steps(else_children, indent + 2)
+        else:
+            lines.append(f"{' ' * (indent + 2)}pass")
 
     def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
         prefix = " " * indent
@@ -1454,20 +1541,7 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
             elif kind == STEP_FUNCTION:
                 lines.append(f"{prefix}{step.get('invoke', '')}")
             elif kind == STEP_CONDITION:
-                condition = str(step.get("condition") or step.get("summary") or "True")
-                lines.append(f"{prefix}if {condition}:")
-                children = step.get("children") or []
-                if children:
-                    _append_steps(children, indent + 2)
-                else:
-                    lines.append(f"{' ' * (indent + 2)}pass")
-                if step.get("has_else"):
-                    lines.append(f"{prefix}else:")
-                    else_children = step.get("else_children") or []
-                    if else_children:
-                        _append_steps(else_children, indent + 2)
-                    else:
-                        lines.append(f"{' ' * (indent + 2)}pass")
+                _append_condition(step, indent, "if")
             elif kind == STEP_RAW:
                 code = step.get("code", "")
                 for raw_line in str(code).splitlines() or [""]:
