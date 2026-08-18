@@ -374,6 +374,114 @@ def background_context() -> AbstractContextManager[Any]:
     return context_factory()
 
 
+def _optional_webapp_attr(candidates: Sequence[Tuple[str, str]]) -> Any:
+    """Like :func:`_first_webapp_attr` but returns ``None`` instead of raising.
+
+    Used for the restart machinery, which an installation is allowed not to
+    have: a server with restarting disabled should degrade to an explanation,
+    not a 500.
+    """
+    try:
+        return _first_webapp_attr(candidates, "this capability")
+    except BaseException:  # pylint: disable=broad-except
+        # Importing a webapp module can do more than fail: reading the server
+        # configuration calls sys.exit when there is no config file. An
+        # optional capability must not take the caller down with it.
+        return None
+
+
+def full_package_directory() -> Optional[str]:
+    """The site-packages root Docassemble installs packages into.
+
+    1.9.x computes it in ``webapp.server``; 1.10.x moved it to
+    ``webapp.config``.
+    """
+    value = _optional_webapp_attr(
+        (
+            ("docassemble.webapp.config", "FULL_PACKAGE_DIRECTORY"),
+            ("docassemble.webapp.server", "FULL_PACKAGE_DIRECTORY"),
+        )
+    )
+    return str(value) if value else None
+
+
+def server_start_time() -> float:
+    """When the process serving this request booted.
+
+    Read out of the already-imported module where possible. Importing
+    ``docassemble.base.config`` has the side effect of loading the server
+    configuration, which calls ``sys.exit`` when there is no config file — fine
+    inside a real server, fatal anywhere else.
+    """
+    module = sys.modules.get("docassemble.base.config")
+    if module is None:
+        try:
+            module = importlib.import_module("docassemble.base.config")
+        except BaseException:  # pylint: disable=broad-except
+            return 0.0
+    try:
+        return float(getattr(module, "START_TIME", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def reset_process_is_running() -> bool:
+    """Whether supervisor's ``reset`` program is still working."""
+    func = _optional_webapp_attr(
+        (
+            ("docassemble.webapp.utils.helpers", "reset_process_running"),
+            ("docassemble.webapp.server", "reset_process_running"),
+        )
+    )
+    if not callable(func):
+        return False
+    try:
+        return bool(func())
+    except Exception:
+        return False
+
+
+def restart_docassemble() -> None:
+    """Restart every Docassemble process, the way ``/restart_ajax`` does.
+
+    1.9.x defines ``restart_all`` in ``webapp.server``; 1.10.x moved it to
+    ``webapp.main.helpers``. It clears the cached interview sources, restarts
+    the other hosts, and then restarts this one, which is why the caller must
+    have already written its polling record before calling this.
+    """
+    func = _optional_webapp_attr(
+        (
+            ("docassemble.webapp.main.helpers", "restart_all"),
+            ("docassemble.webapp.server", "restart_all"),
+        )
+    )
+    if not callable(func):
+        raise DocassembleCompatibilityError(
+            "This Docassemble installation does not expose a way to restart"
+        )
+    func()
+
+
+def bump_interview_source_index(yaml_filename: str) -> None:
+    """Invalidate every worker's cached parse of one interview.
+
+    ``interview_cache`` validates its per-process cache against the Redis
+    counter ``da:interviewsource:<path>``, so without this bump a worker that
+    has already parsed the file keeps serving the old questions. Docassemble
+    does it for ``/interview`` requests carrying ``cache=0``; anything else
+    that starts a session against freshly edited YAML has to do it itself.
+    """
+    try:
+        import docassemble.base.parse  # type: ignore
+
+        docassemble.base.parse.interview_source_from_string(
+            yaml_filename
+        ).update_index()
+    except Exception:
+        # A stale parse is a much smaller problem than a failed session start.
+        pass
+
+
 def create_saved_file(*args: Any, **kwargs: Any) -> Any:
     saved_file = _first_webapp_attr(
         (
