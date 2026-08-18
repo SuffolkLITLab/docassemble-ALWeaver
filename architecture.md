@@ -254,6 +254,47 @@ that may bypass earlier questions. Question-to-source links are shown only when 
 stable returned `questionName` matches a known block; otherwise the UI says that
 no confident match is available.
 
+Saving a Playground Python module is the one editor action that cannot take
+effect on its own. Docassemble does not import modules from where the Playground
+saves them: an interview referring to `docassemble.playground7Housing.util`
+resolves that against `site-packages/docassemble/playground7Housing/`, and the
+copy between the two happens only in the server's `copy_playground_modules()` at
+startup — in 1.9.x from `server.py`, in 1.10.x from `webapp/develop/helpers.py`.
+That is why the stock Playground redirects to `/restart` after every module save.
+
+`editor_modules.py` implements a less disruptive version of the same contract,
+and imports nothing from Docassemble so it can be tested on its own. A module
+whose name Docassemble would skip — `copy_playground_modules()` only copies
+`^[A-Za-z].*\.py$` — is refused at creation, save, rename, and upload rather
+than saved and silently never loaded. Source that does not compile is refused
+too, with the line and offset, unless the developer passes `force` to keep
+unfinished work; forced saves are deliberately not installed. A module that does
+not yet exist in the package directory cannot be in any worker's `sys.modules`,
+so it is copied across and goes live with no restart at all. Changing, renaming,
+or deleting an installed module records a per-project pending-restart flag in
+Redis instead.
+
+The restart is then deferred to the point the developer runs the interview,
+starts a test session, or opens the stock Playground, where they are already
+waiting on a new tab — so several module edits cost one restart rather than one
+each. `weaver: restart on module save` chooses between `prompt` (the default:
+ask, quoting the ten-to-thirty-second server-wide disruption, and let the
+developer decline), `auto`, and `never`. `POST /al/editor/api/server/restart`
+writes its polling record to Redis before calling the server's own
+`restart_all()`, which takes down the worker handling the request; the status
+endpoint reads the same `da:restart_status:` record shape as Docassemble's
+`check_restart_status` so the two agree about what finished means. A pending
+flag also clears itself whenever the server has restarted since it was set, so a
+restart triggered from anywhere counts. Servers that cannot restart — restarting
+disabled, or a read-only file system, where `reset.sh` refuses — get the
+explanation and no button.
+
+Starting a runtime test session bumps the interview's `da:interviewsource:`
+index first. Docassemble does this itself for `/interview` requests carrying
+`cache=0`, which is what "Run the interview" sends, but the session API does
+not, and without it the inspector can run against a parse from before the
+developer's last save.
+
 Uploaded-file project generation runs as the named
 `weaver_editor_new_project_task` in Docassemble's configured Celery worker.
 Redis stores an owner-scoped job record with queued, start, finish, progress,
@@ -286,6 +327,7 @@ kinds of interviews that the Weaver can produce.
 - `editor_agent_rename.py` classifies every appearance of a variable name and renames only the references it can positively recognise
 - `editor_agent_context.py` assembles the compact interview context a turn is given, fencing untrusted reference material
 - `editor_agent.py` runs the bounded agent loop and the explicit final validation pass
+- `editor_modules.py` decides what saving a Playground Python module means: which names Docassemble will actually load, whether the source compiles, whether the module can go live immediately, and which projects are waiting on a restart
 
 ## Testing
 

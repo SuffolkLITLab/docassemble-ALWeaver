@@ -1775,6 +1775,39 @@
     updateProjectSearchMode();
   }
 
+  // Saving a Python module cannot take effect until the server restarts. This
+  // controller keeps track of which projects are waiting for one and offers
+  // the restart at the moment the developer runs the interview.
+  var moduleRestart = window.ALWeaverModuleRestart
+    ? window.ALWeaverModuleRestart.createModuleRestartController({
+      api: { get: apiGet, post: apiPost },
+      document: document,
+      window: window,
+      getProject: function () { return state.project; },
+    })
+    : null;
+
+  function noteModuleSaveResult(data) {
+    if (moduleRestart) moduleRestart.noteSaveResult(data);
+  }
+
+  /* Uploads are the one path that can accept a module the editor would have
+   * refused to save, so the outcome per file is reported afterwards. */
+  function reportUploadedModuleProblems(data) {
+    var modules = (data && data.modules) || [];
+    var problems = modules.filter(function (entry) {
+      return entry && entry.status === 'not_published';
+    });
+    if (!problems.length) return;
+    window.alert(problems.map(function (entry) { return entry.message; }).join('\n\n'));
+  }
+
+  /* Resolves true when the caller should go ahead. */
+  function ensureModulesLoaded(actionLabel) {
+    if (!moduleRestart) return Promise.resolve(true);
+    return moduleRestart.ensureModulesLoaded(actionLabel);
+  }
+
   var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
     api: {
       get: apiGet,
@@ -1785,6 +1818,7 @@
       return { project: state.project, filename: state.filename };
     },
     getBlocks: function () { return state.blocks || []; },
+    beforeStart: function () { return ensureModulesLoaded('start a test session'); },
     onSessionChange: function (session) {
       state.runtimeTargetSession = session;
     },
@@ -4383,6 +4417,7 @@
 
   function loadFiles() {
     refreshGithubSyncAction();
+    if (moduleRestart) moduleRestart.refresh();
     if (!state.project) {
       state.files = [];
       state.filename = null;
@@ -5040,6 +5075,7 @@
         return false;
       }
       state.sectionDirty = false;
+      noteModuleSaveResult(res.data);
       state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
       updateTopbarSaveState();
       var saveSectionBtn = document.getElementById('save-section-file');
@@ -8435,6 +8471,7 @@
         }
         state.sectionSelectedFile[state.currentView] = inlineNewName;
         state.sectionDirty = false;
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8459,6 +8496,7 @@
           return;
         }
         state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : sfNewName;
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8501,6 +8539,7 @@
         if (state.sectionSelectedFile[state.currentView] === delName) {
           state.sectionSelectedFile[state.currentView] = null;
         }
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8594,11 +8633,19 @@
       return;
     }
 
+    if (uiAction === 'restart-for-modules') {
+      if (moduleRestart) moduleRestart.openRestartDialog();
+      return;
+    }
+
     if (uiAction === 'open-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
         promptAndSaveUnsavedChanges('open the playground').then(function (saved) {
-          if (saved) window.open(standardPlaygroundUrl, '_blank');
+          if (!saved) return;
+          return ensureModulesLoaded('open the playground').then(function (proceed) {
+            if (proceed) window.open(standardPlaygroundUrl, '_blank');
+          });
         });
       }
       return;
@@ -8631,6 +8678,7 @@
         }
         state.sectionSelectedFile[state.currentView] = filenamePrompt;
         state.sectionDirty = false;
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8654,6 +8702,7 @@
           return;
         }
         state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : renamedSectionFile;
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8675,6 +8724,7 @@
           return;
         }
         state.sectionSelectedFile[state.currentView] = null;
+        noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -8849,8 +8899,14 @@
       if (!state.filename) return;
       promptAndSaveUnsavedChanges('open the interview').then(function (saved) {
         if (!saved) return;
-        apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
-          .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
+        // The restart is deferred to here rather than to the module save, so
+        // several edits cost one restart and it lands while the developer is
+        // already waiting on a new tab.
+        return ensureModulesLoaded('run the interview').then(function (proceed) {
+          if (!proceed) return;
+          return apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+            .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
+        });
       });
       return;
     }
@@ -9673,6 +9729,8 @@
             state.sectionSelectedFile[state.currentView] = res.data.saved_files[0];
           }
           state.sectionDirty = false;
+          noteModuleSaveResult(res.data);
+          reportUploadedModuleProblems(res.data);
           loadSectionFiles(state.currentView);
         })
         .finally(function () {

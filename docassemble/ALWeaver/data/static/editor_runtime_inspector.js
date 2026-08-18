@@ -48,6 +48,9 @@
     var getContext = options.getContext;
     var getBlocks = options.getBlocks || function () { return []; };
     var onSessionChange = options.onSessionChange || function () {};
+    // Runs before a test session is created, so pending Python module changes
+    // can be loaded first. Resolving false abandons the start.
+    var beforeStart = options.beforeStart || function () { return Promise.resolve(true); };
     var session = null;
     var question = null;
     var variables = {};
@@ -71,25 +74,28 @@
 
     function startSession() {
       var context = getContext();
-      setStatus('Starting a separate Docassemble test session...');
-      render(container);
-      return api.post('/api/runtime/sessions', {
-        project: context.project,
-        filename: context.filename,
-        purpose: 'test',
-      }).then(function (response) {
-        session = clone(response.data);
-        question = null;
-        variables = {};
-        previousVariables = {};
-        changed = [];
-        onSessionChange(clone(session));
-        setStatus('Test session started.');
+      return Promise.resolve(beforeStart()).then(function (proceed) {
+        if (proceed === false) return undefined;
+        setStatus('Starting a separate Docassemble test session...');
         render(container);
-        return refreshAll();
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to start the test session.', true);
-        render(container);
+        return api.post('/api/runtime/sessions', {
+          project: context.project,
+          filename: context.filename,
+          purpose: 'test',
+        }).then(function (response) {
+          session = clone(response.data);
+          question = null;
+          variables = {};
+          previousVariables = {};
+          changed = [];
+          onSessionChange(clone(session));
+          setStatus('Test session started.');
+          render(container);
+          return refreshAll();
+        }).catch(function (requestError) {
+          setStatus(requestError.message || 'Unable to start the test session.', true);
+          render(container);
+        });
       });
     }
 

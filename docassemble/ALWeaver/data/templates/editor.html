@@ -62,6 +62,15 @@
     <a data-celery-warning-docs target="_blank" rel="noopener noreferrer">View setup instructions</a>.
   </div>
 
+  <div class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-none d-flex flex-wrap align-items-center gap-2"
+       id="editor-module-restart-banner" role="status" aria-live="polite">
+    <span class="flex-grow-1">
+      <strong>Python module changes are waiting for a server restart.</strong>
+      <span data-module-restart-banner-message></span>
+    </span>
+    <button type="button" class="btn btn-sm btn-primary" data-action="restart-for-modules">Restart now</button>
+  </div>
+
   <!-- ===== MAIN LAYOUT ===== -->
   <div class="editor-layout" id="editor-layout">
 
@@ -329,6 +338,43 @@
   </div>
 </div>
 
+<!-- Pending Python module changes need a server restart -->
+<div class="modal fade" id="module-restart-modal" tabindex="-1"
+     aria-labelledby="module-restart-title" aria-describedby="module-restart-message"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="module-restart-title">Restart to load your module changes?</h5>
+      </div>
+      <div class="modal-body">
+        <p id="module-restart-message">These Python modules have changed since the server last started:</p>
+        <ul class="mb-3" id="module-restart-files"></ul>
+        <p class="mb-3">Docassemble loads a module once per server process, so your
+          changes will not take effect until it restarts.</p>
+        <div class="alert alert-warning" role="alert" id="module-restart-warning">
+          <strong>Restarting interrupts everyone on this server for about 10&ndash;30 seconds.</strong>
+          Pages will be slow to respond while it comes back, and any documents
+          being assembled in the background are cancelled. Nobody loses their
+          saved answers.
+        </div>
+        <div class="alert alert-danger d-none" id="module-restart-error" role="alert"></div>
+        <div class="d-none" id="module-restart-progress">
+          <div class="d-flex align-items-center gap-2">
+            <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+            <span id="module-restart-progress-text">Restarting the server&hellip;</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-module-restart-choice="cancel">Cancel</button>
+        <button type="button" class="btn btn-outline-secondary" data-module-restart-choice="skip">Continue without restarting</button>
+        <button type="button" class="btn btn-primary" data-module-restart-choice="restart">Restart now</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Insert Block Modal -->
 <div class="modal fade" id="insert-modal" tabindex="-1">
   <div class="modal-dialog">
@@ -545,6 +591,7 @@
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>
+<script src="/al/editor/static/editor_module_restart.js"></script>
 <script src="/al/editor/static/editor_agent_chat.js"></script>
 <script src="/al/editor/static/editor.js"></script>
 </body>

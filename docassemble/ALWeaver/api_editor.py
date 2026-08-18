@@ -35,10 +35,14 @@ Provides:
     POST /al/editor/api/agent/sessions/<id>/cancel — stop a running turn
     POST /al/editor/api/agent/sessions/<id>/reset — restore the original candidate
     POST /al/editor/api/agent/sessions/<id>/apply — return the candidate source
+    GET  /al/editor/api/server/restart-state — pending module changes, if any
+    POST /al/editor/api/server/restart — restart Docassemble so modules load
+    GET  /al/editor/api/server/restart-status — poll a restart in progress
 """
 
 from __future__ import annotations
 
+import importlib
 import importlib.resources
 import hashlib
 import json
@@ -46,6 +50,7 @@ import mimetypes
 import os
 import re
 import shutil
+import sys
 import traceback
 import textwrap
 import tempfile
@@ -65,8 +70,13 @@ from flask_login import current_user
 from docassemble.base.util import log
 
 from .docassemble_compat import (
+    bump_interview_source_index,
     create_target_session,
     create_saved_file,
+    full_package_directory,
+    reset_process_is_running,
+    restart_docassemble,
+    server_start_time,
     GithubCredentialError,
     get_target_question,
     get_target_variables,
@@ -101,6 +111,21 @@ from .api_utils import (
     generate_interview_from_bytes,
     parse_bool,
     validate_upload_metadata,
+)
+from .editor_modules import (
+    MODULE_FILENAME_PATTERN,
+    RESTART_DISRUPTION_SECONDS,
+    ModuleSyntaxError,
+    check_module_syntax,
+    clear_modules_dirty,
+    mark_modules_dirty,
+    module_package_directory,
+    normalize_restart_policy,
+    publish_module_source,
+    read_modules_dirty,
+    restart_status_key,
+    unpublish_module,
+    validate_module_filename,
 )
 from .assemblyline_settings import read_settings, update_settings
 
@@ -790,6 +815,8 @@ def _write_project_text_file(
     ) as fh:
         fh.write(content)
     area.finalize()
+    if normalized_section == "modules":
+        _sync_module_after_write(user_id, project, normalized_filename, content)
 
 
 def _project_text_files(
@@ -952,15 +979,24 @@ def _editor_feature_bootstrap() -> Dict[str, Any]:
     runtime_inspector = _runtime_inspector_enabled()
     agent_editor = _agent_editor_enabled()
     status = _assistant_status()
+    capability = _restart_capability()
+    module_restart = {
+        "policy": _module_restart_policy(),
+        "allowed": capability["allowed"],
+        "blocked_reason": capability["reason"],
+        "disruption_seconds": list(RESTART_DISRUPTION_SECONDS),
+    }
     return {
         "patch_model": patch_model,
         "runtime_inspector": runtime_inspector,
         "agent_editor": agent_editor,
         "assistant_status": status,
+        "module_restart": module_restart,
         "patchModel": patch_model,
         "runtimeInspector": runtime_inspector,
         "agentEditor": agent_editor,
         "assistantStatus": status,
+        "moduleRestart": module_restart,
     }
 
 
@@ -1562,11 +1598,16 @@ def editor_api_github_pull() -> Response:
                 },
                 409,
             )
+        _reconcile_project_modules(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"project": project, **result},
+                "data": {
+                    "project": project,
+                    **result,
+                    "restart_state": _restart_state_payload(uid, project),
+                },
             }
         )
     except ValueError as exc:
@@ -2353,22 +2394,52 @@ def editor_api_save_section_file() -> Response:
         mimetype_value = guessed_mimetype or "application/octet-stream"
         if not _is_text_editable(filename, mimetype_value):
             raise ValueError("File is not text-editable")
+        # A module that does not compile is refused rather than saved, because
+        # the failure would otherwise surface much later, in whichever
+        # interview imports it. "force" lets the developer keep unfinished work
+        # anyway; it is saved but deliberately not published.
+        force = parse_bool(post_data.get("force"), default=False)
+        module_info: Optional[Dict[str, Any]] = None
+        if section == "modules":
+            validate_module_filename(filename)
+            if not force:
+                check_module_syntax(filename, content)
         path = os.path.join(directory, filename)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         area.finalize()
+        if section == "modules":
+            try:
+                check_module_syntax(filename, content)
+            except ModuleSyntaxError as syntax_exc:
+                module_info = {
+                    "status": "not_published",
+                    "restart_required": False,
+                    "message": (
+                        f"{filename} was saved but not installed, because it "
+                        f"does not compile: {syntax_exc}"
+                    ),
+                }
+            else:
+                module_info = _save_module_file(uid, project, filename, content)
+        data: Dict[str, Any] = {
+            "project": project,
+            "section": section,
+            "filename": filename,
+            "size": len(content),
+        }
+        if module_info is not None:
+            data["module"] = module_info
+            data["restart_state"] = _restart_state_payload(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "section": section,
-                    "filename": filename,
-                    "size": len(content),
-                },
+                "data": data,
             }
         )
+    except ModuleSyntaxError as exc:
+        return _module_error_response(request_id, exc)
     except ValueError as exc:
         return jsonify_with_status(
             {
@@ -2407,24 +2478,36 @@ def editor_api_new_section_file() -> Response:
             raise ValueError("content must be a text string")
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
+        # Rejected here rather than at first save: a module whose name
+        # Docassemble will not import is worth catching before the developer
+        # writes any code in it.
+        if section == "modules":
+            validate_module_filename(filename)
+            check_module_syntax(filename, content)
         path = os.path.join(directory, filename)
         if os.path.exists(path):
             raise ValueError(f"{filename} already exists")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         area.finalize()
+        data: Dict[str, Any] = {
+            "project": project,
+            "section": section,
+            "filename": filename,
+            "size": len(content),
+        }
+        if section == "modules":
+            data["module"] = _save_module_file(uid, project, filename, content)
+            data["restart_state"] = _restart_state_payload(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "section": section,
-                    "filename": filename,
-                    "size": len(content),
-                },
+                "data": data,
             }
         )
+    except ModuleSyntaxError as exc:
+        return _module_error_response(request_id, exc)
     except ValueError as exc:
         return jsonify_with_status(
             {
@@ -2462,8 +2545,11 @@ def editor_api_upload_section_file() -> Response:
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
         saved_files: List[str] = []
+        modules: List[Dict[str, Any]] = []
         for upload in uploads:
             candidate_name = _normalize_storage_filename(upload.filename)
+            if section == "modules":
+                validate_module_filename(candidate_name)
             path = os.path.join(directory, candidate_name)
             if os.path.exists(path):
                 stem, ext = os.path.splitext(candidate_name)
@@ -2472,18 +2558,47 @@ def editor_api_upload_section_file() -> Response:
                     candidate_name = f"{stem}_{counter}{ext}"
                     path = os.path.join(directory, candidate_name)
                     counter += 1
+                # De-duplicating the name can produce one Docassemble would
+                # skip, e.g. util_1.py is fine but a leading digit would not be.
+                if section == "modules":
+                    validate_module_filename(candidate_name)
             upload.save(path)
             saved_files.append(candidate_name)
         area.finalize()
+        for candidate_name in saved_files if section == "modules" else []:
+            with open(os.path.join(directory, candidate_name), encoding="utf-8") as fh:
+                uploaded_source = fh.read()
+            try:
+                check_module_syntax(candidate_name, uploaded_source)
+            except ModuleSyntaxError as syntax_exc:
+                modules.append(
+                    {
+                        "filename": candidate_name,
+                        "status": "not_published",
+                        "restart_required": False,
+                        "message": (
+                            f"{candidate_name} was uploaded but not installed, "
+                            f"because it does not compile: {syntax_exc}"
+                        ),
+                    }
+                )
+                continue
+            result = _save_module_file(uid, project, candidate_name, uploaded_source)
+            result["filename"] = candidate_name
+            modules.append(result)
+        data: Dict[str, Any] = {
+            "project": project,
+            "section": section,
+            "saved_files": saved_files,
+        }
+        if section == "modules":
+            data["modules"] = modules
+            data["restart_state"] = _restart_state_payload(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "section": section,
-                    "saved_files": saved_files,
-                },
+                "data": data,
             }
         )
     except ValueError as exc:
@@ -3084,6 +3199,7 @@ def editor_api_save_file() -> Response:
 #       assistant: False
 #       assistant model: gpt-5-mini
 #       runtime inspector: True
+#       restart on module save: prompt
 #
 # Each setting maps to the older UPPER_SNAKE spelling as well, so installs that
 # already set one of those keys — or the matching environment variable — keep
@@ -3102,12 +3218,20 @@ _FALSY = {"0", "false", "no", "off"}
 
 
 def _daconfig() -> Dict[str, Any]:
-    try:
-        from docassemble.base.config import daconfig
+    """Docassemble's loaded configuration, or an empty one outside a server.
 
-        return daconfig if isinstance(daconfig, dict) else {}
-    except (ImportError, AttributeError):
-        return {}
+    Read out of the already-imported module where possible: importing
+    ``docassemble.base.config`` loads the server configuration as a side
+    effect, and calls ``sys.exit`` when there is no config file to load.
+    """
+    module = sys.modules.get("docassemble.base.config")
+    if module is None:
+        try:
+            module = importlib.import_module("docassemble.base.config")
+        except BaseException:  # pylint: disable=broad-except
+            return {}
+    config = getattr(module, "daconfig", None)
+    return config if isinstance(config, dict) else {}
 
 
 def _legacy_config_spellings(legacy: str) -> List[str]:
@@ -3195,6 +3319,299 @@ def _agent_editor_enabled() -> bool:
     range operations in process and never calls that endpoint.
     """
     return _weaver_flag("assistant", True)
+
+
+# ---------------------------------------------------------------------------
+# Playground module safety
+#
+# Saving a module is the one editor action that cannot take effect on its own.
+# See editor_modules.py for why; the helpers below decide what to tell the
+# developer about it and when to offer the restart.
+# ---------------------------------------------------------------------------
+
+
+def _module_restart_policy() -> str:
+    """How the editor should handle a module change that needs a restart.
+
+    ``prompt`` (the default) asks before restarting, ``auto`` restarts without
+    asking when the developer runs the interview, and ``never`` only ever shows
+    the banner and leaves the restart to the developer.
+    """
+    return normalize_restart_policy(_weaver_setting("restart on module save"))
+
+
+def _filesystem_is_read_only() -> bool:
+    """``reset.sh`` refuses to restart on a read-only file system."""
+    return bool(_daconfig().get("read only file system", False))
+
+
+def _restarting_is_allowed() -> bool:
+    """Whether this server permits restarts at all.
+
+    Docassemble sets ``ALLOW_RESTARTING`` from whether the Playground, package
+    updates, or configuration editing are enabled.
+    """
+    try:
+        return bool(app.config.get("ALLOW_RESTARTING", False))
+    except Exception:
+        return False
+
+
+def _restart_capability() -> Dict[str, Any]:
+    """Whether this server can restart itself, and why not when it cannot."""
+    if _filesystem_is_read_only():
+        return {
+            "allowed": False,
+            "reason": (
+                "This server runs on a read-only file system, so it cannot "
+                "restart itself. Module changes will load the next time it is "
+                "redeployed."
+            ),
+        }
+    if not _restarting_is_allowed():
+        return {
+            "allowed": False,
+            "reason": (
+                "Restarting is disabled on this server. Ask an administrator "
+                "to restart it so your module changes load."
+            ),
+        }
+    return {"allowed": True, "reason": None}
+
+
+def _pending_module_changes(uid: int, project: str) -> Optional[Dict[str, Any]]:
+    try:
+        return read_modules_dirty(
+            r, uid, project, server_start_time=server_start_time()
+        )
+    except Exception as exc:  # a broken flag must not break the editor
+        log(f"ALWeaver editor: could not read pending module state: {exc!r}", "error")
+        return None
+
+
+def _flag_module_change(uid: int, project: str, filename: str, reason: str) -> None:
+    try:
+        mark_modules_dirty(
+            r,
+            uid,
+            project,
+            filename,
+            server_start_time=server_start_time(),
+            reason=reason,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: could not record pending module state: {exc!r}", "error")
+
+
+def _restart_state_payload(uid: int, project: str) -> Dict[str, Any]:
+    """Everything the editor needs to decide what to say about restarting."""
+    pending = _pending_module_changes(uid, project)
+    capability = _restart_capability()
+    return {
+        "project": project,
+        "pending": bool(pending),
+        "files": (pending or {}).get("files", []),
+        "since": (pending or {}).get("since"),
+        "policy": _module_restart_policy(),
+        "restart_allowed": capability["allowed"],
+        "restart_blocked_reason": capability["reason"],
+        "disruption_seconds": list(RESTART_DISRUPTION_SECONDS),
+    }
+
+
+def _save_module_file(
+    uid: int, project: str, filename: str, content: str
+) -> Dict[str, Any]:
+    """Validate, publish, and report on one module save.
+
+    Returns the ``module`` half of the save response: whether the module is
+    live already or the project now needs a restart.
+    """
+    validate_module_filename(filename)
+    check_module_syntax(filename, content)
+    outcome = publish_module_source(
+        package_root=full_package_directory(),
+        user_id=uid,
+        project=project,
+        filename=filename,
+        content=content,
+    )
+    if outcome == "live":
+        return {
+            "status": "live",
+            "restart_required": False,
+            "message": f"{filename} is available to your interviews now.",
+        }
+    if outcome == "unavailable":
+        _flag_module_change(uid, project, filename, "changed")
+        return {
+            "status": "restart_required",
+            "restart_required": True,
+            "message": (
+                f"{filename} was saved. This server would not let the editor "
+                "install it directly, so it will load when the server restarts."
+            ),
+        }
+    _flag_module_change(uid, project, filename, "changed")
+    return {
+        "status": "restart_required",
+        "restart_required": True,
+        "message": (
+            f"{filename} was saved. Because an earlier version may already be "
+            "loaded, the server has to restart before your changes take effect."
+        ),
+    }
+
+
+def _sync_module_after_write(
+    uid: int, project: str, filename: str, content: str
+) -> None:
+    """Keep the installed copy in step with a module written elsewhere.
+
+    Project-wide find/replace writes module files directly, and must not be
+    turned into a save that can fail: a module that will not compile, or whose
+    name Docassemble would skip, simply is not installed.
+    """
+    try:
+        validate_module_filename(filename)
+    except ValueError:
+        return
+    try:
+        check_module_syntax(filename, content)
+    except ModuleSyntaxError:
+        _flag_module_change(uid, project, filename, "changed")
+        return
+    try:
+        _save_module_file(uid, project, filename, content)
+    except Exception as exc:
+        log(f"ALWeaver editor: could not install {filename}: {exc!r}", "error")
+        _flag_module_change(uid, project, filename, "changed")
+
+
+def _reconcile_project_modules(uid: int, project: str) -> None:
+    """Bring the installed modules back in line with the saved ones.
+
+    Used after a bulk change that replaces files behind the editor's back — a
+    GitHub pull or import — where individual saves never happened.
+    """
+    # Reconciling is bookkeeping on top of an import or pull that already
+    # succeeded; it must never turn that into a failure.
+    try:
+        package_root = full_package_directory()
+        _area, directory = _editor_storage_directory(
+            uid, project, EDITOR_SECTION_TO_STORAGE["modules"]
+        )
+        saved = {
+            name
+            for name in os.listdir(directory)
+            if MODULE_FILENAME_PATTERN.match(name)
+        }
+    except (Exception, SystemExit) as exc:
+        log(f"ALWeaver editor: could not list saved modules: {exc!r}", "error")
+        return
+    for filename in sorted(saved):
+        try:
+            with open(os.path.join(directory, filename), encoding="utf-8") as fh:
+                content = fh.read()
+        except OSError:
+            continue
+        _sync_module_after_write(uid, project, filename, content)
+    installed_dir = module_package_directory(package_root, uid, project)
+    if not installed_dir or not os.path.isdir(installed_dir):
+        return
+    for filename in sorted(os.listdir(installed_dir)):
+        if not MODULE_FILENAME_PATTERN.match(filename) or filename in saved:
+            continue
+        if unpublish_module(
+            package_root=package_root,
+            user_id=uid,
+            project=project,
+            filename=filename,
+        ):
+            _flag_module_change(uid, project, filename, "deleted")
+
+
+def _rename_module_file(
+    uid: int, project: str, old_filename: str, new_filename: str, directory: str
+) -> Dict[str, Any]:
+    """Move a module's installed copy to follow a rename.
+
+    Dropping the old copy stops new imports of it, but a worker that already
+    imported the old name still holds it, so a rename always needs a restart
+    unless the module had never been installed in the first place.
+    """
+    package_root = full_package_directory()
+    was_installed = unpublish_module(
+        package_root=package_root,
+        user_id=uid,
+        project=project,
+        filename=old_filename,
+    )
+    try:
+        with open(os.path.join(directory, new_filename), encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        content = ""
+    try:
+        check_module_syntax(new_filename, content)
+        published = publish_module_source(
+            package_root=package_root,
+            user_id=uid,
+            project=project,
+            filename=new_filename,
+            content=content,
+        )
+    except ModuleSyntaxError:
+        published = "unavailable"
+    if not was_installed and published == "live":
+        return {
+            "status": "live",
+            "restart_required": False,
+            "message": f"{new_filename} is available to your interviews now.",
+        }
+    _flag_module_change(uid, project, old_filename, "renamed")
+    return {
+        "status": "restart_required",
+        "restart_required": True,
+        "message": (
+            f"{old_filename} was renamed to {new_filename}. The server has to "
+            "restart before interviews stop seeing the old name."
+        ),
+    }
+
+
+def _delete_module_file(uid: int, project: str, filename: str) -> Dict[str, Any]:
+    """Remove a module's installed copy after the source file is deleted."""
+    was_installed = unpublish_module(
+        package_root=full_package_directory(),
+        user_id=uid,
+        project=project,
+        filename=filename,
+    )
+    if not was_installed:
+        return {
+            "status": "live",
+            "restart_required": False,
+            "message": f"{filename} was deleted.",
+        }
+    _flag_module_change(uid, project, filename, "deleted")
+    return {
+        "status": "restart_required",
+        "restart_required": True,
+        "message": (
+            f"{filename} was deleted. The server has to restart before "
+            "interviews that already loaded it stop using it."
+        ),
+    }
+
+
+def _module_error_response(request_id: str, exc: ModuleSyntaxError) -> Response:
+    payload = exc.to_dict()
+    payload["request_id"] = request_id
+    return jsonify_with_status(
+        {"success": False, "request_id": request_id, "error": payload},
+        400,
+    )
 
 
 ASSISTANT_STATUS_READY = "ready"
@@ -3806,6 +4223,11 @@ def editor_api_runtime_create_session() -> Response:
         # Confirms this developer owns the requested Playground file.
         playground_read_yaml(uid, project, filename)
         yaml_filename = playground_yaml_filename(uid, project, filename)
+        # "Run the interview" reaches Docassemble with cache=0, which makes the
+        # server bump this index itself. Starting a session through the API
+        # does not, so without this the inspector can run against a parse from
+        # before the developer's last save.
+        bump_interview_source_index(yaml_filename)
         target = create_target_session(
             yaml_filename,
             secret=None,
@@ -5153,21 +5575,31 @@ def editor_api_rename_section_file() -> Response:
         )
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
+        if section == "modules":
+            validate_module_filename(new_filename)
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
         rename_saved_file(area, directory, old_filename, new_filename)
+        data: Dict[str, Any] = {
+            "project": project,
+            "section": section,
+            "filename": new_filename,
+            "old_filename": old_filename,
+        }
+        if section == "modules":
+            data["module"] = _rename_module_file(
+                uid, project, old_filename, new_filename, directory
+            )
+            data["restart_state"] = _restart_state_payload(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "section": section,
-                    "filename": new_filename,
-                    "old_filename": old_filename,
-                },
+                "data": data,
             }
         )
+    except ModuleSyntaxError as exc:
+        return _module_error_response(request_id, exc)
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -5205,15 +5637,19 @@ def editor_api_delete_section_file() -> Response:
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
         delete_saved_file(area, directory, filename)
+        data: Dict[str, Any] = {
+            "project": project,
+            "section": section,
+            "filename": filename,
+        }
+        if section == "modules":
+            data["module"] = _delete_module_file(uid, project, filename)
+            data["restart_state"] = _restart_state_payload(uid, project)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "section": section,
-                    "filename": filename,
-                },
+                "data": data,
             }
         )
     except (ValueError, FileNotFoundError) as exc:
@@ -5228,6 +5664,176 @@ def editor_api_delete_section_file() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: delete section-file error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/server/restart-state", methods=["GET"])
+def editor_api_restart_state() -> Response:
+    """Report whether this project has module changes awaiting a restart."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": _restart_state_payload(uid, project),
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: restart-state error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/server/restart", methods=["POST"])
+def editor_api_restart_server() -> Response:
+    """Restart every Docassemble process so module changes load.
+
+    The polling record is written before the restart is triggered, exactly as
+    Docassemble's own ``/restart_ajax`` does it: ``restart_all()`` takes down
+    the worker handling this request, so anything that has to survive the call
+    has to be in Redis before it.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    capability = _restart_capability()
+    if not capability["allowed"]:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "restart_not_allowed",
+                    "message": capability["reason"],
+                },
+            },
+            409,
+        )
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        task_id = uuid.uuid4().hex
+        pipe = r.pipeline()
+        pipe.set(
+            restart_status_key(task_id),
+            json.dumps({"server_start_time": server_start_time()}),
+        )
+        pipe.expire(restart_status_key(task_id), 3600)
+        pipe.execute()
+        restart_docassemble()
+        clear_modules_dirty(r, uid, project)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "task_id": task_id,
+                    "project": project,
+                    "disruption_seconds": list(RESTART_DISRUPTION_SECONDS),
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: restart failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "code": "restart_failed",
+                    "message": "The server could not be restarted.",
+                },
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/server/restart-status", methods=["GET"])
+def editor_api_restart_status() -> Response:
+    """Poll a restart started by POST /api/server/restart.
+
+    Reads the same Redis record shape as Docassemble's ``check_restart_status``
+    so the two agree about what "finished" means: this process booted after the
+    restart was requested, and supervisor's reset program is no longer running.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    task_id = str(request.args.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": "task_id is required"},
+            },
+            400,
+        )
+    try:
+        raw = r.get(restart_status_key(task_id))
+        if raw is None:
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"task_id": task_id, "status": "unknown"},
+                }
+            )
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        requested_at = float(json.loads(raw).get("server_start_time") or 0)
+        working = server_start_time() <= requested_at or reset_process_is_running()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "task_id": task_id,
+                    "status": "working" if working else "completed",
+                },
+            }
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: restart-status error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -6882,6 +7488,9 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             # the user's project chooser.
             delete_project(uid, project_name)
             raise
+        # An imported repository can bring Python modules with it, and no save
+        # went through the editor to install them.
+        _reconcile_project_modules(uid, project_name)
         return jsonify(
             {
                 "success": True,
@@ -6892,6 +7501,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
                     "github_url": snapshot["url"],
                     "github_branch": snapshot["branch"],
                     "files_imported": imported["files_imported"],
+                    "restart_state": _restart_state_payload(uid, project_name),
                 },
             }
         )
