@@ -309,6 +309,7 @@ code: |
   ${ interview.interview_label }_preview_question
   basic_questions_signature_flow
   % endif
+  set_progress(100)
   ${ interview.interview_label }_download
   % else:
   ${ interview.interview_label }_thank_you
