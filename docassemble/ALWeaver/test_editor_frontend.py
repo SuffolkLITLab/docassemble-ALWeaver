@@ -451,6 +451,155 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("field.pair ? 'col-12 col-md-6' : 'col-12'", editor)
         self.assertIn("input.value === '' ? '' : Number(input.value)", editor)
 
+    def test_assemblyline_settings_explain_themselves_and_flag_server_overrides(self):
+        """Guidance that lived on the question-driven Weaver's screens has to
+        travel with the control, and a setting that overrides the whole server
+        has to say so."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("editor-al-setting-help", editor)
+        self.assertIn("_settingServerDefaultHtml", editor)
+        self.assertIn("Overrides ", editor)
+        self.assertIn("Comes from ", editor)
+        self.assertIn("server_defaults", editor)
+        # Help text is searchable, so an author can find a setting by what it does.
+        self.assertIn("field.help || ''", editor)
+
+    def test_assemblyline_settings_say_which_yaml_block_holds_each_section(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function _settingsSectionDocumentsHtml(", editor)
+        self.assertIn("section.documents", editor)
+        self.assertIn(">Saved to<", editor)
+        # A value Weaver found in someone else's code block is flagged.
+        self.assertIn("function _settingSourceHtml(", editor)
+        self.assertIn("Weaver does not add a second copy", editor)
+        # And the page explains what it is for.
+        self.assertIn("function _settingsExplainerHtml(", editor)
+        self.assertIn('data-bs-toggle="popover"', editor)
+        self.assertIn("function _initSettingsPopovers(", editor)
+
+    def test_a_computed_setting_is_read_only_and_says_where_to_edit_it(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function _settingComputedBlock(", editor)
+        self.assertIn("function _settingComputedHtml(", editor)
+        self.assertIn("readonly disabled aria-disabled=", editor)
+        # It has to say where the real answer lives and how to change it.
+        self.assertIn("open that block in the outline, or use YAML source", editor)
+        self.assertIn("Saving here leaves it exactly as it is", editor)
+        # A disabled control is still in the DOM, so the save has to skip it.
+        self.assertIn("if (computed[key]) return;", editor)
+
+    def test_escaping_covers_quotes_because_almost_every_call_is_an_attribute(self):
+        """`esc()` output lands in title=, data-bs-content= and friends, so a
+        quote in the value would close the attribute early."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function esc(text) {", editor)
+        self.assertIn(".replace(/\"/g, '&quot;')", editor)
+        self.assertIn("""replace(/'/g, '&#39;')""", editor)
+
+    def test_the_style_check_does_not_dress_itself_up_as_a_blocking_error(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("var isStyleMode = state.validationMode === 'style'", editor)
+        self.assertIn("var hasProblems = !isStyleMode &&", editor)
+        self.assertIn("'Style suggestions'", editor)
+        self.assertIn("None of these stop the interview from running", editor)
+
+    def test_new_project_collects_publishing_metadata_and_the_filename(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        for element_id in (
+            "new-project-filename",
+            "new-project-title",
+            "new-project-short-title",
+            "new-project-description",
+            "new-project-jurisdiction",
+            "new-project-landing-page-url",
+            "new-project-list-topics",
+        ):
+            with self.subTest(element_id=element_id):
+                self.assertIn('id="%s"' % element_id, editor)
+        for form_key in (
+            "interview_filename",
+            "interview_title",
+            "interview_short_title",
+            "interview_description",
+            "jurisdiction",
+            "landing_page_url",
+            "list_topics",
+        ):
+            with self.subTest(form_key=form_key):
+                self.assertIn("formData.append('%s'" % form_key, editor)
+        # The old hard-coded name must not survive as a fallback.
+        self.assertNotIn("'interview.yml'", editor)
+
+    def test_a_comment_block_can_be_inserted_like_any_other(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('data-insert="comment"', template)
+        self.assertIn("if (kind === 'comment')", editor)
+
+    def test_the_outline_previews_a_block_on_hover(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function blockQuickView(", editor)
+        self.assertIn("esc(blockQuickView(block))", editor)
+        self.assertIn("if (type === 'comment') return 'Comment'", editor)
+
+    def test_create_project_groups_its_settings_into_accordion_sections(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function _newProjectSection(", editor)
+        self.assertIn('class="accordion editor-new-project-accordion"', editor)
+        for section in ("files", "basics", "advanced", "metadata", "context"):
+            with self.subTest(section=section):
+                self.assertIn("_newProjectSection('%s'" % section, editor)
+        # Independent sections, not a wizard: closing what you just filled in to
+        # open the next one would be hostile.
+        self.assertNotIn('data-bs-parent="#new-project-accordion"', editor)
+        # The advanced group is the collapsed one.
+        self.assertIn(
+            "_newProjectSection('advanced', 'Advanced settings', false", editor
+        )
+        self.assertIn("_newProjectSection('basics', 'Project settings', true", editor)
+
+    def test_uploading_a_document_suggests_the_project_name_and_title(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function _titleFromFilename(", editor)
+        self.assertIn("function _projectNameFromTitle(", editor)
+        self.assertIn("function _suggestNamesFromUpload(", editor)
+        self.assertIn("suggest('new-project-name', projectName)", editor)
+        self.assertIn("suggest('new-project-title', title)", editor)
+        self.assertIn("suggest('new-project-short-title', shortTitle)", editor)
+        # A suggestion never overwrites something the author typed.
+        self.assertIn(
+            "if (current && current !== _suggestedValues[elementId]) return;", editor
+        )
+
+    def test_list_topics_have_a_picker_instead_of_codes_typed_from_memory(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="list-topics-modal"', template)
+        self.assertIn('id="list-topics-tree"', template)
+        self.assertIn('id="list-topics-filter"', template)
+        self.assertIn('id="list-topics-apply"', template)
+        self.assertIn("/api/list-topics", editor)
+        self.assertIn("function openListTopicsPicker(", editor)
+        self.assertIn("function applyListTopicsSelection(", editor)
+        # Built the way ALToolbox's al_tree_select is: real disclosure groups
+        # around real checkboxes, so keyboard and screen readers work unaided.
+        self.assertIn('<details class="editor-topic-group"', editor)
+        self.assertIn('type="checkbox"', editor)
+        # Both places that hold topic codes can open it.
+        self.assertIn('data-open-list-topics="new-project-list-topics"', editor)
+        self.assertIn("field.key === 'LIST_topics'", editor)
+
     def test_new_project_offers_to_copy_the_assemblyline_person_questions(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 

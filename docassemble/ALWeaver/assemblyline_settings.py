@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 import copy
 import re
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import yaml
 
@@ -21,6 +21,196 @@ DOCS_URL = (
     "https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/"
     "magic_variables/"
 )
+
+
+# Where each value shows up and what else it affects.  The question-driven Weaver
+# explained this as you filled each screen in; the graphical panel shows every
+# setting at once, so the explanation has to travel with the control.
+FIELD_HELP: Dict[str, str] = {
+    # Form identity and publishing
+    "title": (
+        "The form's name. Shown on the interview's first screen, in the browser "
+        "tab, and in listings such as CourtFormsOnline."
+    ),
+    "short title": (
+        "A shorter name, up to about 25 characters, used where the full title "
+        "does not fit."
+    ),
+    "description": (
+        "Helps people find your form. It is used for metadata and listings and is "
+        "not displayed inside the interview."
+    ),
+    "can_I_use_this_form": (
+        "Explain when someone can and cannot use this form -- conditions such as "
+        "age, county, or the status of their case."
+    ),
+    "before_you_start": (
+        "What the user needs to gather or know before they begin. Shown on the "
+        "introduction screen. Markdown lists and bullets work here."
+    ),
+    "when_you_are_finished": (
+        "What the user should do after they finish. Used for metadata and to "
+        "guide the next-steps document."
+    ),
+    "landing_page_url": (
+        "A public page about this form. Used by publishing and indexing tools; "
+        "not shown to the user inside the interview."
+    ),
+    "authors": "Credited as the authors of the interview in published metadata.",
+    "LIST_topics": (
+        "LIST/NSMI taxonomy codes, such as HO-00-00-00-00. Referral sites use "
+        "these to categorise the form."
+    ),
+    "original_form": "URLs for the official published version of the paper form.",
+    "jurisdiction": (
+        "A jurisdiction code such as NAM-US-US+MA. Used by publishing tools to "
+        "place the form geographically."
+    ),
+    "allowed_courts": (
+        "Restricts the courts this form can be filed in. Leave empty to allow "
+        "every court the server knows about."
+    ),
+    "typical_role": (
+        "Whether the person filling this out normally starts the case or responds "
+        "to one. AssemblyLine uses it to word party questions."
+    ),
+    "efiling_enabled": "Optional publishing metadata. Leave off if unknown.",
+    "integrated_efiling": "Optional publishing metadata. Leave off if unknown.",
+    "integrated_email_filing": "Optional publishing metadata. Leave off if unknown.",
+    "requires_notarization": (
+        "Optional publishing metadata: the finished document has to be notarized."
+    ),
+    "unlisted": (
+        "Keeps the interview out of public listings. It stays reachable by direct "
+        "link."
+    ),
+    "estimated_completion_minutes": (
+        "How long most people take, in minutes. Shown to the user before they start."
+    ),
+    "estimated_completion_delta": (
+        "The plus-or-minus range on that estimate, in minutes."
+    ),
+    # Organization and locale
+    "AL_ORGANIZATION_TITLE": (
+        "The organization named in the terms of use, reminder messages, and the "
+        "interview footer."
+    ),
+    "AL_ORGANIZATION_HOMEPAGE": (
+        "Linked from the download screen and the terms of use as the "
+        "organization's home page."
+    ),
+    "AL_DEFAULT_COUNTRY": (
+        "Sets which country's address format and state list address questions use."
+    ),
+    "AL_DEFAULT_STATE": (
+        "Preselects the state or province in address questions. Leave empty to "
+        "make the user choose."
+    ),
+    "AL_DEFAULT_LANGUAGE": (
+        "The language generated documents are written in. Separate from the "
+        "interview's own language switching."
+    ),
+    "AL_DEFAULT_OVERFLOW_MESSAGE": (
+        "Printed in a PDF field when the answer is too long for the space, "
+        "pointing the reader at the addendum."
+    ),
+    # Interview behavior
+    "al_form_type": (
+        "Drives party wording, the next-steps document, and whether AssemblyLine "
+        "asks court-related questions."
+    ),
+    "user_ask_role": (
+        "Whether the user is treated as the party who started the case. Set it to "
+        "unknown to have AssemblyLine ask."
+    ),
+    "al_person_answering": (
+        "Whether the person at the keyboard is the litigant or someone helping "
+        "them. Changes first- and third-person wording throughout."
+    ),
+    "al_form_requires_digital_signature": (
+        "Adds the signature flow before the download screen. Turn it off for "
+        "forms that are signed on paper."
+    ),
+    "al_typed_signature_prefix": (
+        "Printed before a typed signature, for example /s/ Jane Doe."
+    ),
+    "al_typed_signature_font": (
+        "The font a typed signature is rendered in. Leave empty for the "
+        "AssemblyLine default."
+    ),
+    "speak_text": (
+        "Shows the read-aloud control in the navigation bar. Needs a "
+        "text-to-speech service configured on the server."
+    ),
+    # Languages
+    "enable_al_language": (
+        "Shows AssemblyLine's language switcher. Only useful once you have "
+        "translations for the interview."
+    ),
+    "al_user_default_language": "The language the interview opens in.",
+    "al_interview_languages": (
+        "The languages offered in the switcher, as two-letter codes."
+    ),
+    # Repository and feedback
+    "github_repo_name": (
+        "The repository this package lives in. Used by the in-interview feedback "
+        "form to file issues in the right place."
+    ),
+    "github_user": "The GitHub owner or organization for that repository.",
+    # Next steps
+    "al_next_steps_enabled": (
+        "Includes the next-steps document in the download bundle. Turning it off "
+        "keeps the file so you can turn it back on later."
+    ),
+    "al_next_steps_document_title": (
+        "What the next-steps document calls the thing the user just made, for "
+        'example "form" or "motion".'
+    ),
+    "al_next_steps_document_purpose": (
+        "What the next-steps document calls what the user is asking for, for "
+        'example "request" or "appeal".'
+    ),
+    "al_next_steps_help_organization": (
+        "The organization the next-steps document tells the user to contact."
+    ),
+    "al_next_steps_help_url": "Where the next-steps document sends the user for help.",
+    "al_next_steps_generate_qr_code": (
+        "Prints a QR code in the next-steps document linking back to the interview."
+    ),
+    "al_next_steps_what_happens_next": (
+        "The next-steps section describing what happens after the form is filed."
+    ),
+    "al_next_steps_what_can_decision_maker_do": (
+        "The next-steps section describing the decisions a judge or clerk can make."
+    ),
+    "al_next_steps_what_happens_if_i_win": (
+        "The next-steps section describing what follows if the request is granted."
+    ),
+}
+
+
+# Settings AssemblyLine also resolves server-wide.  Writing one here overrides the
+# server for this interview only, which the panel has to say out loud.
+# The value is the Docassemble configuration key, or None when the fallback is an
+# AssemblyLine literal rather than something in the server configuration.
+SERVER_DEFAULTS: Dict[str, Optional[str]] = {
+    "AL_ORGANIZATION_TITLE": "appname",
+    "AL_ORGANIZATION_HOMEPAGE": "app homepage",
+    "AL_DEFAULT_COUNTRY": None,
+    "AL_DEFAULT_STATE": None,
+    "AL_DEFAULT_LANGUAGE": None,
+    "AL_DEFAULT_OVERFLOW_MESSAGE": None,
+}
+
+# What AssemblyLine falls back to when neither the interview nor the server sets
+# the value (al_settings.yml).
+ASSEMBLY_LINE_FALLBACKS: Dict[str, str] = {
+    "AL_ORGANIZATION_TITLE": "docassemble",
+    "AL_ORGANIZATION_HOMEPAGE": "https://courtformsonline.org",
+    "AL_DEFAULT_COUNTRY": "US",
+    "AL_DEFAULT_LANGUAGE": "en",
+    "AL_DEFAULT_OVERFLOW_MESSAGE": "...",
+}
 
 
 def _field(
@@ -32,6 +222,12 @@ def _field(
 ) -> Dict[str, Any]:
     result = {"key": key, "label": label, "kind": kind, "default": default}
     result.update(kwargs)
+    result.setdefault("help", FIELD_HELP.get(key, ""))
+    if key in SERVER_DEFAULTS:
+        result.setdefault("server_default_key", SERVER_DEFAULTS[key])
+        result.setdefault("has_server_default", True)
+        if key in ASSEMBLY_LINE_FALLBACKS:
+            result.setdefault("assembly_line_fallback", ASSEMBLY_LINE_FALLBACKS[key])
     return result
 
 
@@ -274,6 +470,65 @@ METADATA_FIELDS = {
 }
 
 
+METADATA_DOCUMENT_ID = "metadata"
+
+# What each kind of setting is, in one place, so the panel can explain itself
+# rather than assuming the author already knows the difference.
+PANEL_EXPLAINER = (
+    "AssemblyLine reads two different kinds of setting, and both normally live "
+    "in YAML you edit by hand. Publishing metadata -- title, description, "
+    "jurisdiction, topics -- sits in the interview's metadata block and tells "
+    "listing sites such as CourtFormsOnline what this form is. Predefined "
+    "variables -- names like al_form_type or AL_DEFAULT_STATE -- have a special "
+    "meaning to AssemblyLine and change how your interview looks and behaves. "
+    "This page gathers both in one place, shows each one's exact name, and "
+    "writes them back to the blocks named on each section."
+)
+
+_DOCUMENT_DESCRIPTIONS = {
+    METADATA_DOCUMENT_ID: (
+        "the interview's metadata block, read by AssemblyLine and by publishing "
+        "sites"
+    ),
+    MANAGED_BLOCK_ID: (
+        "a code block Weaver owns and rewrites in full; your own code blocks are "
+        "never touched"
+    ),
+}
+
+
+def _section_documents(section: Mapping[str, Any]) -> List[Dict[str, str]]:
+    """Name the YAML documents a section's values are written to.
+
+    Derived from the fields' own scopes rather than written out by hand, so it
+    cannot drift when a field moves between metadata and code.
+    """
+    documents: List[Dict[str, str]] = []
+    scopes = {field.get("scope") for field in section.get("fields", [])}
+    if scopes & {"metadata", "both"}:
+        documents.append(
+            {
+                "id": METADATA_DOCUMENT_ID,
+                "kind": "metadata",
+                "description": _DOCUMENT_DESCRIPTIONS[METADATA_DOCUMENT_ID],
+            }
+        )
+    if scopes & {None, "both"}:
+        documents.append(
+            {
+                "id": MANAGED_BLOCK_ID,
+                "kind": "code",
+                "description": _DOCUMENT_DESCRIPTIONS[MANAGED_BLOCK_ID],
+            }
+        )
+    return documents
+
+
+for _section in SETTINGS_SCHEMA:
+    _section["documents"] = _section_documents(_section)
+del _section
+
+
 _SEPARATOR_RE = re.compile(r"(?m)^---[ \t]*(?:\r?\n|$)")
 
 
@@ -287,12 +542,19 @@ def _documents(source: str) -> List[Tuple[int, int, str]]:
     return result
 
 
-def _literal_assignments(code: str) -> Dict[str, Any]:
+def _code_assignments(code: str) -> Dict[str, Tuple[Any, bool]]:
+    """Every supported setting this code assigns, and whether it is a literal.
+
+    A setting the author computes -- ``al_form_type = form_type_for(case)`` --
+    is reported as its source text with ``False``. The panel can display that,
+    but it must never write it back: rendering it as a value would turn working
+    code into a string.
+    """
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return {}
-    result: Dict[str, Any] = {}
+    result: Dict[str, Tuple[Any, bool]] = {}
     for node in tree.body:
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
@@ -302,12 +564,186 @@ def _literal_assignments(code: str) -> Dict[str, Any]:
             continue
         try:
             value = ast.literal_eval(value_node)
+            is_literal = True
         except (ValueError, TypeError):
             value = ast.get_source_segment(code, value_node) or ""
+            is_literal = False
         for target in targets:
             if isinstance(target, ast.Name) and target.id in CODE_FIELDS:
-                result[target.id] = value
+                result[target.id] = (value, is_literal)
     return result
+
+
+def _literal_assignments(code: str) -> Dict[str, Any]:
+    return {key: value for key, (value, _literal) in _code_assignments(code).items()}
+
+
+def _rewrite_code_assignment(code: str, key: str, rendered: str) -> Optional[str]:
+    """Replace the right-hand side of ``key = ...`` in a block of Python.
+
+    Only the value expression is touched, so comments, ordering, and every other
+    statement in the block survive. Returns None when the name is not assigned
+    here, so the caller can fall back to Weaver's own block.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    # ast column offsets are UTF-8 byte offsets, so the edit is done on bytes.
+    data = code.encode("utf-8")
+    line_starts = [0]
+    for line in code.splitlines(keepends=True):
+        line_starts.append(line_starts[-1] + len(line.encode("utf-8")))
+
+    for node in reversed(tree.body):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        value_node = node.value
+        if value_node is None:
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == key for target in targets
+        ):
+            continue
+        if value_node.end_lineno is None or value_node.end_col_offset is None:
+            return None
+        start = line_starts[value_node.lineno - 1] + value_node.col_offset
+        end = line_starts[value_node.end_lineno - 1] + value_node.end_col_offset
+        updated = data[:start] + rendered.encode("utf-8") + data[end:]
+        return updated.decode("utf-8")
+    return None
+
+
+def _code_scalar_span(body: str) -> Optional[Tuple[int, int]]:
+    """The exact source range of a block's ``code:`` scalar, header included."""
+    try:
+        root = yaml.compose(body)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    for key_node, value_node in root.value:
+        if (
+            isinstance(key_node, yaml.ScalarNode)
+            and key_node.value == "code"
+            and isinstance(value_node, yaml.ScalarNode)
+        ):
+            return value_node.start_mark.index, value_node.end_mark.index
+    return None
+
+
+def _render_code_scalar(original: str, code: str, newline: str) -> Optional[str]:
+    """Re-render a ``code:`` block scalar around new code text.
+
+    The header -- and any chomping indicator on it -- is copied from what was
+    there, and every content line is re-indented to the depth the block already
+    used, so the only thing that changes is the code itself.
+    """
+    header, separator, remainder = original.partition("\n")
+    header = header.strip()
+    if not separator or not header.startswith("|"):
+        # Not a literal block scalar; rewriting it is not safe to guess at.
+        return None
+    indent = ""
+    for line in remainder.splitlines():
+        if line.strip():
+            indent = line[: len(line) - len(line.lstrip())]
+            break
+    if not indent:
+        return None
+    rendered_lines = [
+        indent + line if line.strip() else "" for line in code.split("\n")
+    ]
+    while rendered_lines and not rendered_lines[-1]:
+        rendered_lines.pop()
+    trailing = newline if original.endswith(("\n", "\r")) else ""
+    return header + newline + newline.join(rendered_lines) + trailing
+
+
+def rewrite_external_code_assignments(
+    source: str, values: Mapping[str, Any], changed: Set[str]
+) -> Tuple[str, Set[str]]:
+    """Update changed settings in whichever author-owned block already assigns them.
+
+    Two rules, and the second matters as much as the first:
+
+    * A setting the author already assigns in their own block is updated
+      *there*. Writing Weaver's copy as well would leave two blocks assigning
+      one name and the winner decided by document order, so every key this
+      finds is left out of the managed block whether or not it changed.
+    * Only values the author actually changed on the panel are rewritten.
+      Rewriting the rest would re-quote literals the author wrote by hand, and
+      would flatten a computed value -- ``al_form_type = form_type_for(case)``
+      reaches the panel as its source text, and writing that back through
+      ``repr()`` would turn working code into a string.
+
+    Returns the updated source and every key now owned by an author's block.
+    """
+    handled: Set[str] = set()
+    updated_source = source
+    # Later documents are rewritten first so earlier spans stay valid.
+    for start, end, body in reversed(_documents(updated_source)):
+        try:
+            parsed = yaml.safe_load(body)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(parsed, dict) or parsed.get("id") == MANAGED_BLOCK_ID:
+            continue
+        code = parsed.get("code")
+        if not isinstance(code, str):
+            continue
+        assigned = set(_literal_assignments(code)) & set(values)
+        if not assigned:
+            continue
+
+        to_rewrite = assigned & changed
+        if not to_rewrite:
+            # Nothing to write, but the author still owns these names.
+            handled |= assigned
+            continue
+
+        span = _code_scalar_span(body)
+        if span is None:
+            continue
+
+        newline = "\r\n" if "\r\n" in body else "\n"
+        rewritten = code
+        rewritten_keys: Set[str] = set()
+        for key in sorted(to_rewrite):
+            replacement = _rewrite_code_assignment(
+                rewritten, key, _render_code_value(key, values[key])
+            )
+            if replacement is not None:
+                rewritten = replacement
+                rewritten_keys.add(key)
+        if not rewritten_keys:
+            handled |= assigned
+            continue
+
+        scalar_start, scalar_end = span
+        new_scalar = _render_code_scalar(
+            body[scalar_start:scalar_end], rewritten, newline
+        )
+        if new_scalar is None:
+            continue
+        new_body = body[:scalar_start] + new_scalar + body[scalar_end:]
+
+        # Refuse a patch that does not read back as the values just written.
+        try:
+            reparsed = yaml.safe_load(new_body)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(reparsed, dict) or not isinstance(reparsed.get("code"), str):
+            continue
+        read_back = _literal_assignments(reparsed["code"])
+        if any(read_back.get(key) != values[key] for key in rewritten_keys):
+            continue
+
+        updated_source = updated_source[:start] + new_body + updated_source[end:]
+        handled |= assigned
+    return updated_source, handled
 
 
 def _metadata(source: str) -> Tuple[Dict[str, Any], Optional[Tuple[int, int, str]]]:
@@ -333,6 +769,10 @@ def read_settings(source: str) -> Dict[str, Any]:
             values[key] = metadata[key]
 
     sources: Dict[str, str] = {}
+    # Settings the interview works out at runtime rather than storing a value
+    # for. The panel shows these read-only: it has no value it could safely
+    # write, and the author's expression is the real answer.
+    computed: Dict[str, str] = {}
     for _start, _end, body in _documents(source):
         try:
             parsed = yaml.safe_load(body)
@@ -340,17 +780,25 @@ def read_settings(source: str) -> Dict[str, Any]:
             continue
         if not isinstance(parsed, dict) or not isinstance(parsed.get("code"), str):
             continue
-        assignments = _literal_assignments(parsed["code"])
+        assignments = _code_assignments(parsed["code"])
         block_id = str(parsed.get("id") or "code block")
-        for key, value in assignments.items():
+        for key, (value, is_literal) in assignments.items():
             values[key] = value
             sources[key] = block_id
+            if is_literal:
+                computed.pop(key, None)
+            else:
+                computed[key] = block_id
 
     return {
         "schema": copy.deepcopy(SETTINGS_SCHEMA),
         "values": values,
         "sources": sources,
+        "computed": computed,
         "docs_url": DOCS_URL,
+        "explainer": PANEL_EXPLAINER,
+        "managed_block_id": MANAGED_BLOCK_ID,
+        "metadata_document_id": METADATA_DOCUMENT_ID,
     }
 
 
@@ -382,7 +830,25 @@ def _coerce_value(field: Mapping[str, Any], value: Any) -> Any:
     return value
 
 
-def _managed_block(values: Mapping[str, Any]) -> str:
+def _render_code_value(key: str, value: Any) -> str:
+    """One setting as the Python source that assigns it."""
+    if CODE_FIELDS[key].get("kind") == "python":
+        rendered = str(value or "None")
+        try:
+            ast.parse(rendered, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(
+                f"{CODE_FIELDS[key]['label']} is not valid Python"
+            ) from exc
+        return rendered
+    return repr(value)
+
+
+def _managed_block(
+    values: Mapping[str, Any],
+    elsewhere: Optional[Set[str]] = None,
+    computed: Optional[Mapping[str, str]] = None,
+) -> str:
     lines = [
         f"id: {MANAGED_BLOCK_ID}",
         "initial: True",
@@ -392,18 +858,12 @@ def _managed_block(values: Mapping[str, Any]) -> str:
     for key in CODE_FIELDS:
         if key not in values:
             continue
-        value = values[key]
-        if CODE_FIELDS[key].get("kind") == "python":
-            rendered = str(value or "None")
-            try:
-                ast.parse(rendered, mode="eval")
-            except SyntaxError as exc:
-                raise ValueError(
-                    f"{CODE_FIELDS[key]['label']} is not valid Python"
-                ) from exc
-        else:
-            rendered = repr(value)
-        lines.append(f"  {key} = {rendered}")
+        lines.append(f"  {key} = {_render_code_value(key, values[key])}")
+    for key in sorted(elsewhere or ()):
+        # Say where a setting went instead of leaving a silent gap here.
+        lines.append(f"  # {key} is set in one of your own code blocks, not here.")
+    for key in sorted(computed or ()):
+        lines.append(f"  # {key} is computed by your own code, and is left alone.")
     return "\n".join(lines) + "\n"
 
 
@@ -574,6 +1034,16 @@ def _update_metadata(source: str, updates: Mapping[str, Any]) -> str:
         key_node, value_node = existing[key]
         value_start = value_node.start_mark.index
         value_end = value_node.end_mark.index
+        if (
+            isinstance(value_node, yaml.SequenceNode)
+            and not value_node.flow_style
+            and value_node.value
+        ):
+            # A block sequence's node ends where the *next* token begins, so it
+            # swallows any comment or blank line sitting between this value and
+            # the key below it. The last item's own end is where the value
+            # really stops. Scalars and block scalars already end accurately.
+            value_end = value_node.value[-1].end_mark.index
         fragment = body[value_start:value_end]
         replacement = _metadata_value_fragment(
             value,
@@ -582,12 +1052,15 @@ def _update_metadata(source: str, updates: Mapping[str, Any]) -> str:
             key_indent=key_node.start_mark.column,
             newline=newline,
         )
-        if fragment.endswith("\r\n") and not replacement.endswith(("\r", "\n")):
-            replacement += "\r\n"
-        elif fragment.endswith("\n") and not replacement.endswith(("\r", "\n")):
-            replacement += "\n"
-        elif fragment.endswith("\r") and not replacement.endswith(("\r", "\n")):
-            replacement += "\r"
+        # PyYAML ends a block value's node after the newline *and* the
+        # indentation of whatever comes next, so that run is layout rather than
+        # value. `_metadata_value_fragment` only ever returns content, so the
+        # run has to be carried over: without it a multi-line value -- a list
+        # with more than one item, or a literal block -- swallows the key that
+        # follows it onto its own last line.
+        trailing_layout = fragment[len(fragment.rstrip(" \t\r\n")) :]
+        if trailing_layout and not replacement.endswith(trailing_layout):
+            replacement += trailing_layout
         operations.append((value_start, value_end, replacement))
 
     if missing:
@@ -648,16 +1121,37 @@ def update_settings(source: str, submitted: Mapping[str, Any]) -> str:
     if unknown:
         raise ValueError("Unsupported settings: " + ", ".join(sorted(unknown)))
 
-    current = read_settings(source)["values"]
+    settings = read_settings(source)
+    current = settings["values"]
+    computed: Dict[str, str] = settings["computed"]
     metadata_updates: Dict[str, Any] = {}
-    code_values = {key: current[key] for key in CODE_FIELDS}
+    code_values = {key: current[key] for key in CODE_FIELDS if key not in computed}
+    changed_code: Set[str] = set()
     for key, raw_value in submitted.items():
+        if key in computed:
+            # The interview computes this one. There is no value the panel could
+            # write that would not replace the author's expression, and the
+            # control is read-only for exactly that reason, so anything that
+            # arrives for it is ignored rather than validated.
+            continue
         field = METADATA_FIELDS.get(key) or CODE_FIELDS[key]
         value = _coerce_value(field, raw_value)
         if key in METADATA_FIELDS and value != current.get(key):
             metadata_updates[key] = value
         if key in CODE_FIELDS:
             code_values[key] = value
+            if value != current.get(key):
+                changed_code.add(key)
 
     updated = _update_metadata(source, metadata_updates) if metadata_updates else source
-    return _replace_or_insert_managed(updated, _managed_block(code_values))
+    # A setting the author already assigns in their own block is updated there.
+    # Adding Weaver's copy on top would leave two blocks assigning one name.
+    updated, elsewhere = rewrite_external_code_assignments(
+        updated, code_values, changed_code
+    )
+    managed_values = {
+        key: value for key, value in code_values.items() if key not in elsewhere
+    }
+    return _replace_or_insert_managed(
+        updated, _managed_block(managed_values, elsewhere, computed)
+    )

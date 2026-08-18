@@ -1311,5 +1311,205 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
 
 
+class TestEditorNewProjectNaming(unittest.TestCase):
+    """A generated project is named after its document, not "interview.yml"."""
+
+    def _run_upload_job(self, yaml_filename, interview_filename=None):
+        with (
+            patch.object(api_editor, "_update_new_project_job_state"),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "_copy_files_to_section"),
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                return_value={
+                    "yaml_text": "metadata:\n  title: Eviction\n",
+                    "yaml_filename": yaml_filename,
+                    "input_filename": "eviction.pdf",
+                    "generated_template_files": [],
+                },
+            ),
+        ):
+            result = api_editor._complete_new_project_upload_job(
+                job_id="job-1",
+                uid=7,
+                project_name="Eviction",
+                request_id="req-1",
+                uploaded_files=[
+                    {
+                        "filename": "eviction.pdf",
+                        "content_bytes": b"%PDF-1.4",
+                        "mimetype": "application/pdf",
+                    }
+                ],
+                generation_options={},
+                debug_requested=False,
+                interview_filename=interview_filename,
+            )
+        return result, mock_write
+
+    def test_generated_project_keeps_the_descriptive_name_weaver_derived(self):
+        result, mock_write = self._run_upload_job("eviction.yml")
+        self.assertEqual(result["filename"], "eviction.yml")
+        self.assertEqual(mock_write.call_args.args[2], "eviction.yml")
+
+    def test_author_supplied_filename_wins(self):
+        result, mock_write = self._run_upload_job(
+            "eviction.yml", interview_filename="main.yml"
+        )
+        self.assertEqual(result["filename"], "main.yml")
+        self.assertEqual(mock_write.call_args.args[2], "main.yml")
+
+    def test_an_unusable_derived_name_falls_back_to_the_assemblyline_default(self):
+        result, _mock_write = self._run_upload_job("")
+        self.assertEqual(result["filename"], "main.yml")
+
+    def test_blank_project_uses_main_yml(self):
+        with (
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Blank"
+            ),
+            patch.object(api_editor, "create_project"),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project", json={"project_name": "Blank"}
+            ):
+                response = api_editor._new_project_from_template(7, "req-1")
+        self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
+        self.assertEqual(mock_write.call_args.args[2], "main.yml")
+
+    def test_publishing_metadata_reaches_the_generator(self):
+        pdf_path = Path(__file__).parent / "test/test_dropdown_fields.pdf"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Meta"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(api_editor, "_start_new_project_upload_job") as mock_start_job,
+        ):
+            mock_start_job.return_value = {
+                "job_id": "job-1",
+                "job_url": "/al/editor/api/new-project/jobs/job-1",
+                "state": {"status": "queued"},
+            }
+            with api_editor.app.test_client() as client:
+                with pdf_path.open("rb") as handle:
+                    client.post(
+                        "/al/editor/api/new-project",
+                        data={
+                            "project_name": "Meta",
+                            "interview_title": "Petition to enforce the sanitary code",
+                            "interview_short_title": "Sanitary code",
+                            "interview_description": "Ask the court to inspect.",
+                            "jurisdiction": "NAM-US-US+MA",
+                            "landing_page_url": "https://example.org/sanitary",
+                            "list_topics": "HO-00-00-00-00, HO-05-00-00-00",
+                            "interview_filename": "sanitary_code.yml",
+                            "default_state": "MA",
+                            "files": (BytesIO(handle.read()), pdf_path.name),
+                        },
+                        content_type="multipart/form-data",
+                    )
+
+        kwargs = mock_start_job.call_args.kwargs
+        overrides = kwargs["generation_options"]["interview_overrides"]
+        self.assertEqual(kwargs["interview_filename"], "sanitary_code.yml")
+        self.assertEqual(overrides["title"], "Petition to enforce the sanitary code")
+        self.assertEqual(overrides["short_title"], "Sanitary code")
+        self.assertEqual(overrides["description"], "Ask the court to inspect.")
+        self.assertEqual(overrides["landing_page_url"], "https://example.org/sanitary")
+        self.assertTrue(overrides["has_other_categories"])
+        self.assertEqual(
+            overrides["other_categories"], "HO-00-00-00-00, HO-05-00-00-00"
+        )
+        # An explicit jurisdiction is not overwritten by the default state.
+        self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
+        self.assertEqual(overrides["state"], "MA")
+
+
+class TestEditorStyleCheckSeverity(unittest.TestCase):
+    def test_style_findings_never_report_as_errors(self):
+        demoted = api_editor._demote_style_findings(
+            [
+                {
+                    "rule_id": "missing-metadata-fields",
+                    "level": "error",
+                    "severity": "error",
+                    "message": "x",
+                },
+                {
+                    "rule_id": "vague-button",
+                    "level": "warning",
+                    "severity": "warning",
+                    "message": "y",
+                },
+                {
+                    "rule_id": "prefer-person-objects",
+                    "level": "info",
+                    "severity": "info",
+                    "message": "z",
+                },
+            ]
+        )
+        self.assertEqual(
+            [item["level"] for item in demoted], ["warning", "warning", "info"]
+        )
+        self.assertEqual(
+            [item["severity"] for item in demoted], ["warning", "warning", "info"]
+        )
+        self.assertEqual(demoted[0]["style_original_level"], "error")
+        self.assertNotIn("style_original_level", demoted[1])
+
+
+class TestEditorListTopics(unittest.TestCase):
+    """The picker offers the same codes the question-driven Weaver offers."""
+
+    def test_taxonomy_is_grouped_with_the_heading_code_first(self):
+        groups = api_editor._list_topic_groups()
+        self.assertTrue(groups)
+
+        by_label = {group["label"]: group for group in groups}
+        self.assertIn("Housing", by_label)
+        housing = by_label["Housing"]
+        # A group leads with its own broadest code.
+        self.assertEqual(housing["topics"][0]["code"], "HO-00-00-00-00")
+        self.assertTrue(housing["topics"][0]["heading"])
+        codes = [topic["code"] for topic in housing["topics"]]
+        self.assertIn("HO-05-00-00-00", codes)
+        self.assertEqual(len(codes), len(set(codes)))
+        for topic in housing["topics"]:
+            self.assertTrue(topic["label"])
+
+        # Relevance order, the same custom order get_LIST_codes applies.
+        self.assertEqual(groups[0]["label"], "Housing")
+
+    def test_endpoint_returns_the_groups_to_an_authenticated_developer(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            api_editor.app.test_request_context("/al/editor/api/list-topics"),
+        ):
+            payload = api_editor.editor_api_list_topics().get_json()
+
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["data"]["groups"])
+        self.assertEqual(payload["data"]["docs_url"], "https://taxonomy.legal")
+
+    def test_endpoint_refuses_an_unauthenticated_request(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=False),
+            api_editor.app.test_request_context("/al/editor/api/list-topics"),
+        ):
+            response = api_editor.editor_api_list_topics()
+
+        status = response[1] if isinstance(response, tuple) else response.status_code
+        self.assertEqual(status, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
