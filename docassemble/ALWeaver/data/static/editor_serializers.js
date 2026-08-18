@@ -140,8 +140,85 @@
     return appendQuestionAdvancedYaml(yaml, block);
   }
 
+  // -------------------------------------------------------------------------
+  // if / elif / else chains in the interview order
+  //
+  // A chain is stored the way Python means it: each `elif` is an `else` branch
+  // holding exactly one condition.  One shape on the wire keeps the server's
+  // parser and serializer able to round-trip a chain of any length.  Authors
+  // think in flat chains though, so the order builder reads that nesting back
+  // through these helpers and edits it through the two mutations below.
+  // -------------------------------------------------------------------------
+
+  /* The condition an `else` branch consists entirely of, or null. */
+  function getSoleElseCondition(step) {
+    if (!step || !step.has_else) return null;
+    var elseChildren = Array.isArray(step.else_children) ? step.else_children : [];
+    if (elseChildren.length !== 1) return null;
+    var only = elseChildren[0];
+    return only && only.kind === 'condition' ? only : null;
+  }
+
+  /* [if, elif, elif, ...] starting at `step`. */
+  function getConditionChain(step) {
+    var chain = [];
+    var current = step;
+    while (current && current.kind === 'condition' && chain.indexOf(current) === -1) {
+      chain.push(current);
+      current = getSoleElseCondition(current);
+    }
+    return chain;
+  }
+
+  /* The last link, whose `else` branch is the chain's real else body. */
+  function getChainTail(step) {
+    var chain = getConditionChain(step);
+    return chain.length ? chain[chain.length - 1] : step;
+  }
+
+  function chainHasFinalElse(step) {
+    var tail = getChainTail(step);
+    return Boolean(tail && tail.has_else);
+  }
+
+  /* True when `step` is an `elif` -- the whole content of `parentStep`'s else. */
+  function isChainLink(step, parentStep) {
+    return Boolean(parentStep) && getSoleElseCondition(parentStep) === step;
+  }
+
+  /* Add `newLink` as the last `elif` of the chain `step` belongs to.
+
+     A chain already ending in `else` keeps it: the new branch goes in front,
+     which is where an author adding one means it. Returns the link. */
+  function appendChainElif(step, newLink) {
+    var tail = getChainTail(step);
+    if (tail.has_else) {
+      newLink.has_else = true;
+      newLink.else_children = Array.isArray(tail.else_children) ? tail.else_children : [];
+    }
+    tail.has_else = true;
+    tail.else_children = [newLink];
+    return newLink;
+  }
+
+  /* Drop one `elif` and close the chain up behind it, so whatever it was
+     holding for the rest of the chain is not dropped with it. */
+  function removeChainLink(parentStep, link) {
+    if (!isChainLink(link, parentStep)) return false;
+    parentStep.has_else = Boolean(link.has_else);
+    parentStep.else_children = Array.isArray(link.else_children) ? link.else_children : [];
+    return true;
+  }
+
   return {
     escapeYamlStr: escapeYamlStr,
     serializeQuestionToYaml: serializeQuestionToYaml,
+    getSoleElseCondition: getSoleElseCondition,
+    getConditionChain: getConditionChain,
+    getChainTail: getChainTail,
+    chainHasFinalElse: chainHasFinalElse,
+    isChainLink: isChainLink,
+    appendChainElif: appendChainElif,
+    removeChainLink: removeChainLink,
   };
 });

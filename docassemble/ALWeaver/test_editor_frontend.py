@@ -317,6 +317,39 @@ class TestEditorFrontend(unittest.TestCase):
         )
         self.assertIn("color: transparent;", css)
         self.assertIn("border-left: 2px solid", css)
+
+    def test_order_builder_can_add_and_draw_an_elif_branch(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        # Adding one is a real menu action, offered from any link of a chain.
+        self.assertIn('data-step-action="add-elif"', editor)
+        self.assertIn("Add else if branch", editor)
+        self.assertIn("function renderOrderChainBranchMenuItems(step)", editor)
+        self.assertIn("if (!chainHasFinalElse(step))", editor)
+
+        # The chain is drawn flat, so `elif` reads as a sibling of `if`
+        # instead of nesting a level deeper with every link.
+        self.assertIn("function renderOrderChainLink(step, depth)", editor)
+        self.assertIn("editor-order-chain-keyword", editor)
+        self.assertIn("linkIndex < chain.length", editor)
+        self.assertIn(".editor-order-chain-link", css)
+
+        # The mutations live in the module the node suite exercises, so the
+        # builder cannot grow its own copy of the chain rules.
+        for helper in (
+            "getConditionChain",
+            "getChainTail",
+            "chainHasFinalElse",
+            "isChainLink",
+            "appendChainElif",
+            "removeChainLink",
+        ):
+            self.assertIn(f"window.ALWeaverSerializers.{helper}(", editor)
+
+        # The code preview has to show the elif the server will actually
+        # write, not the nested if the steps are stored as.
+        self.assertIn("var keyword = linkIndex === 0 ? 'if ' : 'elif ';", editor)
         self.assertIn("height: 32px;", css)
 
     def test_unsaved_changes_modal_cannot_trap_the_page(self):
