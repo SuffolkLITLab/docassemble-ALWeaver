@@ -140,8 +140,205 @@
     return appendQuestionAdvancedYaml(yaml, block);
   }
 
+  // -------------------------------------------------------------------------
+  // ALPeopleList quantity
+  //
+  // "Setting the number of people in a group" in the AssemblyLine authoring
+  // docs is one `.using()` call with a handful of recognised shapes.  Reading
+  // those shapes back out of source is the part that has to be exact: the
+  // graphical control may only take over a parameter list it fully
+  // understands, because anything it takes over it also rewrites.  Anything
+  // else -- an expression instead of a literal, a repeated key, a positional
+  // argument, unbalanced brackets -- is reported as not editable, and the
+  // caller leaves the author's own text alone.
+  // -------------------------------------------------------------------------
+
+  var PEOPLE_LIST_QUANTITY_KEYS = ['there_are_any', 'ask_number', 'target_number'];
+
+  var PEOPLE_LIST_QUANTITY_MODES = [
+    {
+      value: 'ask',
+      label: 'Ask whether there are any',
+      hint: 'The default. Asks if there are any, then collects them one at a time.',
+    },
+    {
+      value: 'at_least_one',
+      label: 'At least one',
+      hint: 'Skips the "are there any?" question and starts with one.',
+    },
+    {
+      value: 'ask_count',
+      label: 'Ask how many',
+      hint: 'Asks for a number first, then collects that many.',
+    },
+    {
+      value: 'exactly',
+      label: 'Exactly this many',
+      hint: 'Never asks. Use this when the form has room for a fixed number.',
+    },
+  ];
+
+  /* Split a `.using()` argument list on top-level commas.
+     Returns null when brackets or quotes are unbalanced, because a partial
+     split would silently drop an argument. */
+  function splitUsingArgs(argText) {
+    var text = String(argText === undefined || argText === null ? '' : argText).trim();
+    if (!text) return [];
+    var parts = [];
+    var current = '';
+    var depth = 0;
+    var quote = null;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (quote) {
+        current += ch;
+        if (ch === '\\' && i + 1 < text.length) {
+          current += text.charAt(i + 1);
+          i++;
+        } else if (ch === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        current += ch;
+        continue;
+      }
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      if (ch === ')' || ch === ']' || ch === '}') {
+        depth--;
+        if (depth < 0) return null;
+      }
+      if (ch === ',' && depth === 0) {
+        parts.push(current);
+        current = '';
+        continue;
+      }
+      current += ch;
+    }
+    if (depth !== 0 || quote) return null;
+    parts.push(current);
+    return parts
+      .map(function (part) { return part.trim(); })
+      .filter(function (part) { return part !== ''; });
+  }
+
+  /* Pull the quantity parameters out of a `.using()` argument list.
+
+     Returns `{ editable, mode, number, otherArgs }`.  When `editable` is
+     false the argument list holds something this control cannot own, and the
+     caller must fall back to editing the text directly. */
+  function readPeopleListQuantity(argText) {
+    var fallback = {
+      editable: false,
+      mode: 'ask',
+      number: 1,
+      otherArgs: String(argText === undefined || argText === null ? '' : argText).trim(),
+    };
+
+    var parts = splitUsingArgs(argText);
+    if (parts === null) return fallback;
+
+    var quantity = {};
+    var others = [];
+    var seen = {};
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i];
+      var eq = _topLevelAssignmentIndex(part);
+      if (eq === -1) {
+        // A positional argument or `**kwargs`. Either could carry a quantity
+        // parameter this control would then contradict, so say nothing.
+        return fallback;
+      }
+      var key = part.slice(0, eq).trim();
+      var value = part.slice(eq + 1).trim();
+      if (PEOPLE_LIST_QUANTITY_KEYS.indexOf(key) === -1) {
+        others.push(part);
+        continue;
+      }
+      if (seen[key]) return fallback;
+      seen[key] = true;
+      quantity[key] = value;
+    }
+
+    var hasAny = Object.prototype.hasOwnProperty.call(quantity, 'there_are_any');
+    var hasAsk = Object.prototype.hasOwnProperty.call(quantity, 'ask_number');
+    var hasTarget = Object.prototype.hasOwnProperty.call(quantity, 'target_number');
+    var otherArgs = others.join(', ');
+
+    if (!hasAny && !hasAsk && !hasTarget) {
+      return { editable: true, mode: 'ask', number: 1, otherArgs: otherArgs };
+    }
+    if (hasAny && !hasAsk && !hasTarget && quantity.there_are_any === 'True') {
+      return { editable: true, mode: 'at_least_one', number: 1, otherArgs: otherArgs };
+    }
+    if (hasAsk && !hasAny && quantity.ask_number === 'True') {
+      if (!hasTarget) {
+        return { editable: true, mode: 'ask_count', number: 1, otherArgs: otherArgs };
+      }
+      if (/^\d+$/.test(quantity.target_number)) {
+        return {
+          editable: true,
+          mode: 'exactly',
+          number: parseInt(quantity.target_number, 10),
+          otherArgs: otherArgs,
+        };
+      }
+    }
+    return fallback;
+  }
+
+  /* Build the `.using()` argument list for a chosen quantity, keeping any
+     parameters the control does not own in the order the author wrote them. */
+  function composePeopleListUsingArgs(mode, number, otherArgs) {
+    var quantityArgs = [];
+    if (mode === 'at_least_one') {
+      quantityArgs.push('there_are_any=True');
+    } else if (mode === 'ask_count') {
+      quantityArgs.push('ask_number=True');
+    } else if (mode === 'exactly') {
+      var count = parseInt(number, 10);
+      if (isNaN(count) || count < 0) count = 1;
+      quantityArgs.push('ask_number=True');
+      quantityArgs.push('target_number=' + count);
+    }
+    var rest = splitUsingArgs(otherArgs);
+    if (rest === null) {
+      var raw = String(otherArgs === undefined || otherArgs === null ? '' : otherArgs).trim();
+      rest = raw ? [raw] : [];
+    }
+    return quantityArgs.concat(rest).join(', ');
+  }
+
+  function _topLevelAssignmentIndex(part) {
+    var depth = 0;
+    var quote = null;
+    for (var i = 0; i < part.length; i++) {
+      var ch = part.charAt(i);
+      if (quote) {
+        if (ch === '\\') { i++; continue; }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") { quote = ch; continue; }
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      if (ch === ')' || ch === ']' || ch === '}') depth--;
+      if (ch !== '=' || depth !== 0) continue;
+      // Skip ==, <=, >=, != so a comparison is never read as a keyword.
+      if (part.charAt(i + 1) === '=') { i++; continue; }
+      if ('=!<>'.indexOf(part.charAt(i - 1)) !== -1) continue;
+      return i;
+    }
+    return -1;
+  }
+
   return {
     escapeYamlStr: escapeYamlStr,
     serializeQuestionToYaml: serializeQuestionToYaml,
+    splitUsingArgs: splitUsingArgs,
+    readPeopleListQuantity: readPeopleListQuantity,
+    composePeopleListUsingArgs: composePeopleListUsingArgs,
+    PEOPLE_LIST_QUANTITY_MODES: PEOPLE_LIST_QUANTITY_MODES,
   };
 });
