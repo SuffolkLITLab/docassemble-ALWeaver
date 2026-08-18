@@ -9511,7 +9511,7 @@
       var allBlocks = state.blocks || [];
       var newId = generateBlockId(questionText, allBlocks, currentBlock ? currentBlock.id : null);
       idEl.value = newId;
-      idEl.dispatchEvent(new Event('input'));
+      idEl.dispatchEvent(new Event('input', { bubbles: true }));
       return;
     }
     if (target.id === 'add-question-event') {
