@@ -282,6 +282,19 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("markdownPreviewMode", editor)
         self.assertNotIn("md-preview-wrapper", css)
 
+    def test_question_field_controls_shrink_without_unhelpful_badges(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn("indicators.push('Conditional')", editor)
+        self.assertIn("indicators.push('Validation')", editor)
+        self.assertNotIn("indicators.push('choices')", editor)
+        self.assertNotIn("indicators.push('display')", editor)
+        self.assertIn(
+            ".editor-field-type-dropdown {\n  width: 100%;\n  min-width: 0;", css
+        )
+        self.assertIn("text-overflow: ellipsis;", css)
+
     def test_the_assistant_is_absent_until_its_feature_flag_is_on(self):
         """The assistant drawer ships in the template but must not be reachable
         on an installation that has not opted in. The toggle is hidden and the
