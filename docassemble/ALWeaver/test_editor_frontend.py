@@ -155,6 +155,13 @@ class TestEditorFrontend(unittest.TestCase):
             editor,
         )
 
+    def test_generated_block_id_marks_the_interview_dirty(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn(
+            "idEl.dispatchEvent(new Event('input', { bubbles: true }))", editor
+        )
+
     def test_project_pull_actions_are_scoped_to_synced_projects(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
