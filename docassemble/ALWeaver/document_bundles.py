@@ -34,7 +34,9 @@ __all__ = [
     "DocumentEntry",
     "InterviewDocuments",
     "interview_documents",
+    "declaration_keyword",
     "serialize_declaration",
+    "with_declaration_keyword",
     "template_status",
     "TEMPLATE_ATTACHED",
     "TEMPLATE_NOT_IMPORTED",
@@ -202,7 +204,16 @@ def serialize_declaration(expression: str) -> str:
     return text
 
 
-def _keyword_value(expression: str, keyword: str) -> str:
+def declaration_keyword(expression: str, keyword: str) -> str:
+    """Read one keyword argument out of a ``.using()`` declaration.
+
+    Args:
+        expression (str): the object declaration.
+        keyword (str): the argument to read.
+
+    Returns:
+        str: its source text, or "" when the declaration does not set it.
+    """
     match = _USING_RE.match(str(expression or "").strip())
     if not match:
         return ""
@@ -213,7 +224,9 @@ def _keyword_value(expression: str, keyword: str) -> str:
     return ""
 
 
-def _with_keyword(expression: str, keyword: str, value: Optional[str]) -> str:
+def with_declaration_keyword(
+    expression: str, keyword: str, value: Optional[str]
+) -> str:
     """Set, replace, or drop one keyword argument of a ``.using()`` call.
 
     Args:
@@ -394,7 +407,7 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
             continue
         for name, declaration in objects_declarations(data):
             if "ALDocumentBundle" in declaration:
-                elements_text = _keyword_value(declaration, "elements").strip()
+                elements_text = declaration_keyword(declaration, "elements").strip()
                 elements = [
                     element.strip()
                     for element in elements_text.strip("[]").split(",")
@@ -406,7 +419,7 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
                         block_id=entry.get("id"),
                         declaration=declaration,
                         elements=elements,
-                        enabled=_keyword_value(declaration, "enabled"),
+                        enabled=declaration_keyword(declaration, "enabled"),
                         title=titles.get(name, ""),
                     )
                 )
@@ -421,7 +434,7 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
                         declaration=declaration,
                         template_filename=template_filename,
                         attachment_block_id=attachment_block_id,
-                        enabled=_keyword_value(declaration, "enabled"),
+                        enabled=declaration_keyword(declaration, "enabled"),
                         title=titles.get(name, ""),
                     )
                 )
@@ -506,7 +519,9 @@ def set_bundle_elements(
         if name not in cleaned:
             cleaned.append(name)
     block_id, declaration, entry = _find_declaration(raw_yaml, bundle_name)
-    updated = _with_keyword(declaration, "elements", "[" + ", ".join(cleaned) + "]")
+    updated = with_declaration_keyword(
+        declaration, "elements", "[" + ", ".join(cleaned) + "]"
+    )
     block_yaml = _rewrite_declaration_in_block(
         str(entry.get("yaml") or ""), bundle_name, updated
     )
@@ -540,7 +555,7 @@ def set_enabled_expression(raw_yaml: str, name: str, expression: Optional[str]) 
         except SyntaxError as exc:
             raise ValueError(f"{cleaned!r} is not a valid Python expression.") from exc
     block_id, declaration, entry = _find_declaration(raw_yaml, name)
-    updated = _with_keyword(declaration, "enabled", cleaned)
+    updated = with_declaration_keyword(declaration, "enabled", cleaned)
     block_yaml = _rewrite_declaration_in_block(
         str(entry.get("yaml") or ""), name, updated
     )

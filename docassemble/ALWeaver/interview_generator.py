@@ -184,6 +184,8 @@ __all__ = [
     "field_type_options",
     "fix_id",
     "generate_interview_from_path",
+    "document_names",
+    "DocumentName",
     "TemplateInput",
     "generate_interview_artifacts",
     "get_character_limit",
@@ -2676,13 +2678,12 @@ class DAInterview(DAObject):
     def attachment_varnames(self) -> str:
         if len(self.uploaded_templates) == 1:
             return f"{self.interview_label }_attachment"
-        else:
-            return comma_list(
-                [
-                    varname(base_name(document.filename))
-                    for document in self.uploaded_templates
-                ]
-            )
+        names = document_names(
+            [document.filename for document in self.uploaded_templates]
+        )
+        return comma_list(
+            [names[document.filename].variable for document in self.uploaded_templates]
+        )
 
     def _initialize_basic_attributes(
         self,
@@ -6742,6 +6743,7 @@ def _render_interview_yaml(
         "oneline": oneline,
         "indent_by": indent_by,
         "base_name": base_name,
+        "document_names": document_names,
         "using_string": using_string,
         "fix_id": fix_id,
         "varname": varname,
@@ -7077,18 +7079,75 @@ def _apply_field_name_normalization(
     return renames, True, renamed_path
 
 
+@dataclass
+class DocumentName:
+    """What one template is called once the interview assembles it.
+
+    Attributes:
+        variable (str): the `ALDocument` the template is attached to.
+        filename (str): the name the finished document is downloaded under.
+    """
+
+    variable: str
+    filename: str
+
+
+def document_names(
+    filenames: Sequence[str], taken: Optional[Iterable[str]] = None
+) -> Dict[str, DocumentName]:
+    """Name the document each template becomes, so no two share a name.
+
+    A document is normally named after its template with the extension dropped:
+    `petition.pdf` becomes `petition`. Two templates that differ only by
+    extension -- a form and the DOCX cover letter filed with it, both called
+    `petition` -- would then be one `ALDocument` that two attachments write to,
+    with both downloads landing on the same filename. Those keep the extension
+    instead, as `petition_pdf` and `petition_docx`, because the extension is
+    what actually tells them apart. A number is the last resort, not the first.
+
+    Args:
+        filenames (Sequence[str]): the template filenames, in bundle order.
+        taken (Optional[Iterable[str]]): variable names already spoken for,
+            which the results must avoid.
+
+    Returns:
+        Dict[str, DocumentName]: template filename -> the names it gets.
+    """
+    reserved = {str(name) for name in (taken or [])}
+    by_stem: Dict[str, List[str]] = defaultdict(list)
+    for filename in filenames:
+        by_stem[varname(base_name(filename))].append(filename)
+
+    names: Dict[str, DocumentName] = {}
+    used: Set[str] = set(reserved)
+    for filename in filenames:
+        stem = base_name(filename)
+        label = stem
+        if len(by_stem[varname(stem)]) > 1 or varname(stem) in reserved:
+            extension = os.path.splitext(filename)[1].lstrip(".").lower()
+            if extension:
+                label = f"{stem}_{extension}"
+        variable = varname(label)
+        root_label, root_variable = label, variable
+        counter = 1
+        while variable in used:
+            counter += 1
+            label = f"{root_label}_{counter}"
+            variable = f"{root_variable}_{counter}"
+        used.add(variable)
+        names[filename] = DocumentName(variable=variable, filename=label)
+    return names
+
+
 def _resolve_template_inputs(
     primary: TemplateInput,
     additional: Optional[Sequence[Union[str, TemplateInput]]],
 ) -> List[TemplateInput]:
     """Put the templates in order, give each one a usable, distinct filename.
 
-    Two uploads can arrive with the same name, and `output.mako` derives each
-    document's variable from the filename with the extension stripped -- so
-    `petition.pdf` alongside `petition.docx` would collide too, into one
-    `ALDocument` named `petition` that two attachments both write to. Repeats
-    are suffixed until both the filename and the name derived from it are
-    distinct.
+    Two uploads can arrive with the same name, and two files cannot share one
+    name in a package, so repeats are suffixed. Templates whose names differ
+    only by extension keep both names: `document_names` tells those apart.
 
     Args:
         primary (TemplateInput): the lead document, which names the interview.
@@ -7112,19 +7171,16 @@ def _resolve_template_inputs(
 
     resolved: List[TemplateInput] = []
     used_names: Set[str] = set()
-    used_variables: Set[str] = set()
     for candidate in candidates:
         name = os.path.basename(
             str(candidate.exact_name or os.path.basename(candidate.path)).strip()
         )
         stem, extension = os.path.splitext(name)
         counter = 1
-        while name in used_names or varname(stem) in used_variables:
+        while name in used_names:
             counter += 1
-            stem = f"{os.path.splitext(name)[0]}_{counter}"
-            name = f"{stem}{extension}"
+            name = f"{stem}_{counter}{extension}"
         used_names.add(name)
-        used_variables.add(varname(stem))
         resolved.append(TemplateInput(path=candidate.path, exact_name=name))
     return resolved
 

@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from . import interview_generator as interview_generator_module
@@ -61,10 +62,14 @@ attachment:
 class TestInterviewIntrospection(unittest.TestCase):
     def test_a_document_is_named_the_way_output_mako_names_it(self):
         # `output.mako` uses `varname(base_name(filename))`, which keeps case.
-        self.assertEqual(
-            document_variable_for("Affidavit of Indigency.pdf"),
-            "Affidavit_of_Indigency",
-        )
+        naming = document_variable_for("Affidavit of Indigency.pdf")
+        self.assertEqual(naming.variable, "Affidavit_of_Indigency")
+        self.assertEqual(naming.filename, "Affidavit of Indigency")
+
+    def test_a_name_already_taken_falls_back_to_the_extension(self):
+        naming = document_variable_for("petition.docx", taken=["petition"])
+        self.assertEqual(naming.variable, "petition_docx")
+        self.assertEqual(naming.filename, "petition_docx")
 
     def test_it_finds_what_the_interview_already_defines(self):
         defined = interview_defined_variables(EXISTING_INTERVIEW)
@@ -79,9 +84,15 @@ class TestAnalyzeTemplate(unittest.TestCase):
     def _analyze(self, field_names, filename="affidavit.pdf", interview=None):
         tmpdir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmpdir, True)
-        template_path = _build_pdf_with_fields(
-            os.path.join(tmpdir, filename), field_names
-        )
+        template_path = os.path.join(tmpdir, filename)
+        if filename.lower().endswith(".docx"):
+            # The generator really opens the file, so a DOCX has to be one.
+            shutil.copyfile(
+                Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx",
+                template_path,
+            )
+        else:
+            _build_pdf_with_fields(template_path, field_names)
         with patch.object(
             interview_generator_module.formfyxer,
             "cluster_screens",
@@ -154,20 +165,28 @@ class TestAnalyzeTemplate(unittest.TestCase):
         # A field the revised form added is still offered as a new screen.
         self.assertIn("landlord_visits", analysis.new_variables)
 
-    def test_a_document_name_that_is_taken_by_another_template_is_refused(self):
-        """Two templates cannot share one ALDocument."""
-        interview = EXISTING_INTERVIEW.replace(
-            "pdf template file: petition.pdf", "pdf template file: something_else.pdf"
-        )
-        analysis = self._analyze(
-            ["users1_name_first"], filename="petition.pdf", interview=interview
-        )
+    def test_a_name_another_template_holds_is_taken_by_extension(self):
+        """A `petition.docx` joining an interview that assembles `petition`."""
+        analysis = self._analyze(["users1_name_first"], filename="petition.docx")
 
         self.assertFalse(analysis.already_imported)
-        self.assertIsNone(analysis.attachment)
-        self.assertIsNone(analysis.document_object)
+        self.assertEqual(analysis.document_variable, "petition_docx")
+        assert analysis.document_object is not None
+        self.assertIn(
+            '- petition_docx: ALDocument.using(filename="petition_docx"',
+            analysis.document_object.yaml,
+        )
+        assert analysis.attachment is not None
+        self.assertIn("variable name: petition_docx[i]", analysis.attachment.yaml)
+        self.assertIn("filename: petition_docx", analysis.attachment.yaml)
+        # The existing `petition` keeps everything it had.
+        self.assertNotIn("variable name: petition[i]", analysis.attachment.yaml)
+        self.assertEqual(
+            [addition["element"] for addition in analysis.bundle_additions],
+            ["petition_docx", "petition_docx"],
+        )
         self.assertTrue(
-            any("already exists" in warning for warning in analysis.warnings),
+            any("`petition_docx`" in warning for warning in analysis.warnings),
             analysis.warnings,
         )
 

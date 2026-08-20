@@ -25,13 +25,15 @@ import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .document_bundles import (
+    declaration_keyword,
     interview_documents,
     objects_declarations as _objects_declarations,
     reference_root as _reference_root,
     render_objects_block as _render_objects_block,
+    with_declaration_keyword,
 )
 from .editor_utils import (
     BLOCK_TYPE_ATTACHMENT,
@@ -42,7 +44,11 @@ from .editor_utils import (
     canonical_block_yaml,
     parse_interview_yaml,
 )
-from .interview_generator import base_name, generate_interview_from_path, varname
+from .interview_generator import (
+    DocumentName,
+    document_names,
+    generate_interview_from_path,
+)
 
 __all__ = [
     "TemplateAnalysis",
@@ -52,17 +58,26 @@ __all__ = [
 ]
 
 
-def document_variable_for(template_filename: str) -> str:
-    """Name the ``ALDocument`` a template is attached to.
+def document_variable_for(
+    template_filename: str, taken: Optional[Iterable[str]] = None
+) -> DocumentName:
+    """Name the ``ALDocument`` a template joining an interview attaches to.
+
+    The same rule the generator uses for a multi-document interview, applied to
+    one newcomer: normally the filename without its extension, and the
+    extension kept when that name is already spoken for -- which is what
+    happens when the interview already assembles a `petition.pdf` and a
+    `petition.docx` arrives.
 
     Args:
         template_filename (str): the template's filename.
+        taken (Optional[Iterable[str]]): document variables already in use.
 
     Returns:
-        str: the variable name, matching what `output.mako` uses for a
-        multi-document interview.
+        DocumentName: the variable to declare, and the name to download under.
     """
-    return varname(base_name(os.path.basename(template_filename)))
+    filename = os.path.basename(template_filename)
+    return document_names([filename], taken=taken)[filename]
 
 
 _ASSIGNMENT_RE = re.compile(
@@ -258,6 +273,35 @@ def _rename_attachment_variable(text: str, old_name: str, new_name: str) -> str:
     return re.sub(rf"\b{re.escape(old_name)}\b", new_name, text)
 
 
+def _rename_attachment_output(block_yaml: str, filename: str) -> str:
+    """Point an attachment block's own output at a different name.
+
+    A draft built from one template names the finished file after the
+    interview. Joining an interview that already assembles a document of that
+    name, the newcomer needs its own -- two attachments writing one filename is
+    the same collision as two sharing a variable.
+
+    Args:
+        block_yaml (str): the attachment block.
+        filename (str): the name the finished document should download under.
+
+    Returns:
+        str: the block, with its top-level `name:` and `filename:` rewritten.
+    """
+    block_yaml = re.sub(
+        r"(?m)^(?P<lead>  filename: ).*$",
+        lambda match: match.group("lead") + filename,
+        block_yaml,
+        count=1,
+    )
+    return re.sub(
+        r"(?m)^(?P<lead>  name: ).*$",
+        lambda match: match.group("lead") + filename.replace("_", " "),
+        block_yaml,
+        count=1,
+    )
+
+
 def _trim_question_fields(
     data: Dict[str, Any], already_defined: Set[str]
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
@@ -340,12 +384,26 @@ def analyze_template(
         ),
         None,
     )
-    document_variable = (
-        imported_as.name if imported_as else document_variable_for(template_filename)
-    )
-    existing_documents = {
-        document.name: document.template_filename for document in existing.documents
-    }
+    if imported_as is not None:
+        naming = DocumentName(
+            variable=imported_as.name,
+            filename=declaration_keyword(imported_as.declaration, "filename").strip(
+                "\"'"
+            )
+            or imported_as.name,
+        )
+    else:
+        # A newcomer must not take a name another document already holds --
+        # including one an author renamed by hand.
+        naming = document_variable_for(
+            template_filename,
+            taken=[document.name for document in existing.documents],
+        )
+    document_variable = naming.variable
+    plain_name = document_names([template_filename])[template_filename].variable
+    # True when this template could not have the name its filename suggests,
+    # because the interview already assembles a document called that.
+    disambiguated = imported_as is None and document_variable != plain_name
 
     options: Dict[str, Any] = {
         "create_package_zip": False,
@@ -404,12 +462,17 @@ def analyze_template(
         block_type = entry.get("type")
 
         if block_type == BLOCK_TYPE_ATTACHMENT:
+            attachment_yaml = _rename_attachment_variable(
+                block_yaml, draft_attachment_variable, document_variable
+            )
+            if disambiguated:
+                attachment_yaml = _rename_attachment_output(
+                    attachment_yaml, naming.filename
+                )
             analysis.attachment = ProposedBlock(
                 kind="attachment",
                 title=f"Attachment for {template_filename}",
-                yaml=_rename_attachment_variable(
-                    block_yaml, draft_attachment_variable, document_variable
-                ),
+                yaml=attachment_yaml,
                 variables=[document_variable],
             )
         elif block_type == BLOCK_TYPE_OBJECTS:
@@ -428,19 +491,19 @@ def analyze_template(
             ]
             if document_declarations and analysis.document_object is None:
                 name, declaration = document_declarations[0]
+                # Two documents downloading under one filename is the same
+                # collision as two sharing a variable, so both names move.
+                declaration = _rename_attachment_variable(
+                    declaration, name, document_variable
+                )
+                if disambiguated:
+                    declaration = with_declaration_keyword(
+                        declaration, "filename", f'"{naming.filename}"'
+                    )
                 analysis.document_object = ProposedBlock(
                     kind="document_object",
                     title=f"ALDocument for {template_filename}",
-                    yaml=_render_objects_block(
-                        [
-                            (
-                                document_variable,
-                                _rename_attachment_variable(
-                                    declaration, name, document_variable
-                                ),
-                            )
-                        ]
-                    ),
+                    yaml=_render_objects_block([(document_variable, declaration)]),
                     variables=[document_variable],
                 )
             person_object_declarations.extend(person_declarations)
@@ -500,15 +563,13 @@ def analyze_template(
                     f"{template_filename} is already attached, but Weaver could "
                     "not find the attachment block to re-read it into."
                 )
-    elif document_variable in existing_documents:
-        analysis.document_object = None
-        analysis.warnings.append(
-            f"`{document_variable}` already exists in this interview and "
-            f"attaches {existing_documents[document_variable] or 'something else'}. "
-            "Rename this template, or the two would collide."
-        )
-        analysis.attachment = None
     else:
+        if disambiguated:
+            analysis.warnings.append(
+                f"This interview already has a document called `{plain_name}`, "
+                f"so this one is `{document_variable}` and downloads as "
+                f"{naming.filename}."
+            )
         for bundle in existing.bundles:
             if document_variable in bundle.elements:
                 continue

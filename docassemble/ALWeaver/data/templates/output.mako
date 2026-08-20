@@ -61,15 +61,20 @@
   if has_addendum:
       aldocument_kwargs += ", default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE"
 
-  # The name of the ALDocument variable each uploaded template is attached to.
+  # What each uploaded template is called once it is an assembled document:
+  # the ALDocument variable it attaches to, and the name it downloads under.
+  # `document_names` keeps those distinct even when two templates differ only
+  # by extension.
+  document_name_for = document_names(
+      [document.filename for document in interview.uploaded_templates]
+  )
   if len(interview.uploaded_templates) == 1:
       attachment_variable_names = {
           interview.uploaded_templates[0].filename: f"{ interview.interview_label }_attachment"
       }
   else:
       attachment_variable_names = {
-          document.filename: varname(base_name(document.filename))
-          for document in interview.uploaded_templates
+          filename: name.variable for filename, name in document_name_for.items()
       }
 
   # Every signature the finished document needs, whether it belongs to a person
@@ -538,7 +543,7 @@ objects:
   - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", ${ aldocument_kwargs })
   % else:
   % for document in interview.uploaded_templates:
-  - ${ varname(base_name(document.filename)) }: ALDocument.using(filename="${ base_name(document.filename) }", ${ aldocument_kwargs })
+  - ${ document_name_for[document.filename].variable }: ALDocument.using(filename="${ document_name_for[document.filename].filename }", ${ aldocument_kwargs })
   % endfor
   % endif
 ---
@@ -568,9 +573,9 @@ ${ indent(str(interview.title), by=2) }
 % else:
 % for document in interview.uploaded_templates:
 ---
-template: ${ varname(base_name(document.filename)) }.title
+template: ${ document_name_for[document.filename].variable }.title
 content: |
-  ${ base_name(document.filename).capitalize().replace("_", " ") }
+  ${ document_name_for[document.filename].filename.capitalize().replace("_", " ") }
 % endfor
 % endif
 ---
@@ -611,8 +616,8 @@ attachment:
   name: ${ interview.interview_label.replace('_',' ') }
   filename: ${ interview.interview_label }
 % else:
-  name: ${ base_name(document.filename).replace('_',' ') }
-  filename: ${ base_name(document.filename) }
+  name: ${ document_name_for[document.filename].filename.replace('_',' ') }
+  filename: ${ document_name_for[document.filename].filename }
 % endif
   variable name: ${ attachment_variable_names[document.filename] }[i]
 % if document.mimetype == "application/pdf":

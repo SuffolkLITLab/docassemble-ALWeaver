@@ -46,7 +46,10 @@ AssemblyLine person questions copied into a generated interview.
 `_render_interview_yaml()` (`interview_generator.py`) resolves and concatenates
 them. `output.mako` branches on how many templates the interview has: one
 template becomes `<label>_attachment`, and several each become an `ALDocument`
-named after the file, listed in the bundle in the order they were given.
+named after the file by `document_names()`, listed in the bundle in the order
+they were given. That function is also what keeps two templates differing only
+by extension apart -- `petition.pdf` and `petition.docx` become `petition_pdf`
+and `petition_docx`, since the extension is what actually distinguishes them.
 `generate_interview_from_path()` takes the lead template plus
 `additional_templates`, so a filing made of a petition, an affidavit and a
 cover sheet is drafted in one pass. (An older `data/sources/output_patterns.yml` no longer exists;

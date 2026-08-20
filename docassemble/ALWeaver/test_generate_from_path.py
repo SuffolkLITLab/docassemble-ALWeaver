@@ -1115,11 +1115,20 @@ class TestMultipleTemplates(unittest.TestCase):
                 include_next_steps=False,
                 additional_templates=[docx],
             )
-        self.assertEqual(result.template_names, ["petition.pdf", "petition_2.docx"])
+        # Both files keep the name they arrived with.
+        self.assertEqual(result.template_names, ["petition.pdf", "petition.docx"])
         yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
-        self.assertIn("- petition: ALDocument.using(", yaml_text)
-        self.assertIn("- petition_2: ALDocument.using(", yaml_text)
-        self.assertRegex(yaml_text, r"elements=\[petition, petition_2\]")
+        # The extension is what tells the two documents apart, so it is what
+        # ends up in the names -- not a number.
+        self.assertIn(
+            '- petition_pdf: ALDocument.using(filename="petition_pdf"', yaml_text
+        )
+        self.assertIn(
+            '- petition_docx: ALDocument.using(filename="petition_docx"', yaml_text
+        )
+        self.assertRegex(yaml_text, r"elements=\[petition_pdf, petition_docx\]")
+        self.assertIn("pdf template file: petition.pdf", yaml_text)
+        self.assertIn("docx template file: petition.docx", yaml_text)
 
     def test_a_missing_companion_template_is_reported(self):
         tmpdir = tempfile.mkdtemp()
