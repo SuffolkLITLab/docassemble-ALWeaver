@@ -79,6 +79,7 @@
     sectionDirty: false,
     sectionSavedContent: {},
     documents: null,
+    documentsLoaded: null,
     documentsBusy: false,
     templateAnalysis: null,
     templateAnalysisBusy: false,
@@ -8510,9 +8511,31 @@
       '&filename=' + encodeURIComponent(state.filename)
     ).then(function (res) {
       state.documents = (res && res.success && res.data) ? res.data : null;
+      // A pristine copy, so saving only touches what the author changed
+      // instead of rewriting every declaration in the file.
+      state.documentsLoaded = state.documents ? JSON.parse(JSON.stringify(state.documents)) : null;
+      if (state.currentView === 'templates') renderCanvas();
     }).catch(function (error) {
       if (isSupersededRequest(error)) return;
       state.documents = null;
+    });
+  }
+
+  // Reordering redraws the whole Templates view, and the enabled rules are only
+  // read out of the DOM on save, so anything typed has to be folded back into
+  // the model first or it disappears under the arrow the author just clicked.
+  function captureDocumentEnabledInputs() {
+    var model = state.documents;
+    if (!model) return;
+    $$('[data-enabled-for]').forEach(function (input) {
+      var name = input.getAttribute('data-enabled-for');
+      var value = String(input.value || '').trim();
+      (model.documents || []).forEach(function (document_) {
+        if (document_.name === name) document_.enabled = value;
+      });
+      (model.bundles || []).forEach(function (bundle) {
+        if (bundle.name === name) bundle.enabled = value;
+      });
     });
   }
 
@@ -8620,7 +8643,7 @@
     }
 
     if (state.templateAnalysisMessage) {
-      html += '<div class="editor-tiny text-muted mb-2">' + esc(state.templateAnalysisMessage) + '</div>';
+      html += '<div class="editor-tiny text-muted mb-2" id="template-analysis-status">' + esc(state.templateAnalysisMessage) + '</div>';
     }
 
     if (!analysis || analysis.template_filename !== fileMeta.filename) {
@@ -8711,6 +8734,7 @@
     state.templateAnalysis = null;
     state.templateAnalysisSelection = {};
     state.templateAnalysisMessage = 'Reading ' + fileMeta.filename + '…';
+    captureDocumentEnabledInputs();
     renderCanvas();
     apiPost('/api/template/analyze', {
       project: state.project,
@@ -8733,6 +8757,15 @@
     });
   }
 
+  // Redrawing the Templates view on every poll would collapse the YAML
+  // previews the author has open, so progress only touches its own line.
+  function setTemplateAnalysisMessage(message) {
+    state.templateAnalysisMessage = message;
+    var node = document.getElementById('template-analysis-status');
+    if (node) node.textContent = message;
+    else renderCanvas();
+  }
+
   function pollTemplateAnalysis(jobUrl) {
     var path = String(jobUrl).replace(API, '');
     var attempts = 0;
@@ -8750,8 +8783,7 @@
             reject(new Error((data.error && data.error.message) || data.message || 'Template analysis failed.'));
             return;
           }
-          state.templateAnalysisMessage = data.message || 'Analyzing…';
-          renderCanvas();
+          setTemplateAnalysisMessage(data.message || 'Analyzing…');
           if (attempts >= TEMPLATE_ANALYSIS_MAX_ATTEMPTS) {
             reject(new Error('Timed out waiting for the analysis to finish.'));
             return;
@@ -8811,6 +8843,7 @@
     if (!bundle) return;
     var target = direction === 'up' ? index - 1 : index + 1;
     if (target < 0 || target >= bundle.elements.length) return;
+    captureDocumentEnabledInputs();
     var moved = bundle.elements.splice(index, 1)[0];
     bundle.elements.splice(target, 0, moved);
     renderCanvas();
@@ -8819,16 +8852,34 @@
   function saveDocumentChanges() {
     var model = state.documents;
     if (!model || state.documentsBusy) return;
-    var bundles = (model.bundles || []).map(function (bundle) {
-      return { bundle: bundle.name, elements: bundle.elements };
+    captureDocumentEnabledInputs();
+    var original = state.documentsLoaded || { documents: [], bundles: [] };
+
+    function originalEntry(list, name) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].name === name) return list[i];
+      }
+      return null;
+    }
+
+    var bundles = [];
+    (model.bundles || []).forEach(function (bundle) {
+      var before = originalEntry(original.bundles || [], bundle.name);
+      if (before && before.elements.join(',') === bundle.elements.join(',')) return;
+      bundles.push({ bundle: bundle.name, elements: bundle.elements });
     });
     var enabled = [];
-    $$('[data-enabled-for]').forEach(function (input) {
-      enabled.push({
-        name: input.getAttribute('data-enabled-for'),
-        expression: String(input.value || '').trim() || null,
-      });
+    (model.documents || []).concat(model.bundles || []).forEach(function (entry) {
+      var before = originalEntry(
+        (original.documents || []).concat(original.bundles || []), entry.name
+      );
+      if (before && String(before.enabled || '') === String(entry.enabled || '')) return;
+      enabled.push({ name: entry.name, expression: entry.enabled || null });
     });
+    if (!bundles.length && !enabled.length) {
+      _showSuccessBanner('Nothing to save.');
+      return;
+    }
     state.documentsBusy = true;
     var status = document.getElementById('documents-status');
     if (status) status.textContent = 'Saving…';
@@ -8842,6 +8893,7 @@
       state.documentsBusy = false;
       if (!res || !res.success) return;
       state.documents = res.data;
+      state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
       _showSuccessBanner('Document setup saved.');
       return loadFile().then(function () {
         renderOutline();
