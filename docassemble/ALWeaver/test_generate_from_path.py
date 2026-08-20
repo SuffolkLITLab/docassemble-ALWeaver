@@ -1090,6 +1090,37 @@ class TestMultipleTemplates(unittest.TestCase):
         self.assertIn("pdf template file: form.pdf", yaml_text)
         self.assertIn("pdf template file: form_2.pdf", yaml_text)
 
+    def test_templates_whose_names_differ_only_by_extension_do_not_collide(self):
+        """`output.mako` names each document after the file without its suffix."""
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        pdf = _build_pdf_with_fields(
+            os.path.join(tmpdir, "petition.pdf"), ["users1_name_first"]
+        )
+        docx = os.path.join(tmpdir, "petition.docx")
+        shutil.copyfile(
+            Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx", docx
+        )
+        output_dir = os.path.join(tmpdir, "out")
+        os.makedirs(output_dir)
+        with patch.object(
+            interview_generator_module.formfyxer,
+            "cluster_screens",
+            side_effect=_TestAutoDraftBase._offline_cluster,
+        ):
+            result = generate_interview_from_path(
+                pdf,
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                additional_templates=[docx],
+            )
+        self.assertEqual(result.template_names, ["petition.pdf", "petition_2.docx"])
+        yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn("- petition: ALDocument.using(", yaml_text)
+        self.assertIn("- petition_2: ALDocument.using(", yaml_text)
+        self.assertRegex(yaml_text, r"elements=\[petition, petition_2\]")
+
     def test_a_missing_companion_template_is_reported(self):
         tmpdir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmpdir, True)

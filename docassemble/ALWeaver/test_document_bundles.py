@@ -147,6 +147,33 @@ class TestRearrangingDocuments(unittest.TestCase):
         with self.assertRaises(ValueError):
             set_enabled_expression(EXISTING_INTERVIEW, "affidavit", "if x: y")
 
+    def test_a_mapping_form_objects_block_is_editable_too(self):
+        """`objects:` also accepts a plain mapping, and both forms are read."""
+        mapping_form = """---
+objects:
+  petition: ALDocument.using(filename="petition", enabled=True)
+  al_user_bundle: ALDocumentBundle.using(elements=[petition, affidavit], filename="p")
+"""
+        updated = set_bundle_elements(
+            mapping_form, "al_user_bundle", ["affidavit", "petition"]
+        )
+        self.assertEqual(
+            interview_documents(updated).bundles[0].elements,
+            ["affidavit", "petition"],
+        )
+
+    def test_a_rule_containing_a_colon_does_not_destroy_the_block(self):
+        """A declaration is a Python expression living in a YAML scalar."""
+        updated = set_enabled_expression(
+            EXISTING_INTERVIEW, "affidavit", "{'yes': True}.get(answer)"
+        )
+        model = interview_documents(updated)
+        self.assertEqual(
+            [document.name for document in model.documents],
+            ["petition", "affidavit"],
+        )
+        self.assertEqual(model.documents[1].enabled, "{'yes': True}.get(answer)")
+
     def test_reordering_something_that_is_not_declared_is_refused(self):
         with self.assertRaises(ValueError):
             set_bundle_elements(EXISTING_INTERVIEW, "no_such_bundle", ["petition"])

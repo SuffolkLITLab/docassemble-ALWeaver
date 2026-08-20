@@ -7083,9 +7083,12 @@ def _resolve_template_inputs(
 ) -> List[TemplateInput]:
     """Put the templates in order, give each one a usable, distinct filename.
 
-    Two uploads can arrive with the same name, and two templates sharing a
-    filename would collide in the package and in the attachment variable names
-    `output.mako` derives from them, so repeats are suffixed.
+    Two uploads can arrive with the same name, and `output.mako` derives each
+    document's variable from the filename with the extension stripped -- so
+    `petition.pdf` alongside `petition.docx` would collide too, into one
+    `ALDocument` named `petition` that two attachments both write to. Repeats
+    are suffixed until both the filename and the name derived from it are
+    distinct.
 
     Args:
         primary (TemplateInput): the lead document, which names the interview.
@@ -7109,17 +7112,19 @@ def _resolve_template_inputs(
 
     resolved: List[TemplateInput] = []
     used_names: Set[str] = set()
+    used_variables: Set[str] = set()
     for candidate in candidates:
         name = os.path.basename(
             str(candidate.exact_name or os.path.basename(candidate.path)).strip()
         )
-        if name in used_names:
-            stem, extension = os.path.splitext(name)
-            counter = 2
-            while f"{stem}_{counter}{extension}" in used_names:
-                counter += 1
-            name = f"{stem}_{counter}{extension}"
+        stem, extension = os.path.splitext(name)
+        counter = 1
+        while name in used_names or varname(stem) in used_variables:
+            counter += 1
+            stem = f"{os.path.splitext(name)[0]}_{counter}"
+            name = f"{stem}{extension}"
         used_names.add(name)
+        used_variables.add(varname(stem))
         resolved.append(TemplateInput(path=candidate.path, exact_name=name))
     return resolved
 

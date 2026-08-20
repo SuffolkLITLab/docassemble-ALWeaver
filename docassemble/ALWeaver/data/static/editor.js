@@ -8760,13 +8760,14 @@
     });
   }
 
-  // Redrawing the Templates view on every poll would collapse the YAML
-  // previews the author has open, so progress only touches its own line.
+  // Redrawing on every poll would collapse the YAML previews the author has
+  // open, so progress only touches its own line -- and if that line is not on
+  // screen, because they moved to another tab while the analysis runs, the
+  // update is simply dropped. Coming back re-renders it from state.
   function setTemplateAnalysisMessage(message) {
     state.templateAnalysisMessage = message;
     var node = document.getElementById('template-analysis-status');
     if (node) node.textContent = message;
-    else renderCanvas();
   }
 
   function pollTemplateAnalysis(jobUrl) {

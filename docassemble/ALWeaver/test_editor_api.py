@@ -1663,6 +1663,33 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
 
 
+class TestEditorApplyBlockIds(unittest.TestCase):
+    """One colliding screen id must not throw away the whole apply."""
+
+    def test_a_colliding_id_is_numbered_rather_than_refused(self):
+        taken = {"user name", "user name 2"}
+        block, block_id = api_editor._block_id_without_collision(
+            "id: user name\nquestion: |\n  What is your name?\n", taken
+        )
+        self.assertEqual(block_id, "user name 3")
+        self.assertIn("id: user name 3\n", block)
+        self.assertIn("question: |\n", block)
+
+    def test_an_id_nothing_else_uses_is_left_exactly_as_it_is(self):
+        block, block_id = api_editor._block_id_without_collision(
+            "id: rent\nquestion: |\n  Rent\n", {"user name"}
+        )
+        self.assertEqual(block_id, "rent")
+        self.assertEqual(block, "id: rent\nquestion: |\n  Rent\n")
+
+    def test_a_block_with_no_id_is_left_alone(self):
+        block, block_id = api_editor._block_id_without_collision(
+            "objects:\n  - affidavit: ALDocument.using()\n", {"user name"}
+        )
+        self.assertIsNone(block_id)
+        self.assertEqual(block, "objects:\n  - affidavit: ALDocument.using()\n")
+
+
 class TestEditorDocumentsApi(unittest.TestCase):
     """Rearranging the documents an interview assembles."""
 

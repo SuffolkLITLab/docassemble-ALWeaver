@@ -66,7 +66,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 import yaml
 from flask import Response, jsonify, redirect, request, url_for
@@ -8348,6 +8348,46 @@ def editor_api_analyze_template_job(job_id: str) -> Response:
         )
 
 
+_BLOCK_ID_LINE_RE = re.compile(r"""(?m)^id:[ \t]*(?P<id>.*?)[ \t]*$""")
+
+
+def _block_id_without_collision(
+    block_yaml: str, taken: Set[str]
+) -> Tuple[str, Optional[str]]:
+    """Give a block an id no other block in the file is already using.
+
+    An analyzed template's screens keep the ids the generator derived from
+    their question text, and two interviews drafted from related forms will
+    produce some of the same ones. `insert_block_in_yaml` refuses a duplicate,
+    which would throw away every other accepted block along with it, so the
+    newcomer is numbered instead -- the same way the generator resolves
+    duplicates within one file.
+
+    Args:
+        block_yaml (str): the block about to be inserted.
+        taken (Set[str]): the ids already in the file.
+
+    Returns:
+        Tuple[str, Optional[str]]: the block, and the id it ended up with.
+    """
+    match = _BLOCK_ID_LINE_RE.search(block_yaml)
+    if not match:
+        return block_yaml, None
+    current = match.group("id").strip().strip("\"'")
+    if not current:
+        return block_yaml, None
+    if current not in taken:
+        return block_yaml, current
+    counter = 2
+    while f"{current} {counter}" in taken:
+        counter += 1
+    new_id = f"{current} {counter}"
+    return (
+        block_yaml[: match.start()] + f"id: {new_id}" + block_yaml[match.end() :],
+        new_id,
+    )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/template/apply", methods=["POST"])
 def editor_api_apply_template_analysis() -> Response:
     """Add accepted pieces of a template analysis to the interview.
@@ -8394,11 +8434,17 @@ def editor_api_apply_template_analysis() -> Response:
             )
 
         added_block_ids: List[str] = []
+        taken_ids = {
+            str(block.get("id") or "").strip()
+            for block in parse_interview_yaml(content)["blocks"]
+        }
         for block_yaml in blocks:
             if not isinstance(block_yaml, str) or not block_yaml.strip():
                 raise ValueError("Each block must be a non-empty YAML string")
             _validate_block_yaml_payload(block_yaml)
-            block_text = block_yaml.strip("\r\n")
+            block_text, block_id = _block_id_without_collision(
+                block_yaml.strip("\r\n"), taken_ids
+            )
             # Appended rather than placed: an author moves blocks around in the
             # outline, and guessing at a position here would only be a guess.
             existing_blocks = parse_interview_yaml(content)["blocks"]
@@ -8406,9 +8452,9 @@ def editor_api_apply_template_analysis() -> Response:
                 str(existing_blocks[-1].get("id")) if existing_blocks else None
             )
             content = insert_block_in_yaml(content, block_text, insert_after_id)
-            id_match = re.search(r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text)
-            if id_match:
-                added_block_ids.append(id_match.group(1).strip())
+            if block_id:
+                taken_ids.add(block_id)
+                added_block_ids.append(block_id)
 
         for update in bundle_updates:
             if not isinstance(update, dict):

@@ -34,6 +34,7 @@ __all__ = [
     "DocumentEntry",
     "InterviewDocuments",
     "interview_documents",
+    "serialize_declaration",
     "set_bundle_elements",
     "set_enabled_expression",
 ]
@@ -161,13 +162,40 @@ def render_objects_block(declarations: Sequence[Tuple[str, str]]) -> str:
     Returns:
         str: the block's YAML.
     """
-    lines = ["objects:"]
-    for name, expression in declarations:
-        text = str(expression or "").strip()
-        if ": " in text or text[:1] in {"-", "?", "&", "*", "!", "|", ">", "%", "@"}:
-            text = '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
-        lines.append(f"  - {name}: {text}")
-    return "\n".join(lines)
+    return "\n".join(
+        ["objects:"]
+        + [
+            f"  - {name}: {serialize_declaration(expression)}"
+            for name, expression in declarations
+        ]
+    )
+
+
+def serialize_declaration(expression: str) -> str:
+    """Render one object declaration as the value half of a YAML entry.
+
+    A declaration is a Python expression living in a YAML scalar, and most of
+    them -- ``ALDocument.using(filename="x")`` -- are safe to write bare, which
+    is how `output.mako` writes them and how the rest of a generated interview
+    reads. An expression carrying ``": "`` or opening with a YAML indicator is
+    not: written bare it would change the document's structure, or destroy it.
+
+    Args:
+        expression (str): the object declaration.
+
+    Returns:
+        str: the declaration, quoted only when writing it bare would not
+        survive a round trip.
+    """
+    text = str(expression or "").strip()
+    if (
+        ": " in text
+        or " #" in text
+        or text.endswith(":")
+        or text[:1] in {"-", "?", "&", "*", "!", "|", ">", "%", "@", '"', "'", "#"}
+    ):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return text
 
 
 def _keyword_value(expression: str, keyword: str) -> str:
@@ -237,8 +265,11 @@ def _entry_span(block_yaml: str, name: str) -> Optional[Tuple[int, int, str]]:
         after the entry, and the entry's leading ``- name: `` text.
     """
     lines = block_yaml.splitlines()
+    # `objects:` accepts both a sequence of one-entry mappings (what Weaver
+    # writes) and a plain mapping. `objects_declarations` reads both, so the
+    # Templates tab offers to edit both, so both have to be findable here.
     pattern = re.compile(
-        rf"""^(?P<lead>\s*-\s*(?:"|')?{re.escape(name)}(?:"|')?\s*:\s*)(?P<value>.*)$"""
+        rf"""^(?P<lead>\s*(?:-\s*)?(?:"|')?{re.escape(name)}(?:"|')?\s*:\s*)(?P<value>.*)$"""
     )
     for index, line in enumerate(lines):
         match = pattern.match(line)
@@ -279,7 +310,9 @@ def _rewrite_declaration_in_block(
         raise ValueError(f"{name} is not declared in this block.")
     start, end, lead = span
     lines = block_yaml.splitlines()
-    return "\n".join(lines[:start] + [lead + new_declaration] + lines[end:])
+    return "\n".join(
+        lines[:start] + [lead + serialize_declaration(new_declaration)] + lines[end:]
+    )
 
 
 def _find_declaration(
