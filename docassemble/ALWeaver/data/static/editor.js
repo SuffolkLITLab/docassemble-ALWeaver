@@ -80,6 +80,10 @@
     sectionSavedContent: {},
     documents: null,
     documentsBusy: false,
+    templateAnalysis: null,
+    templateAnalysisBusy: false,
+    templateAnalysisMessage: '',
+    templateAnalysisSelection: {},
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
@@ -8487,6 +8491,15 @@
   // edit to move a cover sheet above a petition.
   // -------------------------------------------------------------------------
   var ALDOCUMENT_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
+  var COMBINING_INTERVIEWS_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews';
+  var TEMPLATE_ANALYSIS_POLL_INTERVAL_MS = 1500;
+  var TEMPLATE_ANALYSIS_MAX_ATTEMPTS = 400;
+
+  function isAnalyzableTemplate(fileMeta) {
+    var name = String((fileMeta && fileMeta.filename) || '').toLowerCase();
+    return name.endsWith('.pdf') || name.endsWith('.docx');
+  }
+
   function loadDocuments() {
     if (!state.project || !state.filename) {
       state.documents = null;
@@ -8593,6 +8606,201 @@
     return html + '</div></div>';
   }
 
+  function renderTemplateAnalysisCard(fileMeta) {
+    if (!fileMeta || !isAnalyzableTemplate(fileMeta)) return '';
+    var analysis = state.templateAnalysis;
+    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
+    html += '<span>Analyze ' + esc(fileMeta.filename) + '</span>';
+    html += '<button class="btn btn-sm btn-outline-primary" id="analyze-template-btn"' + (state.templateAnalysisBusy || !state.filename ? ' disabled' : '') + '>' + (state.templateAnalysisBusy ? 'Analyzing…' : 'Analyze this template') + '</button>';
+    html += '</div><div class="editor-card-body">';
+
+    if (!state.filename) {
+      html += '<p class="text-muted small mb-0">Open an interview file first: analysis compares this template against what that interview already asks.</p>';
+      return html + '</div></div>';
+    }
+
+    if (state.templateAnalysisMessage) {
+      html += '<div class="editor-tiny text-muted mb-2">' + esc(state.templateAnalysisMessage) + '</div>';
+    }
+
+    if (!analysis || analysis.template_filename !== fileMeta.filename) {
+      html += '<p class="text-muted small mb-0">Weaver reads the template\'s fields and offers the attachment block, the screens for fields ' + esc(state.filename) + ' does not ask about yet, and the objects those screens need. You choose which of them to keep.</p>';
+      return html + '</div></div>';
+    }
+
+    (analysis.warnings || []).forEach(function (warning) {
+      html += '<div class="alert alert-warning py-2 small">' + esc(warning) + '</div>';
+    });
+
+    var candidates = templateAnalysisCandidates(analysis);
+    if (!candidates.length && !(analysis.bundle_additions || []).length) {
+      html += '<p class="text-muted small mb-0">Nothing to add: ' + esc(state.filename) + ' already covers this template.</p>';
+      return html + '</div></div>';
+    }
+
+    candidates.forEach(function (candidate) {
+      var checked = state.templateAnalysisSelection[candidate.key] !== false;
+      html += '<div class="form-check editor-analysis-item">';
+      html += '<input class="form-check-input" type="checkbox" id="analysis-' + esc(candidate.key) + '" data-analysis-key="' + esc(candidate.key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="analysis-' + esc(candidate.key) + '">' + esc(candidate.title) + '</label>';
+      if (candidate.variables && candidate.variables.length) {
+        html += '<div class="editor-tiny text-muted">' + esc(candidate.variables.join(', ')) + '</div>';
+      }
+      html += '<details class="editor-analysis-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-analysis-yaml">' + esc(candidate.yaml) + '</pre></details>';
+      html += '</div>';
+    });
+
+    (analysis.bundle_additions || []).forEach(function (addition, index) {
+      var key = 'bundle-' + index;
+      var checked = state.templateAnalysisSelection[key] !== false;
+      html += '<div class="form-check editor-analysis-item">';
+      html += '<input class="form-check-input" type="checkbox" id="analysis-' + esc(key) + '" data-analysis-key="' + esc(key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="analysis-' + esc(key) + '">Add <code>' + esc(addition.element) + '</code> to <code>' + esc(addition.bundle) + '</code></label>';
+      html += '</div>';
+    });
+
+    html += '<div class="mt-3 d-flex gap-2 align-items-center">';
+    html += '<button class="btn btn-sm btn-primary" id="apply-analysis-btn">Add selected to ' + esc(state.filename) + '</button>';
+    html += '<span class="editor-tiny text-muted">You can reorder the new blocks in the interview outline afterwards.</span>';
+    html += '</div>';
+    html += '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' + COMBINING_INTERVIEWS_DOCS_URL + '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+
+    return html + '</div></div>';
+  }
+
+  function templateAnalysisCandidates(analysis) {
+    var candidates = [];
+    if (analysis.document_object) {
+      candidates.push({
+        key: 'document_object',
+        title: analysis.document_object.title,
+        yaml: analysis.document_object.yaml,
+        variables: analysis.document_object.variables,
+      });
+    }
+    if (analysis.attachment) {
+      candidates.push({
+        key: 'attachment',
+        title: analysis.attachment.title,
+        yaml: analysis.attachment.yaml,
+        variables: [],
+      });
+    }
+    if (analysis.objects) {
+      candidates.push({
+        key: 'objects',
+        title: analysis.objects.title,
+        yaml: analysis.objects.yaml,
+        variables: analysis.objects.variables,
+      });
+    }
+    (analysis.questions || []).forEach(function (question, index) {
+      candidates.push({
+        key: 'question-' + index,
+        title: 'Screen: ' + question.title,
+        yaml: question.yaml,
+        variables: question.variables,
+      });
+    });
+    return candidates;
+  }
+
+  function analyzeSelectedTemplate(fileMeta) {
+    if (!fileMeta || !state.filename) return;
+    state.templateAnalysisBusy = true;
+    state.templateAnalysis = null;
+    state.templateAnalysisSelection = {};
+    state.templateAnalysisMessage = 'Reading ' + fileMeta.filename + '…';
+    renderCanvas();
+    apiPost('/api/template/analyze', {
+      project: state.project,
+      filename: state.filename,
+      template: fileMeta.filename,
+    }).then(function (res) {
+      if (!res || !res.job_url) throw new Error('Weaver did not queue the analysis.');
+      return pollTemplateAnalysis(res.job_url);
+    }).then(function (result) {
+      state.templateAnalysisBusy = false;
+      state.templateAnalysis = result;
+      state.templateAnalysisMessage = '';
+      renderCanvas();
+    }).catch(function (error) {
+      state.templateAnalysisBusy = false;
+      state.templateAnalysisMessage = '';
+      renderCanvas();
+      if (isSupersededRequest(error)) return;
+      showApiError(error);
+    });
+  }
+
+  function pollTemplateAnalysis(jobUrl) {
+    var path = String(jobUrl).replace(API, '');
+    var attempts = 0;
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        attempts += 1;
+        apiGet(path).then(function (res) {
+          var data = (res && res.data) || {};
+          var status = String(res && res.status || data.status || 'queued');
+          if (status === 'succeeded') {
+            resolve(data.result || {});
+            return;
+          }
+          if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+            reject(new Error((data.error && data.error.message) || data.message || 'Template analysis failed.'));
+            return;
+          }
+          state.templateAnalysisMessage = data.message || 'Analyzing…';
+          renderCanvas();
+          if (attempts >= TEMPLATE_ANALYSIS_MAX_ATTEMPTS) {
+            reject(new Error('Timed out waiting for the analysis to finish.'));
+            return;
+          }
+          setTimeout(tick, TEMPLATE_ANALYSIS_POLL_INTERVAL_MS);
+        }).catch(reject);
+      }
+      tick();
+    });
+  }
+
+  function applyTemplateAnalysis() {
+    var analysis = state.templateAnalysis;
+    if (!analysis) return;
+    var blocks = [];
+    templateAnalysisCandidates(analysis).forEach(function (candidate) {
+      if (state.templateAnalysisSelection[candidate.key] !== false) blocks.push(candidate.yaml);
+    });
+    var bundles = [];
+    (analysis.bundle_additions || []).forEach(function (addition, index) {
+      if (state.templateAnalysisSelection['bundle-' + index] !== false) {
+        bundles.push({ bundle: addition.bundle, elements: addition.elements });
+      }
+    });
+    if (!blocks.length && !bundles.length) {
+      showApiError(new Error('Nothing is selected.'));
+      return;
+    }
+    apiPost('/api/template/apply', {
+      project: state.project,
+      filename: state.filename,
+      expected_revision: analysis.interview_revision,
+      blocks: blocks,
+      bundles: bundles,
+    }).then(function (res) {
+      if (!res || !res.success) return;
+      state.templateAnalysis = null;
+      state.templateAnalysisSelection = {};
+      _showSuccessBanner('Added to ' + state.filename + '.');
+      return loadFile().then(loadDocuments).then(function () {
+        renderOutline();
+        renderCanvas();
+      });
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      showApiError(error);
+    });
+  }
+
   function moveDocumentInBundle(bundleName, index, direction) {
     var model = state.documents;
     if (!model) return;
@@ -8675,6 +8883,7 @@
     // Weaver's document analysis used to be spent once, at project creation.
     // On the Templates tab it stays available for the life of the project.
     if (view === 'templates') {
+      html += renderTemplateAnalysisCard(fileMeta);
       html += renderDocumentsCard(fileMeta);
     }
 
@@ -10417,6 +10626,16 @@
       return;
     }
 
+    if (target.id === 'analyze-template-btn') {
+      analyzeSelectedTemplate(getSelectedSectionFileMeta(state.currentView));
+      return;
+    }
+
+    if (target.id === 'apply-analysis-btn') {
+      applyTemplateAnalysis();
+      return;
+    }
+
     if (target.id === 'save-documents-btn') {
       saveDocumentChanges();
       return;
@@ -10628,6 +10847,12 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-analysis-key]')) {
+      // Recorded rather than re-rendered: unticking one proposal should not
+      // collapse the YAML previews the author has open next to it.
+      state.templateAnalysisSelection[target.getAttribute('data-analysis-key')] = target.checked;
+      return;
+    }
     if (target.matches('[data-al-setting]')) {
       state.assemblyLineSettingsDirty = true;
       var settingsSave = document.getElementById('save-assemblyline-settings');

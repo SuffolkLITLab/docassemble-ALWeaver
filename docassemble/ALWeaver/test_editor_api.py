@@ -1584,6 +1584,85 @@ objects:
 """
 
 
+class TestEditorTemplateAnalysisApi(unittest.TestCase):
+    """Analyzing a template that was added to a project after it was created."""
+
+    def _post(self, payload, handler):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/analyze", method="POST", json=payload
+            ):
+                return handler()
+
+    def test_a_template_that_is_not_in_the_project_is_a_404(self):
+        with patch.object(
+            api_editor,
+            "_template_analysis_target",
+            side_effect=FileNotFoundError("nope.pdf is not in this project"),
+        ):
+            response = self._post(
+                {"project": "Eviction", "filename": "main.yml", "template": "nope.pdf"},
+                api_editor.editor_api_analyze_template,
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_queued_analysis_reports_where_to_poll(self):
+        with (
+            patch.object(
+                api_editor, "_template_analysis_target", return_value="/tmp/a.pdf"
+            ),
+            patch.object(api_editor, "playground_read_yaml", return_value="---\n"),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "_store_job_state"),
+            patch.object(api_editor, "_update_job_state"),
+            patch.object(
+                api_editor.workerapp,
+                "send_task",
+                return_value=types.SimpleNamespace(id="celery-1"),
+            ) as mock_send,
+        ):
+            response = self._post(
+                {
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "template": "affidavit.pdf",
+                },
+                api_editor.editor_api_analyze_template,
+            )
+        self.assertEqual(response.status_code, 202)
+        body = response.get_json()
+        self.assertIn("/al/editor/api/template/analyze/jobs/", body["job_url"])
+        self.assertEqual(
+            mock_send.call_args.kwargs["kwargs"]["template_filename"], "affidavit.pdf"
+        )
+
+    def test_applying_against_a_changed_interview_is_a_conflict(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="---\nobjects: {}\n"
+            ),
+            patch.object(api_editor, "source_revision", return_value="now"),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/apply",
+                method="POST",
+                json={
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "expected_revision": "then",
+                    "blocks": ["objects:\n  - affidavit: ALDocument.using()"],
+                },
+            ):
+                response = api_editor.editor_api_apply_template_analysis()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
+
+
 class TestEditorDocumentsApi(unittest.TestCase):
     """Rearranging the documents an interview assembles."""
 

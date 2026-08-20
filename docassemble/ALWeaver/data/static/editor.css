@@ -2382,6 +2382,29 @@ html, body {
   margin: 0;
 }
 
+.editor-analysis-item {
+  border-top: 1px solid var(--editor-border);
+  padding: 8px 0 8px 1.6em;
+}
+
+.editor-analysis-item:first-of-type { border-top: none; }
+
+.editor-analysis-preview summary {
+  cursor: pointer;
+  color: var(--editor-muted);
+}
+
+.editor-analysis-yaml {
+  background: var(--editor-code-bg, #f6f8fa);
+  border: 1px solid var(--editor-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+}
+
 /* ===== Block type colors in outline ===== */
 
 .editor-outline-type-q  { background: #dbeafe; color: #1e40af; }

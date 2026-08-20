@@ -132,3 +132,36 @@ def weaver_editor_new_project_task(
             debug_requested=debug_requested,
             interview_filename=interview_filename,
         )
+
+
+@workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_analysis_task"
+)
+def weaver_editor_template_analysis_task(
+    *,
+    job_id: str,
+    uid: int,
+    project: str,
+    template_filename: str,
+    interview_filename: str,
+    use_llm_assist: bool,
+    request_id: str,
+) -> Dict[str, Any]:
+    """Analyze one template against an existing interview, in the worker.
+
+    Analysis runs the same generator a new project does -- field extraction,
+    person detection, screen grouping, optionally an LLM pass -- so it outlives
+    a web request for the same reasons project creation does.
+    """
+    with bg_context():
+        from .api_editor import _complete_template_analysis_job
+
+        return _complete_template_analysis_job(
+            job_id=job_id,
+            uid=uid,
+            project=project,
+            template_filename=template_filename,
+            interview_filename=interview_filename,
+            use_llm_assist=use_llm_assist,
+            request_id=request_id,
+        )

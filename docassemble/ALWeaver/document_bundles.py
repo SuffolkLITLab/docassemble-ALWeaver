@@ -147,6 +147,29 @@ def objects_declarations(data: Dict[str, Any]) -> List[Tuple[str, str]]:
     return declarations
 
 
+def render_objects_block(declarations: Sequence[Tuple[str, str]]) -> str:
+    """Write an ``objects:`` block the way `output.mako` writes one.
+
+    Round-tripping through a YAML dumper would quote every declaration, because
+    ``ALDocument.using(filename="x")`` contains quotes. That parses the same but
+    reads nothing like the rest of a generated interview, so the expressions are
+    emitted verbatim unless one of them would actually change the YAML's meaning.
+
+    Args:
+        declarations (Sequence[Tuple[str, str]]): ``(variable, expression)`` pairs.
+
+    Returns:
+        str: the block's YAML.
+    """
+    lines = ["objects:"]
+    for name, expression in declarations:
+        text = str(expression or "").strip()
+        if ": " in text or text[:1] in {"-", "?", "&", "*", "!", "|", ">", "%", "@"}:
+            text = '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        lines.append(f"  - {name}: {text}")
+    return "\n".join(lines)
+
+
 def _keyword_value(expression: str, keyword: str) -> str:
     match = _USING_RE.match(str(expression or "").strip())
     if not match:
