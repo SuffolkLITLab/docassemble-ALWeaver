@@ -394,11 +394,18 @@ def analyze_template(
         )
     else:
         # A newcomer must not take a name another document already holds --
-        # including one an author renamed by hand.
-        naming = document_variable_for(
-            template_filename,
-            taken=[document.name for document in existing.documents],
-        )
+        # including one an author renamed by hand. The plain name of every
+        # template already attached is reserved too, so a `petition.docx`
+        # joining a `petition.pdf` is `petition_docx` even when the interview
+        # calls that PDF's document something else, which is what a project
+        # generated from a single template does.
+        taken = {document.name for document in existing.documents}
+        for document in existing.documents:
+            if not document.template_filename:
+                continue
+            attached = document.template_filename
+            taken.add(document_names([attached])[attached].variable)
+        naming = document_variable_for(template_filename, taken=taken)
     document_variable = naming.variable
     plain_name = document_names([template_filename])[template_filename].variable
     # True when this template could not have the name its filename suggests,

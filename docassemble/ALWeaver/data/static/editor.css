@@ -2377,8 +2377,6 @@ html, body {
   font-size: 13px;
 }
 
-.editor-doc-item-current .editor-doc-item-name { font-weight: 600; }
-
 .editor-doc-item-name {
   flex: 1 1 auto;
   min-width: 0;

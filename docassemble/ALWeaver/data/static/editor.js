@@ -81,9 +81,11 @@
     templatesMode: 'files',
     documents: null,
     documentsLoaded: null,
+    documentsDirty: false,
     documentsBusy: false,
     templateImportResult: null,
-    templateImportBusy: false,
+    //: the template currently being read, or null
+    templateImportBusy: null,
     templateImportMessage: '',
     templateImportSelection: {},
     insertAfterBlockId: null,
@@ -189,7 +191,7 @@
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
-    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
+    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
     buttons.forEach(function (btn) {
       btn.disabled = !isDirty;
       var badge = btn.querySelector('.js-save-badge');
@@ -201,6 +203,12 @@
 
   function saveCurrentFile() {
     if (!isInterviewView()) {
+      // The Templates tab has two things that can be dirty: the file open in
+      // the source editor, and the document setup pane.
+      if (state.documentsDirty) {
+        saveDocumentChanges();
+        return;
+      }
       saveCurrentSectionFileIfDirty();
     } else if (state.canvasMode === 'assemblyline-settings') {
       saveAssemblyLineSettings();
@@ -243,7 +251,7 @@
   }
 
   function hasUnsavedChanges() {
-    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
+    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
   }
 
   function sectionSnapshotKey() {
@@ -264,6 +272,18 @@
 
   function discardAssemblyLineSettingsChanges() {
     state.assemblyLineSettingsDirty = false;
+    updateTopbarSaveState();
+    return true;
+  }
+
+  function discardDocumentChanges() {
+    if (!state.documentsDirty) return true;
+    // The pristine copy is what the file actually says, so restoring it is
+    // exactly discarding.
+    state.documents = state.documentsLoaded
+      ? JSON.parse(JSON.stringify(state.documentsLoaded))
+      : state.documents;
+    state.documentsDirty = false;
     updateTopbarSaveState();
     return true;
   }
@@ -4724,6 +4744,9 @@
       dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
       dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
+      // Which documents exist, and which templates are still orphans, are
+      // facts about *this* file. Reading it is the one moment both can change.
+      loadDocuments();
       renderOutline();
       renderCanvas();
       runValidation();
@@ -5462,7 +5485,8 @@
             var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
             var sectionDiscarded = discardSectionChanges();
             var settingsDiscarded = discardAssemblyLineSettingsChanges();
-            if (interviewDiscarded && sectionDiscarded && settingsDiscarded) {
+            var documentsDiscarded = discardDocumentChanges();
+            if (interviewDiscarded && sectionDiscarded && settingsDiscarded && documentsDiscarded) {
               finish(true);
             } else if (errorBox) {
               errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
@@ -5476,6 +5500,7 @@
             .then(function (sectionSaved) {
               if (!sectionSaved) return false;
               if (state.assemblyLineSettingsDirty) return saveAssemblyLineSettings();
+              if (state.documentsDirty) return saveDocumentChanges();
               return saveCurrentBlockIfDirty();
             })
             .then(function (saved) {
@@ -8540,6 +8565,10 @@
       '/api/documents?project=' + encodeURIComponent(state.project) +
       '&filename=' + encodeURIComponent(state.filename)
     ).then(function (res) {
+      // An edit in progress outranks a background refresh. Nothing can reach
+      // this while the pane is dirty without the author having been asked
+      // first, so replacing what they typed would only ever be a surprise.
+      if (state.documentsDirty) return;
       state.documents = (res && res.success && res.data) ? res.data : null;
       // A pristine copy, so saving only touches what the author changed
       // instead of rewriting every declaration in the file.
@@ -8573,6 +8602,41 @@
     });
   }
 
+  // Whether anything in the setup pane differs from what the file says.
+  function documentsHaveChanges() {
+    var model = state.documents;
+    var original = state.documentsLoaded;
+    if (!model || !original) return false;
+    var changed = false;
+    (model.bundles || []).forEach(function (bundle) {
+      var before = findByName(original.bundles, bundle.name);
+      if (!before) return;
+      if (before.elements.join(',') !== bundle.elements.join(',')) changed = true;
+      if (String(before.enabled || '') !== String(bundle.enabled || '')) changed = true;
+    });
+    (model.documents || []).forEach(function (document_) {
+      var before = findByName(original.documents, document_.name);
+      if (!before) return;
+      if (String(before.enabled || '') !== String(document_.enabled || '')) changed = true;
+    });
+    return changed;
+  }
+
+  function findByName(list, name) {
+    var entries = list || [];
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].name === name) return entries[i];
+    }
+    return null;
+  }
+
+  function markDocumentsDirty() {
+    state.documentsDirty = documentsHaveChanges();
+    updateTopbarSaveState();
+    var saveButton = document.getElementById('save-documents-btn');
+    if (saveButton) saveButton.disabled = state.documentsBusy || !state.documentsDirty;
+  }
+
   function documentByName(name) {
     var documents = (state.documents && state.documents.documents) || [];
     for (var i = 0; i < documents.length; i++) {
@@ -8588,7 +8652,7 @@
     return document_.title || name;
   }
 
-  function renderDocumentsCard(fileMeta) {
+  function renderDocumentsCard() {
     var model = state.documents;
     var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
     html += '<span>Documents this interview assembles</span>';
@@ -8606,12 +8670,11 @@
 
     var documents = model.documents || [];
     var bundles = model.bundles || [];
-    if (!documents.length) {
+    if (!documents.length && !bundles.length) {
       html += '<p class="text-muted small mb-0">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</p>';
       return html + '</div></div>';
     }
 
-    var selectedName = fileMeta ? fileMeta.filename : null;
     bundles.forEach(function (bundle) {
       html += '<div class="editor-doc-bundle" data-bundle="' + esc(bundle.name) + '">';
       html += '<div class="editor-doc-bundle-head">';
@@ -8623,8 +8686,7 @@
       }
       html += '<ol class="editor-doc-list">';
       bundle.elements.forEach(function (element, index) {
-        var isSelected = selectedName && documentLabel(element) === selectedName;
-        html += '<li class="editor-doc-item' + (isSelected ? ' editor-doc-item-current' : '') + '">';
+        html += '<li class="editor-doc-item">';
         html += '<span class="editor-doc-item-name"><code>' + esc(element) + '</code>';
         var label = documentLabel(element);
         if (label !== element) html += ' <span class="text-muted">' + esc(label) + '</span>';
@@ -8642,7 +8704,10 @@
       html += '</div>';
     });
 
-    html += '<div class="editor-doc-rules">';
+    if (!documents.length) {
+      html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents this file does not define.</p>';
+    }
+    html += '<div class="editor-doc-rules"' + (documents.length ? '' : ' hidden') + '>';
     html += '<div class="editor-tiny mb-1">Include each document when</div>';
     documents.forEach(function (document_) {
       html += '<div class="editor-doc-rule">';
@@ -8656,8 +8721,8 @@
     html += '</div>';
 
     html += '<div class="mt-3 d-flex gap-2 align-items-center">';
-    html += '<button class="btn btn-sm btn-primary" id="save-documents-btn"' + (state.documentsBusy ? ' disabled' : '') + '>Save document changes</button>';
-    html += '<span class="editor-tiny text-muted" id="documents-status"></span>';
+    html += '<button class="btn btn-sm btn-primary" id="save-documents-btn"' + (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') + '>Save document changes</button>';
+    html += '<span class="editor-tiny text-muted" id="documents-status">' + (state.documentsDirty ? 'Unsaved changes' : '') + '</span>';
     html += '</div>';
 
     return html + '</div></div>';
@@ -8670,12 +8735,15 @@
     if (!fileMeta || !isImportableTemplate(fileMeta)) return '';
     var analysis = state.templateImportResult;
     var attached = templateIsAttached(fileMeta.filename);
-    var buttonLabel = state.templateImportBusy
+    var busy = state.templateImportBusy === fileMeta.filename;
+    var buttonLabel = busy
       ? (attached ? 'Reading…' : 'Importing…')
       : (attached ? 'Reload fields' : 'Import into this interview');
 
     var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
-    html += '<span>' + (attached ? 'Reload ' : 'Import ') + esc(fileMeta.filename) + '</span>';
+    html += '<span>' + esc(fileMeta.filename);
+    if (attached) html += ' <span class="text-muted fw-normal">already imported</span>';
+    html += '</span>';
     html += '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' + (state.templateImportBusy || !state.filename ? ' disabled' : '') + '>' + esc(buttonLabel) + '</button>';
     html += '</div><div class="editor-card-body">';
 
@@ -8684,8 +8752,10 @@
       return html + '</div></div>';
     }
 
-    if (state.templateImportMessage) {
+    if (busy && state.templateImportMessage) {
       html += '<div class="editor-tiny text-muted mb-2" id="template-import-status">' + esc(state.templateImportMessage) + '</div>';
+    } else if (state.templateImportBusy) {
+      html += '<div class="editor-tiny text-muted mb-2">Reading ' + esc(state.templateImportBusy) + '\u2026</div>';
     }
 
     // An import belongs to the pair it was run on: switch either the template
@@ -8739,6 +8809,7 @@
 
     html += '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap">';
     html += '<button class="btn btn-sm btn-primary" id="apply-import-btn">Add selected to ' + esc(state.filename) + '</button>';
+    html += '<span class="editor-tiny text-muted" id="apply-import-hint"></span>';
     html += '<span class="editor-tiny text-muted">Reorder the new blocks in the interview outline, and the documents themselves under Templates &rsaquo; Document setup.</span>';
     html += '</div>';
     if (!analysis.already_imported) {
@@ -8771,12 +8842,13 @@
   }
 
   function importSelectedTemplate(fileMeta) {
-    if (!fileMeta || !state.filename) return;
-    state.templateImportBusy = true;
+    if (!fileMeta || !state.filename || state.templateImportBusy) return;
+    state.templateImportBusy = fileMeta.filename;
     state.templateImportResult = null;
     state.templateImportSelection = {};
     state.templateImportMessage = 'Reading ' + fileMeta.filename + '…';
     captureDocumentEnabledInputs();
+    markDocumentsDirty();
     renderCanvas();
     apiPost('/api/template/import', {
       project: state.project,
@@ -8786,12 +8858,12 @@
       if (!res || !res.job_url) throw new Error('Weaver did not queue the analysis.');
       return pollTemplateImport(res.job_url);
     }).then(function (result) {
-      state.templateImportBusy = false;
+      state.templateImportBusy = null;
       state.templateImportResult = result;
       state.templateImportMessage = '';
       renderCanvas();
     }).catch(function (error) {
-      state.templateImportBusy = false;
+      state.templateImportBusy = null;
       state.templateImportMessage = '';
       renderCanvas();
       if (isSupersededRequest(error)) return;
@@ -8838,6 +8910,19 @@
     });
   }
 
+  // Adding nothing is not an error to report, it is a button to grey out.
+  function updateApplyImportButton() {
+    var button = document.getElementById('apply-import-btn');
+    if (!button) return;
+    var chosen = 0;
+    $$('[data-import-key]').forEach(function (input) {
+      if (input.checked) chosen += 1;
+    });
+    button.disabled = chosen === 0;
+    var hint = document.getElementById('apply-import-hint');
+    if (hint) hint.textContent = chosen === 0 ? 'Nothing selected' : '';
+  }
+
   function applyTemplateImport() {
     var analysis = state.templateImportResult;
     if (!analysis) return;
@@ -8857,10 +8942,7 @@
         bundles.push({ bundle: addition.bundle, elements: addition.elements });
       }
     });
-    if (!blocks.length && !bundles.length) {
-      showApiError(new Error('Nothing is selected.'));
-      return;
-    }
+    if (!blocks.length && !bundles.length) return;
     apiPost('/api/template/apply', {
       project: analysis.project || state.project,
       filename: analysis.interview_filename,
@@ -8872,7 +8954,7 @@
       state.templateImportResult = null;
       state.templateImportSelection = {};
       _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
-      return loadFile().then(loadDocuments).then(function () {
+      return loadFile().then(function () {
         renderOutline();
         renderCanvas();
       });
@@ -8887,6 +8969,7 @@
     // Leaving the setup pane must not throw away rules typed into it.
     if (state.templatesMode === 'documents' && nextMode === 'files') {
       captureDocumentEnabledInputs();
+      markDocumentsDirty();
     }
     state.templatesMode = nextMode;
     if (state.currentView !== 'templates') {
@@ -8913,12 +8996,13 @@
     captureDocumentEnabledInputs();
     var moved = bundle.elements.splice(index, 1)[0];
     bundle.elements.splice(target, 0, moved);
+    markDocumentsDirty();
     renderCanvas();
   }
 
   function saveDocumentChanges() {
     var model = state.documents;
-    if (!model || state.documentsBusy) return;
+    if (!model || state.documentsBusy) return Promise.resolve(true);
     captureDocumentEnabledInputs();
     var original = state.documentsLoaded || { documents: [], bundles: [] };
 
@@ -8944,13 +9028,14 @@
       enabled.push({ name: entry.name, expression: entry.enabled || null });
     });
     if (!bundles.length && !enabled.length) {
-      _showSuccessBanner('Nothing to save.');
-      return;
+      state.documentsDirty = false;
+      markDocumentsDirty();
+      return Promise.resolve(true);
     }
     state.documentsBusy = true;
     var status = document.getElementById('documents-status');
     if (status) status.textContent = 'Saving…';
-    apiPost('/api/documents', {
+    return apiPost('/api/documents', {
       project: state.project,
       filename: state.filename,
       expected_revision: model.revision,
@@ -8958,19 +9043,24 @@
       enabled: enabled,
     }).then(function (res) {
       state.documentsBusy = false;
-      if (!res || !res.success) return;
+      if (!res || !res.success) return false;
       state.documents = res.data;
       state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
+      state.documentsDirty = false;
+      updateTopbarSaveState();
       _showSuccessBanner('Document setup saved.');
+      // `loadFile` re-reads the interview, and reloads the documents with it.
       return loadFile().then(function () {
         renderOutline();
         renderCanvas();
+        return true;
       });
     }).catch(function (error) {
       state.documentsBusy = false;
       renderCanvas();
-      if (isSupersededRequest(error)) return;
+      if (isSupersededRequest(error)) return false;
       showApiError(error);
+      return false;
     });
   }
 
@@ -8985,7 +9075,7 @@
     html += '<div class="d-flex gap-2 flex-wrap">';
     html += '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
     html += '</div></div>';
-    html += renderDocumentsCard(null);
+    html += renderDocumentsCard();
     html += renderUnimportedTemplatesCard();
     html += '</div>';
     canvasContent.innerHTML = html;
@@ -9062,6 +9152,7 @@
 
     html += '</div>';
     canvasContent.innerHTML = html;
+    if (view === 'templates') updateApplyImportButton();
 
     if (editable) {
       // Remember which file this request belongs to. Clicking through tabs
@@ -11020,10 +11111,16 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-enabled-for]')) {
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+      return;
+    }
     if (target.matches('[data-import-key]')) {
       // Recorded rather than re-rendered: unticking one proposal should not
       // collapse the YAML previews the author has open next to it.
       state.templateImportSelection[target.getAttribute('data-import-key')] = target.checked;
+      updateApplyImportButton();
       return;
     }
     if (target.matches('[data-al-setting]')) {
