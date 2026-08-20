@@ -551,10 +551,12 @@ class TestEditorFrontend(unittest.TestCase):
 
     def test_a_comment_block_can_be_inserted_like_any_other(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
-        editor = (self.package_dir / "data/static/editor.js").read_text()
+        serializers = (
+            self.package_dir / "data/static/editor_serializers.js"
+        ).read_text()
 
         self.assertIn('data-insert="comment"', template)
-        self.assertIn("if (kind === 'comment')", editor)
+        self.assertIn("if (kind === 'comment')", serializers)
 
     def test_the_outline_previews_a_block_on_hover(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()

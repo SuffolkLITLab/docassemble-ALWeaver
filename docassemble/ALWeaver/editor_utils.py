@@ -19,6 +19,7 @@ from .docassemble_compat import create_playground, create_saved_file
 
 __all__ = [
     "parse_interview_yaml",
+    "is_comment_only_yaml",
     "source_revision",
     "metadata_source_slice",
     "update_metadata_documents_in_yaml",
@@ -28,6 +29,7 @@ __all__ = [
     "generate_draft_order",
     "canonicalize_block_yaml",
     "insert_block_in_yaml",
+    "inserted_block_id_by_position",
     "update_block_in_yaml",
     "delete_block_from_yaml",
     "comment_out_block_in_yaml",
@@ -479,6 +481,19 @@ def _stable_block_id(index: int, block: Dict[str, Any]) -> str:
     return f"block-{index}-{digest}"
 
 
+def is_comment_only_yaml(text: str) -> bool:
+    """True when a YAML document holds nothing but comments and blank lines.
+
+    Such a document is not a block — docassemble reads no keys out of it — but
+    it is what a blank new block starts as, before its author types a block
+    over it.
+    """
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return False
+    return all(line.lstrip().startswith("#") for line in lines)
+
+
 def _uncomment_yaml_block(block_yaml: str) -> str:
     uncommented_lines = []
     for line in block_yaml.splitlines(keepends=True):
@@ -698,12 +713,6 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         raw_yaml: the original YAML text
     """
 
-    def _is_comment_only_segment(segment: str) -> bool:
-        lines = [line for line in segment.splitlines() if line.strip()]
-        if not lines:
-            return False
-        return all(line.lstrip().startswith("#") for line in lines)
-
     segments: List[Dict[str, Any]] = []
     body_start = 0
     for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
@@ -741,24 +750,38 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if not segment_text:
             continue
 
-        if _is_comment_only_segment(segment_text_raw):
+        if is_comment_only_yaml(segment_text_raw):
             uncommented = _uncomment_yaml_block(segment_text)
             try:
                 parsed_commented = yaml.safe_load(uncommented)
             except yaml.YAMLError:
                 parsed_commented = None
-            underlying_type = BLOCK_TYPE_OTHER
-            if isinstance(parsed_commented, dict):
-                doc = dict(parsed_commented)
-                underlying_type = _detect_block_type(doc)
-            elif parsed_commented is None:
-                doc = {"_raw": uncommented}
-            else:
-                doc = {"_raw": str(parsed_commented)}
-            if isinstance(doc, dict):
-                doc["_commented"] = True
-                doc["_commented_type"] = underlying_type
-                doc["_commented_yaml"] = segment_text
+            if not isinstance(parsed_commented, dict):
+                # Prose, not a disabled block: there is no block underneath to
+                # re-enable, and uncommenting it would only produce invalid
+                # YAML. Treated as an editable note so an author can type a
+                # real block over it.
+                note_doc: Dict[str, Any] = {"_raw": segment_text}
+                blocks.append(
+                    {
+                        "id": _stable_block_id(i, note_doc),
+                        "index": i,
+                        "line_start": line_start,
+                        "line_end": line_end,
+                        "type": BLOCK_TYPE_OTHER,
+                        "title": _first_line_title(uncommented) or "Note",
+                        "variable": None,
+                        "tags": [BLOCK_TYPE_OTHER, "note"],
+                        "yaml": segment_text,
+                        "data": note_doc,
+                    }
+                )
+                continue
+            doc = dict(parsed_commented)
+            underlying_type = _detect_block_type(doc)
+            doc["_commented"] = True
+            doc["_commented_type"] = underlying_type
+            doc["_commented_yaml"] = segment_text
             block_type = BLOCK_TYPE_COMMENTED
             block_id = _stable_block_id(i, doc)
             tags = [BLOCK_TYPE_COMMENTED]
@@ -1136,9 +1159,14 @@ def insert_block_in_yaml(
         inserted_value = yaml.safe_load(edited_body)
     except yaml.YAMLError as exc:
         raise ValueError(f"Invalid YAML: {exc}") from exc
-    if not isinstance(inserted_value, dict):
+    is_note = inserted_value is None and is_comment_only_yaml(edited_body)
+    if not isinstance(inserted_value, dict) and not is_note:
+        # A document of nothing but YAML comments is allowed: it is what a
+        # blank new block starts as, before its author types a block over it.
         raise ValueError("block_yaml must contain exactly one YAML mapping block")
-    inserted_id = str(inserted_value.get("id") or "").strip()
+    inserted_id = (
+        "" if is_note else str((inserted_value or {}).get("id") or "").strip()
+    )
     if inserted_id:
         existing_ids = {
             str(block.get("id") or "").strip()
@@ -1167,6 +1195,28 @@ def insert_block_in_yaml(
     prefix = full_yaml[:end]
     line_break = "" if prefix.endswith(("\n", "\r")) else newline
     return prefix + line_break + separator + document + full_yaml[end:]
+
+
+def inserted_block_id_by_position(
+    blocks: List[Dict[str, Any]], insert_after_id: Optional[str]
+) -> Optional[str]:
+    """Name the block an id-less insertion just created, by its position.
+
+    ``insert_block_in_yaml`` puts the new document either at the top of the
+    file or immediately after the block it was anchored to, so that is where
+    it is looked for. Falling back to "the last block in the file" would
+    select some unrelated block whenever the insertion was not at the end.
+    """
+    if not blocks:
+        return None
+    if not insert_after_id:
+        return str(blocks[0].get("id") or "").strip() or None
+    for position, block in enumerate(blocks):
+        if str(block.get("id") or "").strip() == insert_after_id:
+            if position + 1 < len(blocks):
+                return str(blocks[position + 1].get("id") or "").strip() or None
+            return None
+    return None
 
 
 def delete_block_from_yaml(full_yaml: str, block_id: str) -> str:

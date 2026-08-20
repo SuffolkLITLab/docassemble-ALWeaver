@@ -503,70 +503,10 @@
     if (instance) instance.hide();
   }
 
+  /* The block templates live in editor_serializers.js so a test can require
+     them and run every one of them past DAYamlChecker. */
   function makeNewBlockYaml(kind) {
-    var stamp = Date.now();
-    if (kind === 'question') {
-      return (
-        'id: question_' + stamp + '\n' +
-        'question: New question\n' +
-        'subquestion: |\n' +
-        '  \n' +
-        'fields:\n' +
-        '  - New field: new_field_' + stamp + '\n'
-      );
-    }
-    if (kind === 'code') {
-      return (
-        'id: code_' + stamp + '\n' +
-        'code: |\n' +
-        '  # Write Python here\n' +
-        '  pass\n'
-      );
-    }
-    if (kind === 'objects') {
-      return (
-        'id: objects_' + stamp + '\n' +
-        'objects:\n' +
-        '  - user: Individual\n'
-      );
-    }
-    if (kind === 'comment') {
-      // No id: a comment block is prose about the interview, and docassemble
-      // has nothing to reach it by.
-      return (
-        'comment: |\n' +
-        '  Explain what the blocks below do, and why.\n'
-      );
-    }
-    if (kind === 'attachment') {
-      return (
-        'id: attachment_' + stamp + '\n' +
-        'question: Download your document\n' +
-        'subquestion: |\n' +
-        '  Your document is ready.\n' +
-        'attachments:\n' +
-        '  - name: Draft document\n' +
-        '    filename: draft_document\n' +
-        '    docx template file: draft_template.docx\n'
-      );
-    }
-    if (kind === 'review') {
-      return (
-        'id: review_screen_' + stamp + '\n' +
-        'event: review_form\n' +
-        'question: Review your answers\n' +
-        'review:\n' +
-        '  - Edit: new_field_' + stamp + '\n' +
-        '    button: |\n' +
-        '      New answer: ${ showifdef("new_field_' + stamp + '") }\n'
-      );
-    }
-    return (
-      'id: block_' + stamp + '\n' +
-      'code: |\n' +
-      '  # New block\n' +
-      '  pass\n'
-    );
+    return window.ALWeaverSerializers.makeNewBlockYaml(kind, Date.now());
   }
 
   // -------------------------------------------------------------------------

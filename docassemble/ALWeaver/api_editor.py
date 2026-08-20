@@ -139,6 +139,8 @@ try:
         delete_saved_file,
         generate_draft_order,
         insert_block_in_yaml,
+        inserted_block_id_by_position,
+        is_comment_only_yaml,
         parse_interview_yaml,
         metadata_source_slice,
         parse_order_code,
@@ -1185,12 +1187,23 @@ def _ensure_dayamlchecker_valid(yaml_text: str) -> None:
 def _validate_block_yaml_payload(block_yaml: str) -> None:
     """Validate a single block payload before saving/inserting.
 
-    Reject placeholder-only blocks that contain no functional keys.
+    Two shapes look like placeholders but are legitimate documents, and both
+    are what the "Add a block" modal hands over:
+
+    * a document of nothing but YAML comments — a blank new block, before its
+      author has typed anything over it;
+    * a standalone ``comment:`` block — prose about the interview.
+
+    What is rejected is an ``id`` with nothing beside it that gives the block a
+    type. The id names a block, there is no block there for it to name, and
+    docassemble reports "couldn't identify a block type" on the whole file.
     """
     try:
         parsed = yaml.safe_load(block_yaml)
     except yaml.YAMLError as exc:
         raise ValueError(f"Invalid YAML: {exc}") from exc
+    if parsed is None and is_comment_only_yaml(block_yaml):
+        return
     if not isinstance(parsed, dict):
         raise ValueError("block_yaml must contain exactly one YAML mapping block")
 
@@ -1199,9 +1212,10 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
     }
     if not normalized_keys:
         raise ValueError("Block must contain at least one key")
-    if normalized_keys.issubset({"id", "comment"}):
+    if "id" in normalized_keys and normalized_keys.issubset({"id", "comment"}):
         raise ValueError(
-            "Block is incomplete: add at least one functional key besides id/comment"
+            "Block is incomplete: an id needs a block beside it to name, "
+            "so add a key like question, code, or objects — or drop the id"
         )
 
 
@@ -6304,9 +6318,11 @@ def editor_api_insert_block() -> Response:
         id_match = re.search(r"(?m)^id:\s*['\"]?([^'\"\n]+)['\"]?\s*$", block_text)
         if id_match:
             inserted_block_id = id_match.group(1).strip()
-        elif updated_model["blocks"]:
-            inserted_block_id = (
-                str(updated_model["blocks"][-1].get("id") or "").strip() or None
+        else:
+            # A block with no id of its own — a comment, or a blank new block —
+            # is identified by where it landed, not by being last in the file.
+            inserted_block_id = inserted_block_id_by_position(
+                updated_model["blocks"], insert_after_id
             )
 
         return jsonify(

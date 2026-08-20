@@ -413,27 +413,91 @@
 </div>
 
 <!-- Insert Block Modal -->
-<div class="modal fade" id="insert-modal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Insert block</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<div class="modal fade" id="insert-modal" tabindex="-1" aria-labelledby="insert-modal-title">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable editor-insert-dialog">
+    <div class="modal-content editor-insert-content">
+      <div class="modal-header editor-insert-header">
+        <button type="button" class="btn btn-link editor-insert-cancel" data-bs-dismiss="modal">Cancel</button>
+        <h5 class="modal-title editor-insert-title" id="insert-modal-title">Add a block</h5>
+        <span class="editor-insert-header-spacer" aria-hidden="true"></span>
       </div>
-      <div class="modal-body">
-        <div class="d-grid gap-2">
-          <button type="button" class="btn btn-primary text-start" data-insert="question">New question screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="ai-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="review">New review screen</button>          <button type="button" class="btn btn-outline-secondary text-start" data-insert="code">New code block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="objects">New objects block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="attachment">New attachment block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="comment">New comment block</button>
-          <button type="button" class="btn btn-outline-secondary text-start" data-insert="other">New YAML block</button>
+      <div class="modal-body editor-insert-body">
+        <div class="editor-insert-group-label">Screens</div>
+        <div class="editor-insert-list">
+          <button type="button" class="editor-insert-card" data-insert="question">
+            <span class="editor-insert-icon"><i class="fa-solid fa-rectangle-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Question screen</span>
+              <span class="editor-insert-desc">Ask the user one or more fields.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="ai-screen">
+            <span class="editor-insert-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">AI draft screen</span>
+              <span class="editor-insert-desc">Draft a question screen from a short prompt.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="review">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Review screen</span>
+              <span class="editor-insert-desc">Let the user check and edit their answers.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
         </div>
-        <div class="mt-3">
+        <div class="editor-insert-group-label">Logic and data</div>
+        <div class="editor-insert-list">
+          <button type="button" class="editor-insert-card" data-insert="code">
+            <span class="editor-insert-icon"><i class="fa-solid fa-code" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Code block</span>
+              <span class="editor-insert-desc">Python that sets variables or controls the flow.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="objects">
+            <span class="editor-insert-icon"><i class="fa-solid fa-cubes" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Objects block</span>
+              <span class="editor-insert-desc">Declare people, lists, and other objects.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="attachment">
+            <span class="editor-insert-icon"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Attachment block</span>
+              <span class="editor-insert-desc">Assemble a PDF or Word document.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+        </div>
+        <div class="editor-insert-group-label">Other</div>
+        <div class="editor-insert-list">
+          <button type="button" class="editor-insert-card" data-insert="comment">
+            <span class="editor-insert-icon"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Comment block</span>
+              <span class="editor-insert-desc">A note to yourself that the interview ignores.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="other">
+            <span class="editor-insert-icon"><i class="fa-solid fa-file-code" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Raw YAML block</span>
+              <span class="editor-insert-desc">Start from a blank line and write any block by hand.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+        </div>
+        <div class="editor-insert-footnote">
           <a href="https://docassemble.org/docs/initial.html" target="_blank" rel="noopener">Block type docs</a>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
       </div>
     </div>
   </div>

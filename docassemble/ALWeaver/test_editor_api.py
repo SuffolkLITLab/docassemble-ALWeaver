@@ -71,6 +71,15 @@ def _load_api_editor_for_tests():
         "delete_saved_file": lambda *args, **kwargs: None,
         "generate_draft_order": lambda *args, **kwargs: {},
         "insert_block_in_yaml": lambda content, block_yaml, insert_after_id=None: content,
+        "inserted_block_id_by_position": lambda blocks, insert_after_id: None,
+        "is_comment_only_yaml": lambda text: bool(
+            [line for line in text.splitlines() if line.strip()]
+        )
+        and all(
+            line.lstrip().startswith("#")
+            for line in text.splitlines()
+            if line.strip()
+        ),
         "parse_interview_yaml": lambda *args, **kwargs: {
             "blocks": [],
             "metadata_blocks": [],
@@ -1509,6 +1518,35 @@ class TestEditorListTopics(unittest.TestCase):
 
         status = response[1] if isinstance(response, tuple) else response.status_code
         self.assertEqual(status, 401)
+
+
+class TestEditorBlockPayloadValidation(unittest.TestCase):
+    """What the "Add a block" modal hands the API has to be accepted."""
+
+    def accepts(self, block_yaml):
+        api_editor._validate_block_yaml_payload(block_yaml)
+
+    def test_a_standalone_comment_block_is_a_real_block(self):
+        # Prose about the interview. docassemble reads it, the checker passes
+        # it, and the modal offers it — so the API cannot refuse it.
+        self.accepts("comment: |\n  Explain what the blocks below do.\n")
+
+    def test_a_blank_new_block_of_only_yaml_comments_is_allowed(self):
+        # What "Raw YAML block" inserts, before anything is typed over it.
+        self.accepts("# replace with any docassemble YAML\n")
+        self.accepts("# one\n\n# two\n")
+
+    def test_an_id_with_nothing_to_name_is_refused(self):
+        for payload in ("id: c1\n", "id: c1\ncomment: |\n  Just prose.\n"):
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(ValueError, "incomplete"):
+                    self.accepts(payload)
+
+    def test_a_document_that_is_not_a_block_is_still_refused(self):
+        for payload in ("- one\n- two\n", "just a string\n", "{}\n"):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    self.accepts(payload)
 
 
 if __name__ == "__main__":
