@@ -53,6 +53,7 @@ from typing import (
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
+import copy
 import datetime
 import docassemble.base.functions
 import docassemble.base.parse
@@ -91,12 +92,35 @@ class WeaverGenerationResult:
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
     template_paths: List[str] = field(default_factory=list)
-    #: `(old name, new name)` for the PDF fields renaming would improve. Only
-    #: applied when `normalize_field_names` was asked for; reported either way
-    #: so a caller can show them and offer to run again.
+    #: `(old name, new name)` for the PDF fields renaming would improve, across
+    #: every template. Only applied when `normalize_field_names` was asked for;
+    #: reported either way so a caller can show them and offer to run again.
     suggested_renames: List[Tuple[str, str]] = field(default_factory=list)
-    #: Whether `suggested_renames` were written into the template
+    #: Whether `suggested_renames` were written into the templates
     renames_applied: bool = False
+    #: The same renames, broken down by the template filename they came from.
+    suggested_renames_by_template: Dict[str, List[Tuple[str, str]]] = field(
+        default_factory=dict
+    )
+    #: Template filename -> path of the rewritten copy, for each template whose
+    #: fields were actually renamed. The generated YAML refers to the new field
+    #: names, so a caller that keeps the templates has to keep *these* files,
+    #: not the originals it handed in.
+    normalized_template_paths: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class TemplateInput:
+    """One template to weave into a generated interview.
+
+    Attributes:
+        path (str): where the file is on disk.
+        exact_name (Optional[str]): the filename the template should keep in the
+            generated package. Defaults to the basename of ``path``.
+    """
+
+    path: str
+    exact_name: Optional[str] = None
 
 
 @dataclass
@@ -156,6 +180,7 @@ __all__ = [
     "field_type_options",
     "fix_id",
     "generate_interview_from_path",
+    "TemplateInput",
     "generate_interview_artifacts",
     "get_character_limit",
     "get_input_dimensions",
@@ -2658,7 +2683,9 @@ class DAInterview(DAObject):
     def _initialize_basic_attributes(
         self,
         url: Optional[str] = None,
-        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        input_file: Optional[
+            Union[DAFileList, DAFile, DAStaticFile, List[Union[DAFile, DAStaticFile]]]
+        ] = None,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
@@ -2778,7 +2805,9 @@ class DAInterview(DAObject):
     def auto_assign_attributes(
         self,
         url: Optional[str] = None,
-        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        input_file: Optional[
+            Union[DAFileList, DAFile, DAStaticFile, List[Union[DAFile, DAStaticFile]]]
+        ] = None,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
@@ -2815,7 +2844,9 @@ class DAInterview(DAObject):
     def auto_assign_attributes_fast(
         self,
         url: Optional[str] = None,
-        input_file: Optional[Union[DAFileList, DAFile, DAStaticFile]] = None,
+        input_file: Optional[
+            Union[DAFileList, DAFile, DAStaticFile, List[Union[DAFile, DAStaticFile]]]
+        ] = None,
         title: Optional[str] = None,
         jurisdiction: Optional[str] = None,
         categories: Optional[str] = None,
@@ -3691,6 +3722,10 @@ Rules:
         if url:
             draft_title = url
         elif input_file:
+            # A multi-document interview is named after its first template: the
+            # rest are companion forms filed alongside it.
+            if isinstance(input_file, (list, tuple)):
+                input_file = input_file[0]
             draft_title = getattr(input_file, "filename", None) or input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
@@ -3712,12 +3747,25 @@ Rules:
         self.uploaded_templates[0].created = True
 
     def _set_template_from_file(
-        self, input_file: Union[DAFileList, DAFile, DAStaticFile]
+        self,
+        input_file: Union[
+            DAFileList, DAFile, DAStaticFile, List[Union[DAFile, DAStaticFile]]
+        ],
     ):
         if isinstance(input_file, DAFileList):
             self.uploaded_templates = input_file.copy_deep(
                 self.attr_name("uploaded_templates")
             )
+            return
+        # A plain list is how the non-interview entry points hand us several
+        # templates: they build the file objects themselves, so there is
+        # nothing to copy away from a caller's variable.
+        if isinstance(input_file, (list, tuple)):
+            self.uploaded_templates = DAFileList(
+                self.attr_name("uploaded_templates"), auto_gather=False, gathered=True
+            )
+            for index, one_file in enumerate(input_file):
+                self.uploaded_templates[index] = one_file
             return
         self.uploaded_templates = DAFileList(
             self.attr_name("uploaded_templates"), auto_gather=False, gathered=True
@@ -7025,6 +7073,53 @@ def _apply_field_name_normalization(
     return renames, True, renamed_path
 
 
+def _resolve_template_inputs(
+    primary: TemplateInput,
+    additional: Optional[Sequence[Union[str, TemplateInput]]],
+) -> List[TemplateInput]:
+    """Put the templates in order, give each one a usable, distinct filename.
+
+    Two uploads can arrive with the same name, and two templates sharing a
+    filename would collide in the package and in the attachment variable names
+    `output.mako` derives from them, so repeats are suffixed.
+
+    Args:
+        primary (TemplateInput): the lead document, which names the interview.
+        additional (Optional[Sequence[Union[str, TemplateInput]]]): further
+            templates, as paths or as :class:`TemplateInput`.
+
+    Returns:
+        List[TemplateInput]: every template, in order, with `exact_name` set.
+
+    Raises:
+        FileNotFoundError: if any of the additional templates is missing.
+    """
+    candidates: List[TemplateInput] = [primary]
+    for entry in additional or []:
+        candidate = (
+            TemplateInput(path=entry) if isinstance(entry, str) else copy.copy(entry)
+        )
+        if not os.path.exists(candidate.path):
+            raise FileNotFoundError(f"Template file not found: {candidate.path}")
+        candidates.append(candidate)
+
+    resolved: List[TemplateInput] = []
+    used_names: Set[str] = set()
+    for candidate in candidates:
+        name = os.path.basename(
+            str(candidate.exact_name or os.path.basename(candidate.path)).strip()
+        )
+        if name in used_names:
+            stem, extension = os.path.splitext(name)
+            counter = 2
+            while f"{stem}_{counter}{extension}" in used_names:
+                counter += 1
+            name = f"{stem}_{counter}{extension}"
+        used_names.add(name)
+        resolved.append(TemplateInput(path=candidate.path, exact_name=name))
+    return resolved
+
+
 def generate_interview_from_path(
     input_path: str,
     *,
@@ -7047,7 +7142,14 @@ def generate_interview_from_path(
     field_definitions: Optional[List[FieldDefinition]] = None,
     screen_definitions: Optional[List[Screen]] = None,
     normalize_field_names: bool = False,
+    additional_templates: Optional[Sequence[Union[str, TemplateInput]]] = None,
 ) -> WeaverGenerationResult:
+    """Weave one or more templates into a single draft interview.
+
+    ``input_path`` is the lead document: the interview takes its title and
+    filename from that one, and every template contributes fields, an
+    ``attachment`` block and an entry in the ``ALDocumentBundle``.
+    """
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Template file not found: {input_path}")
     if isinstance(interview_overrides, str):
@@ -7063,13 +7165,44 @@ def generate_interview_from_path(
     resolved_exact_name = os.path.basename(
         str(exact_name or os.path.basename(input_path) or input_path).strip()
     )
-    suggested_renames, renames_applied, input_path = _apply_field_name_normalization(
-        input_path,
-        output_dir=output_dir,
-        exact_name=resolved_exact_name,
-        normalize_field_names=normalize_field_names,
+    template_inputs = _resolve_template_inputs(
+        TemplateInput(path=input_path, exact_name=resolved_exact_name),
+        additional_templates,
     )
-    da_file = _make_static_file_from_path(input_path, filename=resolved_exact_name)
+    resolved_exact_name = str(template_inputs[0].exact_name)
+
+    suggested_renames: List[Tuple[str, str]] = []
+    suggested_renames_by_template: Dict[str, List[Tuple[str, str]]] = {}
+    normalized_template_paths: Dict[str, str] = {}
+    renames_applied = False
+    da_files: List[Union[DAFile, DAStaticFile]] = []
+    for template_input in template_inputs:
+        template_name = str(template_input.exact_name)
+        (
+            template_renames,
+            template_renames_applied,
+            template_path,
+        ) = _apply_field_name_normalization(
+            template_input.path,
+            output_dir=output_dir,
+            exact_name=template_name,
+            normalize_field_names=normalize_field_names,
+        )
+        if template_renames:
+            suggested_renames_by_template[template_name] = template_renames
+            for rename in template_renames:
+                if rename not in suggested_renames:
+                    suggested_renames.append(rename)
+        if template_renames_applied:
+            renames_applied = True
+            normalized_template_paths[template_name] = template_path
+        da_files.append(
+            _make_static_file_from_path(template_path, filename=template_name)
+        )
+    input_path = template_inputs[0].path
+    da_file: Union[DAFile, DAStaticFile, List[Union[DAFile, DAStaticFile]]] = (
+        da_files[0] if len(da_files) == 1 else list(da_files)
+    )
 
     merged_screens = None
     if screen_definitions:
@@ -7260,4 +7393,6 @@ def generate_interview_from_path(
         template_paths=generated_template_paths,
         suggested_renames=suggested_renames,
         renames_applied=renames_applied,
+        suggested_renames_by_template=suggested_renames_by_template,
+        normalized_template_paths=normalized_template_paths,
     )
