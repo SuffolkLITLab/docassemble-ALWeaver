@@ -2322,7 +2322,33 @@ html, body {
   flex: 0 0 auto;
 }
 
-/* ===== Templates tab: documents and template analysis ===== */
+/* The Templates tab reaches two places: the files themselves, and the
+   project-wide setup of the documents they become. */
+.editor-top-tab-split {
+  display: flex;
+  align-items: center;
+}
+
+.editor-top-tab-caret {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.editor-top-tab-caret:hover,
+.editor-top-tab-caret:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+/* ===== Templates tab: documents and template import ===== */
 .editor-doc-bundle {
   border: 1px solid var(--editor-border);
   border-radius: 6px;
@@ -2382,19 +2408,32 @@ html, body {
   margin: 0;
 }
 
-.editor-analysis-item {
+.editor-outline-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  white-space: nowrap;
+}
+
+.editor-import-item {
   border-top: 1px solid var(--editor-border);
   padding: 8px 0 8px 1.6em;
 }
 
-.editor-analysis-item:first-of-type { border-top: none; }
+.editor-import-item:first-of-type { border-top: none; }
 
-.editor-analysis-preview summary {
+.editor-import-preview summary {
   cursor: pointer;
   color: var(--editor-muted);
 }
 
-.editor-analysis-yaml {
+.editor-import-yaml {
   background: var(--editor-code-bg, #f6f8fa);
   border: 1px solid var(--editor-border);
   border-radius: 4px;

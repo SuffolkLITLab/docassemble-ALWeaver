@@ -49,7 +49,7 @@ asynchronous execution with `mode=async` (or `async=true`).
 
 ## Celery worker configuration
 
-Uploaded-document project generation in the graphical editor, analyzing a
+Uploaded-document project generation in the graphical editor, importing a
 template already in a project, publishing a project to GitHub, and asynchronous
 API requests require ALWeaver's task module to be registered with Docassemble's global Celery configuration. Add
 the module to the existing `celery modules` list in the Docassemble

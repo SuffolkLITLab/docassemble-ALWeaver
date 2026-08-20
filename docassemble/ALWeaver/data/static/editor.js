@@ -78,13 +78,14 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    templatesMode: 'files',
     documents: null,
     documentsLoaded: null,
     documentsBusy: false,
-    templateAnalysis: null,
-    templateAnalysisBusy: false,
-    templateAnalysisMessage: '',
-    templateAnalysisSelection: {},
+    templateImportResult: null,
+    templateImportBusy: false,
+    templateImportMessage: '',
+    templateImportSelection: {},
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
@@ -5162,7 +5163,11 @@
     var view = state.currentView;
     var files = getSectionFiles(view);
     var q = state.searchQuery.toLowerCase().trim();
-    var selected = state.sectionSelectedFile[view];
+    // Nothing in the file list is open while the project-wide setup pane is,
+    // so nothing in it should look selected.
+    var selected = (view === 'templates' && state.templatesMode === 'documents')
+      ? null
+      : state.sectionSelectedFile[view];
     var filtered = files.filter(function (f) {
       if (!q) return true;
       return String(f.filename || '').toLowerCase().indexOf(q) !== -1;
@@ -5182,6 +5187,14 @@
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       html += '<div style="min-width:0;flex:1"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
+      // A template sitting in the folder is not yet part of anything, and that
+      // is the single most useful thing to know when looking at this list.
+      if (view === 'templates') {
+        var fileStatus = templateStatus(file.filename);
+        if (fileStatus && fileStatus.status === 'not_imported') {
+          html += '<div class="editor-outline-status" title="Nothing in this interview uses this file yet">Not imported</div>';
+        }
+      }
       if (tag) {
         html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag) + '</div>';
       }
@@ -5203,6 +5216,12 @@
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
     html += '</div>';
+    if (view === 'templates') {
+      var setupOpen = state.templatesMode === 'documents';
+      html += '<div class="editor-section-file-actions">';
+      html += '<button type="button" class="btn btn-sm w-100 ' + (setupOpen ? 'btn-secondary' : 'btn-outline-secondary') + '" data-templates-mode="documents"' + (setupOpen ? ' aria-current="page"' : '') + '><i class="fa-solid fa-layer-group me-1" aria-hidden="true"></i>Document setup</button>';
+      html += '</div>';
+    }
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -8493,12 +8512,23 @@
   // -------------------------------------------------------------------------
   var ALDOCUMENT_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
   var COMBINING_INTERVIEWS_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews';
-  var TEMPLATE_ANALYSIS_POLL_INTERVAL_MS = 1500;
-  var TEMPLATE_ANALYSIS_MAX_ATTEMPTS = 400;
+  var TEMPLATE_IMPORT_POLL_INTERVAL_MS = 1500;
+  var TEMPLATE_IMPORT_MAX_ATTEMPTS = 400;
 
-  function isAnalyzableTemplate(fileMeta) {
+  function isImportableTemplate(fileMeta) {
     var name = String((fileMeta && fileMeta.filename) || '').toLowerCase();
     return name.endsWith('.pdf') || name.endsWith('.docx');
+  }
+
+  // What the interview has done with a template file, if anything.
+  function templateStatus(filename) {
+    var statuses = (state.documents && state.documents.templates) || {};
+    return statuses[filename] || null;
+  }
+
+  function templateIsAttached(filename) {
+    var status = templateStatus(filename);
+    return Boolean(status && status.status === 'attached');
   }
 
   function loadDocuments() {
@@ -8514,7 +8544,11 @@
       // A pristine copy, so saving only touches what the author changed
       // instead of rewriting every declaration in the file.
       state.documentsLoaded = state.documents ? JSON.parse(JSON.stringify(state.documents)) : null;
-      if (state.currentView === 'templates') renderCanvas();
+      // The outline carries the "Not imported" badges, so it redraws too.
+      if (state.currentView === 'templates') {
+        renderOutline();
+        renderCanvas();
+      }
     }).catch(function (error) {
       if (isSupersededRequest(error)) return;
       state.documents = null;
@@ -8556,7 +8590,7 @@
 
   function renderDocumentsCard(fileMeta) {
     var model = state.documents;
-    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
+    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
     html += '<span>Documents this interview assembles</span>';
     html += '<a class="editor-tiny" href="' + ALDOCUMENT_DOCS_URL + '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
     html += '</div><div class="editor-card-body">';
@@ -8573,7 +8607,7 @@
     var documents = model.documents || [];
     var bundles = model.bundles || [];
     if (!documents.length) {
-      html += '<p class="text-muted small mb-0">' + esc(state.filename) + ' does not assemble any documents yet. Analyze a template below to add one.</p>';
+      html += '<p class="text-muted small mb-0">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</p>';
       return html + '</div></div>';
     }
 
@@ -8629,28 +8663,41 @@
     return html + '</div></div>';
   }
 
-  function renderTemplateAnalysisCard(fileMeta) {
-    if (!fileMeta || !isAnalyzableTemplate(fileMeta)) return '';
-    var analysis = state.templateAnalysis;
-    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
-    html += '<span>Analyze ' + esc(fileMeta.filename) + '</span>';
-    html += '<button class="btn btn-sm btn-outline-primary" id="analyze-template-btn"' + (state.templateAnalysisBusy || !state.filename ? ' disabled' : '') + '>' + (state.templateAnalysisBusy ? 'Analyzing…' : 'Analyze this template') + '</button>';
+  // "Import" rather than "analyze": reading the fields is the means, and what
+  // the author gets is the template wired into the interview. Once it is wired
+  // in, the same button re-reads a form the court has since revised.
+  function renderTemplateImportCard(fileMeta) {
+    if (!fileMeta || !isImportableTemplate(fileMeta)) return '';
+    var analysis = state.templateImportResult;
+    var attached = templateIsAttached(fileMeta.filename);
+    var buttonLabel = state.templateImportBusy
+      ? (attached ? 'Reading…' : 'Importing…')
+      : (attached ? 'Reload fields' : 'Import into this interview');
+
+    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
+    html += '<span>' + (attached ? 'Reload ' : 'Import ') + esc(fileMeta.filename) + '</span>';
+    html += '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' + (state.templateImportBusy || !state.filename ? ' disabled' : '') + '>' + esc(buttonLabel) + '</button>';
     html += '</div><div class="editor-card-body">';
 
     if (!state.filename) {
-      html += '<p class="text-muted small mb-0">Open an interview file first: analysis compares this template against what that interview already asks.</p>';
+      html += '<p class="text-muted small mb-0">Open an interview file first: importing compares this template against what that interview already asks.</p>';
       return html + '</div></div>';
     }
 
-    if (state.templateAnalysisMessage) {
-      html += '<div class="editor-tiny text-muted mb-2" id="template-analysis-status">' + esc(state.templateAnalysisMessage) + '</div>';
+    if (state.templateImportMessage) {
+      html += '<div class="editor-tiny text-muted mb-2" id="template-import-status">' + esc(state.templateImportMessage) + '</div>';
     }
 
-    // An analysis belongs to the pair it was run on: switch either the template
+    // An import belongs to the pair it was run on: switch either the template
     // or the interview and it no longer describes what is on screen.
     if (!analysis || analysis.template_filename !== fileMeta.filename
         || analysis.interview_filename !== state.filename) {
-      html += '<p class="text-muted small mb-0">Weaver reads the template\'s fields and offers the attachment block, the screens for fields ' + esc(state.filename) + ' does not ask about yet, and the objects those screens need. You choose which of them to keep.</p>';
+      if (attached) {
+        var status = templateStatus(fileMeta.filename);
+        html += '<p class="text-muted small mb-0">Already part of ' + esc(state.filename) + ', assembled as <code>' + esc((status && status.document) || '') + '</code>. Reload the fields if the form has been revised since.</p>';
+      } else {
+        html += '<p class="text-muted small mb-0">Weaver reads this template\'s fields and offers what ' + esc(state.filename) + ' is missing: the attachment block that turns it into a download, screens for fields nothing asks about yet, and the objects those screens need. You choose which of them to keep.</p>';
+      }
       return html + '</div></div>';
     }
 
@@ -8658,102 +8705,94 @@
       html += '<div class="alert alert-warning py-2 small">' + esc(warning) + '</div>';
     });
 
-    var candidates = templateAnalysisCandidates(analysis);
+    var candidates = templateImportCandidates(analysis);
     if (!candidates.length && !(analysis.bundle_additions || []).length) {
       html += '<p class="text-muted small mb-0">Nothing to add: ' + esc(state.filename) + ' already covers this template.</p>';
       return html + '</div></div>';
     }
 
     candidates.forEach(function (candidate) {
-      var checked = state.templateAnalysisSelection[candidate.key] !== false;
-      html += '<div class="form-check editor-analysis-item">';
-      html += '<input class="form-check-input" type="checkbox" id="analysis-' + esc(candidate.key) + '" data-analysis-key="' + esc(candidate.key) + '"' + (checked ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="analysis-' + esc(candidate.key) + '">' + esc(candidate.title) + '</label>';
+      var checked = candidate.key in state.templateImportSelection
+        ? state.templateImportSelection[candidate.key]
+        : candidate.recommended !== false;
+      html += '<div class="form-check editor-import-item">';
+      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(candidate.key) + '" data-import-key="' + esc(candidate.key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="import-' + esc(candidate.key) + '">' + esc(candidate.title) + '</label>';
+      if (candidate.replaces_block_id) {
+        html += '<div class="editor-tiny text-warning-emphasis">Overwrites the existing block, including any hand edits to it.</div>';
+      }
       if (candidate.variables && candidate.variables.length) {
         html += '<div class="editor-tiny text-muted">' + esc(candidate.variables.join(', ')) + '</div>';
       }
-      html += '<details class="editor-analysis-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-analysis-yaml">' + esc(candidate.yaml) + '</pre></details>';
+      html += '<details class="editor-import-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-import-yaml">' + esc(candidate.yaml) + '</pre></details>';
       html += '</div>';
     });
 
     (analysis.bundle_additions || []).forEach(function (addition, index) {
       var key = 'bundle-' + index;
-      var checked = state.templateAnalysisSelection[key] !== false;
-      html += '<div class="form-check editor-analysis-item">';
-      html += '<input class="form-check-input" type="checkbox" id="analysis-' + esc(key) + '" data-analysis-key="' + esc(key) + '"' + (checked ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="analysis-' + esc(key) + '">Add <code>' + esc(addition.element) + '</code> to <code>' + esc(addition.bundle) + '</code></label>';
+      var checked = state.templateImportSelection[key] !== false;
+      html += '<div class="form-check editor-import-item">';
+      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(key) + '" data-import-key="' + esc(key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="import-' + esc(key) + '">Add <code>' + esc(addition.element) + '</code> to <code>' + esc(addition.bundle) + '</code></label>';
       html += '</div>';
     });
 
-    html += '<div class="mt-3 d-flex gap-2 align-items-center">';
-    html += '<button class="btn btn-sm btn-primary" id="apply-analysis-btn">Add selected to ' + esc(state.filename) + '</button>';
-    html += '<span class="editor-tiny text-muted">You can reorder the new blocks in the interview outline afterwards.</span>';
+    html += '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap">';
+    html += '<button class="btn btn-sm btn-primary" id="apply-import-btn">Add selected to ' + esc(state.filename) + '</button>';
+    html += '<span class="editor-tiny text-muted">Reorder the new blocks in the interview outline, and the documents themselves under Templates &rsaquo; Document setup.</span>';
     html += '</div>';
-    html += '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' + COMBINING_INTERVIEWS_DOCS_URL + '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+    if (!analysis.already_imported) {
+      html += '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' + COMBINING_INTERVIEWS_DOCS_URL + '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+    }
 
     return html + '</div></div>';
   }
 
-  function templateAnalysisCandidates(analysis) {
+  function templateImportCandidates(analysis) {
     var candidates = [];
-    if (analysis.document_object) {
+    function push(key, block, title) {
+      if (!block) return;
       candidates.push({
-        key: 'document_object',
-        title: analysis.document_object.title,
-        yaml: analysis.document_object.yaml,
-        variables: analysis.document_object.variables,
+        key: key,
+        title: title || block.title,
+        yaml: block.yaml,
+        variables: block.variables || [],
+        replaces_block_id: block.replaces_block_id || null,
+        recommended: block.recommended !== false,
       });
     }
-    if (analysis.attachment) {
-      candidates.push({
-        key: 'attachment',
-        title: analysis.attachment.title,
-        yaml: analysis.attachment.yaml,
-        variables: [],
-      });
-    }
-    if (analysis.objects) {
-      candidates.push({
-        key: 'objects',
-        title: analysis.objects.title,
-        yaml: analysis.objects.yaml,
-        variables: analysis.objects.variables,
-      });
-    }
+    push('document_object', analysis.document_object);
+    push('attachment', analysis.attachment);
+    push('objects', analysis.objects);
     (analysis.questions || []).forEach(function (question, index) {
-      candidates.push({
-        key: 'question-' + index,
-        title: 'Screen: ' + question.title,
-        yaml: question.yaml,
-        variables: question.variables,
-      });
+      push('question-' + index, question, 'Screen: ' + question.title);
     });
     return candidates;
   }
 
-  function analyzeSelectedTemplate(fileMeta) {
+  function importSelectedTemplate(fileMeta) {
     if (!fileMeta || !state.filename) return;
-    state.templateAnalysisBusy = true;
-    state.templateAnalysis = null;
-    state.templateAnalysisSelection = {};
-    state.templateAnalysisMessage = 'Reading ' + fileMeta.filename + '…';
+    state.templateImportBusy = true;
+    state.templateImportResult = null;
+    state.templateImportSelection = {};
+    state.templateImportMessage = 'Reading ' + fileMeta.filename + '…';
     captureDocumentEnabledInputs();
     renderCanvas();
-    apiPost('/api/template/analyze', {
+    apiPost('/api/template/import', {
       project: state.project,
       filename: state.filename,
       template: fileMeta.filename,
     }).then(function (res) {
       if (!res || !res.job_url) throw new Error('Weaver did not queue the analysis.');
-      return pollTemplateAnalysis(res.job_url);
+      return pollTemplateImport(res.job_url);
     }).then(function (result) {
-      state.templateAnalysisBusy = false;
-      state.templateAnalysis = result;
-      state.templateAnalysisMessage = '';
+      state.templateImportBusy = false;
+      state.templateImportResult = result;
+      state.templateImportMessage = '';
       renderCanvas();
     }).catch(function (error) {
-      state.templateAnalysisBusy = false;
-      state.templateAnalysisMessage = '';
+      state.templateImportBusy = false;
+      state.templateImportMessage = '';
       renderCanvas();
       if (isSupersededRequest(error)) return;
       showApiError(error);
@@ -8764,13 +8803,13 @@
   // open, so progress only touches its own line -- and if that line is not on
   // screen, because they moved to another tab while the analysis runs, the
   // update is simply dropped. Coming back re-renders it from state.
-  function setTemplateAnalysisMessage(message) {
-    state.templateAnalysisMessage = message;
-    var node = document.getElementById('template-analysis-status');
+  function setTemplateImportMessage(message) {
+    state.templateImportMessage = message;
+    var node = document.getElementById('template-import-status');
     if (node) node.textContent = message;
   }
 
-  function pollTemplateAnalysis(jobUrl) {
+  function pollTemplateImport(jobUrl) {
     var path = String(jobUrl).replace(API, '');
     var attempts = 0;
     return new Promise(function (resolve, reject) {
@@ -8787,28 +8826,34 @@
             reject(new Error((data.error && data.error.message) || data.message || 'Template analysis failed.'));
             return;
           }
-          setTemplateAnalysisMessage(data.message || 'Analyzing…');
-          if (attempts >= TEMPLATE_ANALYSIS_MAX_ATTEMPTS) {
+          setTemplateImportMessage(data.message || 'Analyzing…');
+          if (attempts >= TEMPLATE_IMPORT_MAX_ATTEMPTS) {
             reject(new Error('Timed out waiting for the analysis to finish.'));
             return;
           }
-          setTimeout(tick, TEMPLATE_ANALYSIS_POLL_INTERVAL_MS);
+          setTimeout(tick, TEMPLATE_IMPORT_POLL_INTERVAL_MS);
         }).catch(reject);
       }
       tick();
     });
   }
 
-  function applyTemplateAnalysis() {
-    var analysis = state.templateAnalysis;
+  function applyTemplateImport() {
+    var analysis = state.templateImportResult;
     if (!analysis) return;
     var blocks = [];
-    templateAnalysisCandidates(analysis).forEach(function (candidate) {
-      if (state.templateAnalysisSelection[candidate.key] !== false) blocks.push(candidate.yaml);
+    templateImportCandidates(analysis).forEach(function (candidate) {
+      var chosen = candidate.key in state.templateImportSelection
+        ? state.templateImportSelection[candidate.key]
+        : candidate.recommended;
+      if (!chosen) return;
+      blocks.push(candidate.replaces_block_id
+        ? { yaml: candidate.yaml, replace_block_id: candidate.replaces_block_id }
+        : candidate.yaml);
     });
     var bundles = [];
     (analysis.bundle_additions || []).forEach(function (addition, index) {
-      if (state.templateAnalysisSelection['bundle-' + index] !== false) {
+      if (state.templateImportSelection['bundle-' + index] !== false) {
         bundles.push({ bundle: addition.bundle, elements: addition.elements });
       }
     });
@@ -8824,8 +8869,8 @@
       bundles: bundles,
     }).then(function (res) {
       if (!res || !res.success) return;
-      state.templateAnalysis = null;
-      state.templateAnalysisSelection = {};
+      state.templateImportResult = null;
+      state.templateImportSelection = {};
       _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
       return loadFile().then(loadDocuments).then(function () {
         renderOutline();
@@ -8835,6 +8880,24 @@
       if (isSupersededRequest(error)) return;
       showApiError(error);
     });
+  }
+
+  function setTemplatesMode(mode) {
+    var nextMode = mode === 'documents' ? 'documents' : 'files';
+    // Leaving the setup pane must not throw away rules typed into it.
+    if (state.templatesMode === 'documents' && nextMode === 'files') {
+      captureDocumentEnabledInputs();
+    }
+    state.templatesMode = nextMode;
+    if (state.currentView !== 'templates') {
+      var templatesTab = document.querySelector('.editor-top-tab[data-view="templates"]');
+      if (templatesTab) {
+        templatesTab.click();
+        return;
+      }
+    }
+    renderOutline();
+    renderCanvas();
   }
 
   function moveDocumentInBundle(bundleName, index, direction) {
@@ -8911,11 +8974,49 @@
     });
   }
 
+  // The project-wide setup of the documents, reached from the Templates menu.
+  // It is deliberately not shown beside a single file: mixing "this template"
+  // with "all the documents" is what made the tab hard to read.
+  function renderDocumentSetupView() {
+    var html = '<div class="editor-full-yaml-shell">';
+    html += '<div class="editor-full-yaml-header">';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
+    html += '<div class="editor-tiny text-muted mt-1">' + (state.filename ? esc(state.filename) : 'No interview file open') + '</div></div>';
+    html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
+    html += '</div></div>';
+    html += renderDocumentsCard(null);
+    html += renderUnimportedTemplatesCard();
+    html += '</div>';
+    canvasContent.innerHTML = html;
+  }
+
+  function renderUnimportedTemplatesCard() {
+    var statuses = (state.documents && state.documents.templates) || {};
+    var pending = Object.keys(statuses).filter(function (filename) {
+      return statuses[filename].status === 'not_imported';
+    });
+    if (!pending.length) return '';
+    var html = '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
+    html += '<p class="text-muted small">These files are in the project but nothing in ' + esc(state.filename || 'the interview') + ' uses them. Open one under Template files to import it.</p>';
+    html += '<ul class="editor-doc-list">';
+    pending.forEach(function (filename) {
+      html += '<li class="editor-doc-item"><span class="editor-doc-item-name">' + esc(filename) + '</span>';
+      html += '<span class="editor-doc-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-open-template="' + esc(filename) + '">Open</button></span></li>';
+    });
+    html += '</ul></div></div>';
+    return html;
+  }
+
   function renderSecondaryView() {
     var view = state.currentView;
     var section = getSectionFromView(view);
     if (!section || !state.project) {
       canvasContent.innerHTML = '<div class="editor-secondary-center"><div class="editor-secondary-card"><h2 style="font-weight:700">' + esc(sectionTitle(view)) + '</h2><p class="text-muted mt-2">Select a project to manage files in this section.</p></div></div>';
+      return;
+    }
+    if (view === 'templates' && state.templatesMode === 'documents') {
+      renderDocumentSetupView();
       return;
     }
 
@@ -8939,8 +9040,7 @@
     // Weaver's document analysis used to be spent once, at project creation.
     // On the Templates tab it stays available for the life of the project.
     if (view === 'templates') {
-      html += renderTemplateAnalysisCard(fileMeta);
-      html += renderDocumentsCard(fileMeta);
+      html += renderTemplateImportCard(fileMeta);
     }
 
     if (!fileMeta) {
@@ -9086,6 +9186,8 @@
     var removeUploadBtn = target.closest('[data-remove-upload]');
     var moveUploadBtn = target.closest('[data-move-upload]');
     var moveDocBtn = target.closest('[data-move-doc]');
+    var templatesModeBtn = target.closest('[data-templates-mode]');
+    var openTemplateBtn = target.closest('[data-open-template]');
     var projectCardBtn = target.closest('[data-project-card]');
 
     if (blockActionBtn) {
@@ -9338,10 +9440,14 @@
         var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
         if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && deferNavigationForUnsavedChanges('open another file', function () {
           state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+          if (viewForFile === 'templates') state.templatesMode = 'files';
           renderOutline();
           renderCanvas();
         })) return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+        // Picking a file out of the list means the author wants that file, not
+        // the project-wide setup pane they may have been looking at.
+        if (viewForFile === 'templates') state.templatesMode = 'files';
       } else {
         var nextBlockId = outlineItem.getAttribute('data-block-id');
         if (nextBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open another block', function () {
@@ -10673,6 +10779,17 @@
       return;
     }
 
+    if (templatesModeBtn) {
+      setTemplatesMode(templatesModeBtn.getAttribute('data-templates-mode'));
+      return;
+    }
+
+    if (openTemplateBtn) {
+      state.sectionSelectedFile.templates = openTemplateBtn.getAttribute('data-open-template');
+      setTemplatesMode('files');
+      return;
+    }
+
     if (moveDocBtn) {
       moveDocumentInBundle(
         moveDocBtn.getAttribute('data-bundle'),
@@ -10682,13 +10799,13 @@
       return;
     }
 
-    if (target.id === 'analyze-template-btn') {
-      analyzeSelectedTemplate(getSelectedSectionFileMeta(state.currentView));
+    if (target.id === 'import-template-btn') {
+      importSelectedTemplate(getSelectedSectionFileMeta(state.currentView));
       return;
     }
 
-    if (target.id === 'apply-analysis-btn') {
-      applyTemplateAnalysis();
+    if (target.id === 'apply-import-btn') {
+      applyTemplateImport();
       return;
     }
 
@@ -10903,10 +11020,10 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
-    if (target.matches('[data-analysis-key]')) {
+    if (target.matches('[data-import-key]')) {
       // Recorded rather than re-rendered: unticking one proposal should not
       // collapse the YAML previews the author has open next to it.
-      state.templateAnalysisSelection[target.getAttribute('data-analysis-key')] = target.checked;
+      state.templateImportSelection[target.getAttribute('data-import-key')] = target.checked;
       return;
     }
     if (target.matches('[data-al-setting]')) {

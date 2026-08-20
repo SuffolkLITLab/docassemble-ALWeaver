@@ -35,6 +35,10 @@ __all__ = [
     "InterviewDocuments",
     "interview_documents",
     "serialize_declaration",
+    "template_status",
+    "TEMPLATE_ATTACHED",
+    "TEMPLATE_NOT_IMPORTED",
+    "TEMPLATE_REFERENCED",
     "set_bundle_elements",
     "set_enabled_expression",
 ]
@@ -422,6 +426,58 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
                     )
                 )
     return InterviewDocuments(documents=documents, bundles=bundles)
+
+
+#: A template that no attachment fills and nothing in the source mentions has
+#: been uploaded but not wired into the interview yet.
+TEMPLATE_NOT_IMPORTED = "not_imported"
+#: A template an `attachment` block fills, so it becomes one of the documents.
+TEMPLATE_ATTACHED = "attached"
+#: A template the source refers to some other way -- a `content file:` on a
+#: question, say -- which is a legitimate use that is not a document.
+TEMPLATE_REFERENCED = "referenced"
+
+
+def template_status(
+    raw_yaml: str, filenames: Sequence[str]
+) -> Dict[str, Dict[str, str]]:
+    """Say how each template file is used by an interview, if at all.
+
+    A file sitting in `templates/` is not yet part of anything. Knowing which
+    ones are still in that state is the difference between a folder of files and
+    a list of documents the interview produces.
+
+    Args:
+        raw_yaml (str): the interview's YAML source.
+        filenames (Sequence[str]): the template filenames in the project.
+
+    Returns:
+        Dict[str, Dict[str, str]]: filename -> `{"status": ..., "document": ...}`,
+        where `document` names the `ALDocument` filling it, when one does.
+    """
+    model = interview_documents(raw_yaml)
+    attached = {
+        document.template_filename: document.name
+        for document in model.documents
+        if document.template_filename
+    }
+    statuses: Dict[str, Dict[str, str]] = {}
+    for filename in filenames:
+        name = str(filename or "").strip()
+        if not name:
+            continue
+        if name in attached:
+            statuses[name] = {
+                "status": TEMPLATE_ATTACHED,
+                "document": attached[name],
+            }
+        elif name in raw_yaml:
+            # Mentioned but not as an attachment: a `content file:`, an include,
+            # or a reference from code. Not a document, but not an orphan.
+            statuses[name] = {"status": TEMPLATE_REFERENCED, "document": ""}
+        else:
+            statuses[name] = {"status": TEMPLATE_NOT_IMPORTED, "document": ""}
+    return statuses
 
 
 def set_bundle_elements(

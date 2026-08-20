@@ -1581,6 +1581,16 @@ objects:
 ---
 objects:
   - al_user_bundle: ALDocumentBundle.using(elements=[petition, affidavit], filename="p", enabled=True)
+---
+attachment:
+  name: Petition
+  variable name: petition[i]
+  pdf template file: petition.pdf
+---
+attachment:
+  name: Affidavit
+  variable name: affidavit[i]
+  pdf template file: affidavit.pdf
 """
 
 
@@ -1593,26 +1603,26 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
             patch.object(api_editor, "_current_user_id", return_value=7),
         ):
             with api_editor.app.test_request_context(
-                "/al/editor/api/template/analyze", method="POST", json=payload
+                "/al/editor/api/template/import", method="POST", json=payload
             ):
                 return handler()
 
     def test_a_template_that_is_not_in_the_project_is_a_404(self):
         with patch.object(
             api_editor,
-            "_template_analysis_target",
+            "_template_import_target",
             side_effect=FileNotFoundError("nope.pdf is not in this project"),
         ):
             response = self._post(
                 {"project": "Eviction", "filename": "main.yml", "template": "nope.pdf"},
-                api_editor.editor_api_analyze_template,
+                api_editor.editor_api_import_template,
             )
         self.assertEqual(response.status_code, 404)
 
     def test_a_queued_analysis_reports_where_to_poll(self):
         with (
             patch.object(
-                api_editor, "_template_analysis_target", return_value="/tmp/a.pdf"
+                api_editor, "_template_import_target", return_value="/tmp/a.pdf"
             ),
             patch.object(api_editor, "playground_read_yaml", return_value="---\n"),
             patch.object(api_editor, "_editor_async_is_configured", return_value=True),
@@ -1630,11 +1640,11 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
                     "filename": "main.yml",
                     "template": "affidavit.pdf",
                 },
-                api_editor.editor_api_analyze_template,
+                api_editor.editor_api_import_template,
             )
         self.assertEqual(response.status_code, 202)
         body = response.get_json()
-        self.assertIn("/al/editor/api/template/analyze/jobs/", body["job_url"])
+        self.assertIn("/al/editor/api/template/import/jobs/", body["job_url"])
         self.assertEqual(
             mock_send.call_args.kwargs["kwargs"]["template_filename"], "affidavit.pdf"
         )
@@ -1690,6 +1700,73 @@ class TestEditorApplyBlockIds(unittest.TestCase):
         self.assertEqual(block, "objects:\n  - affidavit: ALDocument.using()\n")
 
 
+class TestEditorApplyBlockReplacement(unittest.TestCase):
+    """Re-reading a revised form rewrites its attachment block in place."""
+
+    def _apply(self, blocks):
+        written = {}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "update_block_in_yaml") as mock_update,
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                return_value={
+                    "blocks": [],
+                    "metadata_blocks": [],
+                    "include_blocks": [],
+                    "default_screen_parts_blocks": [],
+                    "order_blocks": [],
+                },
+            ),
+        ):
+            mock_update.side_effect = lambda content, block_id, new_yaml: content
+            mock_write.side_effect = (
+                lambda uid, project, filename, content: written.update(
+                    {"content": content}
+                )
+            )
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/apply",
+                method="POST",
+                json={
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "expected_revision": "test-revision",
+                    "blocks": blocks,
+                },
+            ):
+                response = api_editor.editor_api_apply_template_analysis()
+        return response, mock_update
+
+    def test_a_block_with_a_replace_target_rewrites_rather_than_adds(self):
+        response, mock_update = self._apply(
+            [
+                {
+                    "yaml": "attachment:\n  name: Petition\n",
+                    "replace_block_id": "block-3",
+                }
+            ]
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_update.call_args.args[1], "block-3")
+        self.assertEqual(response.get_json()["data"]["replaced_block_ids"], ["block-3"])
+
+    def test_a_plain_string_is_still_an_addition(self):
+        response, mock_update = self._apply(
+            ["objects:\n  - cover_sheet: ALDocument.using()\n"]
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_update.assert_not_called()
+
+
 class TestEditorDocumentsApi(unittest.TestCase):
     """Rearranging the documents an interview assembles."""
 
@@ -1702,6 +1779,15 @@ class TestEditorDocumentsApi(unittest.TestCase):
                 "playground_read_yaml",
                 return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
             ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[
+                    {"filename": "petition.pdf"},
+                    {"filename": "affidavit.pdf"},
+                    {"filename": "leftover.pdf"},
+                ],
+            ),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/documents?project=Eviction&filename=main.yml"
@@ -1713,6 +1799,36 @@ class TestEditorDocumentsApi(unittest.TestCase):
             ["petition", "affidavit"],
         )
         self.assertEqual(data["bundles"][0]["elements"], ["petition", "affidavit"])
+
+    def test_it_says_which_template_files_are_not_imported_yet(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS
+                + "---\nquestion: |\n  Hi\nsubquestion: |\n  See logo.png\n",
+            ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[
+                    {"filename": "petition.pdf"},
+                    {"filename": "logo.png"},
+                    {"filename": "leftover.pdf"},
+                ],
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents?project=Eviction&filename=main.yml"
+            ):
+                response = api_editor.editor_api_documents()
+        templates = response.get_json()["data"]["templates"]
+        self.assertEqual(templates["petition.pdf"]["status"], "attached")
+        self.assertEqual(templates["petition.pdf"]["document"], "petition")
+        self.assertEqual(templates["logo.png"]["status"], "referenced")
+        self.assertEqual(templates["leftover.pdf"]["status"], "not_imported")
 
     def _save(self, payload):
         written = {}

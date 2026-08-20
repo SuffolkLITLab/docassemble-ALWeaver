@@ -20,9 +20,9 @@ Provides:
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
     POST /al/editor/api/ai/generate-fields — draft fields for a question with AI
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
-    POST /al/editor/api/template/analyze — analyze a template already in a project
-    GET  /al/editor/api/template/analyze/jobs/<id> — poll a template analysis
-    POST /al/editor/api/template/apply — add accepted analysis results to the YAML
+    POST /al/editor/api/template/import — read a template already in a project
+    GET  /al/editor/api/template/import/jobs/<id> — poll a template import
+    POST /al/editor/api/template/apply — add the accepted parts of one to the YAML
     GET  /al/editor/api/documents — the documents an interview assembles
     POST /al/editor/api/documents — reorder documents or change what enables them
     GET  /al/editor/api/parse-order — parse order code into structured steps
@@ -105,6 +105,7 @@ from .document_bundles import (
     interview_documents,
     set_bundle_elements,
     set_enabled_expression,
+    template_status,
 )
 from .worker_config import (
     CELERY_CONFIGURATION_DOCS_URL,
@@ -6926,10 +6927,10 @@ GITHUB_PUBLISH_JOB_EXPIRE_SECONDS = 24 * 60 * 60
 GITHUB_PUBLISH_CELERY_TASK = (
     "docassemble.ALWeaver.api_weaver_worker.weaver_editor_github_publish_task"
 )
-TEMPLATE_ANALYSIS_JOB_KEY_PREFIX = "da:alweaver:editor:template-analysis:"
-TEMPLATE_ANALYSIS_JOB_EXPIRE_SECONDS = 24 * 60 * 60
-TEMPLATE_ANALYSIS_CELERY_TASK = (
-    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_analysis_task"
+TEMPLATE_IMPORT_JOB_KEY_PREFIX = "da:alweaver:editor:template-import:"
+TEMPLATE_IMPORT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+TEMPLATE_IMPORT_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_import_task"
 )
 JOB_TERMINAL_STATES = {
     "succeeded",
@@ -6983,10 +6984,10 @@ GITHUB_PUBLISH_JOB = _EditorJobKind(
     celery_task=GITHUB_PUBLISH_CELERY_TASK,
     expire_seconds=GITHUB_PUBLISH_JOB_EXPIRE_SECONDS,
 )
-TEMPLATE_ANALYSIS_JOB = _EditorJobKind(
-    key_prefix=TEMPLATE_ANALYSIS_JOB_KEY_PREFIX,
-    celery_task=TEMPLATE_ANALYSIS_CELERY_TASK,
-    expire_seconds=TEMPLATE_ANALYSIS_JOB_EXPIRE_SECONDS,
+TEMPLATE_IMPORT_JOB = _EditorJobKind(
+    key_prefix=TEMPLATE_IMPORT_JOB_KEY_PREFIX,
+    celery_task=TEMPLATE_IMPORT_CELERY_TASK,
+    expire_seconds=TEMPLATE_IMPORT_JOB_EXPIRE_SECONDS,
 )
 
 
@@ -8079,7 +8080,7 @@ def editor_api_new_project_job(job_id: str) -> Response:
         )
 
 
-def _template_analysis_target(uid: int, project: str, template_filename: str) -> str:
+def _template_import_target(uid: int, project: str, template_filename: str) -> str:
     """Locate a template file inside the project's templates section.
 
     Args:
@@ -8105,7 +8106,7 @@ def _template_analysis_target(uid: int, project: str, template_filename: str) ->
     return path
 
 
-def _complete_template_analysis_job(
+def _complete_template_import_job(
     *,
     job_id: str,
     uid: int,
@@ -8115,7 +8116,7 @@ def _complete_template_analysis_job(
     use_llm_assist: bool,
     request_id: str,
 ) -> Dict[str, Any]:
-    """Analyze one template against an interview, in the Celery worker.
+    """Work out what importing one template into an interview would take.
 
     Args:
         job_id (str): the job record to report progress into.
@@ -8139,23 +8140,23 @@ def _complete_template_analysis_job(
     stage = "start"
     try:
         _update_job_state(
-            TEMPLATE_ANALYSIS_JOB,
+            TEMPLATE_IMPORT_JOB,
             job_id,
             status="running",
             stage=stage,
             message=f"Reading {template_filename}.",
             progress=10,
         )
-        template_path = _template_analysis_target(uid, project, template_filename)
+        template_path = _template_import_target(uid, project, template_filename)
         interview_yaml = playground_read_yaml(uid, project, interview_filename)
 
         stage = "analyze"
         _update_job_state(
-            TEMPLATE_ANALYSIS_JOB,
+            TEMPLATE_IMPORT_JOB,
             job_id,
             status="running",
             stage=stage,
-            message=f"Analyzing {template_filename}.",
+            message=f"Reading the fields in {template_filename}.",
             progress=35,
         )
         analysis = analyze_template(
@@ -8169,11 +8170,11 @@ def _complete_template_analysis_job(
         result["interview_filename"] = interview_filename
         result["interview_revision"] = source_revision(interview_yaml)
         _update_job_state(
-            TEMPLATE_ANALYSIS_JOB,
+            TEMPLATE_IMPORT_JOB,
             job_id,
             status="succeeded",
             stage="done",
-            message=f"Analyzed {template_filename}.",
+            message=f"Read {template_filename}.",
             progress=100,
             result=result,
             finished_at=time.time(),
@@ -8182,16 +8183,16 @@ def _complete_template_analysis_job(
     except Exception as exc:
         tb = traceback.format_exc()
         _update_job_state(
-            TEMPLATE_ANALYSIS_JOB,
+            TEMPLATE_IMPORT_JOB,
             job_id,
             status="failed",
             stage=stage,
-            message="Template analysis failed.",
+            message="Reading the template failed.",
             error={"type": "server_error", "message": str(exc)},
             finished_at=time.time(),
         )
         log(
-            "ALWeaver editor: template analysis failed "
+            "ALWeaver editor: template import failed "
             f"request_id={request_id} job_id={job_id} project={project} "
             f"template={template_filename} stage={stage}: {exc!r}\n{tb}",
             "error",
@@ -8199,9 +8200,14 @@ def _complete_template_analysis_job(
         raise
 
 
-@app.route(f"{EDITOR_BASE_PATH}/api/template/analyze", methods=["POST"])
-def editor_api_analyze_template() -> Response:
-    """Queue analysis of a template already sitting in the project."""
+@app.route(f"{EDITOR_BASE_PATH}/api/template/import", methods=["POST"])
+def editor_api_import_template() -> Response:
+    """Queue the read of a template already sitting in the project.
+
+    The author calls this importing: the template becomes one of the documents
+    the interview assembles. Reading its fields is how that happens, and on a
+    template already imported it is how a revised form gets its new ones.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -8214,7 +8220,7 @@ def editor_api_analyze_template() -> Response:
         use_llm_assist = parse_bool(post_data.get("use_llm_assist"), default=False)
         # Fail here rather than in the worker: an author who picked the wrong
         # file should hear about it now.
-        _template_analysis_target(uid, project, template_filename)
+        _template_import_target(uid, project, template_filename)
         playground_read_yaml(uid, project, interview_filename)
 
         if not _editor_async_is_configured():
@@ -8226,7 +8232,7 @@ def editor_api_analyze_template() -> Response:
                         "type": "async_not_configured",
                         "code": "editor_async_not_configured",
                         "message": (
-                            "Template analysis runs in the background. Add "
+                            "Reading a template runs in the background. Add "
                             f"{NEW_PROJECT_CELERY_MODULE!r} to the Docassemble "
                             "'celery modules' configuration list, then restart "
                             "the Docassemble web and Celery services."
@@ -8241,9 +8247,9 @@ def editor_api_analyze_template() -> Response:
         initial_state: Dict[str, Any] = {
             "status": "queued",
             "stage": "queued",
-            "message": f"Queued analysis of {template_filename}.",
+            "message": f"Queued a read of {template_filename}.",
             "owner_user_id": uid,
-            "operation_type": "template_analysis",
+            "operation_type": "template_import",
             "project": project,
             "template": template_filename,
             "filename": interview_filename,
@@ -8255,9 +8261,9 @@ def editor_api_analyze_template() -> Response:
             "result": None,
             "error": None,
         }
-        _store_job_state(TEMPLATE_ANALYSIS_JOB, job_id, initial_state)
+        _store_job_state(TEMPLATE_IMPORT_JOB, job_id, initial_state)
         task = workerapp.send_task(
-            TEMPLATE_ANALYSIS_CELERY_TASK,
+            TEMPLATE_IMPORT_CELERY_TASK,
             kwargs={
                 "job_id": job_id,
                 "uid": uid,
@@ -8268,14 +8274,14 @@ def editor_api_analyze_template() -> Response:
                 "request_id": request_id,
             },
         )
-        _update_job_state(TEMPLATE_ANALYSIS_JOB, job_id, celery_task_id=task.id)
+        _update_job_state(TEMPLATE_IMPORT_JOB, job_id, celery_task_id=task.id)
         return jsonify_with_status(
             {
                 "success": True,
                 "request_id": request_id,
                 "status": "queued",
                 "job_id": job_id,
-                "job_url": f"{EDITOR_BASE_PATH}/api/template/analyze/jobs/{job_id}",
+                "job_url": f"{EDITOR_BASE_PATH}/api/template/import/jobs/{job_id}",
                 "data": initial_state,
             },
             202,
@@ -8291,7 +8297,7 @@ def editor_api_analyze_template() -> Response:
             status,
         )
     except Exception as exc:
-        log(f"ALWeaver editor: analyze template error: {exc!r}", "error")
+        log(f"ALWeaver editor: import template error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -8302,15 +8308,15 @@ def editor_api_analyze_template() -> Response:
         )
 
 
-@app.route(f"{EDITOR_BASE_PATH}/api/template/analyze/jobs/<job_id>", methods=["GET"])
-def editor_api_analyze_template_job(job_id: str) -> Response:
-    """Get the status of a queued template analysis."""
+@app.route(f"{EDITOR_BASE_PATH}/api/template/import/jobs/<job_id>", methods=["GET"])
+def editor_api_import_template_job(job_id: str) -> Response:
+    """Get the status of a queued template import."""
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
         uid = _current_user_id()
-        state = _load_job_state(TEMPLATE_ANALYSIS_JOB, job_id)
+        state = _load_job_state(TEMPLATE_IMPORT_JOB, job_id)
         if not state or state.get("owner_user_id") not in {None, uid}:
             return jsonify_with_status(
                 {
@@ -8321,11 +8327,11 @@ def editor_api_analyze_template_job(job_id: str) -> Response:
                 404,
             )
         state = _reconcile_job_state(
-            TEMPLATE_ANALYSIS_JOB,
+            TEMPLATE_IMPORT_JOB,
             job_id,
             state,
-            success_message="Template analyzed.",
-            failure_message="Template analysis failed.",
+            success_message="Template read.",
+            failure_message="Reading the template failed.",
         )
         return jsonify(
             {
@@ -8337,7 +8343,7 @@ def editor_api_analyze_template_job(job_id: str) -> Response:
             }
         )
     except Exception as exc:
-        log(f"ALWeaver editor: template analysis job status error: {exc!r}", "error")
+        log(f"ALWeaver editor: template import job status error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -8390,7 +8396,7 @@ def _block_id_without_collision(
 
 @app.route(f"{EDITOR_BASE_PATH}/api/template/apply", methods=["POST"])
 def editor_api_apply_template_analysis() -> Response:
-    """Add accepted pieces of a template analysis to the interview.
+    """Add the accepted pieces of a template import to the interview.
 
     The blocks and the bundle changes land in one write, so an interview never
     ends up with an attachment whose `ALDocument` was not declared.
@@ -8408,7 +8414,7 @@ def editor_api_apply_template_analysis() -> Response:
             raise ValueError("expected_revision is required")
         blocks = post_data.get("blocks")
         if not isinstance(blocks, list):
-            raise ValueError("blocks must be a list of YAML strings")
+            raise ValueError("blocks must be a list")
         bundle_updates = post_data.get("bundles") or []
         if not isinstance(bundle_updates, list):
             raise ValueError("bundles must be a list")
@@ -8425,8 +8431,8 @@ def editor_api_apply_template_analysis() -> Response:
                         "type": "revision_conflict",
                         "code": "revision_conflict",
                         "message": (
-                            "This interview changed since it was analyzed. "
-                            "Reload and analyze the template again."
+                            "This interview changed since the template was "
+                            "read. Reload and read it again."
                         ),
                     },
                 },
@@ -8434,14 +8440,33 @@ def editor_api_apply_template_analysis() -> Response:
             )
 
         added_block_ids: List[str] = []
+        replaced_block_ids: List[str] = []
         taken_ids = {
             str(block.get("id") or "").strip()
             for block in parse_interview_yaml(content)["blocks"]
         }
-        for block_yaml in blocks:
+        for entry in blocks:
+            # A plain string adds a block. An object with `replace_block_id`
+            # rewrites one in place, which is what re-reading a revised form
+            # does to its attachment block.
+            replace_block_id = None
+            if isinstance(entry, dict):
+                block_yaml = entry.get("yaml")
+                raw_replace = entry.get("replace_block_id")
+                replace_block_id = str(raw_replace).strip() if raw_replace else None
+            else:
+                block_yaml = entry
             if not isinstance(block_yaml, str) or not block_yaml.strip():
                 raise ValueError("Each block must be a non-empty YAML string")
             _validate_block_yaml_payload(block_yaml)
+
+            if replace_block_id:
+                content = update_block_in_yaml(
+                    content, replace_block_id, block_yaml.strip("\r\n")
+                )
+                replaced_block_ids.append(replace_block_id)
+                continue
+
             block_text, block_id = _block_id_without_collision(
                 block_yaml.strip("\r\n"), taken_ids
             )
@@ -8484,6 +8509,7 @@ def editor_api_apply_template_analysis() -> Response:
                     "raw_yaml": content,
                     "revision": source_revision(content),
                     "added_block_ids": added_block_ids,
+                    "replaced_block_ids": replaced_block_ids,
                     "documents": interview_documents(content).to_dict(),
                 },
             }
@@ -8499,7 +8525,7 @@ def editor_api_apply_template_analysis() -> Response:
             status,
         )
     except Exception as exc:
-        log(f"ALWeaver editor: apply template analysis error: {exc!r}", "error")
+        log(f"ALWeaver editor: apply template import error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
@@ -8522,11 +8548,16 @@ def editor_api_documents() -> Response:
         filename = _normalize_filename(request.args.get("filename"))
         content = playground_read_yaml(uid, project, filename)
         data = interview_documents(content).to_dict()
+        template_files = [
+            str(item.get("filename") or "")
+            for item in _list_editor_section_files(uid, project, "templates")
+        ]
         data.update(
             {
                 "project": project,
                 "filename": filename,
                 "revision": source_revision(content),
+                "templates": template_status(content, template_files),
             }
         )
         return jsonify({"success": True, "request_id": request_id, "data": data})

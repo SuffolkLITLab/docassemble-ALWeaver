@@ -26,7 +26,14 @@
       <div class="collapse navbar-collapse" id="editor-navbar-collapse">
         <ul class="navbar-nav nav-underline me-auto" id="view-tabs">
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab active" data-view="interview" aria-current="page">Interview</button></li>
-          <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="templates">Templates</button></li>
+          <li class="nav-item dropdown editor-top-tab-split">
+            <button type="button" class="nav-link editor-top-tab" data-view="templates">Templates</button>
+            <button type="button" class="editor-top-tab-caret" id="templates-menu" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Templates menu"><i class="fa-solid fa-angle-down" aria-hidden="true"></i></button>
+            <ul class="dropdown-menu" data-bs-theme="light" aria-labelledby="templates-menu">
+              <li><button type="button" class="dropdown-item" data-templates-mode="files"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Template files</button></li>
+              <li><button type="button" class="dropdown-item" data-templates-mode="documents"><i class="fa-solid fa-layer-group fa-fw me-2" aria-hidden="true"></i>Document setup</button></li>
+            </ul>
+          </li>
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="modules">Modules</button></li>
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="static">Static</button></li>
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>

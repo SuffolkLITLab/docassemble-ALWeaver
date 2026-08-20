@@ -135,9 +135,9 @@ def weaver_editor_new_project_task(
 
 
 @workerapp.task(
-    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_analysis_task"
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_import_task"
 )
-def weaver_editor_template_analysis_task(
+def weaver_editor_template_import_task(
     *,
     job_id: str,
     uid: int,
@@ -147,16 +147,16 @@ def weaver_editor_template_analysis_task(
     use_llm_assist: bool,
     request_id: str,
 ) -> Dict[str, Any]:
-    """Analyze one template against an existing interview, in the worker.
+    """Read one template against an existing interview, in the worker.
 
-    Analysis runs the same generator a new project does -- field extraction,
+    Importing runs the same generator a new project does -- field extraction,
     person detection, screen grouping, optionally an LLM pass -- so it outlives
     a web request for the same reasons project creation does.
     """
     with bg_context():
-        from .api_editor import _complete_template_analysis_job
+        from .api_editor import _complete_template_import_job
 
-        return _complete_template_analysis_job(
+        return _complete_template_import_job(
             job_id=job_id,
             uid=uid,
             project=project,

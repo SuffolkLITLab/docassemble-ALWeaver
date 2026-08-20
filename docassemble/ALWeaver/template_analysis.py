@@ -1,6 +1,10 @@
 # do not pre-load
 
-"""Analyze a template against an interview that already exists.
+"""Work out what importing a template into an existing interview would take.
+
+This is the engine behind the editor's **Import into this interview** action.
+Importing is what the author is doing; reading and comparing the template's
+fields is how it happens, which is what the functions here are named for.
 
 Weaver's document analysis used to be spent once, when a project was created.
 Adding a second form to a finished interview -- or re-reading a form the court
@@ -86,6 +90,12 @@ class ProposedBlock:
     yaml: str
     #: Variables this block would newly define, for the "what does this add?" line.
     variables: List[str] = field(default_factory=list)
+    #: The block this one replaces, when the template is already imported and
+    #: the offer is a re-read rather than an addition.
+    replaces_block_id: Optional[str] = None
+    #: Whether accepting this by default would be a reasonable guess. A
+    #: replacement is not: it discards whatever the author did to that block.
+    recommended: bool = True
 
 
 @dataclass
@@ -104,6 +114,9 @@ class TemplateAnalysis:
     questions: List[ProposedBlock] = field(default_factory=list)
     #: Bundles that should gain this document, and where in them it would go.
     bundle_additions: List[Dict[str, Any]] = field(default_factory=list)
+    #: True when an `attachment` block already fills this template, so the
+    #: offer is to re-read a revised form rather than to import a new one.
+    already_imported: bool = False
     new_variables: List[str] = field(default_factory=list)
     known_variables: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -123,6 +136,8 @@ class TemplateAnalysis:
                 "title": proposed.title,
                 "yaml": proposed.yaml,
                 "variables": list(proposed.variables),
+                "replaces_block_id": proposed.replaces_block_id,
+                "recommended": proposed.recommended,
             }
 
         return {
@@ -133,6 +148,7 @@ class TemplateAnalysis:
             "objects": block(self.objects),
             "questions": [block(question) for question in self.questions],
             "bundle_additions": list(self.bundle_additions),
+            "already_imported": self.already_imported,
             "new_variables": list(self.new_variables),
             "known_variables": list(self.known_variables),
             "warnings": list(self.warnings),
@@ -310,9 +326,23 @@ def analyze_template(
         TemplateAnalysis: the separately-acceptable pieces, and what is already
         covered.
     """
-    document_variable = document_variable_for(template_filename)
     already_defined = interview_defined_variables(interview_yaml)
     existing = interview_documents(interview_yaml)
+    # An `attachment` block already filling this template is the interview
+    # telling us the template is imported, whatever the document is called. A
+    # re-read has to stay with that name, or the screens and the bundle entry
+    # would point at a second document nobody asked for.
+    imported_as = next(
+        (
+            document
+            for document in existing.documents
+            if document.template_filename == template_filename
+        ),
+        None,
+    )
+    document_variable = (
+        imported_as.name if imported_as else document_variable_for(template_filename)
+    )
     existing_documents = {
         document.name: document.template_filename for document in existing.documents
     }
@@ -358,6 +388,7 @@ def analyze_template(
     analysis = TemplateAnalysis(
         template_filename=template_filename,
         document_variable=document_variable,
+        already_imported=imported_as is not None,
     )
     new_variables: List[str] = []
     known_variables: List[str] = []
@@ -443,18 +474,40 @@ def analyze_template(
             variables=[name for name, _declaration in person_object_declarations],
         )
 
-    if document_variable in existing_documents:
+    if imported_as is not None:
+        # The document exists, so the only thing worth offering about it is a
+        # freshly read attachment block -- which is how a revised form gets its
+        # new fields. It replaces rather than adds, and it is not ticked by
+        # default, because it discards whatever the author did to that block.
         analysis.document_object = None
-        if existing_documents[document_variable] == template_filename:
-            analysis.warnings.append(
-                f"`{document_variable}` already attaches {template_filename}. "
-                "Adding the attachment again would give the interview two."
+        if analysis.attachment is not None:
+            analysis.attachment = ProposedBlock(
+                kind="attachment_replacement",
+                title=(
+                    f"Replace the attachment block for {template_filename} with "
+                    "one read from the file as it is now"
+                ),
+                yaml=analysis.attachment.yaml,
+                variables=[],
+                replaces_block_id=imported_as.attachment_block_id,
+                recommended=False,
             )
-        else:
-            analysis.warnings.append(
-                f"`{document_variable}` already exists in this interview and "
-                f"attaches {existing_documents[document_variable] or 'something else'}."
-            )
+            if imported_as.attachment_block_id is None:
+                # Nothing to replace: the attachment is there, but not as a
+                # block this editor can address.
+                analysis.attachment = None
+                analysis.warnings.append(
+                    f"{template_filename} is already attached, but Weaver could "
+                    "not find the attachment block to re-read it into."
+                )
+    elif document_variable in existing_documents:
+        analysis.document_object = None
+        analysis.warnings.append(
+            f"`{document_variable}` already exists in this interview and "
+            f"attaches {existing_documents[document_variable] or 'something else'}. "
+            "Rename this template, or the two would collide."
+        )
+        analysis.attachment = None
     else:
         for bundle in existing.bundles:
             if document_variable in bundle.elements:
@@ -468,7 +521,11 @@ def analyze_template(
                 }
             )
 
-    if analysis.attachment is not None and not existing.bundles:
+    if (
+        analysis.attachment is not None
+        and not analysis.already_imported
+        and not existing.bundles
+    ):
         analysis.warnings.append(
             "This interview has no ALDocumentBundle, so an attachment on its "
             "own will not appear in any download."

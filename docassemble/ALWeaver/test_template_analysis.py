@@ -136,16 +136,38 @@ class TestAnalyzeTemplate(unittest.TestCase):
             ],
         )
 
-    def test_re_analyzing_a_template_already_in_the_interview_warns(self):
-        analysis = self._analyze(["users1_name_first"], filename="petition.pdf")
+    def test_an_imported_template_is_offered_as_a_re_read_not_a_duplicate(self):
+        """The court revises a form; the fields have to be read again."""
+        analysis = self._analyze(
+            ["users1_name_first", "landlord_visits"], filename="petition.pdf"
+        )
 
+        self.assertTrue(analysis.already_imported)
         self.assertIsNone(analysis.document_object)
         self.assertEqual(analysis.bundle_additions, [])
+        assert analysis.attachment is not None
+        self.assertEqual(analysis.attachment.kind, "attachment_replacement")
+        # It overwrites whatever the author did to that block, so it is offered
+        # rather than assumed.
+        self.assertFalse(analysis.attachment.recommended)
+        self.assertTrue(analysis.attachment.replaces_block_id)
+        # A field the revised form added is still offered as a new screen.
+        self.assertIn("landlord_visits", analysis.new_variables)
+
+    def test_a_document_name_that_is_taken_by_another_template_is_refused(self):
+        """Two templates cannot share one ALDocument."""
+        interview = EXISTING_INTERVIEW.replace(
+            "pdf template file: petition.pdf", "pdf template file: something_else.pdf"
+        )
+        analysis = self._analyze(
+            ["users1_name_first"], filename="petition.pdf", interview=interview
+        )
+
+        self.assertFalse(analysis.already_imported)
+        self.assertIsNone(analysis.attachment)
+        self.assertIsNone(analysis.document_object)
         self.assertTrue(
-            any(
-                "already attaches petition.pdf" in warning
-                for warning in analysis.warnings
-            ),
+            any("already exists" in warning for warning in analysis.warnings),
             analysis.warnings,
         )
 

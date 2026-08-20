@@ -6,6 +6,7 @@ import unittest
 
 from .document_bundles import (
     interview_documents,
+    template_status,
     set_bundle_elements,
     set_enabled_expression,
 )
@@ -92,6 +93,36 @@ class TestReadingDocuments(unittest.TestCase):
                 ("al_user_bundle", ["petition", "affidavit"]),
                 ("al_court_bundle", ["petition", "affidavit"]),
             ],
+        )
+
+
+class TestTemplateStatus(unittest.TestCase):
+    """A file in `templates/` is not part of anything until something uses it."""
+
+    def test_a_template_an_attachment_fills_is_attached(self):
+        statuses = template_status(EXISTING_INTERVIEW, ["petition.pdf"])
+        self.assertEqual(
+            statuses["petition.pdf"],
+            {"status": "attached", "document": "petition"},
+        )
+
+    def test_a_template_used_some_other_way_is_referenced_not_attached(self):
+        interview = EXISTING_INTERVIEW + """---
+question: |
+  Hello
+subquestion: |
+  ${ logo_png }
+content file: logo.png
+"""
+        statuses = template_status(interview, ["logo.png"])
+        self.assertEqual(statuses["logo.png"]["status"], "referenced")
+        self.assertEqual(statuses["logo.png"]["document"], "")
+
+    def test_a_template_nothing_mentions_has_not_been_imported(self):
+        statuses = template_status(EXISTING_INTERVIEW, ["cover_sheet.pdf"])
+        self.assertEqual(
+            statuses["cover_sheet.pdf"],
+            {"status": "not_imported", "document": ""},
         )
 
 
