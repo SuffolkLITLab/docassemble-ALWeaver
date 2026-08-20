@@ -78,6 +78,8 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    documents: null,
+    documentsBusy: false,
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
@@ -4609,6 +4611,7 @@
   }
 
   function loadSectionFiles(view) {
+    if (view === 'templates') loadDocuments();
     var section = getSectionFromView(view);
     if (!section || !state.project) {
       if (section) {
@@ -8475,6 +8478,175 @@
       });
   }
 
+  // -------------------------------------------------------------------------
+  // Templates tab: the documents this interview assembles
+  //
+  // A template on disk only becomes a download once an `ALDocument` points at
+  // it and a bundle lists it. Both of those are `.using()` arguments inside an
+  // `objects:` block, which is the last thing an author should have to hand
+  // edit to move a cover sheet above a petition.
+  // -------------------------------------------------------------------------
+  var ALDOCUMENT_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
+  function loadDocuments() {
+    if (!state.project || !state.filename) {
+      state.documents = null;
+      return Promise.resolve();
+    }
+    return apiGet(
+      '/api/documents?project=' + encodeURIComponent(state.project) +
+      '&filename=' + encodeURIComponent(state.filename)
+    ).then(function (res) {
+      state.documents = (res && res.success && res.data) ? res.data : null;
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      state.documents = null;
+    });
+  }
+
+  function documentByName(name) {
+    var documents = (state.documents && state.documents.documents) || [];
+    for (var i = 0; i < documents.length; i++) {
+      if (documents[i].name === name) return documents[i];
+    }
+    return null;
+  }
+
+  function documentLabel(name) {
+    var document_ = documentByName(name);
+    if (!document_) return name;
+    if (document_.template_filename) return document_.template_filename;
+    return document_.title || name;
+  }
+
+  function renderDocumentsCard(fileMeta) {
+    var model = state.documents;
+    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center">';
+    html += '<span>Documents this interview assembles</span>';
+    html += '<a class="editor-tiny" href="' + ALDOCUMENT_DOCS_URL + '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
+    html += '</div><div class="editor-card-body">';
+
+    if (!state.filename) {
+      html += '<p class="text-muted small mb-0">Open an interview file to see how its templates are assembled.</p>';
+      return html + '</div></div>';
+    }
+    if (!model) {
+      html += '<p class="text-muted small mb-0">Weaver could not read the documents in ' + esc(state.filename) + '.</p>';
+      return html + '</div></div>';
+    }
+
+    var documents = model.documents || [];
+    var bundles = model.bundles || [];
+    if (!documents.length) {
+      html += '<p class="text-muted small mb-0">' + esc(state.filename) + ' does not assemble any documents yet. Analyze a template below to add one.</p>';
+      return html + '</div></div>';
+    }
+
+    var selectedName = fileMeta ? fileMeta.filename : null;
+    bundles.forEach(function (bundle) {
+      html += '<div class="editor-doc-bundle" data-bundle="' + esc(bundle.name) + '">';
+      html += '<div class="editor-doc-bundle-head">';
+      html += '<code class="editor-tiny">' + esc(bundle.name) + '</code>';
+      if (bundle.title) html += '<span class="text-muted small">' + esc(bundle.title) + '</span>';
+      html += '</div>';
+      if (!bundle.elements.length) {
+        html += '<div class="text-muted small">No documents in this bundle.</div>';
+      }
+      html += '<ol class="editor-doc-list">';
+      bundle.elements.forEach(function (element, index) {
+        var isSelected = selectedName && documentLabel(element) === selectedName;
+        html += '<li class="editor-doc-item' + (isSelected ? ' editor-doc-item-current' : '') + '">';
+        html += '<span class="editor-doc-item-name"><code>' + esc(element) + '</code>';
+        var label = documentLabel(element);
+        if (label !== element) html += ' <span class="text-muted">' + esc(label) + '</span>';
+        html += '</span>';
+        html += '<span class="editor-doc-item-actions">';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="up" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === 0 ? ' disabled' : '') + ' title="Assemble earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' earlier in ' + esc(bundle.name) + '</span></button>';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="down" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === bundle.elements.length - 1 ? ' disabled' : '') + ' title="Assemble later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' later in ' + esc(bundle.name) + '</span></button>';
+        html += '</span></li>';
+      });
+      html += '</ol>';
+      html += '<div class="editor-form-group editor-form-group-compact">';
+      html += '<label class="editor-tiny" for="editor-bundle-enabled-' + esc(bundle.name) + '">Include this bundle when</label>';
+      html += '<input class="form-control form-control-sm font-monospace" id="editor-bundle-enabled-' + esc(bundle.name) + '" data-enabled-for="' + esc(bundle.name) + '" value="' + esc(bundle.enabled) + '" placeholder="True">';
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '<div class="editor-doc-rules">';
+    html += '<div class="editor-tiny mb-1">Include each document when</div>';
+    documents.forEach(function (document_) {
+      html += '<div class="editor-doc-rule">';
+      html += '<label class="editor-doc-rule-label" for="editor-doc-enabled-' + esc(document_.name) + '"><code>' + esc(document_.name) + '</code>';
+      if (document_.template_filename) html += ' <span class="text-muted small">' + esc(document_.template_filename) + '</span>';
+      html += '</label>';
+      html += '<input class="form-control form-control-sm font-monospace" id="editor-doc-enabled-' + esc(document_.name) + '" data-enabled-for="' + esc(document_.name) + '" value="' + esc(document_.enabled) + '" placeholder="True">';
+      html += '</div>';
+    });
+    html += '<div class="text-muted small mt-1">A Python expression, evaluated when the download screen is built. Leave one blank to let AssemblyLine decide.</div>';
+    html += '</div>';
+
+    html += '<div class="mt-3 d-flex gap-2 align-items-center">';
+    html += '<button class="btn btn-sm btn-primary" id="save-documents-btn"' + (state.documentsBusy ? ' disabled' : '') + '>Save document changes</button>';
+    html += '<span class="editor-tiny text-muted" id="documents-status"></span>';
+    html += '</div>';
+
+    return html + '</div></div>';
+  }
+
+  function moveDocumentInBundle(bundleName, index, direction) {
+    var model = state.documents;
+    if (!model) return;
+    var bundle = null;
+    (model.bundles || []).forEach(function (candidate) {
+      if (candidate.name === bundleName) bundle = candidate;
+    });
+    if (!bundle) return;
+    var target = direction === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= bundle.elements.length) return;
+    var moved = bundle.elements.splice(index, 1)[0];
+    bundle.elements.splice(target, 0, moved);
+    renderCanvas();
+  }
+
+  function saveDocumentChanges() {
+    var model = state.documents;
+    if (!model || state.documentsBusy) return;
+    var bundles = (model.bundles || []).map(function (bundle) {
+      return { bundle: bundle.name, elements: bundle.elements };
+    });
+    var enabled = [];
+    $$('[data-enabled-for]').forEach(function (input) {
+      enabled.push({
+        name: input.getAttribute('data-enabled-for'),
+        expression: String(input.value || '').trim() || null,
+      });
+    });
+    state.documentsBusy = true;
+    var status = document.getElementById('documents-status');
+    if (status) status.textContent = 'Saving…';
+    apiPost('/api/documents', {
+      project: state.project,
+      filename: state.filename,
+      expected_revision: model.revision,
+      bundles: bundles,
+      enabled: enabled,
+    }).then(function (res) {
+      state.documentsBusy = false;
+      if (!res || !res.success) return;
+      state.documents = res.data;
+      _showSuccessBanner('Document setup saved.');
+      return loadFile().then(function () {
+        renderOutline();
+        renderCanvas();
+      });
+    }).catch(function (error) {
+      state.documentsBusy = false;
+      renderCanvas();
+      if (isSupersededRequest(error)) return;
+      showApiError(error);
+    });
+  }
+
   function renderSecondaryView() {
     var view = state.currentView;
     var section = getSectionFromView(view);
@@ -8499,6 +8671,12 @@
     }
     html += '</div></div>';
     html += '<input type="file" id="section-upload-input" style="display:none" multiple>';
+
+    // Weaver's document analysis used to be spent once, at project creation.
+    // On the Templates tab it stays available for the life of the project.
+    if (view === 'templates') {
+      html += renderDocumentsCard(fileMeta);
+    }
 
     if (!fileMeta) {
       html += '<div class="editor-card"><div class="editor-card-body text-muted">No files in this section yet. Use Upload or + New.</div></div>';
@@ -8642,6 +8820,7 @@
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
     var moveUploadBtn = target.closest('[data-move-upload]');
+    var moveDocBtn = target.closest('[data-move-doc]');
     var projectCardBtn = target.closest('[data-project-card]');
 
     if (blockActionBtn) {
@@ -10226,6 +10405,20 @@
         // title and project name are derived from.
         _suggestNamesFromUpload();
       }
+      return;
+    }
+
+    if (moveDocBtn) {
+      moveDocumentInBundle(
+        moveDocBtn.getAttribute('data-bundle'),
+        parseInt(moveDocBtn.getAttribute('data-doc-index'), 10),
+        moveDocBtn.getAttribute('data-move-doc')
+      );
+      return;
+    }
+
+    if (target.id === 'save-documents-btn') {
+      saveDocumentChanges();
       return;
     }
 

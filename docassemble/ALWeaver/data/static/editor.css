@@ -2322,6 +2322,66 @@ html, body {
   flex: 0 0 auto;
 }
 
+/* ===== Templates tab: documents and template analysis ===== */
+.editor-doc-bundle {
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.editor-doc-bundle-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.editor-doc-list {
+  list-style: decimal;
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.editor-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.editor-doc-item-current .editor-doc-item-name { font-weight: 600; }
+
+.editor-doc-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-item-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.editor-doc-rules { margin-top: 4px; }
+
+.editor-doc-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.editor-doc-rule-label {
+  flex: 0 0 40%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  margin: 0;
+}
+
 /* ===== Block type colors in outline ===== */
 
 .editor-outline-type-q  { background: #dbeafe; color: #1e40af; }

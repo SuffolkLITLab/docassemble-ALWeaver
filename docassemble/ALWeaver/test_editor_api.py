@@ -4,6 +4,7 @@ from io import BytesIO
 from contextlib import nullcontext
 from pathlib import Path
 import os
+import importlib
 import importlib.util
 import sys
 import types
@@ -101,6 +102,17 @@ def _load_api_editor_for_tests():
         "update_metadata_documents_in_yaml": lambda content, edited: content,
     }.items():
         setattr(editor_utils, name, func)
+    # `document_bundles` and `template_analysis` are imported for real by
+    # `api_editor`, and they read these from `editor_utils`.
+    for name, value in {
+        "BLOCK_TYPE_ATTACHMENT": "attachment",
+        "BLOCK_TYPE_CODE": "code",
+        "BLOCK_TYPE_OBJECTS": "objects",
+        "BLOCK_TYPE_QUESTION": "question",
+        "BLOCK_TYPE_TEMPLATE": "template",
+        "_split_top_level_commas": lambda text: [part for part in str(text).split(",")],
+    }.items():
+        setattr(editor_utils, name, value)
 
     editor_ai_utils = types.ModuleType(f"{package_name}.editor_ai_utils")
     editor_ai_utils.DEFAULT_FIELD_TYPES = []
@@ -155,6 +167,10 @@ def _load_api_editor_for_tests():
         f"{package_name}.editor_ai_utils": editor_ai_utils,
         f"{package_name}.playground_publish": playground_publish,
     }
+    # `api_editor` imports this one for real. Import it before the stubs go in,
+    # so it binds to the real `editor_utils` and the document endpoints can be
+    # tested against actual YAML instead of a stub that returns nothing.
+    importlib.import_module(f"{package_name}.document_bundles")
     previous = {name: sys.modules.get(name) for name in stubs}
     module_name = f"{package_name}._test_api_editor"
     try:
@@ -1556,6 +1572,120 @@ class TestEditorNewProjectMultipleUploads(unittest.TestCase):
         self.assertEqual(written["petition.pdf"], b"%PDF-renamed")
         self.assertEqual(written["affidavit.pdf"], b"%PDF-untouched")
         self.assertEqual(result["renamed_template_count"], 1)
+
+
+INTERVIEW_WITH_TWO_DOCUMENTS = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+  - affidavit: ALDocument.using(filename="affidavit", enabled=True)
+---
+objects:
+  - al_user_bundle: ALDocumentBundle.using(elements=[petition, affidavit], filename="p", enabled=True)
+"""
+
+
+class TestEditorDocumentsApi(unittest.TestCase):
+    """Rearranging the documents an interview assembles."""
+
+    def test_it_lists_the_documents_and_their_bundle_order(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents?project=Eviction&filename=main.yml"
+            ):
+                response = api_editor.editor_api_documents()
+        data = response.get_json()["data"]
+        self.assertEqual(
+            [document["name"] for document in data["documents"]],
+            ["petition", "affidavit"],
+        )
+        self.assertEqual(data["bundles"][0]["elements"], ["petition", "affidavit"])
+
+    def _save(self, payload):
+        written = {}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            mock_write.side_effect = (
+                lambda uid, project, filename, content: written.update(
+                    {"content": content}
+                )
+            )
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents", method="POST", json=payload
+            ):
+                response = api_editor.editor_api_save_documents()
+        return response, written.get("content", "")
+
+    def test_reordering_a_bundle_is_written_back(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "bundles": [
+                    {
+                        "bundle": "al_user_bundle",
+                        "elements": ["affidavit", "petition"],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("elements=[affidavit, petition]", content)
+
+    def test_an_enabled_rule_is_written_into_the_declaration(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "enabled": [{"name": "affidavit", "expression": "user_is_low_income"}],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("enabled=user_is_low_income", content)
+        self.assertIn(
+            '- petition: ALDocument.using(filename="petition", enabled=True)', content
+        )
+
+    def test_a_rule_that_is_not_an_expression_is_refused(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "enabled": [{"name": "affidavit", "expression": "if x: y"}],
+            }
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(content, "")
+
+    def test_a_stale_revision_is_a_conflict(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "stale",
+                "bundles": [{"bundle": "al_user_bundle", "elements": ["affidavit"]}],
+            }
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(content, "")
 
 
 class TestEditorStyleCheckSeverity(unittest.TestCase):

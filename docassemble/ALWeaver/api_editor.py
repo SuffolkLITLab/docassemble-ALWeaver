@@ -20,6 +20,8 @@ Provides:
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
     POST /al/editor/api/ai/generate-fields — draft fields for a question with AI
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
+    GET  /al/editor/api/documents — the documents an interview assembles
+    POST /al/editor/api/documents — reorder documents or change what enables them
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
     POST /al/editor/api/draft-review-screen — generate draft review YAML
@@ -95,6 +97,11 @@ from .docassemble_compat import (
     publish_github_package,
     run_target_action_raw,
     set_target_variables,
+)
+from .document_bundles import (
+    interview_documents,
+    set_bundle_elements,
+    set_enabled_expression,
 )
 from .worker_config import (
     CELERY_CONFIGURATION_DOCS_URL,
@@ -8049,6 +8056,148 @@ def editor_api_new_project_job(job_id: str) -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: new-project job status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["GET"])
+def editor_api_documents() -> Response:
+    """List the documents an interview assembles, and the bundles they sit in."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        content = playground_read_yaml(uid, project, filename)
+        data = interview_documents(content).to_dict()
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(content),
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: documents error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["POST"])
+def editor_api_save_documents() -> Response:
+    """Reorder an interview's documents, or change what turns them on.
+
+    Both are edits to `.using()` arguments inside `objects:` declarations:
+    `elements=[...]` is the order the bundle assembles, and `enabled=` is the
+    rule that decides whether a document is in the download at all.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        bundle_updates = post_data.get("bundles") or []
+        enabled_updates = post_data.get("enabled") or []
+        if not isinstance(bundle_updates, list) or not isinstance(
+            enabled_updates, list
+        ):
+            raise ValueError("bundles and enabled must be lists")
+        if not bundle_updates and not enabled_updates:
+            raise ValueError("Nothing was changed.")
+
+        content = playground_read_yaml(uid, project, filename)
+        if source_revision(content) != expected_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": (
+                            "This interview changed somewhere else. Reload "
+                            "before changing the documents."
+                        ),
+                    },
+                },
+                409,
+            )
+
+        for update in bundle_updates:
+            if not isinstance(update, dict):
+                raise ValueError("Each bundle change must be an object")
+            bundle_name = str(update.get("bundle") or "").strip()
+            elements = update.get("elements")
+            if not bundle_name or not isinstance(elements, list):
+                raise ValueError("A bundle change needs a bundle name and elements")
+            content = set_bundle_elements(content, bundle_name, elements)
+
+        for update in enabled_updates:
+            if not isinstance(update, dict):
+                raise ValueError("Each enabled change must be an object")
+            name = str(update.get("name") or "").strip()
+            if not name:
+                raise ValueError("An enabled change needs the variable's name")
+            raw_expression = update.get("expression")
+            expression = None if raw_expression is None else str(raw_expression)
+            content = set_enabled_expression(content, name, expression)
+
+        playground_write_yaml(uid, project, filename, content)
+        updated_model = parse_interview_yaml(content)
+        data = interview_documents(content).to_dict()
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(content),
+                "blocks": updated_model["blocks"],
+                "raw_yaml": content,
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: save documents error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,
