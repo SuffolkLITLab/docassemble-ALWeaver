@@ -8646,7 +8646,10 @@
       html += '<div class="editor-tiny text-muted mb-2" id="template-analysis-status">' + esc(state.templateAnalysisMessage) + '</div>';
     }
 
-    if (!analysis || analysis.template_filename !== fileMeta.filename) {
+    // An analysis belongs to the pair it was run on: switch either the template
+    // or the interview and it no longer describes what is on screen.
+    if (!analysis || analysis.template_filename !== fileMeta.filename
+        || analysis.interview_filename !== state.filename) {
       html += '<p class="text-muted small mb-0">Weaver reads the template\'s fields and offers the attachment block, the screens for fields ' + esc(state.filename) + ' does not ask about yet, and the objects those screens need. You choose which of them to keep.</p>';
       return html + '</div></div>';
     }
@@ -8813,8 +8816,8 @@
       return;
     }
     apiPost('/api/template/apply', {
-      project: state.project,
-      filename: state.filename,
+      project: analysis.project || state.project,
+      filename: analysis.interview_filename,
       expected_revision: analysis.interview_revision,
       blocks: blocks,
       bundles: bundles,
@@ -8822,7 +8825,7 @@
       if (!res || !res.success) return;
       state.templateAnalysis = null;
       state.templateAnalysisSelection = {};
-      _showSuccessBanner('Added to ' + state.filename + '.');
+      _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
       return loadFile().then(loadDocuments).then(function () {
         renderOutline();
         renderCanvas();

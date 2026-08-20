@@ -149,6 +149,25 @@ class TestAnalyzeTemplate(unittest.TestCase):
             analysis.warnings,
         )
 
+    def test_an_interview_with_no_bundle_is_told_the_attachment_goes_nowhere(self):
+        survey = """---
+objects:
+  - users: ALPeopleList.using(there_are_any=True)
+---
+id: user name
+question: |
+  What is your name?
+fields:
+  - First name: users[0].name.first
+"""
+        analysis = self._analyze(["landlord_visits"], interview=survey)
+
+        self.assertIsNotNone(analysis.attachment)
+        self.assertTrue(
+            any("no ALDocumentBundle" in warning for warning in analysis.warnings),
+            analysis.warnings,
+        )
+
     def test_the_objects_it_offers_are_only_the_ones_the_interview_lacks(self):
         analysis = self._analyze(["users1_name_first", "patient1_name_first"])
 

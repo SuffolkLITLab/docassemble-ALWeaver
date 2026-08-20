@@ -468,6 +468,12 @@ def analyze_template(
                 }
             )
 
+    if analysis.attachment is not None and not existing.bundles:
+        analysis.warnings.append(
+            "This interview has no ALDocumentBundle, so an attachment on its "
+            "own will not appear in any download."
+        )
+
     analysis.new_variables = sorted(set(new_variables))
     analysis.known_variables = sorted(set(known_variables))
     return analysis
