@@ -1164,9 +1164,7 @@ def insert_block_in_yaml(
         # A document of nothing but YAML comments is allowed: it is what a
         # blank new block starts as, before its author types a block over it.
         raise ValueError("block_yaml must contain exactly one YAML mapping block")
-    inserted_id = (
-        "" if is_note else str((inserted_value or {}).get("id") or "").strip()
-    )
+    inserted_id = "" if is_note else str((inserted_value or {}).get("id") or "").strip()
     if inserted_id:
         existing_ids = {
             str(block.get("id") or "").strip()

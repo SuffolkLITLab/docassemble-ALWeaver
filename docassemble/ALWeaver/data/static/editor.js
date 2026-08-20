@@ -4898,14 +4898,17 @@
   // -------------------------------------------------------------------------
   // Outline
   // -------------------------------------------------------------------------
-  function filteredBlocks() {
-    var q = state.searchQuery.toLowerCase().trim();
+  // The "Show" control and the "Showing X of Y blocks" summary have to agree on
+  // what the current outline view contains, so both go through this one
+  // predicate. Building it once per pass keeps the order lookup off the hot
+  // path of the per-block test.
+  function jumpTargetMatcher() {
     var orderById = {};
     state.orderIndices.forEach(function (idx) {
       var block = state.blocks[idx];
       if (block && block.id) orderById[block.id] = true;
     });
-    var filtered = state.blocks.filter(function (b) {
+    return function blockMatchesJumpTarget(b) {
       var blockType = getBlockDisplayType(b);
       if (state.jumpTarget === 'all') return true;
       if (state.jumpTarget === 'questions') return blockType === 'question' || blockType === 'review';
@@ -4938,7 +4941,34 @@
         return blockType === 'commented' || b.type === 'commented';
       }
       return true;
-    });
+    };
+  }
+
+  // How much of the file the selected outline view exposes, ignoring the
+  // free-text search: the summary describes the "Show" control, not the query.
+  function outlineFilterCounts() {
+    return {
+      visible: state.blocks.filter(jumpTargetMatcher()).length,
+      total: state.blocks.length
+    };
+  }
+
+  // Keeps "Showing X of Y blocks" honest about the fact that the outline
+  // defaults to a filtered view, and offers the one-click way out of it.
+  function updateOutlineFilterSummary() {
+    var summary = document.getElementById('outline-filter-summary');
+    var countEl = document.getElementById('outline-filter-count');
+    var showAllBtn = document.getElementById('btn-show-all-blocks');
+    if (!summary || !countEl || !showAllBtn) return;
+    var counts = outlineFilterCounts();
+    summary.classList.toggle('d-none', !isInterviewView() || counts.total === 0);
+    countEl.textContent = 'Showing ' + counts.visible + ' of ' + counts.total + ' block' + (counts.total === 1 ? '' : 's');
+    showAllBtn.classList.toggle('d-none', counts.visible >= counts.total);
+  }
+
+  function filteredBlocks() {
+    var q = state.searchQuery.toLowerCase().trim();
+    var filtered = state.blocks.filter(jumpTargetMatcher());
     if (!q) return filtered;
     return filtered.filter(function (b) {
       return [b.title, b.id, b.variable || '', b.yaml, (b.tags || []).join(' '), b.type]
@@ -5070,6 +5100,7 @@
 
   function renderOutline() {
     updateOutlineHeader();
+    updateOutlineFilterSummary();
     if (!isInterviewView()) {
       renderSectionOutline();
       return;
@@ -6021,6 +6052,31 @@
   // -------------------------------------------------------------------------
   // Block canvas — type-specific renderers
   // -------------------------------------------------------------------------
+  // An empty canvas means one of three different things, and saying "No blocks
+  // in this file" for all of them contradicts the outline's own block count.
+  function emptyCanvasHtml() {
+    var counts = outlineFilterCounts();
+    if (counts.total === 0) {
+      return '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
+    }
+    var hidden = counts.total - counts.visible;
+    if (counts.visible === 0) {
+      return '<div class="text-center py-5 text-muted">' +
+        '<p>No blocks match the current outline view.</p>' +
+        '<p class="mb-3">' + esc(String(hidden)) + ' block' + (hidden === 1 ? ' is' : 's are') + ' hidden by the <strong>Show</strong> filter.</p>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="show-all-blocks">Show all blocks</button>' +
+        '</div>';
+    }
+    if (state.searchQuery.trim()) {
+      return '<div class="text-center py-5 text-muted">' +
+        '<p>No blocks match &ldquo;' + esc(state.searchQuery.trim()) + '&rdquo; in the current outline view.</p>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="clear-block-search">Clear search</button>' +
+        '</div>';
+    }
+    // Blocks are visible but none is selected — a stale selection, not a filter.
+    return '<div class="text-center py-5 text-muted"><p>Select a block in the outline to edit it.</p></div>';
+  }
+
   function renderBlockCanvas() {
     if (!state.project) {
       state.canvasMode = 'project-selector';
@@ -6029,7 +6085,7 @@
     }
     var block = getSelectedBlock();
     if (!block) {
-      canvasContent.innerHTML = '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
+      canvasContent.innerHTML = emptyCanvasHtml();
       return;
     }
 
@@ -8675,6 +8731,20 @@
       renderValidationDrawer();
       return;
     }
+    if (uiAction === 'show-all-blocks') {
+      applyOutlineFilter('all', true);
+      return;
+    }
+    if (uiAction === 'clear-block-search') {
+      state.searchQuery = '';
+      if (searchInput) searchInput.value = '';
+      if (!isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+        state.selectedBlockId = getDefaultVisibleBlockId();
+      }
+      renderCanvas();
+      renderOutline();
+      return;
+    }
     if (uiAction === 'check-errors') {
       state.validationOpen = true;
       runValidation();
@@ -10716,29 +10786,44 @@
     renderOutline();
   });
 
+  // Both the "Show" control and the summary's "Show all" button move the
+  // outline to a different filter, so they share one navigation path.
+  // `keepSelection` is for widening the view: "Show all" can only ever add
+  // blocks, so yanking the user off the block they were reading would be
+  // gratuitous, whereas picking a narrower filter usually hides it anyway.
+  function applyOutlineFilter(jump, keepSelection) {
+    if (jump === state.jumpTarget) return;
+    function changeJumpTarget() {
+      stashCurrentEditorState();
+      state.jumpTarget = jump;
+      state.canvasMode = 'question';
+      if (keepSelection) {
+        var selected = getBlockById(state.selectedBlockId);
+        if (!selected || !isBlockVisibleInOutline(selected)) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+      } else {
+        state.selectedBlockId = getDefaultVisibleBlockId();
+      }
+      state.currentView = 'interview';
+      var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+      if (interviewTab) setActiveTopTab(interviewTab);
+      syncJumpSelect();
+      renderCanvas();
+      renderOutline();
+    }
+    if (deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) {
+      // The prompt can still end in "stay", so put the control back to the
+      // filter that is actually applied until the change really goes through.
+      syncJumpSelect();
+      return;
+    }
+    changeJumpTarget();
+  }
+
   if (jumpSelect) {
     jumpSelect.addEventListener('change', function () {
-      var jump = jumpSelect.value;
-      if (jump === state.jumpTarget) return;
-      function changeJumpTarget() {
-        stashCurrentEditorState();
-        state.jumpTarget = jump;
-        state.canvasMode = 'question';
-        state.selectedBlockId = getDefaultVisibleBlockId();
-        state.currentView = 'interview';
-        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
-        if (interviewTab) setActiveTopTab(interviewTab);
-        syncJumpSelect();
-        renderCanvas();
-        renderOutline();
-      }
-      if (deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) {
-        // The prompt can still end in "stay", so put the control back to the
-        // filter that is actually applied until the change really goes through.
-        syncJumpSelect();
-        return;
-      }
-      changeJumpTarget();
+      applyOutlineFilter(jumpSelect.value, false);
     });
   }
 

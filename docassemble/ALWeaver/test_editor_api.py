@@ -76,9 +76,7 @@ def _load_api_editor_for_tests():
             [line for line in text.splitlines() if line.strip()]
         )
         and all(
-            line.lstrip().startswith("#")
-            for line in text.splitlines()
-            if line.strip()
+            line.lstrip().startswith("#") for line in text.splitlines() if line.strip()
         ),
         "parse_interview_yaml": lambda *args, **kwargs: {
             "blocks": [],
