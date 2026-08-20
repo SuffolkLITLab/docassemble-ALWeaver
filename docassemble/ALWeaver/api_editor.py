@@ -7135,7 +7135,7 @@ def _complete_new_project_upload_job(
             os.path.basename(str(name))
             for name in (first_result.get("template_filenames") or [])
         ]
-        if len(woven_names) != len(documents):
+        if len(woven_names) != len(documents) or not all(woven_names):
             woven_names = [
                 os.path.basename(document["filename"]) for document in documents
             ]
