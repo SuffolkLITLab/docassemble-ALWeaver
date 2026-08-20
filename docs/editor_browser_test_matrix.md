@@ -87,11 +87,23 @@ duplicate IDs. Existing metadata, API, source-document, and frontend suites
 cover scoped revisions, raw source responses, dirty-state behavior, and browser
 client contracts.
 
+## Not yet exercised in a browser
+
+The Templates tab gained two surfaces that this matrix has not been re-run
+against: **Analyze this template**, which queues a Celery job and offers the
+attachment, screens, and objects an existing interview is missing, and the
+documents panel, which reorders each `ALDocumentBundle` and edits the `enabled`
+rule on each document and bundle. The analysis path needs a configured
+background worker, so it belongs with the other Celery cases below.
+`test_document_bundles.py`, `test_template_analysis.py`, and the document and
+analysis cases in `test_editor_api.py` cover the source edits and the endpoint
+contracts in the meantime.
+
 ## Deliberate limits of this run
 
 The matrix opened the assistant but did not send an LLM turn, publish to GitHub,
-upload binary template assets, create a Weaver project through Celery, or use
-the runtime inspector. Those paths depend on external model credentials,
+upload binary template assets, create a Weaver project through Celery, analyze a
+template, or use the runtime inspector. Those paths depend on external model credentials,
 GitHub authorization, background-worker configuration, or runtime-inspector
 feature flags and should be exercised in integration environments configured
 for those capabilities. Top insertion is intentionally refused when a YAML
