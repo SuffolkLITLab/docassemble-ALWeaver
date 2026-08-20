@@ -361,6 +361,9 @@ def analyze_template(
     )
     new_variables: List[str] = []
     known_variables: List[str] = []
+    # A draft can declare people across more than one `objects:` block, and
+    # they are offered as one.
+    person_object_declarations: List[Tuple[str, str]] = []
 
     for entry in draft_model["blocks"]:
         data = entry.get("data")
@@ -409,15 +412,7 @@ def analyze_template(
                     ),
                     variables=[document_variable],
                 )
-            if person_declarations:
-                merged = analysis.objects.variables if analysis.objects else []
-                analysis.objects = ProposedBlock(
-                    kind="objects",
-                    title="Objects the new screens need",
-                    yaml=_render_objects_block(person_declarations),
-                    variables=merged
-                    + [name for name, _declaration in person_declarations],
-                )
+            person_object_declarations.extend(person_declarations)
         elif block_type == BLOCK_TYPE_QUESTION:
             trimmed, variables = _trim_question_fields(data, already_defined)
             covered = sorted(
@@ -439,6 +434,14 @@ def analyze_template(
                     variables=variables,
                 )
             )
+
+    if person_object_declarations:
+        analysis.objects = ProposedBlock(
+            kind="objects",
+            title="Objects the new screens need",
+            yaml=_render_objects_block(person_object_declarations),
+            variables=[name for name, _declaration in person_object_declarations],
+        )
 
     if document_variable in existing_documents:
         analysis.document_object = None
