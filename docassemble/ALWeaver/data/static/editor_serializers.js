@@ -410,9 +410,86 @@
     return true;
   }
 
+  /* -------------------------------------------------------------------------
+     Templates for the blocks the "Add a block" modal authors.
+
+     Every one of these has to survive DAYamlChecker on insertion, which rules
+     out shapes that look reasonable but are not valid docassemble: an `id` is
+     only meaningful alongside a key that gives the block a type, so the
+     comment block carries none.
+     ------------------------------------------------------------------------- */
+  function makeNewBlockYaml(kind, stamp) {
+    stamp = stamp || Date.now();
+    if (kind === 'question' || kind === 'ai-screen') {
+      return (
+        'id: question_' + stamp + '\n' +
+        'question: New question\n' +
+        'subquestion: |\n' +
+        '  \n' +
+        'fields:\n' +
+        '  - New field: new_field_' + stamp + '\n'
+      );
+    }
+    if (kind === 'code') {
+      return (
+        'id: code_' + stamp + '\n' +
+        'code: |\n' +
+        '  # Write Python here\n' +
+        '  pass\n'
+      );
+    }
+    if (kind === 'objects') {
+      return (
+        'id: objects_' + stamp + '\n' +
+        'objects:\n' +
+        '  - user: Individual\n'
+      );
+    }
+    if (kind === 'comment') {
+      // No id: a comment block is prose about the interview, docassemble has
+      // nothing to reach it by, and an id with no type key beside it is an
+      // error ("couldn't identify a block type").
+      return (
+        'comment: |\n' +
+        '  Explain what the blocks below do, and why.\n'
+      );
+    }
+    if (kind === 'attachment') {
+      return (
+        'id: attachment_' + stamp + '\n' +
+        'question: Download your document\n' +
+        'subquestion: |\n' +
+        '  Your document is ready.\n' +
+        'attachments:\n' +
+        '  - name: Draft document\n' +
+        '    filename: draft_document\n' +
+        '    docx template file: draft_template.docx\n'
+      );
+    }
+    if (kind === 'review') {
+      return (
+        'id: review_screen_' + stamp + '\n' +
+        'event: review_form\n' +
+        'question: Review your answers\n' +
+        'review:\n' +
+        '  - Edit: new_field_' + stamp + '\n' +
+        '    button: |\n' +
+        '      New answer: ${ showifdef("new_field_' + stamp + '") }\n'
+      );
+    }
+    // The raw block is the "none of the above" choice, so it must not arrive
+    // as a code block: a `code:` key types it as one, and saving would then
+    // re-serialize whatever was typed under a `code: |` leader, indented.
+    // A YAML comment leaves the block genuinely empty — docassemble reads
+    // nothing here, and the checker has no keys to object to — so the author
+    // starts at column one with no structure to delete first.
+    return '# replace with any docassemble YAML\n';
+  }
+
   return {
     escapeYamlStr: escapeYamlStr,
     serializeQuestionToYaml: serializeQuestionToYaml,
+    makeNewBlockYaml: makeNewBlockYaml,
     splitUsingArgs: splitUsingArgs,
     readPeopleListQuantity: readPeopleListQuantity,
     composePeopleListUsingArgs: composePeopleListUsingArgs,

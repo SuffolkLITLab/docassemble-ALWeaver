@@ -3612,3 +3612,174 @@ html, body {
 .editor-al-setting-computed {
   color: var(--editor-muted);
 }
+
+/* ===== Add-a-block modal =====
+   A grouped card list rather than a stack of buttons: each row carries an
+   icon tile, a name, one line of plain-language explanation, and a round
+   plus affordance on the right. The whole card is the button. */
+
+.editor-insert-dialog {
+  max-width: 520px;
+}
+
+.editor-insert-content {
+  border: 0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.editor-insert-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--editor-border);
+  background: #fff;
+}
+
+.editor-insert-title {
+  grid-column: 2;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.editor-insert-cancel {
+  justify-self: start;
+  padding: 2px 4px;
+  border: 0;
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--editor-primary);
+}
+
+.editor-insert-cancel:hover,
+.editor-insert-cancel:focus-visible {
+  text-decoration: underline;
+}
+
+/* Balances the Cancel button so the title stays optically centered. */
+.editor-insert-header-spacer {
+  grid-column: 3;
+}
+
+.editor-insert-body {
+  padding: 12px;
+  background: var(--editor-bg);
+}
+
+.editor-insert-group-label {
+  margin: 4px 4px 6px;
+  color: var(--editor-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-insert-group-label + .editor-insert-list {
+  margin-bottom: 16px;
+}
+
+.editor-insert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-insert-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--editor-card-shadow);
+  text-align: left;
+  color: var(--editor-fg);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.editor-insert-card:hover {
+  border-color: var(--editor-primary);
+  box-shadow: 0 2px 8px rgba(13, 57, 112, 0.14);
+}
+
+.editor-insert-card:focus-visible {
+  outline: 2px solid var(--editor-primary);
+  outline-offset: 2px;
+}
+
+.editor-insert-card:active {
+  transform: scale(0.995);
+}
+
+.editor-insert-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--editor-primary-bg);
+  color: var(--editor-primary);
+  font-size: 16px;
+}
+
+.editor-insert-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editor-insert-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.editor-insert-desc {
+  color: var(--editor-muted);
+  font-size: 12px;
+}
+
+.editor-insert-plus {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--editor-primary-bg);
+  color: var(--editor-primary);
+  font-size: 12px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.editor-insert-card:hover .editor-insert-plus {
+  background: var(--editor-primary);
+  color: #fff;
+}
+
+.editor-insert-footnote {
+  margin-top: 4px;
+  padding: 4px;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-insert-card {
+    transition: none;
+  }
+  .editor-insert-card:active {
+    transform: none;
+  }
+}
