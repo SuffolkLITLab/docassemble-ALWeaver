@@ -8088,7 +8088,7 @@
       + '<div class="editor-dropzone-icon">&#128196;</div>'
       + '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>'
       + '<div class="text-muted small mt-1">or click to browse</div>'
-      + '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>'
+      + '<div class="text-muted small mt-2">Add every form in the filing. Weaver drafts one interview from all of them: each contributes its fields and its own download. The first file names the interview, and the order here is the order they come out in.</div>'
       + '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">'
       + '</div>'
       + '<div id="upload-file-list" class="mt-2"></div>');
@@ -8276,17 +8276,35 @@
     suggest('new-project-short-title', shortTitle);
   }
 
+  // A filing's documents come out in the order they are listed, and the first
+  // one names the interview, so the list is ordered and reorderable rather than
+  // a bag of chips.
   function _renderFileList() {
     var container = document.getElementById('upload-file-list');
     if (!container) return;
     if (_uploadedFiles.length === 0) { container.innerHTML = ''; return; }
-    var html = '<div class="d-flex flex-wrap gap-2">';
+    var multiple = _uploadedFiles.length > 1;
+    var html = '<ol class="editor-upload-list">';
     _uploadedFiles.forEach(function (f, idx) {
       var sizeKb = (f.size / 1024).toFixed(1);
-      html += '<div class="editor-upload-chip"><span>' + esc(f.name) + ' <span class="text-muted">(' + sizeKb + ' KB)</span></span>';
-      html += '<button class="editor-upload-chip-remove" data-remove-upload="' + idx + '">&times;</button></div>';
+      html += '<li class="editor-upload-item">';
+      html += '<span class="editor-upload-item-name">' + esc(f.name) + ' <span class="text-muted">(' + sizeKb + ' KB)</span></span>';
+      if (multiple && idx === 0) {
+        html += '<span class="editor-pill editor-pill-muted">Names the interview</span>';
+      }
+      html += '<span class="editor-upload-item-actions">';
+      if (multiple) {
+        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="up" data-upload-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + ' title="Move earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' earlier</span></button>';
+        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="down" data-upload-idx="' + idx + '"' + (idx === _uploadedFiles.length - 1 ? ' disabled' : '') + ' title="Move later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' later</span></button>';
+      }
+      html += '<button type="button" class="editor-upload-chip-remove" data-remove-upload="' + idx + '" title="Remove"><span aria-hidden="true">&times;</span><span class="visually-hidden">Remove ' + esc(f.name) + '</span></button>';
+      html += '</span></li>';
     });
-    html += '</div>';
+    html += '</ol>';
+    if (multiple) {
+      html += '<div class="text-muted small mt-2">A long companion form is often better as its own interview that this one calls into. See '
+        + '<a href="https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+    }
     container.innerHTML = html;
   }
 
@@ -8623,6 +8641,7 @@
     var reviewItemToggle = target.closest('[data-review-item-toggle]');
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
+    var moveUploadBtn = target.closest('[data-move-upload]');
     var projectCardBtn = target.closest('[data-project-card]');
 
     if (blockActionBtn) {
@@ -10193,6 +10212,20 @@
       _uploadedFiles.splice(removeIdx, 1);
       _renderFileList();
       _suggestNamesFromUpload();
+      return;
+    }
+
+    if (moveUploadBtn) {
+      var moveIdx = parseInt(moveUploadBtn.getAttribute('data-upload-idx'), 10);
+      var moveTo = moveUploadBtn.getAttribute('data-move-upload') === 'up' ? moveIdx - 1 : moveIdx + 1;
+      if (moveIdx >= 0 && moveTo >= 0 && moveTo < _uploadedFiles.length) {
+        var moved = _uploadedFiles.splice(moveIdx, 1)[0];
+        _uploadedFiles.splice(moveTo, 0, moved);
+        _renderFileList();
+        // The lead document may have changed, and it is what the suggested
+        // title and project name are derived from.
+        _suggestNamesFromUpload();
+      }
       return;
     }
 

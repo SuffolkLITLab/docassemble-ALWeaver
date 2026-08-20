@@ -3,6 +3,7 @@
 from io import BytesIO
 from contextlib import nullcontext
 from pathlib import Path
+import os
 import importlib.util
 import sys
 import types
@@ -1438,6 +1439,123 @@ class TestEditorNewProjectNaming(unittest.TestCase):
         # An explicit jurisdiction is not overwritten by the default state.
         self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
         self.assertEqual(overrides["state"], "MA")
+
+
+class TestEditorNewProjectMultipleUploads(unittest.TestCase):
+    """Every uploaded document is woven into the one generated interview."""
+
+    def _run(self, uploaded_files, generator_result=None, **job_kwargs):
+        payload = {
+            "yaml_text": "metadata:\n  title: Filing\n",
+            "yaml_filename": "filing.yml",
+            "input_filename": uploaded_files[0]["filename"],
+            "generated_template_files": [],
+        }
+        payload.update(generator_result or {})
+        written = {}
+        with (
+            patch.object(api_editor, "_update_new_project_job_state"),
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(api_editor, "_copy_files_to_section") as mock_copy,
+            patch.object(
+                api_editor, "generate_interview_from_bytes", return_value=payload
+            ) as mock_generate,
+        ):
+            mock_copy.side_effect = lambda **kwargs: written.update(
+                {
+                    os.path.basename(path): Path(path).read_bytes()
+                    for path in kwargs["files"]
+                }
+            )
+            result = api_editor._complete_new_project_upload_job(
+                job_id="job-1",
+                uid=7,
+                project_name="Filing",
+                request_id="req-1",
+                uploaded_files=uploaded_files,
+                generation_options={},
+                debug_requested=False,
+                **job_kwargs,
+            )
+        return result, mock_generate.call_args.kwargs, written
+
+    def test_the_companion_documents_reach_the_generator(self):
+        result, generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-petition",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-affidavit",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"template_filenames": ["petition.pdf", "affidavit.pdf"]},
+        )
+
+        self.assertEqual(generate_kwargs["filename"], "petition.pdf")
+        self.assertEqual(
+            [
+                document["filename"]
+                for document in generate_kwargs["additional_documents"]
+            ],
+            ["affidavit.pdf"],
+        )
+        self.assertEqual(
+            generate_kwargs["additional_documents"][0]["content_bytes"],
+            b"%PDF-affidavit",
+        )
+        self.assertEqual(result["woven_templates"], ["petition.pdf", "affidavit.pdf"])
+        self.assertEqual(sorted(written), ["affidavit.pdf", "petition.pdf"])
+
+    def test_the_project_stores_the_names_the_yaml_refers_to(self):
+        """Two uploads sharing a name are told apart by the generator."""
+        _result, _generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "form.pdf",
+                    "content_bytes": b"%PDF-first",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "form.pdf",
+                    "content_bytes": b"%PDF-second",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"template_filenames": ["form.pdf", "form_2.pdf"]},
+        )
+        self.assertEqual(written["form.pdf"], b"%PDF-first")
+        self.assertEqual(written["form_2.pdf"], b"%PDF-second")
+
+    def test_a_renamed_template_replaces_the_original_in_the_project(self):
+        """The YAML names fields that only exist in the rewritten file."""
+        result, _generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-original",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-untouched",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={
+                "template_filenames": ["petition.pdf", "affidavit.pdf"],
+                "normalized_template_files": [
+                    {"filename": "petition.pdf", "content_bytes": b"%PDF-renamed"}
+                ],
+            },
+        )
+        self.assertEqual(written["petition.pdf"], b"%PDF-renamed")
+        self.assertEqual(written["affidavit.pdf"], b"%PDF-untouched")
+        self.assertEqual(result["renamed_template_count"], 1)
 
 
 class TestEditorStyleCheckSeverity(unittest.TestCase):

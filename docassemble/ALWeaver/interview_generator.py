@@ -92,6 +92,10 @@ class WeaverGenerationResult:
     yaml_path: Optional[str] = None
     package_zip_path: Optional[str] = None
     template_paths: List[str] = field(default_factory=list)
+    #: The filename each woven template ended up with, in bundle order. These
+    #: are the names the generated YAML refers to, and they can differ from the
+    #: names handed in when two templates arrived sharing one.
+    template_names: List[str] = field(default_factory=list)
     #: `(old name, new name)` for the PDF fields renaming would improve, across
     #: every template. Only applied when `normalize_field_names` was asked for;
     #: reported either way so a caller can show them and offer to run again.
@@ -7395,4 +7399,7 @@ def generate_interview_from_path(
         renames_applied=renames_applied,
         suggested_renames_by_template=suggested_renames_by_template,
         normalized_template_paths=normalized_template_paths,
+        template_names=[
+            str(template_input.exact_name) for template_input in template_inputs
+        ],
     )

@@ -7048,9 +7048,7 @@ def _complete_new_project_upload_job(
             started_at=time.time(),
             progress=5,
         )
-        temp_paths: List[str] = []
-        first_result: Optional[Dict[str, Any]] = None
-
+        documents: List[Dict[str, Any]] = []
         for payload in uploaded_files:
             filename = str(payload.get("filename") or "").strip()
             content_bytes = payload.get("content_bytes") or b""
@@ -7059,32 +7057,74 @@ def _complete_new_project_upload_job(
                 raise ValueError("Uploaded file is missing a filename.")
             if not isinstance(content_bytes, (bytes, bytearray)):
                 raise ValueError("Uploaded file bytes are invalid.")
+            documents.append(
+                {
+                    "filename": filename,
+                    "content_bytes": bytes(content_bytes),
+                    "mimetype": str(mimetype) if mimetype else None,
+                }
+            )
 
-            dest = os.path.join(temp_dir, filename)
-            with open(dest, "wb") as fh:
-                fh.write(bytes(content_bytes))
-            temp_paths.append(dest)
-
-            if first_result is None:
-                stage = "generate_interview"
-                _update_new_project_job_state(
-                    job_id,
-                    status="running",
-                    stage=stage,
-                    message="Generating interview from the uploaded document.",
-                    progress=20,
-                )
-                first_result = generate_interview_from_bytes(
-                    filename=filename,
-                    content_bytes=bytes(content_bytes),
-                    mimetype=str(mimetype) if mimetype else None,
-                    generation_options=generation_options,
-                    include_yaml_text=True,
-                    include_generated_template_bytes=True,
-                )
-
-        if first_result is None:
+        if not documents:
             raise ValueError("No valid files were uploaded.")
+
+        stage = "generate_interview"
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=stage,
+            message=(
+                "Generating interview from the uploaded document."
+                if len(documents) == 1
+                else f"Generating interview from {len(documents)} uploaded documents."
+            ),
+            progress=20,
+        )
+        # Every upload is woven into the one interview: each contributes its
+        # fields, its own attachment block, and an entry in the bundle.
+        first_result = generate_interview_from_bytes(
+            filename=documents[0]["filename"],
+            content_bytes=documents[0]["content_bytes"],
+            mimetype=documents[0]["mimetype"],
+            generation_options=generation_options,
+            include_yaml_text=True,
+            include_generated_template_bytes=True,
+            additional_documents=documents[1:],
+        )
+
+        # Renaming rewrites the template, and the YAML now refers to the new
+        # field names, so the project has to carry the rewritten file.
+        normalized_bytes: Dict[str, bytes] = {}
+        for normalized_file in first_result.get("normalized_template_files", []) or []:
+            if not isinstance(normalized_file, dict):
+                continue
+            normalized_name = os.path.basename(
+                str(normalized_file.get("filename") or "")
+            )
+            normalized_content = normalized_file.get("content_bytes")
+            if not normalized_name or not isinstance(
+                normalized_content, (bytes, bytearray)
+            ):
+                continue
+            normalized_bytes[normalized_name] = bytes(normalized_content)
+
+        # Weaver has the final say on template filenames -- two uploads that
+        # arrived sharing one are told apart there -- so the project stores
+        # them under the names the generated YAML refers to.
+        woven_names = [
+            os.path.basename(str(name))
+            for name in (first_result.get("template_filenames") or [])
+        ]
+        if len(woven_names) != len(documents):
+            woven_names = [
+                os.path.basename(document["filename"]) for document in documents
+            ]
+        temp_paths: List[str] = []
+        for document, woven_name in zip(documents, woven_names):
+            dest = os.path.join(temp_dir, woven_name)
+            with open(dest, "wb") as fh:
+                fh.write(normalized_bytes.get(woven_name) or document["content_bytes"])
+            temp_paths.append(dest)
 
         yaml_text = str(first_result.get("yaml_text", "") or "")
         if not yaml_text:
@@ -7148,8 +7188,10 @@ def _complete_new_project_upload_job(
             "project": project_name,
             "filename": yaml_filename,
             "generated_from": first_result.get("input_filename"),
+            "woven_templates": woven_names,
             "uploaded_count": len(temp_paths),
             "generated_template_count": len(generated_paths),
+            "renamed_template_count": len(normalized_bytes),
         }
         _update_new_project_job_state(
             job_id,
