@@ -8734,7 +8734,8 @@
     html += '<div class="editor-enabled-custom"' + (mode === 'custom' ? '' : ' hidden') + ' data-enabled-custom="' + esc(name) + '">';
     html += '<label class="editor-tiny" for="' + esc(safeId) + '-expression">Python expression, evaluated when the download screen is built</label>';
     html += '<input class="form-control form-control-sm font-monospace" id="' + esc(safeId) + '-expression" data-enabled-expression="' + esc(name) + '"';
-    html += ' value="' + esc(mode === 'custom' ? expression : '') + '" placeholder="user_is_low_income" spellcheck="false">';
+    html += ' value="' + esc(mode === 'custom' ? expression : '') + '" spellcheck="false">';
+    html += '<div class="editor-tiny text-muted mt-1">Example: <code>user_is_low_income</code></div>';
     html += '</div>';
 
     if (mode === 'unset') {
