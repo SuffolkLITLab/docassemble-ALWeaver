@@ -8581,6 +8581,7 @@
     }).catch(function (error) {
       if (isSupersededRequest(error)) return;
       state.documents = null;
+      state.documentsLoaded = null;
     });
   }
 
@@ -8635,6 +8636,8 @@
     updateTopbarSaveState();
     var saveButton = document.getElementById('save-documents-btn');
     if (saveButton) saveButton.disabled = state.documentsBusy || !state.documentsDirty;
+    var status = document.getElementById('documents-status');
+    if (status) status.textContent = state.documentsDirty ? 'Unsaved changes' : '';
   }
 
   function documentByName(name) {
@@ -8705,8 +8708,11 @@
     });
 
     if (!documents.length) {
-      html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents this file does not define.</p>';
+      // Bundles can list documents an included file declares. Their order is
+      // still this file's to change, so the save row below still applies.
+      html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents it does not define.</p>';
     }
+
     html += '<div class="editor-doc-rules"' + (documents.length ? '' : ' hidden') + '>';
     html += '<div class="editor-tiny mb-1">Include each document when</div>';
     documents.forEach(function (document_) {
@@ -11064,6 +11070,14 @@
       applyAssemblyLineSettingsFilter();
       return;
     }
+    if (target.matches('[data-enabled-for]')) {
+      // On `change` this would only run at blur -- which is the same click
+      // that presses Save, so the first press would land on a still-disabled
+      // button and do nothing.
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+      return;
+    }
     if (target.matches('[data-al-setting]')) {
       state.assemblyLineSettingsDirty = true;
       var settingsSave = document.getElementById('save-assemblyline-settings');
@@ -11111,11 +11125,6 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
-    if (target.matches('[data-enabled-for]')) {
-      captureDocumentEnabledInputs();
-      markDocumentsDirty();
-      return;
-    }
     if (target.matches('[data-import-key]')) {
       // Recorded rather than re-rendered: unticking one proposal should not
       // collapse the YAML previews the author has open next to it.
@@ -11165,6 +11174,9 @@
           }
           if (res.data && Array.isArray(res.data.saved_files) && res.data.saved_files.length) {
             state.sectionSelectedFile[state.currentView] = res.data.saved_files[0];
+            // Uploading is about the file just added, not the project-wide
+            // document setup the author may have been looking at.
+            if (state.currentView === 'templates') state.templatesMode = 'files';
           }
           state.sectionDirty = false;
           noteModuleSaveResult(res.data);

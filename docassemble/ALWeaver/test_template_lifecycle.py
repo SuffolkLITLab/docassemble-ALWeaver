@@ -457,6 +457,87 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.project.read_yaml(7, "P", "main.yml"), before)
 
+    def test_the_whole_sequence_in_one_project(self):
+        """Every step in order, on cumulative state, ending in valid YAML."""
+        # 1. A project generated from two forms.
+        self._generate(
+            [
+                ("petition.pdf", ["users1_name_first", "rent_amount"]),
+                ("affidavit.pdf", ["users1_name_first", "landlord_visits"]),
+            ]
+        )
+        model = self._documents()
+        self.assertEqual(
+            [document["name"] for document in model["documents"]],
+            ["petition", "affidavit"],
+        )
+
+        # 2. A third form is dropped into templates/ and is nobody's document.
+        self.project.add_pdf("cover_sheet.pdf", ["hearing_is_remote"])
+        self.assertEqual(
+            self._documents()["templates"]["cover_sheet.pdf"]["status"],
+            "not_imported",
+        )
+
+        # 3. Imported, it becomes one, and joins every bundle.
+        self._apply(self._import("cover_sheet.pdf"))
+        self.assertEqual(
+            self._documents()["templates"]["cover_sheet.pdf"]["status"], "attached"
+        )
+
+        # 4. The cover sheet belongs on top of the filing.
+        response = self._save_documents(
+            bundles=[
+                {
+                    "bundle": bundle["name"],
+                    "elements": ["cover_sheet", "petition", "affidavit"],
+                }
+                for bundle in self._documents()["bundles"]
+            ]
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+
+        # 5. The affidavit is only filed by some users.
+        response = self._save_documents(
+            enabled=[{"name": "affidavit", "expression": "user_is_low_income"}]
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+
+        # 6. The court revises the petition.
+        self.project.add_pdf(
+            "petition.pdf",
+            ["users1_name_first", "rent_amount", "court_ordered_relief"],
+        )
+        reload = self._import("petition.pdf")
+        self.assertTrue(reload.already_imported)
+        self._apply(reload)
+
+        model = self._documents()
+        by_name = {document["name"]: document for document in model["documents"]}
+        self.assertEqual(sorted(by_name), ["affidavit", "cover_sheet", "petition"])
+        self.assertEqual(by_name["affidavit"]["enabled"], "user_is_low_income")
+        self.assertEqual(by_name["petition"]["enabled"], "True")
+        for bundle in model["bundles"]:
+            self.assertEqual(
+                bundle["elements"], ["cover_sheet", "petition", "affidavit"]
+            )
+        self.assertEqual(
+            {name: entry["status"] for name, entry in model["templates"].items()},
+            {
+                "affidavit.pdf": "attached",
+                "cover_sheet.pdf": "attached",
+                "petition.pdf": "attached",
+            },
+        )
+
+        source = self.project.read_yaml(7, "P", "main.yml")
+        # One attachment per template, and the revision's new field reached it.
+        for template in ("petition.pdf", "affidavit.pdf", "cover_sheet.pdf"):
+            self.assertEqual(source.count(f"pdf template file: {template}"), 1)
+        self.assertIn('- "court_ordered_relief"', source)
+        self.assertIn("hearing_is_remote", source)
+        self.assertEqual(self._lint(), [])
+
     def test_the_modules_agree_with_the_endpoints(self):
         """The Templates tab and the source both read the same file."""
         self._generate(
