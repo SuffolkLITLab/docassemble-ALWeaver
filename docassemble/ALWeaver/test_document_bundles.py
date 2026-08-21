@@ -119,10 +119,23 @@ content file: logo.png
         self.assertEqual(statuses["logo.png"]["document"], "")
 
     def test_a_template_nothing_mentions_has_not_been_imported(self):
-        statuses = template_status(EXISTING_INTERVIEW, ["cover_sheet.pdf"])
+        statuses = template_status(
+            EXISTING_INTERVIEW, ["cover_sheet.pdf", "notice.docx"]
+        )
         self.assertEqual(
             statuses["cover_sheet.pdf"],
             {"status": "not_imported", "document": ""},
+        )
+        self.assertEqual(
+            statuses["notice.docx"],
+            {"status": "not_imported", "document": ""},
+        )
+
+    def test_a_stray_file_that_could_never_be_a_document_is_not_an_import(self):
+        """Offering to import a PNG would be nonsense."""
+        statuses = template_status(EXISTING_INTERVIEW, ["seal.png", "notes.txt"])
+        self.assertEqual(
+            [entry["status"] for entry in statuses.values()], ["unused", "unused"]
         )
 
 

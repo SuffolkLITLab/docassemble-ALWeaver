@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .document_bundles import (
-    declaration_keyword,
     interview_documents,
     objects_declarations as _objects_declarations,
     reference_root as _reference_root,
@@ -384,14 +383,13 @@ def analyze_template(
         ),
         None,
     )
+    plain_name = document_names([template_filename])[template_filename].variable
     if imported_as is not None:
-        naming = DocumentName(
-            variable=imported_as.name,
-            filename=declaration_keyword(imported_as.declaration, "filename").strip(
-                "\"'"
-            )
-            or imported_as.name,
-        )
+        document_variable = imported_as.name
+        # Nothing about the existing document's naming is up for negotiation
+        # on a re-read, so there is no second name to work out.
+        disambiguated = False
+        output_filename = ""
     else:
         # A newcomer must not take a name another document already holds --
         # including one an author renamed by hand. The plain name of every
@@ -401,16 +399,15 @@ def analyze_template(
         # generated from a single template does.
         taken = {document.name for document in existing.documents}
         for document in existing.documents:
-            if not document.template_filename:
-                continue
             attached = document.template_filename
-            taken.add(document_names([attached])[attached].variable)
+            if attached:
+                taken.add(document_names([attached])[attached].variable)
         naming = document_variable_for(template_filename, taken=taken)
-    document_variable = naming.variable
-    plain_name = document_names([template_filename])[template_filename].variable
-    # True when this template could not have the name its filename suggests,
-    # because the interview already assembles a document called that.
-    disambiguated = imported_as is None and document_variable != plain_name
+        document_variable = naming.variable
+        output_filename = naming.filename
+        # True when this template could not have the name its filename
+        # suggests, because the interview already assembles one called that.
+        disambiguated = document_variable != plain_name
 
     options: Dict[str, Any] = {
         "create_package_zip": False,
@@ -474,7 +471,7 @@ def analyze_template(
             )
             if disambiguated:
                 attachment_yaml = _rename_attachment_output(
-                    attachment_yaml, naming.filename
+                    attachment_yaml, output_filename
                 )
             analysis.attachment = ProposedBlock(
                 kind="attachment",
@@ -505,7 +502,7 @@ def analyze_template(
                 )
                 if disambiguated:
                     declaration = with_declaration_keyword(
-                        declaration, "filename", f'"{naming.filename}"'
+                        declaration, "filename", f'"{output_filename}"'
                     )
                 analysis.document_object = ProposedBlock(
                     kind="document_object",
@@ -575,7 +572,7 @@ def analyze_template(
             analysis.warnings.append(
                 f"This interview already has a document called `{plain_name}`, "
                 f"so this one is `{document_variable}` and downloads as "
-                f"{naming.filename}."
+                f"{output_filename}."
             )
         for bundle in existing.bundles:
             if document_variable in bundle.elements:

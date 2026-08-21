@@ -41,6 +41,7 @@ __all__ = [
     "TEMPLATE_ATTACHED",
     "TEMPLATE_NOT_IMPORTED",
     "TEMPLATE_REFERENCED",
+    "TEMPLATE_UNUSED",
     "set_bundle_elements",
     "set_enabled_expression",
 ]
@@ -441,14 +442,20 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
     return InterviewDocuments(documents=documents, bundles=bundles)
 
 
-#: A template that no attachment fills and nothing in the source mentions has
-#: been uploaded but not wired into the interview yet.
+#: A PDF or DOCX that no attachment fills and nothing in the source mentions:
+#: uploaded, but not wired into the interview yet.
 TEMPLATE_NOT_IMPORTED = "not_imported"
 #: A template an `attachment` block fills, so it becomes one of the documents.
 TEMPLATE_ATTACHED = "attached"
-#: A template the source refers to some other way -- a `content file:` on a
+#: A file the source refers to some other way -- a `content file:` on a
 #: question, say -- which is a legitimate use that is not a document.
 TEMPLATE_REFERENCED = "referenced"
+#: A file nothing mentions that could not have become a document anyway, like a
+#: stray image. Worth reporting, but not something to offer to import.
+TEMPLATE_UNUSED = "unused"
+
+#: What Weaver can read fields out of and turn into an assembled document.
+IMPORTABLE_EXTENSIONS = (".pdf", ".docx")
 
 
 def template_status(
@@ -488,8 +495,11 @@ def template_status(
             # Mentioned but not as an attachment: a `content file:`, an include,
             # or a reference from code. Not a document, but not an orphan.
             statuses[name] = {"status": TEMPLATE_REFERENCED, "document": ""}
-        else:
+        elif name.lower().endswith(IMPORTABLE_EXTENSIONS):
             statuses[name] = {"status": TEMPLATE_NOT_IMPORTED, "document": ""}
+        else:
+            # Telling the author to import a stray PNG would be nonsense.
+            statuses[name] = {"status": TEMPLATE_UNUSED, "document": ""}
     return statuses
 
 

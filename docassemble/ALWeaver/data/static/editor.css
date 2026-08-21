@@ -2369,6 +2369,12 @@ html, body {
   padding-left: 22px;
 }
 
+/* Numbering a set of orphans would imply an order they do not have. */
+.editor-doc-list-plain {
+  list-style: none;
+  padding-left: 0;
+}
+
 .editor-doc-item {
   display: flex;
   align-items: center;

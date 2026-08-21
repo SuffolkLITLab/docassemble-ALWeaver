@@ -9095,7 +9095,7 @@
     if (!pending.length) return '';
     var html = '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
     html += '<p class="text-muted small">These files are in the project but nothing in ' + esc(state.filename || 'the interview') + ' uses them. Open one under Template files to import it.</p>';
-    html += '<ul class="editor-doc-list">';
+    html += '<ul class="editor-doc-list editor-doc-list-plain">';
     pending.forEach(function (filename) {
       html += '<li class="editor-doc-item"><span class="editor-doc-item-name">' + esc(filename) + '</span>';
       html += '<span class="editor-doc-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-open-template="' + esc(filename) + '">Open</button></span></li>';
