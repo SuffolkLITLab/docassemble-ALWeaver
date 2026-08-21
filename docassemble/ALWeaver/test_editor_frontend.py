@@ -89,6 +89,56 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("hasUnsavedChanges()", editor)
         self.assertIn(".editor-project-search-context", css)
 
+    def test_new_template_offers_a_blank_file_or_a_drafted_document(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="new-template-modal"', template)
+        self.assertIn('id="new-template-kind-blank"', template)
+        self.assertIn('id="new-template-kind-report"', template)
+        self.assertIn('id="new-template-report-filename"', template)
+        self.assertIn('id="new-template-report-sources"', template)
+        self.assertIn(".editor-choice-card", css)
+
+        # Both ways in: the file list's "+ New", and Document setup itself.
+        self.assertIn("function openNewTemplateModal()", editor)
+        self.assertIn("if (state.currentView === 'templates') {", editor)
+        self.assertIn('id="btn-new-template-setup"', editor)
+        self.assertIn("apiPost('/api/template/variable-report'", editor)
+        self.assertIn("/api/template/variable-report/suggestion?project=", editor)
+
+    def test_review_screen_is_re_synced_rather_than_appended(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("Sync from questions", editor)
+        self.assertIn("mode: 'sync'", editor)
+        self.assertIn("res.data.full_yaml", editor)
+        # The draft is built from the file on disk.
+        self.assertIn("promptAndSaveUnsavedChanges('sync the review screen')", editor)
+
+    def test_a_synced_review_screen_is_reviewed_as_a_diff_not_as_the_whole_file(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="review-sync-modal"', template)
+        self.assertIn('data-review-sync-tab="diff"', template)
+        self.assertIn('data-review-sync-tab="draft"', template)
+        self.assertIn('id="review-sync-apply"', template)
+        self.assertIn("function renderUnifiedDiffHtml(", editor)
+        self.assertIn("function openReviewSyncModal(", editor)
+        self.assertIn(".editor-diff-add", css)
+        self.assertIn(".editor-diff-del", css)
+
+        # Applying saves the file and comes back to the review block, rather
+        # than leaving the author in a source editor for the whole interview.
+        self.assertIn("function applyReviewSync(", editor)
+        self.assertIn("selectReviewBlockAfterSync()", editor)
+        # The full-YAML route stays available, as a deliberate choice.
+        self.assertIn('id="review-sync-full-yaml"', template)
+        self.assertIn("function openReviewSyncInFullYaml(", editor)
+
     def test_github_publish_uses_a_main_menu_modal_and_reports_the_commit(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()

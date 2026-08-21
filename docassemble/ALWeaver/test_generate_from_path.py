@@ -394,6 +394,68 @@ question: |
         self.assertNotIn("- Edit: signature_date", yaml_text)
         self.assertIn("\n  signature_date\n", yaml_text)
 
+    def test_review_screen_groups_a_screens_fields_into_one_entry(self):
+        """One entry per question, not one per variable. See #865."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(
+                    Path(__file__).parent
+                    / "test/test_petition_to_enforce_sanitary_code.pdf"
+                ),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        review = yaml_text.split("\nreview:", 1)[1].split("\n---", 1)[0]
+        entries = re.findall(r"(?m)^  - Edit: (\S+)$", review)
+        reviewed_values = re.findall(r"(?m)^      [^%*].*: \$\{ (.+) \}$", review)
+
+        # Several variables share one entry, which is the whole point of #865.
+        self.assertGreater(len(reviewed_values), len(entries))
+        # Every entry has a bold heading and at least one value or a list loop.
+        self.assertEqual(review.count("    button: |"), len(entries))
+        self.assertEqual(
+            len(re.findall(r"(?m)^      \*\*.+\*\*$", review)), len(entries)
+        )
+
+        # Nothing in the recap may send the user back into the interview just
+        # for reading it: every value is either showifdef() or guarded.
+        for value in reviewed_values:
+            self.assertTrue(
+                value.startswith("showifdef(") or " if defined(" in value,
+                f"{value!r} would force a variable to be defined",
+            )
+
+        # Lists keep their own revisit entry rather than being folded into a
+        # screen, because "Edit" has to reach the whole list.
+        self.assertIn("users.revisit", entries)
+        self.assertIn("plaintiffs.revisit", entries)
+
+    def test_a_review_table_never_forces_a_signature(self):
+        """Editing a row used to march the user through a signature pad. #482"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(
+                    Path(__file__).parent
+                    / "test/test_petition_to_enforce_sanitary_code.pdf"
+                ),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        table = yaml_text.split("table: plaintiffs.table", 1)[1].split("\n---", 1)[0]
+        edits = table.split("edit:", 1)[1]
+        self.assertNotIn("- signature\n", edits)
+        # The attributes the interview really does ask about are still editable.
+        self.assertIn("- name.first\n", edits)
+        self.assertIn("- phone_number\n", edits)
+        # The signature is still shown in the table, just not demanded.
+        self.assertIn("row_item.signature", table)
+
     def test_generated_yaml_has_no_leading_or_trailing_blank_lines(self):
         """Mako's control-flow lines used to leave blank lines wrapping the file."""
         for source in (

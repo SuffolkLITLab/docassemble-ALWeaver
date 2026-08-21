@@ -4073,3 +4073,66 @@ html, body {
     transform: none;
   }
 }
+
+/* Choice cards in the "add a template" picker: a radio and its explanation
+   read as one clickable block rather than a bare radio with prose beside it. */
+.editor-choice-card {
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius);
+  padding: 10px 12px 10px 34px;
+}
+
+.editor-choice-card:has(.form-check-input:checked) {
+  border-color: var(--bs-primary, #0d6efd);
+  background: rgba(13, 110, 253, 0.04);
+}
+
+.editor-choice-card .form-check-input {
+  margin-left: -22px;
+}
+
+.editor-choice-card .form-check-label {
+  cursor: pointer;
+}
+
+/* Unified diff, coloured per line. The agent panel shows diffs in a plain
+   monospace block; a diff someone is about to accept earns the colour. */
+.editor-diff-body {
+  max-height: 52vh;
+  overflow: auto;
+  background: var(--editor-bg);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  padding: 0;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.editor-diff-line {
+  display: block;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.editor-diff-add {
+  background: rgba(25, 135, 84, 0.12);
+  color: #0f5132;
+}
+
+.editor-diff-del {
+  background: rgba(220, 53, 69, 0.1);
+  color: #842029;
+}
+
+.editor-diff-hunk {
+  background: var(--editor-border);
+  color: var(--editor-muted);
+  font-weight: 600;
+}
+
+.editor-diff-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--editor-muted);
+}

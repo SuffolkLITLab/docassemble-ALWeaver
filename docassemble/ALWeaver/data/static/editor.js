@@ -6842,7 +6842,7 @@
     html += '</div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
     html += '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Draft review</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Sync from questions</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isYaml ? 'Structured view' : 'Edit full YAML') + '</button>';
     html += '</div>';
     html += '</div>';
@@ -8493,6 +8493,301 @@
     return 'new_template.txt';
   }
 
+  // -------------------------------------------------------------------------
+  // Sync review screen
+  //
+  // Re-drafting a review screen is a big edit to one part of a file, so the
+  // review point is that part -- what leaves, what arrives -- not the whole
+  // interview reopened in a source editor. Applying writes the file and comes
+  // back to the review block; the escape hatch into full YAML is still there
+  // for anyone who wants to hand-edit the result first.
+  // -------------------------------------------------------------------------
+  var _reviewSync = { data: null, tab: 'diff' };
+
+  function renderUnifiedDiffHtml(diffText) {
+    if (!diffText) {
+      return '<div class="editor-diff-empty">The drafted review screen matches the one already in this file.</div>';
+    }
+    var html = '<pre class="editor-diff-body">';
+    diffText.split('\n').forEach(function (line) {
+      // The ---/+++ file headers say nothing here: it is always this one file.
+      if (line.indexOf('---') === 0 || line.indexOf('+++') === 0) return;
+      var cls = 'editor-diff-line';
+      if (line.indexOf('@@') === 0) cls += ' editor-diff-hunk';
+      else if (line.indexOf('+') === 0) cls += ' editor-diff-add';
+      else if (line.indexOf('-') === 0) cls += ' editor-diff-del';
+      html += '<code class="' + cls + '">' + esc(line || ' ') + '</code>';
+    });
+    html += '</pre>';
+    return html;
+  }
+
+  function renderReviewSyncBody() {
+    var body = document.getElementById('review-sync-body');
+    var data = _reviewSync.data;
+    if (!body || !data) return;
+    document.querySelectorAll('[data-review-sync-tab]').forEach(function (button) {
+      var active = button.getAttribute('data-review-sync-tab') === _reviewSync.tab;
+      button.className = 'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
+    });
+    if (_reviewSync.tab === 'draft') {
+      body.innerHTML = '<pre class="editor-diff-body"><code class="editor-diff-line">'
+        + esc(data.review_yaml || '') + '</code></pre>';
+      return;
+    }
+    var diff = data.diff || {};
+    var html = renderUnifiedDiffHtml(diff.diff || '');
+    if (diff.truncated) {
+      html += '<p class="editor-agent-diff-note">This diff is too large to show in full. '
+        + 'Use "Edit the whole file instead" to read all of it.</p>';
+    }
+    body.innerHTML = html;
+  }
+
+  function openReviewSyncModal(data) {
+    _reviewSync.data = data;
+    _reviewSync.tab = 'diff';
+    var summary = document.getElementById('review-sync-summary');
+    if (summary) {
+      var sources = data.sources || [];
+      var diff = data.diff || {};
+      var parts = [];
+      parts.push(sources.length > 1
+        ? 'Read ' + sources.length + ' files: ' + sources.join(', ')
+        : 'Read ' + (sources[0] || state.filename));
+      parts.push(data.replaced
+        ? 'replaces the review screen this file has'
+        : 'adds a review screen to this file');
+      if (data.kept_entries) {
+        parts.push('keeps ' + data.kept_entries
+          + (data.kept_entries === 1 ? ' entry' : ' entries')
+          + ' the draft did not cover');
+      }
+      if (diff.added || diff.removed) {
+        parts.push('+' + Number(diff.added || 0) + ' \u2212' + Number(diff.removed || 0) + ' lines');
+      }
+      summary.textContent = parts.join(' \u00b7 ');
+    }
+    var apply = document.getElementById('review-sync-apply');
+    if (apply) {
+      apply.disabled = Boolean(data.unchanged);
+      apply.textContent = data.replaced ? 'Replace review screen' : 'Add review screen';
+    }
+    renderReviewSyncBody();
+    var modal = getOrCreateBootstrapModal('review-sync-modal');
+    if (modal) modal.show();
+  }
+
+  function selectReviewBlockAfterSync() {
+    for (var i = 0; i < state.blocks.length; i++) {
+      if (state.blocks[i].type === 'review') {
+        state.selectedBlockId = state.blocks[i].id;
+        dirtyState.setActiveBlock(state.selectedBlockId);
+        renderOutline();
+        renderCanvas();
+        return;
+      }
+    }
+  }
+
+  function applyReviewSync() {
+    var data = _reviewSync.data;
+    if (!data || !data.full_yaml) return;
+    var apply = document.getElementById('review-sync-apply');
+    if (apply) apply.disabled = true;
+    apiPost('/api/file', {
+      project: state.project,
+      filename: state.filename,
+      content: data.full_yaml,
+    }).then(function (res) {
+      if (apply) apply.disabled = false;
+      if (!res.success) {
+        window.alert((res.error && res.error.message) || 'Unable to save the review screen.');
+        return;
+      }
+      closeBootstrapModal('review-sync-modal');
+      loadFile().then(function () {
+        selectReviewBlockAfterSync();
+        _showSuccessBanner(data.replaced
+          ? 'Review screen re-drafted and saved.'
+          : 'Review screen added and saved.');
+      });
+    }).catch(function (error) {
+      if (apply) apply.disabled = false;
+      if (isSupersededRequest(error)) return;
+      // The server's message is the useful half -- "Permission denied on
+      // main.yml" is something to act on, "unable to save" is not.
+      window.alert(error && error.message
+        ? 'Unable to save the review screen: ' + error.message
+        : 'Unable to save the review screen.');
+    });
+  }
+
+  function openReviewSyncInFullYaml() {
+    var data = _reviewSync.data;
+    if (!data || !data.full_yaml) return;
+    closeBootstrapModal('review-sync-modal');
+    state.canvasMode = 'full-yaml';
+    state.fullYamlTab = 'full';
+    state.fullYamlStash.full = data.full_yaml;
+    markInterviewDirty('sync-review-screen');
+    renderCanvas();
+  }
+
+  // -------------------------------------------------------------------------
+  // Add a template
+  //
+  // "+ New" under Templates opens a picker rather than a filename prompt,
+  // because one of the choices does not start from a file at all: the variable
+  // report is drafted from the questions the interview already asks, which is
+  // how someone automates an intake without inventing the output document
+  // first. See ALWeaver#819.
+  // -------------------------------------------------------------------------
+  function newTemplateKind() {
+    var checked = document.querySelector('input[name="new-template-kind"]:checked');
+    return checked ? checked.value : 'blank';
+  }
+
+  function syncNewTemplateFields() {
+    var isReport = newTemplateKind() === 'variable-report';
+    var blank = document.getElementById('new-template-blank-fields');
+    var report = document.getElementById('new-template-report-fields');
+    if (blank) blank.classList.toggle('d-none', isReport);
+    if (report) report.classList.toggle('d-none', !isReport);
+    var create = document.getElementById('new-template-create');
+    if (create) create.textContent = isReport ? 'Draft the document' : 'Create';
+  }
+
+  function setNewTemplateError(message) {
+    var box = document.getElementById('new-template-error');
+    if (!box) return;
+    if (!message) {
+      box.classList.add('d-none');
+      box.textContent = '';
+      return;
+    }
+    box.textContent = message;
+    box.classList.remove('d-none');
+  }
+
+  function openNewTemplateModal() {
+    setNewTemplateError('');
+    var blankName = document.getElementById('new-template-filename');
+    if (blankName) blankName.value = defaultNewFilename('templates');
+    var reportName = document.getElementById('new-template-report-filename');
+    var reportTitle = document.getElementById('new-template-report-title');
+    var sources = document.getElementById('new-template-report-sources');
+    var reportRadio = document.getElementById('new-template-kind-report');
+    var blankRadio = document.getElementById('new-template-kind-blank');
+    if (blankRadio) blankRadio.checked = true;
+    // Drafting from the questions needs an interview to read them from.
+    var haveInterview = Boolean(state.filename);
+    if (reportRadio) {
+      reportRadio.disabled = !haveInterview;
+      var reportCard = reportRadio.closest('.editor-choice-card');
+      if (reportCard) reportCard.classList.toggle('opacity-50', !haveInterview);
+    }
+    if (reportName) reportName.value = '';
+    if (reportTitle) reportTitle.value = '';
+    if (sources) {
+      sources.textContent = haveInterview
+        ? 'Reading ' + state.filename + '\u2026'
+        : 'Open an interview file first to draft a document from its questions.';
+    }
+    syncNewTemplateFields();
+    var modal = getOrCreateBootstrapModal('new-template-modal');
+    if (modal) modal.show();
+    if (haveInterview) loadVariableReportSuggestion();
+  }
+
+  function loadVariableReportSuggestion() {
+    apiGet('/api/template/variable-report/suggestion?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+      .then(function (res) {
+        if (!res.success || !res.data) return;
+        var reportName = document.getElementById('new-template-report-filename');
+        var reportTitle = document.getElementById('new-template-report-title');
+        var sources = document.getElementById('new-template-report-sources');
+        if (reportName && !reportName.value) reportName.value = res.data.filename || '';
+        if (reportTitle && !reportTitle.value) reportTitle.value = res.data.title || '';
+        if (sources) {
+          var names = res.data.sources || [];
+          sources.textContent = names.length > 1
+            ? 'Reads ' + names.length + ' files: ' + names.join(', ')
+            : 'Reads ' + (names[0] || state.filename);
+        }
+      })
+      .catch(function () { /* the suggestion is a convenience, not a gate */ });
+  }
+
+  function createNewTemplate() {
+    if (!state.project) return;
+    setNewTemplateError('');
+    var create = document.getElementById('new-template-create');
+    if (create) create.disabled = true;
+    var finish = function () { if (create) create.disabled = false; };
+
+    if (newTemplateKind() === 'blank') {
+      var nameInput = document.getElementById('new-template-filename');
+      var filename = nameInput ? nameInput.value.trim() : '';
+      if (!filename) {
+        setNewTemplateError('Give the file a name.');
+        finish();
+        return;
+      }
+      apiPost('/api/section-file/new', {
+        project: state.project,
+        section: 'templates',
+        filename: filename,
+        content: '',
+      }).then(function (res) {
+        finish();
+        if (!res.success) {
+          setNewTemplateError((res.error && res.error.message) || 'Unable to create file.');
+          return;
+        }
+        closeBootstrapModal('new-template-modal');
+        state.sectionSelectedFile.templates = filename;
+        state.sectionDirty = false;
+        noteModuleSaveResult(res.data);
+        loadSectionFiles('templates');
+      }).catch(function (error) {
+        finish();
+        setNewTemplateError(error.message || 'Unable to create file.');
+      });
+      return;
+    }
+
+    if (!state.filename) {
+      setNewTemplateError('Open an interview file first.');
+      finish();
+      return;
+    }
+    var titleInput = document.getElementById('new-template-report-title');
+    var reportNameInput = document.getElementById('new-template-report-filename');
+    var varNames = document.getElementById('new-template-report-varnames');
+    apiPost('/api/template/variable-report', {
+      project: state.project,
+      filename: state.filename,
+      title: titleInput ? titleInput.value.trim() : '',
+      output_filename: reportNameInput ? reportNameInput.value.trim() : '',
+      show_variable_names: Boolean(varNames && varNames.checked),
+    }).then(function (res) {
+      finish();
+      if (!res.success) {
+        setNewTemplateError((res.error && res.error.message) || 'Unable to draft the document.');
+        return;
+      }
+      closeBootstrapModal('new-template-modal');
+      state.sectionSelectedFile.templates = res.data.filename;
+      state.sectionDirty = false;
+      loadSectionFiles('templates');
+      _showSuccessBanner('Drafted ' + esc(res.data.filename) + ' from ' + res.data.variables_count + ' variables. Import it under Document setup to assemble it.');
+    }).catch(function (error) {
+      finish();
+      setNewTemplateError(error.message || 'Unable to draft the document.');
+    });
+  }
+
   function renderSectionPreview(fileMeta) {
     if (!fileMeta) {
       return '<div class="editor-card"><div class="editor-card-body text-muted">No file selected.</div></div>';
@@ -9179,6 +9474,7 @@
     html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
     html += '<div class="editor-tiny text-muted mt-1">' + (state.filename ? esc(state.filename) : 'No interview file open') + '</div></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-template-setup"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New template</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
     html += '</div></div>';
     html += renderDocumentsCard();
@@ -9690,6 +9986,29 @@
       );
       return;
     }
+    if (target.id === 'btn-new-template-setup') {
+      if (!state.project) return;
+      openNewTemplateModal();
+      return;
+    }
+    var reviewSyncTab = target.closest ? target.closest('[data-review-sync-tab]') : null;
+    if (reviewSyncTab) {
+      _reviewSync.tab = reviewSyncTab.getAttribute('data-review-sync-tab');
+      renderReviewSyncBody();
+      return;
+    }
+    if (target.id === 'review-sync-apply') {
+      applyReviewSync();
+      return;
+    }
+    if (target.id === 'review-sync-full-yaml') {
+      openReviewSyncInFullYaml();
+      return;
+    }
+    if (target.id === 'new-template-create') {
+      createNewTemplate();
+      return;
+    }
     if (target.id === 'list-topics-apply') {
       applyListTopicsSelection();
       return;
@@ -9902,6 +10221,12 @@
 
     if (target.id === 'btn-new-section-file-inline') {
       if (!state.project || isInterviewView()) return;
+      // Templates are the one section where "new" is a real choice: an empty
+      // file, or a document drafted from the questions the interview asks.
+      if (state.currentView === 'templates') {
+        openNewTemplateModal();
+        return;
+      }
       var inlineNewName = window.prompt('New filename', defaultNewFilename(state.currentView));
       if (!inlineNewName) return;
       var inlineSection = getSectionFromView(state.currentView);
@@ -10621,17 +10946,19 @@
 
     if (target.id === 'draft-review-screen') {
       if (!state.project || !state.filename) return;
-      apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename })
-        .then(function (res) {
-          if (res.success && res.data && res.data.review_yaml) {
-            state.canvasMode = 'full-yaml';
-            state.fullYamlTab = 'full';
-            state.fullYamlStash.full = (state.rawYaml || '').replace(/\s*$/, '\n---\n') + res.data.review_yaml.trim() + '\n';
-            renderCanvas();
-            return;
-          }
-          window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
-        });
+      // The draft is built from the file on disk, so anything unsaved has to go
+      // in first or applying the result would quietly throw it away.
+      promptAndSaveUnsavedChanges('sync the review screen').then(function (saved) {
+        if (!saved) return;
+        apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename, mode: 'sync' })
+          .then(function (res) {
+            if (res.success && res.data && res.data.full_yaml) {
+              openReviewSyncModal(res.data);
+              return;
+            }
+            window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
+          });
+      });
       return;
     }
 
@@ -11234,6 +11561,11 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.name === 'new-template-kind') {
+      setNewTemplateError('');
+      syncNewTemplateFields();
+      return;
+    }
     if (target.matches('[data-enabled-mode]')) {
       var group = target.closest('[data-enabled-group]');
       var wantsExpression = target.getAttribute('data-enabled-mode') === 'custom';

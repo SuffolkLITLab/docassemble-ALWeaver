@@ -453,8 +453,8 @@ event: review_${ interview.interview_label }
 question: |
   Review your answers
 review:
-  % for coll in review_collections:
-${ review_yaml(coll) | trim }\
+  % for entry in review_entries:
+${ review_yaml(entry) | trim }\
   % endfor
 % for coll in review_collections:
   % if coll.var_type == 'list':

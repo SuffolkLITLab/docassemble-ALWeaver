@@ -23,11 +23,13 @@ Provides:
     POST /al/editor/api/template/import — read a template already in a project
     GET  /al/editor/api/template/import/jobs/<id> — poll a template import
     POST /al/editor/api/template/apply — add the accepted parts of one to the YAML
+    GET  /al/editor/api/template/variable-report/suggestion — its title and filename
+    POST /al/editor/api/template/variable-report — draft a DOCX template from the questions
     GET  /al/editor/api/documents — the documents an interview assembles
     POST /al/editor/api/documents — reorder documents or change what enables them
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
-    POST /al/editor/api/draft-review-screen — generate draft review YAML
+    POST /al/editor/api/draft-review-screen — draft or re-sync the review screen
     GET  /al/editor/api/preview-url — get the interview preview URL
     GET  /al/editor/api/list-topics — LIST taxonomy codes for the topic picker
     GET  /al/editor/api/weaver/validate — validate a saved YAML file
@@ -180,6 +182,20 @@ except Exception as _editor_utils_import_err:
     )
     raise
 
+from .variable_report import (
+    suggested_report_names,
+    write_variable_report_docx,
+)
+from .review_screen_sync import (
+    ALDashboardUnavailable,
+    carry_over_unmatched_entries,
+    collect_interview_yaml_texts,
+    ensure_revisit_tables,
+    generate_review_screen_yaml,
+    inferred_objects_document,
+    review_screen_identity,
+    sync_review_screen,
+)
 from .source_document import (
     apply_range_operations,
     parse_source_document,
@@ -205,11 +221,13 @@ from .editor_agent_models import (
     WeaverAgentSession,
     clear_progress,
     delete_agent_session,
+    diff_stats,
     load_agent_session,
     load_progress,
     progress_is_live,
     store_agent_session,
     store_progress,
+    truncate_diff,
 )
 from .editor_agent_validation import (
     SEVERITY_ERROR,
@@ -703,16 +721,7 @@ def _build_file_response_data(
     inserted_block_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     model = parse_interview_yaml(updated_content)
-    order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-    order_steps: list = []
-    for idx in model.get("order_blocks", []):
-        block = model["blocks"][idx]
-        code = block.get("data", {}).get("code", "")
-        if code:
-            parsed_steps = parse_order_code(code)
-            order_step_map[block["id"]] = parsed_steps
-            if not order_steps:
-                order_steps = parsed_steps
+    order_step_map, order_steps = _order_steps_from_model(model)
     return {
         "project": project,
         "filename": filename,
@@ -831,6 +840,50 @@ def _list_editor_section_files(
             }
         )
     return items
+
+
+def _order_steps_from_model(model: Dict[str, Any]) -> Tuple[Dict[str, Any], list]:
+    """Parse every interview-order block a parsed file contains.
+
+    ``order_blocks`` holds *document* indices, which are what ``block["index"]``
+    records; they are not positions in ``blocks``, because empty documents never
+    become blocks. Reading them as positions returns the wrong block in any file
+    with a blank document, and raises IndexError when the order block is the
+    last one -- which is every file that opens with `---` and ends with its
+    mandatory code.
+    """
+    wanted = set(model.get("order_blocks") or [])
+    order_step_map: Dict[str, Any] = {}
+    order_steps: list = []
+    for block in model.get("blocks", []):
+        if block.get("index") not in wanted:
+            continue
+        code = (block.get("data") or {}).get("code", "")
+        if not code:
+            continue
+        parsed_steps = parse_order_code(code)
+        order_step_map[block["id"]] = parsed_steps
+        if not order_steps:
+            order_steps = parsed_steps
+    return order_step_map, order_steps
+
+
+def _project_yaml_filenames(user_id: int, project: str) -> List[str]:
+    """Interview filenames in a project, for walking its include graph.
+
+    A review screen usually sits in a file of its own that the interviews
+    include, so working out what an interview is made of means looking at more
+    than the file that is open.
+    """
+    try:
+        return [
+            _normalize_filename(item["filename"])
+            for item in playground_list_yaml_files(user_id, project)
+            if isinstance(item, dict) and item.get("filename")
+        ]
+    except Exception as exc:
+        log(f"ALWeaver editor: could not list project YAML files: {exc!r}", "warning")
+        return []
 
 
 def _read_project_text_file(
@@ -2601,6 +2654,169 @@ def editor_api_new_section_file() -> Response:
         )
 
 
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/template/variable-report/suggestion", methods=["GET"]
+)
+def editor_api_template_variable_report_suggestion() -> Response:
+    """The title, filename and source files a variable report would use."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+
+        raw_yaml = playground_read_yaml(uid, project, filename)
+
+        def read_project_file(name: str) -> str:
+            if name == filename:
+                return raw_yaml
+            return playground_read_yaml(uid, project, _normalize_filename(name))
+
+        sources, yaml_texts = collect_interview_yaml_texts(
+            read_project_file, filename, _project_yaml_filenames(uid, project)
+        )
+        suggested = suggested_report_names(yaml_texts, primary_filename=filename)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "title": suggested["title"],
+                    "filename": suggested["filename"],
+                    "sources": sources,
+                },
+            }
+        )
+    except ALDashboardUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "unavailable", "message": str(exc)},
+            },
+            503,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: variable-report suggestion error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/template/variable-report", methods=["POST"])
+def editor_api_template_variable_report() -> Response:
+    """Draft a starter DOCX template from the interview's own questions.
+
+    The document is written into the project's templates folder, so it shows up
+    beside uploaded templates and can be imported from Document setup like any
+    other file.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        show_variable_names = bool(post_data.get("show_variable_names"))
+
+        raw_yaml = playground_read_yaml(uid, project, filename)
+
+        def read_project_file(name: str) -> str:
+            if name == filename:
+                return raw_yaml
+            return playground_read_yaml(uid, project, _normalize_filename(name))
+
+        sources, yaml_texts = collect_interview_yaml_texts(
+            read_project_file, filename, _project_yaml_filenames(uid, project)
+        )
+        suggested = suggested_report_names(yaml_texts, primary_filename=filename)
+        report_title = str(post_data.get("title") or suggested["title"]).strip()
+        output_filename = _normalize_storage_filename(
+            post_data.get("output_filename") or suggested["filename"]
+        )
+        if not output_filename.lower().endswith(".docx"):
+            output_filename += ".docx"
+
+        storage_section = EDITOR_SECTION_TO_STORAGE["templates"]
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, output_filename)
+        if os.path.exists(path) and not post_data.get("overwrite"):
+            raise ValueError(
+                f"{output_filename} already exists. Rename it, or choose to replace it."
+            )
+
+        summary = write_variable_report_docx(
+            yaml_texts,
+            path,
+            report_title=report_title or None,
+            show_variable_names=show_variable_names,
+        )
+        area.finalize()
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "section": "templates",
+                    "filename": output_filename,
+                    "title": report_title,
+                    "sources": sources,
+                    **summary,
+                },
+            }
+        )
+    except ALDashboardUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "unavailable", "message": str(exc)},
+            },
+            503,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: template variable-report error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/section-file/upload", methods=["POST"])
 def editor_api_upload_section_file() -> Response:
     """Upload one or more files into templates/modules/data sources."""
@@ -2863,17 +3079,7 @@ def editor_api_get_file() -> Response:
         filename = _normalize_filename(request.args.get("filename"))
         raw_yaml = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(raw_yaml)
-
-        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-        order_steps: list = []
-        for idx in model.get("order_blocks", []):
-            block = model["blocks"][idx]
-            code = block.get("data", {}).get("code", "")
-            if code:
-                parsed_steps = parse_order_code(code)
-                order_step_map[block["id"]] = parsed_steps
-                if not order_steps:
-                    order_steps = parsed_steps
+        order_step_map, order_steps = _order_steps_from_model(model)
 
         return jsonify(
             {
@@ -6828,7 +7034,13 @@ def editor_api_draft_order() -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/draft-review-screen", methods=["POST"])
 def editor_api_draft_review_screen() -> Response:
-    """Generate draft review-screen YAML using ALDashboard when available."""
+    """Draft a review screen for an interview, or re-sync the one it has.
+
+    Reads the interview and every project file it includes, so a review screen
+    stays current with variables that moved into another file. ``mode: "sync"``
+    also returns the whole file with the old review screen, revisit screens and
+    tables replaced in place, for the author to look over before saving.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -6838,18 +7050,73 @@ def editor_api_draft_review_screen() -> Response:
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
 
-        raw_yaml = playground_read_yaml(uid, project, filename)
-        from docassemble.ALDashboard.review_screen_generator import (
-            generate_review_screen_yaml,
-        )
+        mode = str(post_data.get("mode") or "append").strip().lower()
+        if mode not in ("append", "sync"):
+            raise ValueError("mode must be 'append' or 'sync'.")
 
-        review_yaml = generate_review_screen_yaml([raw_yaml])
+        raw_yaml = playground_read_yaml(uid, project, filename)
+
+        def read_project_file(name: str) -> str:
+            if name == filename:
+                return raw_yaml
+            return playground_read_yaml(uid, project, _normalize_filename(name))
+
+        sources, yaml_texts = collect_interview_yaml_texts(
+            read_project_file, filename, _project_yaml_filenames(uid, project)
+        )
+        identity = review_screen_identity(raw_yaml)
+        # AssemblyLine declares `plaintiffs`, `defendants` and `courts` in its
+        # own package, which the include walk does not follow. Telling the
+        # generator about the lists this file already reviews keeps their
+        # entries instead of silently dropping them.
+        inferred_objects = inferred_objects_document(yaml_texts)
+        generator_inputs = list(yaml_texts)
+        if inferred_objects:
+            generator_inputs.append(inferred_objects)
+        review_yaml = ensure_revisit_tables(
+            generate_review_screen_yaml(
+                generator_inputs,
+                screen_id=identity.get("id"),
+                event_name=identity.get("event"),
+                question_text=identity.get("question"),
+            ),
+            yaml_texts,
+        )
+        review_yaml, kept_entries = carry_over_unmatched_entries(review_yaml, raw_yaml)
+
+        data: Dict[str, Any] = {
+            "review_yaml": review_yaml,
+            "sources": sources,
+            "had_review_screen": bool(identity.get("found")),
+            "replaced": False,
+            "kept_entries": kept_entries,
+            "revision": source_revision(raw_yaml),
+        }
+        if mode == "sync":
+            data["full_yaml"], data["replaced"] = sync_review_screen(
+                raw_yaml, review_yaml
+            )
+            # The drafted block on its own does not show what a sync will do to
+            # the file: what is being dropped matters as much as what arrives.
+            diff_text = unified_source_diff(raw_yaml, data["full_yaml"], filename)
+            data["diff"] = truncate_diff(diff_text)
+            data["diff"].update(diff_stats(diff_text))
+            data["unchanged"] = not diff_text
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"review_yaml": review_yaml},
+                "data": data,
             }
+        )
+    except ALDashboardUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "unavailable", "message": str(exc)},
+            },
+            503,
         )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
