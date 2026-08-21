@@ -218,11 +218,13 @@ from .editor_agent_models import (
     WeaverAgentSession,
     clear_progress,
     delete_agent_session,
+    diff_stats,
     load_agent_session,
     load_progress,
     progress_is_live,
     store_agent_session,
     store_progress,
+    truncate_diff,
 )
 from .editor_agent_validation import (
     SEVERITY_ERROR,
@@ -7060,16 +7062,23 @@ def editor_api_draft_review_screen() -> Response:
             question_text=identity.get("question"),
         )
 
-        data = {
+        data: Dict[str, Any] = {
             "review_yaml": review_yaml,
             "sources": sources,
             "had_review_screen": bool(identity.get("found")),
             "replaced": False,
+            "revision": source_revision(raw_yaml),
         }
         if mode == "sync":
             data["full_yaml"], data["replaced"] = sync_review_screen(
                 raw_yaml, review_yaml
             )
+            # The drafted block on its own does not show what a sync will do to
+            # the file: what is being dropped matters as much as what arrives.
+            diff_text = unified_source_diff(raw_yaml, data["full_yaml"], filename)
+            data["diff"] = truncate_diff(diff_text)
+            data["diff"].update(diff_stats(diff_text))
+            data["unchanged"] = not diff_text
         return jsonify(
             {
                 "success": True,

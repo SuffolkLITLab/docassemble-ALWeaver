@@ -368,8 +368,12 @@ a `review.yml` that the interviews include rather than the other way round; it
 keeps the interview's own `id`, `event` and question text, so the download
 screen's "Edit answers" button still resolves; and it replaces the old review
 block, revisit screens and tables in place rather than appending a second review
-screen. The result goes to the full-YAML view for the author to read before
-saving.
+screen. Because re-drafting is a large edit to one part of a file, the endpoint
+returns a unified diff alongside the new source and the editor confirms it in a
+modal -- what leaves, what arrives -- rather than reopening the whole interview
+in a source editor. Applying saves the file and returns to the review block;
+"Edit the whole file instead" is there for anyone who wants to hand-edit the
+result first.
 
 ## Testing
 

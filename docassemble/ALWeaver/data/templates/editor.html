@@ -425,6 +425,35 @@
   </div>
 </div>
 
+<!-- Review screen sync -->
+<div class="modal fade" id="review-sync-modal" tabindex="-1" aria-labelledby="review-sync-modal-title">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="review-sync-modal-title">Sync review screen</h5>
+          <div class="editor-tiny text-muted mt-1" id="review-sync-summary" role="status" aria-live="polite"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="editor-tab-bar mb-2" role="tablist">
+          <button type="button" class="btn btn-primary" data-review-sync-tab="diff">What changes</button>
+          <button type="button" class="btn btn-outline-secondary" data-review-sync-tab="draft">New review screen</button>
+        </div>
+        <div id="review-sync-body"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-sm btn-link" id="review-sync-full-yaml">Edit the whole file instead</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" id="review-sync-apply">Replace review screen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- New template picker -->
 <div class="modal fade" id="new-template-modal" tabindex="-1" aria-labelledby="new-template-modal-title">
   <div class="modal-dialog modal-dialog-centered">

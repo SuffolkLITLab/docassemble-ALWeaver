@@ -8494,6 +8494,138 @@
   }
 
   // -------------------------------------------------------------------------
+  // Sync review screen
+  //
+  // Re-drafting a review screen is a big edit to one part of a file, so the
+  // review point is that part -- what leaves, what arrives -- not the whole
+  // interview reopened in a source editor. Applying writes the file and comes
+  // back to the review block; the escape hatch into full YAML is still there
+  // for anyone who wants to hand-edit the result first.
+  // -------------------------------------------------------------------------
+  var _reviewSync = { data: null, tab: 'diff' };
+
+  function renderUnifiedDiffHtml(diffText) {
+    if (!diffText) {
+      return '<div class="editor-diff-empty">The drafted review screen matches the one already in this file.</div>';
+    }
+    var html = '<pre class="editor-diff-body">';
+    diffText.split('\n').forEach(function (line) {
+      // The ---/+++ file headers say nothing here: it is always this one file.
+      if (line.indexOf('---') === 0 || line.indexOf('+++') === 0) return;
+      var cls = 'editor-diff-line';
+      if (line.indexOf('@@') === 0) cls += ' editor-diff-hunk';
+      else if (line.indexOf('+') === 0) cls += ' editor-diff-add';
+      else if (line.indexOf('-') === 0) cls += ' editor-diff-del';
+      html += '<code class="' + cls + '">' + esc(line || ' ') + '</code>';
+    });
+    html += '</pre>';
+    return html;
+  }
+
+  function renderReviewSyncBody() {
+    var body = document.getElementById('review-sync-body');
+    var data = _reviewSync.data;
+    if (!body || !data) return;
+    document.querySelectorAll('[data-review-sync-tab]').forEach(function (button) {
+      var active = button.getAttribute('data-review-sync-tab') === _reviewSync.tab;
+      button.className = 'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
+    });
+    if (_reviewSync.tab === 'draft') {
+      body.innerHTML = '<pre class="editor-diff-body"><code class="editor-diff-line">'
+        + esc(data.review_yaml || '') + '</code></pre>';
+      return;
+    }
+    var diff = data.diff || {};
+    var html = renderUnifiedDiffHtml(diff.diff || '');
+    if (diff.truncated) {
+      html += '<p class="editor-agent-diff-note">This diff is too large to show in full. '
+        + 'Use "Edit the whole file instead" to read all of it.</p>';
+    }
+    body.innerHTML = html;
+  }
+
+  function openReviewSyncModal(data) {
+    _reviewSync.data = data;
+    _reviewSync.tab = 'diff';
+    var summary = document.getElementById('review-sync-summary');
+    if (summary) {
+      var sources = data.sources || [];
+      var diff = data.diff || {};
+      var parts = [];
+      parts.push(sources.length > 1
+        ? 'Read ' + sources.length + ' files: ' + sources.join(', ')
+        : 'Read ' + (sources[0] || state.filename));
+      parts.push(data.replaced
+        ? 'replaces the review screen this file has'
+        : 'adds a review screen to this file');
+      if (diff.added || diff.removed) {
+        parts.push('+' + Number(diff.added || 0) + ' \u2212' + Number(diff.removed || 0) + ' lines');
+      }
+      summary.textContent = parts.join(' \u00b7 ');
+    }
+    var apply = document.getElementById('review-sync-apply');
+    if (apply) {
+      apply.disabled = Boolean(data.unchanged);
+      apply.textContent = data.replaced ? 'Replace review screen' : 'Add review screen';
+    }
+    renderReviewSyncBody();
+    var modal = getOrCreateBootstrapModal('review-sync-modal');
+    if (modal) modal.show();
+  }
+
+  function selectReviewBlockAfterSync() {
+    for (var i = 0; i < state.blocks.length; i++) {
+      if (state.blocks[i].type === 'review') {
+        state.selectedBlockId = state.blocks[i].id;
+        dirtyState.setActiveBlock(state.selectedBlockId);
+        renderOutline();
+        renderCanvas();
+        return;
+      }
+    }
+  }
+
+  function applyReviewSync() {
+    var data = _reviewSync.data;
+    if (!data || !data.full_yaml) return;
+    var apply = document.getElementById('review-sync-apply');
+    if (apply) apply.disabled = true;
+    apiPost('/api/file', {
+      project: state.project,
+      filename: state.filename,
+      content: data.full_yaml,
+    }).then(function (res) {
+      if (apply) apply.disabled = false;
+      if (!res.success) {
+        window.alert((res.error && res.error.message) || 'Unable to save the review screen.');
+        return;
+      }
+      closeBootstrapModal('review-sync-modal');
+      loadFile().then(function () {
+        selectReviewBlockAfterSync();
+        _showSuccessBanner(data.replaced
+          ? 'Review screen re-drafted and saved.'
+          : 'Review screen added and saved.');
+      });
+    }).catch(function (error) {
+      if (apply) apply.disabled = false;
+      if (isSupersededRequest(error)) return;
+      window.alert('Unable to save the review screen.');
+    });
+  }
+
+  function openReviewSyncInFullYaml() {
+    var data = _reviewSync.data;
+    if (!data || !data.full_yaml) return;
+    closeBootstrapModal('review-sync-modal');
+    state.canvasMode = 'full-yaml';
+    state.fullYamlTab = 'full';
+    state.fullYamlStash.full = data.full_yaml;
+    markInterviewDirty('sync-review-screen');
+    renderCanvas();
+  }
+
+  // -------------------------------------------------------------------------
   // Add a template
   //
   // "+ New" under Templates opens a picker rather than a filename prompt,
@@ -9850,6 +9982,20 @@
       openNewTemplateModal();
       return;
     }
+    var reviewSyncTab = target.closest ? target.closest('[data-review-sync-tab]') : null;
+    if (reviewSyncTab) {
+      _reviewSync.tab = reviewSyncTab.getAttribute('data-review-sync-tab');
+      renderReviewSyncBody();
+      return;
+    }
+    if (target.id === 'review-sync-apply') {
+      applyReviewSync();
+      return;
+    }
+    if (target.id === 'review-sync-full-yaml') {
+      openReviewSyncInFullYaml();
+      return;
+    }
     if (target.id === 'new-template-create') {
       createNewTemplate();
       return;
@@ -10791,28 +10937,19 @@
 
     if (target.id === 'draft-review-screen') {
       if (!state.project || !state.filename) return;
-      // Re-drafted, not appended: a second review screen next to the stale one
-      // is how these files got out of sync in the first place. The result opens
-      // in the full-YAML view so the author reads the replacement before saving.
-      apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename, mode: 'sync' })
-        .then(function (res) {
-          if (res.success && res.data && (res.data.full_yaml || res.data.review_yaml)) {
-            state.canvasMode = 'full-yaml';
-            state.fullYamlTab = 'full';
-            state.fullYamlStash.full = res.data.full_yaml
-              || ((state.rawYaml || '').replace(/\s*$/, '\n---\n') + res.data.review_yaml.trim() + '\n');
-            markInterviewDirty('sync-review-screen');
-            renderCanvas();
-            var sources = res.data.sources || [];
-            _showSuccessBanner(
-              (res.data.replaced ? 'Review screen re-drafted from ' : 'Review screen drafted from ')
-              + (sources.length > 1 ? sources.length + ' files' : esc(sources[0] || state.filename))
-              + '. Look it over, then save.'
-            );
-            return;
-          }
-          window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
-        });
+      // The draft is built from the file on disk, so anything unsaved has to go
+      // in first or applying the result would quietly throw it away.
+      promptAndSaveUnsavedChanges('sync the review screen').then(function (saved) {
+        if (!saved) return;
+        apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename, mode: 'sync' })
+          .then(function (res) {
+            if (res.success && res.data && res.data.full_yaml) {
+              openReviewSyncModal(res.data);
+              return;
+            }
+            window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
+          });
+      });
       return;
     }
 

@@ -2076,6 +2076,16 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
         self.assertNotIn("Edit: old_variable", data["full_yaml"])
         self.assertIn("id: download", data["full_yaml"])
 
+        # The drafted block alone does not show what the sync will do to the
+        # file, so the response carries the diff the confirmation reads from.
+        self.assertIn("- Edit: old_variable", data["diff"]["diff"])
+        self.assertIn("+  - Edit: rent_amount", data["diff"]["diff"])
+        self.assertFalse(data["diff"]["truncated"])
+        self.assertGreater(data["diff"]["added"], 0)
+        self.assertGreater(data["diff"]["removed"], 0)
+        self.assertFalse(data["unchanged"])
+        self.assertTrue(data["revision"])
+
     def test_a_missing_dashboard_is_a_503_with_something_to_do_about_it(self):
         files = self._files()
 
