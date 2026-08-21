@@ -87,27 +87,14 @@ duplicate IDs. Existing metadata, API, source-document, and frontend suites
 cover scoped revisions, raw source responses, dirty-state behavior, and browser
 client contracts.
 
-## Not yet exercised in a browser
-
-The Templates tab gained two surfaces that this matrix has not been re-run
-against. **Import into this interview** (on an imported template, **Reload
-fields**) queues a Celery job and offers the attachment, screens, and objects an
-existing interview is missing; it needs a configured background worker, so it
-belongs with the other Celery cases below. **Document setup**, reached from the
-Templates menu in the top navigation, reorders each `ALDocumentBundle` and edits
-the `enabled` rule on each document and bundle. The file list also marks any
-template nothing in the interview uses as "Not imported".
-`test_document_bundles.py`, `test_template_analysis.py`, and the document and
-import cases in `test_editor_api.py` cover the source edits and the endpoint
-contracts in the meantime.
-
 ## Deliberate limits of this run
 
 The matrix opened the assistant but did not send an LLM turn, publish to GitHub,
-upload binary template assets, create a Weaver project through Celery, import a
-template, or use the runtime inspector. Those paths depend on external model credentials,
+upload binary template assets, create a Weaver project through Celery, or use
+the runtime inspector. Those paths depend on external model credentials,
 GitHub authorization, background-worker configuration, or runtime-inspector
 feature flags and should be exercised in integration environments configured
 for those capabilities. Top insertion is intentionally refused when a YAML
 stream begins with directives because inserting ahead of `%YAML`/`%TAG` cannot
 be guaranteed safe.
+

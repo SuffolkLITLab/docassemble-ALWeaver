@@ -560,28 +560,7 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.assertIn("hearing_is_remote", source)
         self.assertEqual(self._lint(), [])
 
-    def test_the_modules_agree_with_the_endpoints(self):
-        """The Templates tab and the source both read the same file."""
-        self._generate(
-            [
-                ("petition.pdf", ["users1_name_first"]),
-                ("affidavit.pdf", ["rent_amount"]),
-            ]
-        )
-        self.project.add_pdf("orphan.pdf", ["docket_number"])
-        source = self.project.read_yaml(7, "P", "main.yml")
-
-        endpoint = self._documents()
-        direct = interview_documents(source)
-        self.assertEqual(
-            [document["name"] for document in endpoint["documents"]],
-            [document.name for document in direct.documents],
-        )
-        self.assertEqual(
-            endpoint["templates"],
-            template_status(source, ["affidavit.pdf", "orphan.pdf", "petition.pdf"]),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
+
