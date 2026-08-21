@@ -1,6 +1,7 @@
 from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
+from .review_screen import build_review_entries, table_edit_attributes
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
@@ -6720,13 +6721,17 @@ def _render_interview_yaml(
     else:
         interview_order_lines = []
 
+    review_collections = interview.all_fields.review_collections(screen_reordered)
+
     context = {
         "interview": interview,
         "objects": objects or [],
         "baseline_questions": baseline_question_specs(interview, objects or []),
         "generate_download_screen": include_download_screen,
         "screen_reordered": screen_reordered,
-        "review_collections": interview.all_fields.review_collections(screen_reordered),
+        "review_collections": review_collections,
+        "review_entries": build_review_entries(review_collections, screen_reordered),
+        "table_edit_attributes": table_edit_attributes,
         "navigation_sections": navigation_sections,
         "interview_order_lines": interview_order_lines,
         "package_version_number": __version__,

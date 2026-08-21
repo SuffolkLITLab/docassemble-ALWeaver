@@ -56,6 +56,17 @@ cover sheet is drafted in one pass. (An older `data/sources/output_patterns.yml`
 `assembly_line.yml` still names it in a `DAInterview.using(template_path=...)`
 argument that is not read.)
 
+`review_screen.py` decides what the generated review screen contains, and
+`output_defs.mako` only renders it. Entries are grouped by the question screen
+that asked for them, in asking order, so the recap reads like the interview
+rather than like a list of variables; lists keep a `.revisit` entry of their own,
+because "Edit" there has to reach the whole list. Every value is written so an
+undefined variable renders empty -- `showifdef()`, or a `defined()` guard around
+`currency()` and `yesno()`, which would otherwise report a confident wrong answer
+for a question nobody was asked. The same module decides what a revisit table's
+`edit:` may contain: Docassemble seeks every variable named there, so signatures
+are left out rather than demanded from a table row.
+
 This directory also contains test files for unit testing with ALKiln (see below for more information.)
 
 ### Static files in docassemble/ALWeaver/data/static
@@ -342,7 +353,23 @@ kinds of interviews that the Weaver can produce.
 - `editor_agent.py` runs the bounded agent loop and the explicit final validation pass
 - `document_bundles.py` reads and edits the documents an interview assembles, and reports which template files nothing in the interview uses yet: which `ALDocument` fills which template, what order each `ALDocumentBundle` lists them in, and the `enabled` rule that decides whether one is in the download. Both edits rewrite a single keyword argument inside one `objects:` declaration, leaving the rest of the block's text and comments alone
 - `template_analysis.py` is the engine behind the editor's **Import into this interview** action: it runs the generator over one template and keeps only what an existing interview is missing -- the `attachment` block, screens for fields nothing asks about yet, and the `objects` those screens need. On a template already imported it offers a freshly read attachment block instead, which is how a form the court has revised gets its new fields. Reading a template stays available for the life of a project, not only while it is being created
+- `review_screen.py` groups the review screen a generated interview gets: one entry per question screen, in asking order, with `.revisit` entries for lists, and it decides which attributes a revisit table's `edit:` may name
+- `review_screen_sync.py` re-drafts a review screen for an interview that already exists, so one that has drifted from the questions can be brought back in line without hand-editing
+- `variable_report.py` drafts a starter DOCX template from the questions an interview already asks, for intakes where the answers are the output and there is no form to start from
 - `editor_modules.py` decides what saving a Playground Python module means: which names Docassemble will actually load, whether the source compiles, whether the module can go live immediately, and which projects are waiting on a restart
+
+`review_screen_sync.py` re-drafts a review screen for an interview that already
+exists, which the generation path cannot do -- by then the questions live in
+YAML, not in the Weaver's field model. It imports ALDashboard's
+`review_screen_generator` at runtime (optional, like the linter integration) and
+adds three things: it resolves what "the interview" means by walking the
+project's include graph in both directions, since review screens usually live in
+a `review.yml` that the interviews include rather than the other way round; it
+keeps the interview's own `id`, `event` and question text, so the download
+screen's "Edit answers" button still resolves; and it replaces the old review
+block, revisit screens and tables in place rather than appending a second review
+screen. The result goes to the full-YAML view for the author to read before
+saving.
 
 ## Testing
 

@@ -58,52 +58,32 @@
     required: False
   % endif
 </%def>\
-<%def name="review_yaml(collection)">\
-  % if collection.var_type == "list":
-  - Edit: ${ collection.var_name }.revisit
-  % else:
-  - Edit: ${ collection.var_name }
-  % endif
-    button: |
-      % if collection.var_type == "list":
-      **${ collection.var_name.capitalize().replace("_", " ") }**
+<%doc>
 
-      <%text>%</%text> for item in ${ collection.var_name }:
+    One review entry: either a bulleted summary of a list, or a screen's worth
+    of `Label: value` lines under the question that asked for them.
+
+    Every value is written so an undefined variable renders as empty. A review
+    screen that forces a definition sends the user back into the interview just
+    for looking at their answers, which is what
+    https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/482 is about.
+
+</%doc>\
+<%def name="review_yaml(entry)">\
+  - Edit: ${ entry.edit_var }
+    button: |
+      **${ entry.title }**
+  % if entry.list_var:
+
+      <%text>%</%text> for item in ${ entry.list_var }:
         * $<%text>{</%text> item }
       <%text>%</%text> endfor
-      % elif collection.var_type == "object":
-      **${ collection.var_name.capitalize().replace("_", " ") }**
-  
-      % for att, disp_set in collection.attribute_map.items():
-      <%text>%</%text> if defined("${ collection.var_name }.${ disp_set[1] }"):
-      * ${ att }: <%text>${</%text> ${ collection.var_name }.${ disp_set[0] } <%text>}</%text>
-      <%text>%</%text> endif
-      % endfor
-      % else:
-      % if hasattr(collection.fields[0], "label"):
-      **${ collection.fields[0].label }**:
-      % else:
-      **${ collection.fields[0].get_settable_var() }**:
-      % endif # has a label
-      % if hasattr(collection.fields[0], "field_type"):
-      % if collection.fields[0].field_type in ["yesno", "yesnomaybe"]:
-      <%text>${</%text> word(yesno(${ collection.full_display() })) }
-      % elif collection.fields[0].field_type in ["integer", "number", "range", "date"]:
-      <%text>${</%text> ${ collection.full_display() } }
-      % elif collection.fields[0].field_type == "area":
-      > <%text>${</%text> single_paragraph(${ collection.full_display() }) }
-      % elif collection.fields[0].field_type == "file": # add an extra newline for images
+  % else:
+    % for row in entry.rows:
 
-      <%text>${</%text> ${ collection.full_display() } }
-      % elif collection.fields[0].field_type == "currency":
-      <%text>${</%text> currency(${ collection.full_display() }) }
-      % else:
-      <%text>${</%text> ${ collection.full_display() } }
-      % endif
-      % else: # No field type
-      <%text>${</%text> ${ collection.fields[0].final_display_var } }
-      % endif # has field type
-      % endif # collection.var_type
+      ${ row.label }: <%text>${</%text> ${ row.expression } }
+    % endfor
+  % endif
 </%def>\
 <%def name="table_page(collection)">\
 ---
@@ -118,12 +98,23 @@ columns:
   - Name: |
       row_item
   % endif
-% if len(collection.attribute_map) == 0:
+<%
+    edit_attributes = table_edit_attributes(collection)
+%>\
+% if not edit_attributes:
 edit: True
 % else:
+<%doc>
+
+    Docassemble seeks every variable named under `edit:`, defining any the
+    interview never asked. One attribute per group is enough -- the screen that
+    sets `name.first` sets the rest of the name with it -- and signatures are
+    left out on purpose. See ALWeaver#482.
+
+</%doc>\
 edit:
-  % for disp_and_set in collection.attribute_map.values():
-  - ${ disp_and_set[1] }
+  % for attribute in edit_attributes:
+  - ${ attribute }
   % endfor
 % endif
 confirm: True\

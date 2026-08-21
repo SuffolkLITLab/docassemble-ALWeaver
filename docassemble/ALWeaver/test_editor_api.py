@@ -7,8 +7,10 @@ import os
 import importlib
 import importlib.util
 import sys
+import tempfile
 import types
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from flask import Flask, jsonify
@@ -2015,6 +2017,183 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
                     self.accepts(payload)
+
+
+class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
+    """The two endpoints that lean on ALDashboard at runtime."""
+
+    INTERVIEW = (
+        "---\ninclude:\n  - questions.yml\n"
+        "---\nid: my review screen\nevent: review_my_form\n"
+        "question: |\n  Check your answers\nreview:\n  - Edit: old_variable\n"
+        "    button: |\n      **Old**\n"
+        "---\nid: download\nevent: my_form_download\nquestion: |\n  Done\n"
+    )
+    QUESTIONS = "---\nid: q\nquestion: |\n  Q\nfields:\n  - Rent: rent_amount\n"
+
+    def _files(self):
+        return {"main.yml": self.INTERVIEW, "questions.yml": self.QUESTIONS}
+
+    def test_sync_reads_the_whole_include_chain_and_replaces_in_place(self):
+        files = self._files()
+        seen = {}
+
+        def fake_generate(yaml_texts, **kwargs):
+            seen["count"] = len(yaml_texts)
+            seen.update(kwargs)
+            return (
+                "id: my review screen\nevent: review_my_form\n"
+                "question: |\n  Check your answers\nreview:\n"
+                "  - Edit: rent_amount\n    button: |\n      **Rent**\n"
+            )
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: files[filename],
+            ),
+            patch.object(api_editor, "generate_review_screen_yaml", fake_generate),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/draft-review-screen",
+                method="POST",
+                json={"project": "default", "filename": "main.yml", "mode": "sync"},
+            ):
+                response = api_editor.editor_api_draft_review_screen()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertEqual(data["sources"], ["main.yml", "questions.yml"])
+        self.assertEqual(seen["count"], 2)
+        # The drafted screen keeps the identity the interview already links to.
+        self.assertEqual(seen["event_name"], "review_my_form")
+        self.assertEqual(seen["screen_id"], "my review screen")
+        self.assertTrue(data["replaced"])
+        self.assertIn("Edit: rent_amount", data["full_yaml"])
+        self.assertNotIn("Edit: old_variable", data["full_yaml"])
+        self.assertIn("id: download", data["full_yaml"])
+
+    def test_a_missing_dashboard_is_a_503_with_something_to_do_about_it(self):
+        files = self._files()
+
+        def unavailable(*args, **kwargs):
+            raise api_editor.ALDashboardUnavailable("Install docassemble.ALDashboard")
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: files[filename],
+            ),
+            patch.object(api_editor, "generate_review_screen_yaml", unavailable),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/draft-review-screen",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_draft_review_screen()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("ALDashboard", response.get_json()["error"]["message"])
+
+    def test_a_variable_report_lands_in_the_projects_templates_folder(self):
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = {}
+
+            def fake_write(yaml_texts, output_path, **kwargs):
+                written["path"] = output_path
+                written["title"] = kwargs.get("report_title")
+                with open(output_path, "wb") as handle:
+                    handle.write(b"docx")
+                return {
+                    "variables_count": 4,
+                    "list_count": 1,
+                    "scalar_count": 3,
+                    "size": 4,
+                }
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(api_editor, "write_variable_report_docx", fake_write),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={"project": "default", "filename": "main.yml"},
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()["data"]
+            self.assertEqual(data["section"], "templates")
+            self.assertEqual(data["filename"], "main_draft.docx")
+            self.assertEqual(data["variables_count"], 4)
+            self.assertEqual(data["sources"], ["main.yml", "questions.yml"])
+            self.assertEqual(written["title"], "Main Draft")
+            self.assertTrue(os.path.exists(written["path"]))
+
+    def test_an_existing_template_is_not_silently_overwritten(self):
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "main_draft.docx"), "wb") as handle:
+                handle.write(b"already here")
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={"project": "default", "filename": "main.yml"},
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("already exists", response.get_json()["error"]["message"])
 
 
 if __name__ == "__main__":

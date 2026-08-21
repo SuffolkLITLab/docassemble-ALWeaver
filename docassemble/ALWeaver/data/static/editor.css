@@ -4073,3 +4073,24 @@ html, body {
     transform: none;
   }
 }
+
+/* Choice cards in the "add a template" picker: a radio and its explanation
+   read as one clickable block rather than a bare radio with prose beside it. */
+.editor-choice-card {
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius);
+  padding: 10px 12px 10px 34px;
+}
+
+.editor-choice-card:has(.form-check-input:checked) {
+  border-color: var(--bs-primary, #0d6efd);
+  background: rgba(13, 110, 253, 0.04);
+}
+
+.editor-choice-card .form-check-input {
+  margin-left: -22px;
+}
+
+.editor-choice-card .form-check-label {
+  cursor: pointer;
+}

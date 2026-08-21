@@ -425,6 +425,59 @@
   </div>
 </div>
 
+<!-- New template picker -->
+<div class="modal fade" id="new-template-modal" tabindex="-1" aria-labelledby="new-template-modal-title">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="new-template-modal-title">Add a template</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-check editor-choice-card">
+          <input class="form-check-input" type="radio" name="new-template-kind" id="new-template-kind-blank" value="blank" checked>
+          <label class="form-check-label" for="new-template-kind-blank">
+            <span class="fw-semibold">Blank template</span>
+            <span class="d-block editor-tiny text-muted">An empty file you fill in yourself. Good for a Markdown or Mako template.</span>
+          </label>
+        </div>
+        <div class="form-check editor-choice-card mt-2">
+          <input class="form-check-input" type="radio" name="new-template-kind" id="new-template-kind-report" value="variable-report">
+          <label class="form-check-label" for="new-template-kind-report">
+            <span class="fw-semibold">Variable report</span>
+            <span class="d-block editor-tiny text-muted">
+              A DOCX drafted from the questions this interview already asks, with a
+              Jinja field for every variable. The same document ALDashboard's
+              interview intake document generator produces. Useful when the answers
+              <em>are</em> the output, so there is no form to start from.
+            </span>
+          </label>
+        </div>
+        <div class="mt-3" id="new-template-blank-fields">
+          <label class="editor-tiny" for="new-template-filename">Filename</label>
+          <input class="form-control form-control-sm mt-1" id="new-template-filename" autocomplete="off">
+        </div>
+        <div class="mt-3 d-none" id="new-template-report-fields">
+          <label class="editor-tiny" for="new-template-report-title">Document title</label>
+          <input class="form-control form-control-sm mt-1" id="new-template-report-title" autocomplete="off">
+          <label class="editor-tiny mt-2" for="new-template-report-filename">Filename</label>
+          <input class="form-control form-control-sm mt-1" id="new-template-report-filename" autocomplete="off">
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" id="new-template-report-varnames">
+            <label class="form-check-label editor-tiny" for="new-template-report-varnames">Show variable names beside each label</label>
+          </div>
+          <div class="editor-tiny text-muted mt-2" id="new-template-report-sources"></div>
+        </div>
+        <div class="alert alert-danger mt-3 d-none" id="new-template-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="new-template-create">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Insert Block Modal -->
 <div class="modal fade" id="insert-modal" tabindex="-1" aria-labelledby="insert-modal-title">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable editor-insert-dialog">
