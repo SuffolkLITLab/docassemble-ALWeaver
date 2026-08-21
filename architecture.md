@@ -44,7 +44,15 @@ The Mako templates that build the YAML the Weaver produces live in
 `output_defs.mako` holds shared helpers, and `question_library.mako` holds the
 AssemblyLine person questions copied into a generated interview.
 `_render_interview_yaml()` (`interview_generator.py`) resolves and concatenates
-them. (An older `data/sources/output_patterns.yml` no longer exists;
+them. `output.mako` branches on how many templates the interview has: one
+template becomes `<label>_attachment`, and several each become an `ALDocument`
+named after the file by `document_names()`, listed in the bundle in the order
+they were given. That function is also what keeps two templates differing only
+by extension apart -- `petition.pdf` and `petition.docx` become `petition_pdf`
+and `petition_docx`, since the extension is what actually distinguishes them.
+`generate_interview_from_path()` takes the lead template plus
+`additional_templates`, so a filing made of a petition, an affidavit and a
+cover sheet is drafted in one pass. (An older `data/sources/output_patterns.yml` no longer exists;
 `assembly_line.yml` still names it in a `DAInterview.using(template_path=...)`
 argument that is not read.)
 
@@ -332,6 +340,8 @@ kinds of interviews that the Weaver can produce.
 - `editor_agent_rename.py` classifies every appearance of a variable name and renames only the references it can positively recognise
 - `editor_agent_context.py` assembles the compact interview context a turn is given, fencing untrusted reference material
 - `editor_agent.py` runs the bounded agent loop and the explicit final validation pass
+- `document_bundles.py` reads and edits the documents an interview assembles, and reports which template files nothing in the interview uses yet: which `ALDocument` fills which template, what order each `ALDocumentBundle` lists them in, and the `enabled` rule that decides whether one is in the download. Both edits rewrite a single keyword argument inside one `objects:` declaration, leaving the rest of the block's text and comments alone
+- `template_analysis.py` is the engine behind the editor's **Import into this interview** action: it runs the generator over one template and keeps only what an existing interview is missing -- the `attachment` block, screens for fields nothing asks about yet, and the `objects` those screens need. On a template already imported it offers a freshly read attachment block instead, which is how a form the court has revised gets its new fields. Reading a template stays available for the life of a project, not only while it is being created
 - `editor_modules.py` decides what saving a Playground Python module means: which names Docassemble will actually load, whether the source compiles, whether the module can go live immediately, and which projects are waiting on a restart
 
 ## Testing

@@ -97,3 +97,4 @@ feature flags and should be exercised in integration environments configured
 for those capabilities. Top insertion is intentionally refused when a YAML
 stream begins with directives because inserting ahead of `%YAML`/`%TAG` cannot
 be guaranteed safe.
+

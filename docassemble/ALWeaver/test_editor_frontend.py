@@ -556,6 +556,109 @@ class TestEditorFrontend(unittest.TestCase):
         # The old hard-coded name must not survive as a fallback.
         self.assertNotIn("'interview.yml'", editor)
 
+    def test_templates_reaches_its_files_and_the_document_setup_separately(self):
+        """One template and every document are different things to look at."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        # A menu under the Templates tab, as well as a way back and forth.
+        self.assertIn('data-templates-mode="files"', template)
+        self.assertIn('data-templates-mode="documents"', template)
+        self.assertIn('id="templates-menu"', template)
+        self.assertIn("function setTemplatesMode(", editor)
+        self.assertIn("renderDocumentSetupView", editor)
+        # The project-wide pane is its own view, not a card beside a file.
+        self.assertIn(
+            "if (view === 'templates' && state.templatesMode === 'documents') {",
+            editor,
+        )
+        self.assertNotIn("renderDocumentsCard(fileMeta)", editor)
+
+    def test_a_template_is_imported_not_analyzed(self):
+        """The author's verb is the deed, not the means."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("Import into this interview", editor)
+        self.assertIn("Reload fields", editor)
+        self.assertIn("/api/template/import", editor)
+        self.assertNotIn("Analyze this template", editor)
+        self.assertNotIn("/api/template/analyze", editor)
+        # Once it is imported the card says so, instead of offering a second
+        # copy of the same document.
+        self.assertIn("already imported", editor)
+        self.assertIn("templateIsAttached", editor)
+
+    def test_an_unused_template_says_so_in_the_file_list(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        styles = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn("Not imported", editor)
+        self.assertIn("editor-outline-status", editor)
+        self.assertIn(".editor-outline-status", styles)
+        self.assertIn("'not_imported'", editor)
+
+    def test_document_setup_edits_are_dirty_state_like_any_other(self):
+        """The pane writes the interview, so it joins the same save contract."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("state.documentsDirty", editor)
+        self.assertIn("function markDocumentsDirty(", editor)
+        self.assertIn("function discardDocumentChanges(", editor)
+        # Every place the editor asks "is there unsaved work" has to agree.
+        for guard in (
+            "function hasUnsavedChanges() {",
+            "function updateTopbarSaveState() {",
+        ):
+            body = editor.split(guard, 1)[1].split("\n  }", 1)[0]
+            self.assertIn("state.documentsDirty", body, guard)
+        self.assertIn("if (state.documentsDirty) return saveDocumentChanges();", editor)
+        self.assertIn("documentsDiscarded", editor)
+
+    def test_document_setup_has_a_hierarchy_instead_of_a_wall_of_text_boxes(self):
+        """Two nested questions, each shown as one, not four peer text fields."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        styles = (self.package_dir / "data/static/editor.css").read_text()
+
+        # Each bundle owns its documents, visibly.
+        self.assertIn("editor-bundle-card-header", editor)
+        self.assertIn(".editor-bundle-card-header", styles)
+        self.assertIn("Documents this interview assembles", editor)
+        self.assertIn("Include each document when", editor)
+        # A document reads as its variable over the file it fills, not as a
+        # label competing with an input.
+        self.assertIn("editor-doc-row-name", editor)
+        self.assertIn("editor-doc-row-file", editor)
+        # And the rule is a choice, with Bootstrap's own radio group.
+        self.assertIn('class="btn-check"', editor)
+        self.assertIn("btn-group btn-group-sm", editor)
+        for label in ("Always", "Never", "Custom"):
+            self.assertIn("'" + label + "'", editor)
+
+    def test_an_enabled_rule_is_a_choice_before_it_is_an_expression(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function enabledMode(", editor)
+        self.assertIn("if (text === 'True') return 'always';", editor)
+        self.assertIn("if (text === 'False') return 'never';", editor)
+        # The expression box only exists for the case that needs one.
+        self.assertIn("data-enabled-custom", editor)
+        self.assertIn("custom.hidden = !wantsExpression;", editor)
+        # Custom with nothing written would remove the rule, so it cannot save.
+        self.assertIn("function documentsRuleProblem(", editor)
+        self.assertIn(
+            "if (documentsRuleProblem()) return Promise.resolve(false);", editor
+        )
+        # A declaration with no rule at all says what that means.
+        self.assertIn("editor-enabled-warning", editor)
+        self.assertIn("assembly will stop and ask", editor)
+
+    def test_nothing_selected_greys_the_button_instead_of_erroring(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function updateApplyImportButton(", editor)
+        self.assertIn("button.disabled = chosen === 0;", editor)
+        self.assertNotIn("Nothing is selected.", editor)
+
     def test_a_comment_block_can_be_inserted_like_any_other(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         serializers = (

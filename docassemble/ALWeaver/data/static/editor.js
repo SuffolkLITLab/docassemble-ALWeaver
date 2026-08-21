@@ -78,6 +78,16 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    templatesMode: 'files',
+    documents: null,
+    documentsLoaded: null,
+    documentsDirty: false,
+    documentsBusy: false,
+    templateImportResult: null,
+    //: the template currently being read, or null
+    templateImportBusy: null,
+    templateImportMessage: '',
+    templateImportSelection: {},
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
@@ -181,7 +191,7 @@
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
-    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
+    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
     buttons.forEach(function (btn) {
       btn.disabled = !isDirty;
       var badge = btn.querySelector('.js-save-badge');
@@ -193,6 +203,12 @@
 
   function saveCurrentFile() {
     if (!isInterviewView()) {
+      // The Templates tab has two things that can be dirty: the file open in
+      // the source editor, and the document setup pane.
+      if (state.documentsDirty) {
+        saveDocumentChanges();
+        return;
+      }
       saveCurrentSectionFileIfDirty();
     } else if (state.canvasMode === 'assemblyline-settings') {
       saveAssemblyLineSettings();
@@ -235,7 +251,7 @@
   }
 
   function hasUnsavedChanges() {
-    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty;
+    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
   }
 
   function sectionSnapshotKey() {
@@ -256,6 +272,18 @@
 
   function discardAssemblyLineSettingsChanges() {
     state.assemblyLineSettingsDirty = false;
+    updateTopbarSaveState();
+    return true;
+  }
+
+  function discardDocumentChanges() {
+    if (!state.documentsDirty) return true;
+    // The pristine copy is what the file actually says, so restoring it is
+    // exactly discarding.
+    state.documents = state.documentsLoaded
+      ? JSON.parse(JSON.stringify(state.documentsLoaded))
+      : state.documents;
+    state.documentsDirty = false;
     updateTopbarSaveState();
     return true;
   }
@@ -4609,6 +4637,7 @@
   }
 
   function loadSectionFiles(view) {
+    if (view === 'templates') loadDocuments();
     var section = getSectionFromView(view);
     if (!section || !state.project) {
       if (section) {
@@ -4715,6 +4744,9 @@
       dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
       dirtyState.activate(state.filename, state.selectedBlockId);
       loadAvailableSymbols(true);
+      // Which documents exist, and which templates are still orphans, are
+      // facts about *this* file. Reading it is the one moment both can change.
+      loadDocuments();
       renderOutline();
       renderCanvas();
       runValidation();
@@ -5154,7 +5186,11 @@
     var view = state.currentView;
     var files = getSectionFiles(view);
     var q = state.searchQuery.toLowerCase().trim();
-    var selected = state.sectionSelectedFile[view];
+    // Nothing in the file list is open while the project-wide setup pane is,
+    // so nothing in it should look selected.
+    var selected = (view === 'templates' && state.templatesMode === 'documents')
+      ? null
+      : state.sectionSelectedFile[view];
     var filtered = files.filter(function (f) {
       if (!q) return true;
       return String(f.filename || '').toLowerCase().indexOf(q) !== -1;
@@ -5174,6 +5210,14 @@
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       html += '<div style="min-width:0;flex:1"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
+      // A template sitting in the folder is not yet part of anything, and that
+      // is the single most useful thing to know when looking at this list.
+      if (view === 'templates') {
+        var fileStatus = templateStatus(file.filename);
+        if (fileStatus && fileStatus.status === 'not_imported') {
+          html += '<div class="editor-outline-status" title="Nothing in this interview uses this file yet">Not imported</div>';
+        }
+      }
       if (tag) {
         html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag) + '</div>';
       }
@@ -5195,6 +5239,12 @@
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
     html += '</div>';
+    if (view === 'templates') {
+      var setupOpen = state.templatesMode === 'documents';
+      html += '<div class="editor-section-file-actions">';
+      html += '<button type="button" class="btn btn-sm w-100 ' + (setupOpen ? 'btn-secondary' : 'btn-outline-secondary') + '" data-templates-mode="documents"' + (setupOpen ? ' aria-current="page"' : '') + '><i class="fa-solid fa-layer-group me-1" aria-hidden="true"></i>Document setup</button>';
+      html += '</div>';
+    }
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -5435,7 +5485,8 @@
             var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
             var sectionDiscarded = discardSectionChanges();
             var settingsDiscarded = discardAssemblyLineSettingsChanges();
-            if (interviewDiscarded && sectionDiscarded && settingsDiscarded) {
+            var documentsDiscarded = discardDocumentChanges();
+            if (interviewDiscarded && sectionDiscarded && settingsDiscarded && documentsDiscarded) {
               finish(true);
             } else if (errorBox) {
               errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
@@ -5449,6 +5500,7 @@
             .then(function (sectionSaved) {
               if (!sectionSaved) return false;
               if (state.assemblyLineSettingsDirty) return saveAssemblyLineSettings();
+              if (state.documentsDirty) return saveDocumentChanges();
               return saveCurrentBlockIfDirty();
             })
             .then(function (saved) {
@@ -8088,7 +8140,7 @@
       + '<div class="editor-dropzone-icon">&#128196;</div>'
       + '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>'
       + '<div class="text-muted small mt-1">or click to browse</div>'
-      + '<div class="text-warning-emphasis small mt-2">If you add more than one file, Weaver automates the first file and keeps the others in Templates for you to connect later.</div>'
+      + '<div class="text-muted small mt-2">Add every form in the filing. Weaver drafts one interview from all of them: each contributes its fields and its own download. The first file names the interview, and the order here is the order they come out in.</div>'
       + '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">'
       + '</div>'
       + '<div id="upload-file-list" class="mt-2"></div>');
@@ -8276,17 +8328,35 @@
     suggest('new-project-short-title', shortTitle);
   }
 
+  // A filing's documents come out in the order they are listed, and the first
+  // one names the interview, so the list is ordered and reorderable rather than
+  // a bag of chips.
   function _renderFileList() {
     var container = document.getElementById('upload-file-list');
     if (!container) return;
     if (_uploadedFiles.length === 0) { container.innerHTML = ''; return; }
-    var html = '<div class="d-flex flex-wrap gap-2">';
+    var multiple = _uploadedFiles.length > 1;
+    var html = '<ol class="editor-upload-list">';
     _uploadedFiles.forEach(function (f, idx) {
       var sizeKb = (f.size / 1024).toFixed(1);
-      html += '<div class="editor-upload-chip"><span>' + esc(f.name) + ' <span class="text-muted">(' + sizeKb + ' KB)</span></span>';
-      html += '<button class="editor-upload-chip-remove" data-remove-upload="' + idx + '">&times;</button></div>';
+      html += '<li class="editor-upload-item">';
+      html += '<span class="editor-upload-item-name">' + esc(f.name) + ' <span class="text-muted">(' + sizeKb + ' KB)</span></span>';
+      if (multiple && idx === 0) {
+        html += '<span class="editor-pill editor-pill-muted">Names the interview</span>';
+      }
+      html += '<span class="editor-upload-item-actions">';
+      if (multiple) {
+        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="up" data-upload-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + ' title="Move earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' earlier</span></button>';
+        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="down" data-upload-idx="' + idx + '"' + (idx === _uploadedFiles.length - 1 ? ' disabled' : '') + ' title="Move later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' later</span></button>';
+      }
+      html += '<button type="button" class="editor-upload-chip-remove" data-remove-upload="' + idx + '" title="Remove"><span aria-hidden="true">&times;</span><span class="visually-hidden">Remove ' + esc(f.name) + '</span></button>';
+      html += '</span></li>';
     });
-    html += '</div>';
+    html += '</ol>';
+    if (multiple) {
+      html += '<div class="text-muted small mt-2">A long companion form is often better as its own interview that this one calls into. See '
+        + '<a href="https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+    }
     container.innerHTML = html;
   }
 
@@ -8457,11 +8527,700 @@
       });
   }
 
+  // -------------------------------------------------------------------------
+  // Templates tab: the documents this interview assembles
+  //
+  // A template on disk only becomes a download once an `ALDocument` points at
+  // it and a bundle lists it. Both of those are `.using()` arguments inside an
+  // `objects:` block, which is the last thing an author should have to hand
+  // edit to move a cover sheet above a petition.
+  // -------------------------------------------------------------------------
+  var ALDOCUMENT_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
+  var COMBINING_INTERVIEWS_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews';
+  var TEMPLATE_IMPORT_POLL_INTERVAL_MS = 1500;
+  var TEMPLATE_IMPORT_MAX_ATTEMPTS = 400;
+
+  function isImportableTemplate(fileMeta) {
+    var name = String((fileMeta && fileMeta.filename) || '').toLowerCase();
+    return name.endsWith('.pdf') || name.endsWith('.docx');
+  }
+
+  // What the interview has done with a template file, if anything.
+  function templateStatus(filename) {
+    var statuses = (state.documents && state.documents.templates) || {};
+    return statuses[filename] || null;
+  }
+
+  function templateIsAttached(filename) {
+    var status = templateStatus(filename);
+    return Boolean(status && status.status === 'attached');
+  }
+
+  function loadDocuments() {
+    if (!state.project || !state.filename) {
+      state.documents = null;
+      return Promise.resolve();
+    }
+    return apiGet(
+      '/api/documents?project=' + encodeURIComponent(state.project) +
+      '&filename=' + encodeURIComponent(state.filename)
+    ).then(function (res) {
+      // An edit in progress outranks a background refresh. Nothing can reach
+      // this while the pane is dirty without the author having been asked
+      // first, so replacing what they typed would only ever be a surprise.
+      if (state.documentsDirty) return;
+      state.documents = (res && res.success && res.data) ? res.data : null;
+      // A pristine copy, so saving only touches what the author changed
+      // instead of rewriting every declaration in the file.
+      state.documentsLoaded = state.documents ? JSON.parse(JSON.stringify(state.documents)) : null;
+      // The outline carries the "Not imported" badges, so it redraws too.
+      if (state.currentView === 'templates') {
+        renderOutline();
+        renderCanvas();
+      }
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      state.documents = null;
+      state.documentsLoaded = null;
+    });
+  }
+
+  // Reordering redraws the whole Templates view, and the enabled rules are only
+  // read out of the DOM on save, so anything chosen has to be folded back into
+  // the model first or it disappears under the arrow the author just clicked.
+  function captureDocumentEnabledInputs() {
+    var model = state.documents;
+    if (!model) return;
+    $$('[data-enabled-mode]').forEach(function (radio) {
+      if (!radio.checked) return;
+      var name = radio.getAttribute('data-enabled-target');
+      var mode = radio.getAttribute('data-enabled-mode');
+      var value = mode === 'always' ? 'True' : mode === 'never' ? 'False' : '';
+      if (mode === 'custom') {
+        var expression = document.querySelector(
+          '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+        );
+        value = expression ? String(expression.value || '').trim() : '';
+      }
+      setEnabledValue(model, name, value);
+    });
+  }
+
+  function setEnabledValue(model, name, value) {
+    (model.documents || []).forEach(function (document_) {
+      if (document_.name === name) document_.enabled = value;
+    });
+    (model.bundles || []).forEach(function (bundle) {
+      if (bundle.name === name) bundle.enabled = value;
+    });
+  }
+
+  // Object names are Python identifiers, so this is belt and braces -- but a
+  // selector built from data has no business trusting that.
+  function cssAttrValue(value) {
+    return String(value === null || value === undefined ? '' : value).replace(
+      /["\\]/g, '\\$&'
+    );
+  }
+
+  // Whether anything in the setup pane differs from what the file says.
+  function documentsHaveChanges() {
+    var model = state.documents;
+    var original = state.documentsLoaded;
+    if (!model || !original) return false;
+    var changed = false;
+    (model.bundles || []).forEach(function (bundle) {
+      var before = findByName(original.bundles, bundle.name);
+      if (!before) return;
+      if (before.elements.join(',') !== bundle.elements.join(',')) changed = true;
+      if (String(before.enabled || '') !== String(bundle.enabled || '')) changed = true;
+    });
+    (model.documents || []).forEach(function (document_) {
+      var before = findByName(original.documents, document_.name);
+      if (!before) return;
+      if (String(before.enabled || '') !== String(document_.enabled || '')) changed = true;
+    });
+    return changed;
+  }
+
+  function findByName(list, name) {
+    var entries = list || [];
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].name === name) return entries[i];
+    }
+    return null;
+  }
+
+  // Custom with an empty box would write no rule at all, which is not what
+  // choosing Custom means. Name the first one so the author can fix it.
+  function documentsRuleProblem() {
+    var unfinished = null;
+    $$('[data-enabled-mode]').forEach(function (radio) {
+      if (unfinished || !radio.checked) return;
+      if (radio.getAttribute('data-enabled-mode') !== 'custom') return;
+      var name = radio.getAttribute('data-enabled-target');
+      var box = document.querySelector(
+        '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+      );
+      if (!box || !String(box.value || '').trim()) unfinished = name;
+    });
+    return unfinished;
+  }
+
+  function markDocumentsDirty() {
+    state.documentsDirty = documentsHaveChanges();
+    updateTopbarSaveState();
+    var problem = documentsRuleProblem();
+    var saveButton = document.getElementById('save-documents-btn');
+    if (saveButton) {
+      saveButton.disabled =
+        state.documentsBusy || !state.documentsDirty || Boolean(problem);
+    }
+    var status = document.getElementById('documents-status');
+    if (!status) return;
+    if (problem) {
+      status.textContent = 'Write the rule for ' + problem + ', or choose Always or Never.';
+    } else {
+      status.textContent = state.documentsDirty ? 'Unsaved changes' : '';
+    }
+  }
+
+  function documentByName(name) {
+    var documents = (state.documents && state.documents.documents) || [];
+    for (var i = 0; i < documents.length; i++) {
+      if (documents[i].name === name) return documents[i];
+    }
+    return null;
+  }
+
+  function documentLabel(name) {
+    var document_ = documentByName(name);
+    if (!document_) return name;
+    if (document_.template_filename) return document_.template_filename;
+    return document_.title || name;
+  }
+
+  // How an `enabled=` expression reads as a choice. Always and Never are what
+  // an author means almost every time; anything else is a rule they wrote.
+  function enabledMode(expression) {
+    var text = String(expression || '').trim();
+    if (text === 'True') return 'always';
+    if (text === 'False') return 'never';
+    if (!text) return 'unset';
+    return 'custom';
+  }
+
+  function renderEnabledControl(name, expression, label) {
+    var mode = enabledMode(expression);
+    var safeId = 'enabled-' + String(name).replace(/[^A-Za-z0-9_-]/g, '-');
+    var html = '<div class="editor-enabled" data-enabled-group="' + esc(name) + '">';
+    html += '<div class="editor-enabled-control">';
+    html += '<span class="editor-enabled-label">' + esc(label) + '</span>';
+    html += '<div class="btn-group btn-group-sm" role="group" aria-label="Include ' + esc(name) + '">';
+    [
+      ['always', 'Always'],
+      ['never', 'Never'],
+      ['custom', 'Custom'],
+    ].forEach(function (option) {
+      var value = option[0];
+      var inputId = safeId + '-' + value;
+      html += '<input type="radio" class="btn-check" name="' + esc(safeId) + '" id="' + esc(inputId) + '"';
+      html += ' data-enabled-mode="' + value + '" data-enabled-target="' + esc(name) + '" autocomplete="off"';
+      html += (mode === value ? ' checked' : '') + '>';
+      html += '<label class="btn btn-outline-secondary" for="' + esc(inputId) + '">' + option[1] + '</label>';
+    });
+    html += '</div></div>';
+
+    html += '<div class="editor-enabled-custom"' + (mode === 'custom' ? '' : ' hidden') + ' data-enabled-custom="' + esc(name) + '">';
+    html += '<label class="editor-tiny" for="' + esc(safeId) + '-expression">Python expression, evaluated when the download screen is built</label>';
+    html += '<input class="form-control form-control-sm font-monospace" id="' + esc(safeId) + '-expression" data-enabled-expression="' + esc(name) + '"';
+    html += ' value="' + esc(mode === 'custom' ? expression : '') + '" placeholder="user_is_low_income" spellcheck="false">';
+    html += '</div>';
+
+    if (mode === 'unset') {
+      html += '<div class="editor-tiny editor-enabled-warning">No rule set here. Unless something else in the interview defines it, assembly will stop and ask.</div>';
+    }
+    return html + '</div>';
+  }
+
+  function renderDocumentRow(name) {
+    var document_ = documentByName(name);
+    var html = '<div class="editor-doc-row-main">';
+    html += '<div class="editor-doc-row-name">' + esc(name) + '</div>';
+    var file = document_ && document_.template_filename;
+    var title = document_ && document_.title;
+    if (file) {
+      html += '<div class="editor-doc-row-file">' + esc(file) + '</div>';
+    } else if (title) {
+      html += '<div class="editor-doc-row-file">' + esc(title) + '</div>';
+    } else {
+      html += '<div class="editor-doc-row-file editor-doc-row-missing">Not declared in this file</div>';
+    }
+    return html + '</div>';
+  }
+
+  function renderDocumentsCard() {
+    var model = state.documents;
+    var html = '<section class="editor-doc-section">';
+    html += '<div class="editor-doc-section-head">';
+    html += '<h3 class="editor-doc-section-title">Documents this interview assembles</h3>';
+    html += '<a class="editor-tiny" href="' + ALDOCUMENT_DOCS_URL + '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
+    html += '</div>';
+
+    if (!state.filename) {
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Open an interview file to see how its templates are assembled.</div></div></section>';
+    }
+    if (!model) {
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Weaver could not read the documents in ' + esc(state.filename) + '.</div></div></section>';
+    }
+
+    var documents = model.documents || [];
+    var bundles = model.bundles || [];
+    if (!documents.length && !bundles.length) {
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</div></div></section>';
+    }
+
+    // One card per bundle: its documents in the order they come out, and the
+    // rule that decides whether the bundle is produced at all.
+    bundles.forEach(function (bundle) {
+      html += '<div class="editor-card editor-bundle-card">';
+      html += '<div class="editor-bundle-card-header">';
+      html += '<code class="editor-bundle-card-name">' + esc(bundle.name) + '</code>';
+      if (bundle.title) html += '<span class="editor-bundle-card-subtitle">' + esc(bundle.title) + '</span>';
+      html += '</div>';
+      html += '<div class="editor-card-body">';
+      if (!bundle.elements.length) {
+        html += '<p class="text-muted small">No documents in this bundle.</p>';
+      }
+      html += '<ol class="editor-doc-rows">';
+      bundle.elements.forEach(function (element, index) {
+        html += '<li class="editor-doc-row">';
+        html += renderDocumentRow(element);
+        html += '<div class="editor-doc-row-actions">';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="up" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === 0 ? ' disabled' : '') + ' title="Assemble earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' earlier in ' + esc(bundle.name) + '</span></button>';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="down" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === bundle.elements.length - 1 ? ' disabled' : '') + ' title="Assemble later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' later in ' + esc(bundle.name) + '</span></button>';
+        html += '</div></li>';
+      });
+      html += '</ol>';
+      html += renderEnabledControl(bundle.name, bundle.enabled, 'Produce this bundle');
+      html += '</div></div>';
+    });
+
+    html += '</section>';
+
+    if (!documents.length) {
+      html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents it does not define.</p>';
+      return html;
+    }
+
+    // The same question, one level down: each document has its own rule.
+    html += '<section class="editor-doc-section">';
+    html += '<div class="editor-doc-section-head">';
+    html += '<h3 class="editor-doc-section-title">Include each document when</h3>';
+    html += '</div>';
+    html += '<div class="editor-card"><div class="editor-card-body">';
+    documents.forEach(function (document_, index) {
+      html += '<div class="editor-doc-rule-row' + (index ? '' : ' editor-doc-rule-row-first') + '">';
+      html += renderDocumentRow(document_.name);
+      html += '<div class="editor-doc-rule-control">';
+      html += renderEnabledControl(document_.name, document_.enabled, '');
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+    html += '</section>';
+    return html;
+  }
+
+  // "Import" rather than "analyze": reading the fields is the means, and what
+  // the author gets is the template wired into the interview. Once it is wired
+  // in, the same button re-reads a form the court has since revised.
+  function renderTemplateImportCard(fileMeta) {
+    if (!fileMeta || !isImportableTemplate(fileMeta)) return '';
+    var analysis = state.templateImportResult;
+    var attached = templateIsAttached(fileMeta.filename);
+    var busy = state.templateImportBusy === fileMeta.filename;
+    var buttonLabel = busy
+      ? (attached ? 'Reading…' : 'Importing…')
+      : (attached ? 'Reload fields' : 'Import into this interview');
+
+    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
+    html += '<span>' + esc(fileMeta.filename);
+    if (attached) html += ' <span class="text-muted fw-normal">already imported</span>';
+    html += '</span>';
+    html += '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' + (state.templateImportBusy || !state.filename ? ' disabled' : '') + '>' + esc(buttonLabel) + '</button>';
+    html += '</div><div class="editor-card-body">';
+
+    if (!state.filename) {
+      html += '<p class="text-muted small mb-0">Open an interview file first: importing compares this template against what that interview already asks.</p>';
+      return html + '</div></div>';
+    }
+
+    if (busy && state.templateImportMessage) {
+      html += '<div class="editor-tiny text-muted mb-2" id="template-import-status">' + esc(state.templateImportMessage) + '</div>';
+    } else if (state.templateImportBusy) {
+      html += '<div class="editor-tiny text-muted mb-2">Reading ' + esc(state.templateImportBusy) + '\u2026</div>';
+    }
+
+    // An import belongs to the pair it was run on: switch either the template
+    // or the interview and it no longer describes what is on screen.
+    if (!analysis || analysis.template_filename !== fileMeta.filename
+        || analysis.interview_filename !== state.filename) {
+      if (attached) {
+        var status = templateStatus(fileMeta.filename);
+        html += '<p class="text-muted small mb-0">Already part of ' + esc(state.filename) + ', assembled as <code>' + esc((status && status.document) || '') + '</code>. Reload the fields if the form has been revised since.</p>';
+      } else {
+        html += '<p class="text-muted small mb-0">Weaver reads this template\'s fields and offers what ' + esc(state.filename) + ' is missing: the attachment block that turns it into a download, screens for fields nothing asks about yet, and the objects those screens need. You choose which of them to keep.</p>';
+      }
+      return html + '</div></div>';
+    }
+
+    (analysis.warnings || []).forEach(function (warning) {
+      html += '<div class="alert alert-warning py-2 small">' + esc(warning) + '</div>';
+    });
+
+    var candidates = templateImportCandidates(analysis);
+    if (!candidates.length && !(analysis.bundle_additions || []).length) {
+      html += '<p class="text-muted small mb-0">Nothing to add: ' + esc(state.filename) + ' already covers this template.</p>';
+      return html + '</div></div>';
+    }
+
+    candidates.forEach(function (candidate) {
+      var checked = candidate.key in state.templateImportSelection
+        ? state.templateImportSelection[candidate.key]
+        : candidate.recommended !== false;
+      html += '<div class="form-check editor-import-item">';
+      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(candidate.key) + '" data-import-key="' + esc(candidate.key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="import-' + esc(candidate.key) + '">' + esc(candidate.title) + '</label>';
+      if (candidate.replaces_block_id) {
+        html += '<div class="editor-tiny text-warning-emphasis">Overwrites the existing block, including any hand edits to it.</div>';
+      }
+      if (candidate.variables && candidate.variables.length) {
+        html += '<div class="editor-tiny text-muted">' + esc(candidate.variables.join(', ')) + '</div>';
+      }
+      html += '<details class="editor-import-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-import-yaml">' + esc(candidate.yaml) + '</pre></details>';
+      html += '</div>';
+    });
+
+    (analysis.bundle_additions || []).forEach(function (addition, index) {
+      var key = 'bundle-' + index;
+      var checked = state.templateImportSelection[key] !== false;
+      html += '<div class="form-check editor-import-item">';
+      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(key) + '" data-import-key="' + esc(key) + '"' + (checked ? ' checked' : '') + '>';
+      html += '<label class="form-check-label" for="import-' + esc(key) + '">Add <code>' + esc(addition.element) + '</code> to <code>' + esc(addition.bundle) + '</code></label>';
+      html += '</div>';
+    });
+
+    html += '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap">';
+    html += '<button class="btn btn-sm btn-primary" id="apply-import-btn">Add selected to ' + esc(state.filename) + '</button>';
+    html += '<span class="editor-tiny text-muted" id="apply-import-hint"></span>';
+    html += '<span class="editor-tiny text-muted">Reorder the new blocks in the interview outline, and the documents themselves under Templates &rsaquo; Document setup.</span>';
+    html += '</div>';
+    if (!analysis.already_imported) {
+      html += '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' + COMBINING_INTERVIEWS_DOCS_URL + '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+    }
+
+    return html + '</div></div>';
+  }
+
+  function templateImportCandidates(analysis) {
+    var candidates = [];
+    function push(key, block, title) {
+      if (!block) return;
+      candidates.push({
+        key: key,
+        title: title || block.title,
+        yaml: block.yaml,
+        variables: block.variables || [],
+        replaces_block_id: block.replaces_block_id || null,
+        recommended: block.recommended !== false,
+      });
+    }
+    push('document_object', analysis.document_object);
+    push('attachment', analysis.attachment);
+    push('objects', analysis.objects);
+    (analysis.questions || []).forEach(function (question, index) {
+      push('question-' + index, question, 'Screen: ' + question.title);
+    });
+    return candidates;
+  }
+
+  function importSelectedTemplate(fileMeta) {
+    if (!fileMeta || !state.filename || state.templateImportBusy) return;
+    state.templateImportBusy = fileMeta.filename;
+    state.templateImportResult = null;
+    state.templateImportSelection = {};
+    state.templateImportMessage = 'Reading ' + fileMeta.filename + '…';
+    captureDocumentEnabledInputs();
+    markDocumentsDirty();
+    renderCanvas();
+    apiPost('/api/template/import', {
+      project: state.project,
+      filename: state.filename,
+      template: fileMeta.filename,
+    }).then(function (res) {
+      if (!res || !res.job_url) throw new Error('Weaver did not queue the analysis.');
+      return pollTemplateImport(res.job_url);
+    }).then(function (result) {
+      state.templateImportBusy = null;
+      state.templateImportResult = result;
+      state.templateImportMessage = '';
+      renderCanvas();
+    }).catch(function (error) {
+      state.templateImportBusy = null;
+      state.templateImportMessage = '';
+      renderCanvas();
+      if (isSupersededRequest(error)) return;
+      showApiError(error);
+    });
+  }
+
+  // Redrawing on every poll would collapse the YAML previews the author has
+  // open, so progress only touches its own line -- and if that line is not on
+  // screen, because they moved to another tab while the analysis runs, the
+  // update is simply dropped. Coming back re-renders it from state.
+  function setTemplateImportMessage(message) {
+    state.templateImportMessage = message;
+    var node = document.getElementById('template-import-status');
+    if (node) node.textContent = message;
+  }
+
+  function pollTemplateImport(jobUrl) {
+    var path = String(jobUrl).replace(API, '');
+    var attempts = 0;
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        attempts += 1;
+        apiGet(path).then(function (res) {
+          var data = (res && res.data) || {};
+          var status = String(res && res.status || data.status || 'queued');
+          if (status === 'succeeded') {
+            resolve(data.result || {});
+            return;
+          }
+          if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+            reject(new Error((data.error && data.error.message) || data.message || 'Template analysis failed.'));
+            return;
+          }
+          setTemplateImportMessage(data.message || 'Analyzing…');
+          if (attempts >= TEMPLATE_IMPORT_MAX_ATTEMPTS) {
+            reject(new Error('Timed out waiting for the analysis to finish.'));
+            return;
+          }
+          setTimeout(tick, TEMPLATE_IMPORT_POLL_INTERVAL_MS);
+        }).catch(reject);
+      }
+      tick();
+    });
+  }
+
+  // Adding nothing is not an error to report, it is a button to grey out.
+  function updateApplyImportButton() {
+    var button = document.getElementById('apply-import-btn');
+    if (!button) return;
+    var chosen = 0;
+    $$('[data-import-key]').forEach(function (input) {
+      if (input.checked) chosen += 1;
+    });
+    button.disabled = chosen === 0;
+    var hint = document.getElementById('apply-import-hint');
+    if (hint) hint.textContent = chosen === 0 ? 'Nothing selected' : '';
+  }
+
+  function applyTemplateImport() {
+    var analysis = state.templateImportResult;
+    if (!analysis) return;
+    var blocks = [];
+    templateImportCandidates(analysis).forEach(function (candidate) {
+      var chosen = candidate.key in state.templateImportSelection
+        ? state.templateImportSelection[candidate.key]
+        : candidate.recommended;
+      if (!chosen) return;
+      blocks.push(candidate.replaces_block_id
+        ? { yaml: candidate.yaml, replace_block_id: candidate.replaces_block_id }
+        : candidate.yaml);
+    });
+    var bundles = [];
+    (analysis.bundle_additions || []).forEach(function (addition, index) {
+      if (state.templateImportSelection['bundle-' + index] !== false) {
+        bundles.push({ bundle: addition.bundle, elements: addition.elements });
+      }
+    });
+    if (!blocks.length && !bundles.length) return;
+    apiPost('/api/template/apply', {
+      project: analysis.project || state.project,
+      filename: analysis.interview_filename,
+      expected_revision: analysis.interview_revision,
+      blocks: blocks,
+      bundles: bundles,
+    }).then(function (res) {
+      if (!res || !res.success) return;
+      state.templateImportResult = null;
+      state.templateImportSelection = {};
+      _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
+      return loadFile().then(function () {
+        renderOutline();
+        renderCanvas();
+      });
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      showApiError(error);
+    });
+  }
+
+  function setTemplatesMode(mode) {
+    var nextMode = mode === 'documents' ? 'documents' : 'files';
+    // Leaving the setup pane must not throw away rules typed into it.
+    if (state.templatesMode === 'documents' && nextMode === 'files') {
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+    }
+    state.templatesMode = nextMode;
+    if (state.currentView !== 'templates') {
+      var templatesTab = document.querySelector('.editor-top-tab[data-view="templates"]');
+      if (templatesTab) {
+        templatesTab.click();
+        return;
+      }
+    }
+    renderOutline();
+    renderCanvas();
+  }
+
+  function moveDocumentInBundle(bundleName, index, direction) {
+    var model = state.documents;
+    if (!model) return;
+    var bundle = null;
+    (model.bundles || []).forEach(function (candidate) {
+      if (candidate.name === bundleName) bundle = candidate;
+    });
+    if (!bundle) return;
+    var target = direction === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= bundle.elements.length) return;
+    captureDocumentEnabledInputs();
+    var moved = bundle.elements.splice(index, 1)[0];
+    bundle.elements.splice(target, 0, moved);
+    markDocumentsDirty();
+    renderCanvas();
+  }
+
+  function saveDocumentChanges() {
+    var model = state.documents;
+    if (!model || state.documentsBusy) return Promise.resolve(true);
+    captureDocumentEnabledInputs();
+    if (documentsRuleProblem()) return Promise.resolve(false);
+    var original = state.documentsLoaded || { documents: [], bundles: [] };
+
+    function originalEntry(list, name) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].name === name) return list[i];
+      }
+      return null;
+    }
+
+    var bundles = [];
+    (model.bundles || []).forEach(function (bundle) {
+      var before = originalEntry(original.bundles || [], bundle.name);
+      if (before && before.elements.join(',') === bundle.elements.join(',')) return;
+      bundles.push({ bundle: bundle.name, elements: bundle.elements });
+    });
+    var enabled = [];
+    (model.documents || []).concat(model.bundles || []).forEach(function (entry) {
+      var before = originalEntry(
+        (original.documents || []).concat(original.bundles || []), entry.name
+      );
+      if (before && String(before.enabled || '') === String(entry.enabled || '')) return;
+      enabled.push({ name: entry.name, expression: entry.enabled || null });
+    });
+    if (!bundles.length && !enabled.length) {
+      state.documentsDirty = false;
+      markDocumentsDirty();
+      return Promise.resolve(true);
+    }
+    state.documentsBusy = true;
+    var status = document.getElementById('documents-status');
+    if (status) status.textContent = 'Saving…';
+    return apiPost('/api/documents', {
+      project: state.project,
+      filename: state.filename,
+      expected_revision: model.revision,
+      bundles: bundles,
+      enabled: enabled,
+    }).then(function (res) {
+      state.documentsBusy = false;
+      if (!res || !res.success) return false;
+      state.documents = res.data;
+      state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
+      state.documentsDirty = false;
+      updateTopbarSaveState();
+      _showSuccessBanner('Document setup saved.');
+      // `loadFile` re-reads the interview, and reloads the documents with it.
+      return loadFile().then(function () {
+        renderOutline();
+        renderCanvas();
+        return true;
+      });
+    }).catch(function (error) {
+      state.documentsBusy = false;
+      renderCanvas();
+      if (isSupersededRequest(error)) return false;
+      showApiError(error);
+      return false;
+    });
+  }
+
+  // The project-wide setup of the documents, reached from the Templates menu.
+  // It is deliberately not shown beside a single file: mixing "this template"
+  // with "all the documents" is what made the tab hard to read.
+  function renderDocumentSetupView() {
+    var html = '<div class="editor-full-yaml-shell">';
+    html += '<div class="editor-full-yaml-header">';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
+    html += '<div class="editor-tiny text-muted mt-1">' + (state.filename ? esc(state.filename) : 'No interview file open') + '</div></div>';
+    html += '<div class="d-flex gap-2 flex-wrap">';
+    html += '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
+    html += '</div></div>';
+    html += renderDocumentsCard();
+    html += renderUnimportedTemplatesCard();
+    if (state.filename && state.documents) {
+      // Pinned, because the rules are a long list and the save for all of them
+      // is one action.
+      html += '<div class="editor-doc-save">';
+      html += '<button class="btn btn-primary" id="save-documents-btn"' + (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') + '>Save document changes</button>';
+      html += '<span class="editor-tiny text-muted" id="documents-status"></span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    canvasContent.innerHTML = html;
+    markDocumentsDirty();
+  }
+
+  function renderUnimportedTemplatesCard() {
+    var statuses = (state.documents && state.documents.templates) || {};
+    var pending = Object.keys(statuses).filter(function (filename) {
+      return statuses[filename].status === 'not_imported';
+    });
+    if (!pending.length) return '';
+    var html = '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
+    html += '<p class="text-muted small">These files are in the project but nothing in ' + esc(state.filename || 'the interview') + ' uses them. Open one under Template files to import it.</p>';
+    html += '<ul class="editor-doc-list editor-doc-list-plain">';
+    pending.forEach(function (filename) {
+      html += '<li class="editor-doc-item"><span class="editor-doc-item-name">' + esc(filename) + '</span>';
+      html += '<span class="editor-doc-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-open-template="' + esc(filename) + '">Open</button></span></li>';
+    });
+    html += '</ul></div></div>';
+    return html;
+  }
+
   function renderSecondaryView() {
     var view = state.currentView;
     var section = getSectionFromView(view);
     if (!section || !state.project) {
       canvasContent.innerHTML = '<div class="editor-secondary-center"><div class="editor-secondary-card"><h2 style="font-weight:700">' + esc(sectionTitle(view)) + '</h2><p class="text-muted mt-2">Select a project to manage files in this section.</p></div></div>';
+      return;
+    }
+    if (view === 'templates' && state.templatesMode === 'documents') {
+      renderDocumentSetupView();
       return;
     }
 
@@ -8482,6 +9241,12 @@
     html += '</div></div>';
     html += '<input type="file" id="section-upload-input" style="display:none" multiple>';
 
+    // Weaver's document analysis used to be spent once, at project creation.
+    // On the Templates tab it stays available for the life of the project.
+    if (view === 'templates') {
+      html += renderTemplateImportCard(fileMeta);
+    }
+
     if (!fileMeta) {
       html += '<div class="editor-card"><div class="editor-card-body text-muted">No files in this section yet. Use Upload or + New.</div></div>';
       html += '</div>';
@@ -8501,6 +9266,7 @@
 
     html += '</div>';
     canvasContent.innerHTML = html;
+    if (view === 'templates') updateApplyImportButton();
 
     if (editable) {
       // Remember which file this request belongs to. Clicking through tabs
@@ -8623,6 +9389,10 @@
     var reviewItemToggle = target.closest('[data-review-item-toggle]');
     var removeObjBtn = target.closest('[data-remove-obj]');
     var removeUploadBtn = target.closest('[data-remove-upload]');
+    var moveUploadBtn = target.closest('[data-move-upload]');
+    var moveDocBtn = target.closest('[data-move-doc]');
+    var templatesModeBtn = target.closest('[data-templates-mode]');
+    var openTemplateBtn = target.closest('[data-open-template]');
     var projectCardBtn = target.closest('[data-project-card]');
 
     if (blockActionBtn) {
@@ -8875,10 +9645,14 @@
         var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
         if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && deferNavigationForUnsavedChanges('open another file', function () {
           state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+          if (viewForFile === 'templates') state.templatesMode = 'files';
           renderOutline();
           renderCanvas();
         })) return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+        // Picking a file out of the list means the author wants that file, not
+        // the project-wide setup pane they may have been looking at.
+        if (viewForFile === 'templates') state.templatesMode = 'files';
       } else {
         var nextBlockId = outlineItem.getAttribute('data-block-id');
         if (nextBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open another block', function () {
@@ -10196,6 +10970,55 @@
       return;
     }
 
+    if (moveUploadBtn) {
+      var moveIdx = parseInt(moveUploadBtn.getAttribute('data-upload-idx'), 10);
+      var moveTo = moveUploadBtn.getAttribute('data-move-upload') === 'up' ? moveIdx - 1 : moveIdx + 1;
+      if (moveIdx >= 0 && moveTo >= 0 && moveTo < _uploadedFiles.length) {
+        var moved = _uploadedFiles.splice(moveIdx, 1)[0];
+        _uploadedFiles.splice(moveTo, 0, moved);
+        _renderFileList();
+        // The lead document may have changed, and it is what the suggested
+        // title and project name are derived from.
+        _suggestNamesFromUpload();
+      }
+      return;
+    }
+
+    if (templatesModeBtn) {
+      setTemplatesMode(templatesModeBtn.getAttribute('data-templates-mode'));
+      return;
+    }
+
+    if (openTemplateBtn) {
+      state.sectionSelectedFile.templates = openTemplateBtn.getAttribute('data-open-template');
+      setTemplatesMode('files');
+      return;
+    }
+
+    if (moveDocBtn) {
+      moveDocumentInBundle(
+        moveDocBtn.getAttribute('data-bundle'),
+        parseInt(moveDocBtn.getAttribute('data-doc-index'), 10),
+        moveDocBtn.getAttribute('data-move-doc')
+      );
+      return;
+    }
+
+    if (target.id === 'import-template-btn') {
+      importSelectedTemplate(getSelectedSectionFileMeta(state.currentView));
+      return;
+    }
+
+    if (target.id === 'apply-import-btn') {
+      applyTemplateImport();
+      return;
+    }
+
+    if (target.id === 'save-documents-btn') {
+      saveDocumentChanges();
+      return;
+    }
+
     if (target.id === 'create-project-btn') {
       var nameInput = document.getElementById('new-project-name');
       var notesInput = document.getElementById('new-project-notes');
@@ -10355,6 +11178,14 @@
       applyAssemblyLineSettingsFilter();
       return;
     }
+    if (target.matches('[data-enabled-expression]')) {
+      // On `change` this would only run at blur -- which is the same click
+      // that presses Save, so the first press would land on a still-disabled
+      // button and do nothing.
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+      return;
+    }
     if (target.matches('[data-al-setting]')) {
       state.assemblyLineSettingsDirty = true;
       var settingsSave = document.getElementById('save-assemblyline-settings');
@@ -10402,6 +11233,32 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-enabled-mode]')) {
+      var group = target.closest('[data-enabled-group]');
+      var wantsExpression = target.getAttribute('data-enabled-mode') === 'custom';
+      if (group) {
+        var custom = group.querySelector('[data-enabled-custom]');
+        if (custom) {
+          custom.hidden = !wantsExpression;
+          var box = custom.querySelector('[data-enabled-expression]');
+          // Typing the rule is the whole point of choosing Custom.
+          if (wantsExpression && box) box.focus();
+        }
+        // Whatever they picked, the rule is no longer unset.
+        var warning = group.querySelector('.editor-enabled-warning');
+        if (warning) warning.remove();
+      }
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+      return;
+    }
+    if (target.matches('[data-import-key]')) {
+      // Recorded rather than re-rendered: unticking one proposal should not
+      // collapse the YAML previews the author has open next to it.
+      state.templateImportSelection[target.getAttribute('data-import-key')] = target.checked;
+      updateApplyImportButton();
+      return;
+    }
     if (target.matches('[data-al-setting]')) {
       state.assemblyLineSettingsDirty = true;
       var settingsSave = document.getElementById('save-assemblyline-settings');
@@ -10444,6 +11301,9 @@
           }
           if (res.data && Array.isArray(res.data.saved_files) && res.data.saved_files.length) {
             state.sectionSelectedFile[state.currentView] = res.data.saved_files[0];
+            // Uploading is about the file just added, not the project-wide
+            // document setup the author may have been looking at.
+            if (state.currentView === 'templates') state.templatesMode = 'files';
           }
           state.sectionDirty = false;
           noteModuleSaveResult(res.data);

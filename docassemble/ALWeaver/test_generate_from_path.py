@@ -2,7 +2,7 @@
 
 import os
 import re
-
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -581,6 +581,42 @@ class TestGuardIndexedReference(unittest.TestCase):
         )
 
 
+def _build_pdf_with_fields(pdf_path: str, field_names) -> str:
+    """Write a one-page PDF carrying exactly these AcroForm text fields."""
+    import pikepdf
+
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(612, 792))
+    fields = []
+    top = 730
+    for field_name in field_names:
+        fields.append(
+            pdf.make_indirect(
+                pikepdf.Dictionary(
+                    FT=pikepdf.Name("/Tx"),
+                    T=pikepdf.String(field_name),
+                    Ff=0,
+                    Type=pikepdf.Name("/Annot"),
+                    Subtype=pikepdf.Name("/Widget"),
+                    Rect=pikepdf.Array([50, top, 300, top + 16]),
+                    F=4,
+                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
+                )
+            )
+        )
+        top -= 22
+    page.Annots = pikepdf.Array(fields)
+    pdf.Root.AcroForm = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Fields=pikepdf.Array(fields),
+            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+            NeedAppearances=True,
+        )
+    )
+    pdf.save(pdf_path)
+    return pdf_path
+
+
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
@@ -594,39 +630,10 @@ class _TestAutoDraftBase(unittest.TestCase):
 
     def _generate(self, field_names, **options):
         """Build a one-page PDF with these field names and draft an interview."""
-        import pikepdf
-
         with tempfile.TemporaryDirectory() as tmpdir:
-            pdf_path = os.path.join(tmpdir, "auto_draft.pdf")
-            pdf = pikepdf.Pdf.new()
-            page = pdf.add_blank_page(page_size=(612, 792))
-            fields = []
-            top = 730
-            for field_name in field_names:
-                fields.append(
-                    pdf.make_indirect(
-                        pikepdf.Dictionary(
-                            FT=pikepdf.Name("/Tx"),
-                            T=pikepdf.String(field_name),
-                            Ff=0,
-                            Type=pikepdf.Name("/Annot"),
-                            Subtype=pikepdf.Name("/Widget"),
-                            Rect=pikepdf.Array([50, top, 300, top + 16]),
-                            F=4,
-                            DA=pikepdf.String("/Helv 0 Tf 0 g"),
-                        )
-                    )
-                )
-                top -= 22
-            page.Annots = pikepdf.Array(fields)
-            pdf.Root.AcroForm = pdf.make_indirect(
-                pikepdf.Dictionary(
-                    Fields=pikepdf.Array(fields),
-                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
-                    NeedAppearances=True,
-                )
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "auto_draft.pdf"), field_names
             )
-            pdf.save(pdf_path)
             with patch.object(
                 interview_generator_module.formfyxer,
                 "cluster_screens",
@@ -826,40 +833,12 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
     """The REST API and the editor both go through `generate_interview_from_bytes`."""
 
     def _generate(self, field_names, **options):
-        import pikepdf
         from .api_utils import generate_interview_from_bytes
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            pdf_path = os.path.join(tmpdir, "api.pdf")
-            pdf = pikepdf.Pdf.new()
-            page = pdf.add_blank_page(page_size=(612, 792))
-            fields = []
-            top = 730
-            for field_name in field_names:
-                fields.append(
-                    pdf.make_indirect(
-                        pikepdf.Dictionary(
-                            FT=pikepdf.Name("/Tx"),
-                            T=pikepdf.String(field_name),
-                            Ff=0,
-                            Type=pikepdf.Name("/Annot"),
-                            Subtype=pikepdf.Name("/Widget"),
-                            Rect=pikepdf.Array([50, top, 300, top + 16]),
-                            F=4,
-                            DA=pikepdf.String("/Helv 0 Tf 0 g"),
-                        )
-                    )
-                )
-                top -= 22
-            page.Annots = pikepdf.Array(fields)
-            pdf.Root.AcroForm = pdf.make_indirect(
-                pikepdf.Dictionary(
-                    Fields=pikepdf.Array(fields),
-                    DA=pikepdf.String("/Helv 0 Tf 0 g"),
-                    NeedAppearances=True,
-                )
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "api.pdf"), field_names
             )
-            pdf.save(pdf_path)
             with patch.object(
                 interview_generator_module.formfyxer,
                 "cluster_screens",
@@ -976,3 +955,191 @@ class TestPersonObjectParity(unittest.TestCase):
                 "patient": {"there_are_any": True},
             },
         )
+
+
+class TestMultipleTemplates(unittest.TestCase):
+    """A filing is often a petition plus an affidavit plus a cover sheet."""
+
+    def _draft(self, templates, **options):
+        """Draft one interview from several `(filename, field names)` pairs."""
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        paths = [
+            _build_pdf_with_fields(os.path.join(tmpdir, name), field_names)
+            for name, field_names in templates
+        ]
+        output_dir = os.path.join(tmpdir, "out")
+        os.makedirs(output_dir)
+        with patch.object(
+            interview_generator_module.formfyxer,
+            "cluster_screens",
+            side_effect=_TestAutoDraftBase._offline_cluster,
+        ):
+            result = generate_interview_from_path(
+                paths[0],
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                additional_templates=paths[1:],
+                **options,
+            )
+        return result, Path(result.yaml_path).read_text(encoding="utf-8")
+
+    def test_every_template_contributes_fields_and_an_attachment(self):
+        _result, yaml_text = self._draft(
+            [
+                ("petition.pdf", ["users1_name_first", "rent_amount"]),
+                ("affidavit.pdf", ["users1_name_first", "landlord_visits"]),
+            ]
+        )
+
+        self.assertIn("pdf template file: petition.pdf", yaml_text)
+        self.assertIn("pdf template file: affidavit.pdf", yaml_text)
+        # A field only the second template has still gets asked about.
+        self.assertIn("landlord_visits", yaml_text)
+        # Both documents are declared and both are in the bundle.
+        self.assertIn("- petition: ALDocument.using(", yaml_text)
+        self.assertIn("- affidavit: ALDocument.using(", yaml_text)
+        self.assertRegex(
+            yaml_text,
+            r"al_user_bundle: ALDocumentBundle\.using\(elements=\[petition, affidavit\]",
+        )
+
+    def test_bundle_order_follows_the_order_the_templates_were_given(self):
+        _result, yaml_text = self._draft(
+            [
+                ("cover_sheet.pdf", ["docket_number"]),
+                ("petition.pdf", ["users1_name_first"]),
+                ("affidavit.pdf", ["rent_amount"]),
+            ]
+        )
+        self.assertRegex(
+            yaml_text,
+            r"elements=\[cover_sheet, petition, affidavit\]",
+        )
+
+    def test_the_interview_is_named_after_the_first_template(self):
+        result, yaml_text = self._draft(
+            [
+                ("petition_to_enforce.pdf", ["users1_name_first"]),
+                ("affidavit_of_indigency.pdf", ["rent_amount"]),
+            ]
+        )
+        self.assertTrue(
+            os.path.basename(str(result.yaml_path)).startswith("petition_to_enforce")
+        )
+        self.assertIn("Petition to enforce", yaml_text)
+
+    def test_field_renaming_reaches_every_pdf(self):
+        result, yaml_text = self._draft(
+            [
+                ("petition.pdf", ["Name", "users1_name_first"]),
+                ("affidavit.pdf", ["City State Zip"]),
+            ],
+            normalize_field_names=True,
+        )
+
+        self.assertTrue(result.renames_applied)
+        self.assertEqual(
+            result.suggested_renames_by_template,
+            {
+                "petition.pdf": [("Name", "users_name")],
+                "affidavit.pdf": [("City State Zip", "city_state_zip")],
+            },
+        )
+        # And the rewritten copies are reported, because the YAML now names
+        # fields that only exist in them.
+        self.assertEqual(
+            sorted(result.normalized_template_paths),
+            ["affidavit.pdf", "petition.pdf"],
+        )
+        for normalized_path in result.normalized_template_paths.values():
+            self.assertTrue(os.path.exists(normalized_path))
+        self.assertIn('- "users_name"', yaml_text)
+        self.assertIn('- "city_state_zip"', yaml_text)
+        self.assertNotIn('- "City State Zip"', yaml_text)
+
+    def test_templates_sharing_a_filename_do_not_collide(self):
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        first_dir = os.path.join(tmpdir, "first")
+        second_dir = os.path.join(tmpdir, "second")
+        os.makedirs(first_dir)
+        os.makedirs(second_dir)
+        first = _build_pdf_with_fields(
+            os.path.join(first_dir, "form.pdf"), ["users1_name_first"]
+        )
+        second = _build_pdf_with_fields(
+            os.path.join(second_dir, "form.pdf"), ["rent_amount"]
+        )
+        output_dir = os.path.join(tmpdir, "out")
+        os.makedirs(output_dir)
+        with patch.object(
+            interview_generator_module.formfyxer,
+            "cluster_screens",
+            side_effect=_TestAutoDraftBase._offline_cluster,
+        ):
+            result = generate_interview_from_path(
+                first,
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                additional_templates=[second],
+            )
+        yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn("pdf template file: form.pdf", yaml_text)
+        self.assertIn("pdf template file: form_2.pdf", yaml_text)
+
+    def test_templates_whose_names_differ_only_by_extension_do_not_collide(self):
+        """`output.mako` names each document after the file without its suffix."""
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        pdf = _build_pdf_with_fields(
+            os.path.join(tmpdir, "petition.pdf"), ["users1_name_first"]
+        )
+        docx = os.path.join(tmpdir, "petition.docx")
+        shutil.copyfile(
+            Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx", docx
+        )
+        output_dir = os.path.join(tmpdir, "out")
+        os.makedirs(output_dir)
+        with patch.object(
+            interview_generator_module.formfyxer,
+            "cluster_screens",
+            side_effect=_TestAutoDraftBase._offline_cluster,
+        ):
+            result = generate_interview_from_path(
+                pdf,
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                additional_templates=[docx],
+            )
+        # Both files keep the name they arrived with.
+        self.assertEqual(result.template_names, ["petition.pdf", "petition.docx"])
+        yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        # The extension is what tells the two documents apart, so it is what
+        # ends up in the names -- not a number.
+        self.assertIn(
+            '- petition_pdf: ALDocument.using(filename="petition_pdf"', yaml_text
+        )
+        self.assertIn(
+            '- petition_docx: ALDocument.using(filename="petition_docx"', yaml_text
+        )
+        self.assertRegex(yaml_text, r"elements=\[petition_pdf, petition_docx\]")
+        self.assertIn("pdf template file: petition.pdf", yaml_text)
+        self.assertIn("docx template file: petition.docx", yaml_text)
+
+    def test_a_missing_companion_template_is_reported(self):
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        first = _build_pdf_with_fields(
+            os.path.join(tmpdir, "form.pdf"), ["users1_name_first"]
+        )
+        with self.assertRaises(FileNotFoundError):
+            generate_interview_from_path(
+                first,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                additional_templates=[os.path.join(tmpdir, "nope.pdf")],
+            )

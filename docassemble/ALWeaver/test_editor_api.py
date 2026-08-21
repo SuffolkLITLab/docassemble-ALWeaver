@@ -3,6 +3,8 @@
 from io import BytesIO
 from contextlib import nullcontext
 from pathlib import Path
+import os
+import importlib
 import importlib.util
 import sys
 import types
@@ -100,6 +102,17 @@ def _load_api_editor_for_tests():
         "update_metadata_documents_in_yaml": lambda content, edited: content,
     }.items():
         setattr(editor_utils, name, func)
+    # `document_bundles` and `template_analysis` are imported for real by
+    # `api_editor`, and they read these from `editor_utils`.
+    for name, value in {
+        "BLOCK_TYPE_ATTACHMENT": "attachment",
+        "BLOCK_TYPE_CODE": "code",
+        "BLOCK_TYPE_OBJECTS": "objects",
+        "BLOCK_TYPE_QUESTION": "question",
+        "BLOCK_TYPE_TEMPLATE": "template",
+        "_split_top_level_commas": lambda text: [part for part in str(text).split(",")],
+    }.items():
+        setattr(editor_utils, name, value)
 
     editor_ai_utils = types.ModuleType(f"{package_name}.editor_ai_utils")
     editor_ai_utils.DEFAULT_FIELD_TYPES = []
@@ -154,6 +167,10 @@ def _load_api_editor_for_tests():
         f"{package_name}.editor_ai_utils": editor_ai_utils,
         f"{package_name}.playground_publish": playground_publish,
     }
+    # `api_editor` imports this one for real. Import it before the stubs go in,
+    # so it binds to the real `editor_utils` and the document endpoints can be
+    # tested against actual YAML instead of a stub that returns nothing.
+    importlib.import_module(f"{package_name}.document_bundles")
     previous = {name: sys.modules.get(name) for name in stubs}
     module_name = f"{package_name}._test_api_editor"
     try:
@@ -1438,6 +1455,459 @@ class TestEditorNewProjectNaming(unittest.TestCase):
         # An explicit jurisdiction is not overwritten by the default state.
         self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
         self.assertEqual(overrides["state"], "MA")
+
+
+class TestEditorNewProjectMultipleUploads(unittest.TestCase):
+    """Every uploaded document is woven into the one generated interview."""
+
+    def _run(self, uploaded_files, generator_result=None, **job_kwargs):
+        payload = {
+            "yaml_text": "metadata:\n  title: Filing\n",
+            "yaml_filename": "filing.yml",
+            "input_filename": uploaded_files[0]["filename"],
+            "generated_template_files": [],
+        }
+        payload.update(generator_result or {})
+        written = {}
+        with (
+            patch.object(api_editor, "_update_new_project_job_state"),
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(api_editor, "_copy_files_to_section") as mock_copy,
+            patch.object(
+                api_editor, "generate_interview_from_bytes", return_value=payload
+            ) as mock_generate,
+        ):
+            mock_copy.side_effect = lambda **kwargs: written.update(
+                {
+                    os.path.basename(path): Path(path).read_bytes()
+                    for path in kwargs["files"]
+                }
+            )
+            result = api_editor._complete_new_project_upload_job(
+                job_id="job-1",
+                uid=7,
+                project_name="Filing",
+                request_id="req-1",
+                uploaded_files=uploaded_files,
+                generation_options={},
+                debug_requested=False,
+                **job_kwargs,
+            )
+        return result, mock_generate.call_args.kwargs, written
+
+    def test_the_companion_documents_reach_the_generator(self):
+        result, generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-petition",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-affidavit",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"template_filenames": ["petition.pdf", "affidavit.pdf"]},
+        )
+
+        self.assertEqual(generate_kwargs["filename"], "petition.pdf")
+        self.assertEqual(
+            [
+                document["filename"]
+                for document in generate_kwargs["additional_documents"]
+            ],
+            ["affidavit.pdf"],
+        )
+        self.assertEqual(
+            generate_kwargs["additional_documents"][0]["content_bytes"],
+            b"%PDF-affidavit",
+        )
+        self.assertEqual(result["woven_templates"], ["petition.pdf", "affidavit.pdf"])
+        self.assertEqual(sorted(written), ["affidavit.pdf", "petition.pdf"])
+
+    def test_the_project_stores_the_names_the_yaml_refers_to(self):
+        """Two uploads sharing a name are told apart by the generator."""
+        _result, _generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "form.pdf",
+                    "content_bytes": b"%PDF-first",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "form.pdf",
+                    "content_bytes": b"%PDF-second",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"template_filenames": ["form.pdf", "form_2.pdf"]},
+        )
+        self.assertEqual(written["form.pdf"], b"%PDF-first")
+        self.assertEqual(written["form_2.pdf"], b"%PDF-second")
+
+    def test_a_renamed_template_replaces_the_original_in_the_project(self):
+        """The YAML names fields that only exist in the rewritten file."""
+        result, _generate_kwargs, written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-original",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-untouched",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={
+                "template_filenames": ["petition.pdf", "affidavit.pdf"],
+                "normalized_template_files": [
+                    {"filename": "petition.pdf", "content_bytes": b"%PDF-renamed"}
+                ],
+            },
+        )
+        self.assertEqual(written["petition.pdf"], b"%PDF-renamed")
+        self.assertEqual(written["affidavit.pdf"], b"%PDF-untouched")
+        self.assertEqual(result["renamed_template_count"], 1)
+
+
+INTERVIEW_WITH_TWO_DOCUMENTS = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+  - affidavit: ALDocument.using(filename="affidavit", enabled=True)
+---
+objects:
+  - al_user_bundle: ALDocumentBundle.using(elements=[petition, affidavit], filename="p", enabled=True)
+---
+attachment:
+  name: Petition
+  variable name: petition[i]
+  pdf template file: petition.pdf
+---
+attachment:
+  name: Affidavit
+  variable name: affidavit[i]
+  pdf template file: affidavit.pdf
+"""
+
+
+class TestEditorTemplateAnalysisApi(unittest.TestCase):
+    """Analyzing a template that was added to a project after it was created."""
+
+    def _post(self, payload, handler):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/import", method="POST", json=payload
+            ):
+                return handler()
+
+    def test_a_template_that_is_not_in_the_project_is_a_404(self):
+        with patch.object(
+            api_editor,
+            "_template_import_target",
+            side_effect=FileNotFoundError("nope.pdf is not in this project"),
+        ):
+            response = self._post(
+                {"project": "Eviction", "filename": "main.yml", "template": "nope.pdf"},
+                api_editor.editor_api_import_template,
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_queued_analysis_reports_where_to_poll(self):
+        with (
+            patch.object(
+                api_editor, "_template_import_target", return_value="/tmp/a.pdf"
+            ),
+            patch.object(api_editor, "playground_read_yaml", return_value="---\n"),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "_store_job_state"),
+            patch.object(api_editor, "_update_job_state"),
+            patch.object(
+                api_editor.workerapp,
+                "send_task",
+                return_value=types.SimpleNamespace(id="celery-1"),
+            ) as mock_send,
+        ):
+            response = self._post(
+                {
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "template": "affidavit.pdf",
+                },
+                api_editor.editor_api_import_template,
+            )
+        self.assertEqual(response.status_code, 202)
+        body = response.get_json()
+        self.assertIn("/al/editor/api/template/import/jobs/", body["job_url"])
+        self.assertEqual(
+            mock_send.call_args.kwargs["kwargs"]["template_filename"], "affidavit.pdf"
+        )
+
+    def test_applying_against_a_changed_interview_is_a_conflict(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="---\nobjects: {}\n"
+            ),
+            patch.object(api_editor, "source_revision", return_value="now"),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/apply",
+                method="POST",
+                json={
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "expected_revision": "then",
+                    "blocks": ["objects:\n  - affidavit: ALDocument.using()"],
+                },
+            ):
+                response = api_editor.editor_api_apply_template_analysis()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
+
+
+class TestEditorApplyBlockIds(unittest.TestCase):
+    """One colliding screen id must not throw away the whole apply."""
+
+    def test_a_colliding_id_is_numbered_rather_than_refused(self):
+        taken = {"user name", "user name 2"}
+        block, block_id = api_editor._block_id_without_collision(
+            "id: user name\nquestion: |\n  What is your name?\n", taken
+        )
+        self.assertEqual(block_id, "user name 3")
+        self.assertIn("id: user name 3\n", block)
+        self.assertIn("question: |\n", block)
+
+    def test_an_id_nothing_else_uses_is_left_exactly_as_it_is(self):
+        block, block_id = api_editor._block_id_without_collision(
+            "id: rent\nquestion: |\n  Rent\n", {"user name"}
+        )
+        self.assertEqual(block_id, "rent")
+        self.assertEqual(block, "id: rent\nquestion: |\n  Rent\n")
+
+    def test_a_block_with_no_id_is_left_alone(self):
+        block, block_id = api_editor._block_id_without_collision(
+            "objects:\n  - affidavit: ALDocument.using()\n", {"user name"}
+        )
+        self.assertIsNone(block_id)
+        self.assertEqual(block, "objects:\n  - affidavit: ALDocument.using()\n")
+
+
+class TestEditorApplyBlockReplacement(unittest.TestCase):
+    """Re-reading a revised form rewrites its attachment block in place."""
+
+    def _apply(self, blocks):
+        written = {}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "update_block_in_yaml") as mock_update,
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                return_value={
+                    "blocks": [],
+                    "metadata_blocks": [],
+                    "include_blocks": [],
+                    "default_screen_parts_blocks": [],
+                    "order_blocks": [],
+                },
+            ),
+        ):
+            mock_update.side_effect = lambda content, block_id, new_yaml: content
+            mock_write.side_effect = (
+                lambda uid, project, filename, content: written.update(
+                    {"content": content}
+                )
+            )
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/apply",
+                method="POST",
+                json={
+                    "project": "Eviction",
+                    "filename": "main.yml",
+                    "expected_revision": "test-revision",
+                    "blocks": blocks,
+                },
+            ):
+                response = api_editor.editor_api_apply_template_analysis()
+        return response, mock_update
+
+    def test_a_block_with_a_replace_target_rewrites_rather_than_adds(self):
+        response, mock_update = self._apply(
+            [
+                {
+                    "yaml": "attachment:\n  name: Petition\n",
+                    "replace_block_id": "block-3",
+                }
+            ]
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_update.call_args.args[1], "block-3")
+        self.assertEqual(response.get_json()["data"]["replaced_block_ids"], ["block-3"])
+
+    def test_a_plain_string_is_still_an_addition(self):
+        response, mock_update = self._apply(
+            ["objects:\n  - cover_sheet: ALDocument.using()\n"]
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_update.assert_not_called()
+
+
+class TestEditorDocumentsApi(unittest.TestCase):
+    """Rearranging the documents an interview assembles."""
+
+    def test_it_lists_the_documents_and_their_bundle_order(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[
+                    {"filename": "petition.pdf"},
+                    {"filename": "affidavit.pdf"},
+                    {"filename": "leftover.pdf"},
+                ],
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents?project=Eviction&filename=main.yml"
+            ):
+                response = api_editor.editor_api_documents()
+        data = response.get_json()["data"]
+        self.assertEqual(
+            [document["name"] for document in data["documents"]],
+            ["petition", "affidavit"],
+        )
+        self.assertEqual(data["bundles"][0]["elements"], ["petition", "affidavit"])
+
+    def test_it_says_which_template_files_are_not_imported_yet(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS
+                + "---\nquestion: |\n  Hi\nsubquestion: |\n  See logo.png\n",
+            ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[
+                    {"filename": "petition.pdf"},
+                    {"filename": "logo.png"},
+                    {"filename": "leftover.pdf"},
+                ],
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents?project=Eviction&filename=main.yml"
+            ):
+                response = api_editor.editor_api_documents()
+        templates = response.get_json()["data"]["templates"]
+        self.assertEqual(templates["petition.pdf"]["status"], "attached")
+        self.assertEqual(templates["petition.pdf"]["document"], "petition")
+        self.assertEqual(templates["logo.png"]["status"], "referenced")
+        self.assertEqual(templates["leftover.pdf"]["status"], "not_imported")
+
+    def _save(self, payload):
+        written = {}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value=INTERVIEW_WITH_TWO_DOCUMENTS,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            mock_write.side_effect = (
+                lambda uid, project, filename, content: written.update(
+                    {"content": content}
+                )
+            )
+            with api_editor.app.test_request_context(
+                "/al/editor/api/documents", method="POST", json=payload
+            ):
+                response = api_editor.editor_api_save_documents()
+        return response, written.get("content", "")
+
+    def test_reordering_a_bundle_is_written_back(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "bundles": [
+                    {
+                        "bundle": "al_user_bundle",
+                        "elements": ["affidavit", "petition"],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("elements=[affidavit, petition]", content)
+
+    def test_an_enabled_rule_is_written_into_the_declaration(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "enabled": [{"name": "affidavit", "expression": "user_is_low_income"}],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("enabled=user_is_low_income", content)
+        self.assertIn(
+            '- petition: ALDocument.using(filename="petition", enabled=True)', content
+        )
+
+    def test_a_rule_that_is_not_an_expression_is_refused(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "enabled": [{"name": "affidavit", "expression": "if x: y"}],
+            }
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(content, "")
+
+    def test_a_stale_revision_is_a_conflict(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "stale",
+                "bundles": [{"bundle": "al_user_bundle", "elements": ["affidavit"]}],
+            }
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(content, "")
 
 
 class TestEditorStyleCheckSeverity(unittest.TestCase):

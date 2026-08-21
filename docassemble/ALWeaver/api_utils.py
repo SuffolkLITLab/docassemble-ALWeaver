@@ -4,9 +4,9 @@ import json
 import os
 import shutil
 import tempfile
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .interview_generator import generate_interview_from_path
+from .interview_generator import generate_interview_from_path, TemplateInput
 
 WEAVER_API_BASE_PATH = "/al/api/v1/weaver"
 
@@ -216,20 +216,44 @@ def generate_interview_from_bytes(
     include_package_zip_base64: bool = False,
     include_yaml_text: bool = True,
     include_generated_template_bytes: bool = False,
+    additional_documents: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Draft an interview from uploaded template bytes.
+
+    ``additional_documents`` holds further templates, each a mapping with
+    ``filename``, ``content_bytes`` and an optional ``mimetype``. They are
+    woven into the same interview, in order, after the lead document.
+    """
     safe_filename, extension = validate_upload_metadata(
         filename=filename, content_bytes=content_bytes, mimetype=mimetype
     )
 
     output_dir = tempfile.mkdtemp(prefix="alweaver-api-")
-    input_path: Optional[str] = None
+    input_dir = tempfile.mkdtemp(prefix="alweaver-api-input-")
 
     try:
         with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=extension, dir=output_dir, delete=False
+            mode="wb", suffix=extension, dir=input_dir, delete=False
         ) as handle:
             input_path = handle.name
             handle.write(content_bytes)
+
+        additional_names: List[str] = []
+        additional_templates: List[TemplateInput] = []
+        for document in additional_documents or []:
+            document_name, document_extension = validate_upload_metadata(
+                filename=str(document.get("filename") or ""),
+                content_bytes=bytes(document.get("content_bytes") or b""),
+                mimetype=document.get("mimetype"),
+            )
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=document_extension, dir=input_dir, delete=False
+            ) as document_handle:
+                document_handle.write(bytes(document["content_bytes"]))
+                additional_templates.append(
+                    TemplateInput(path=document_handle.name, exact_name=document_name)
+                )
+            additional_names.append(document_name)
 
         resolved_generation_options = dict(generation_options)
         resolved_generation_options.setdefault("exact_name", safe_filename)
@@ -237,10 +261,15 @@ def generate_interview_from_bytes(
         result = generate_interview_from_path(
             input_path=input_path,
             output_dir=output_dir,
+            additional_templates=additional_templates,
             **resolved_generation_options,
         )
 
         payload: Dict[str, Any] = {"input_filename": safe_filename}
+        if additional_names:
+            payload["additional_input_filenames"] = additional_names
+        # The names the generated YAML actually refers to, in bundle order.
+        payload["template_filenames"] = list(result.template_names)
         # Report these either way: a caller that did not ask for renaming can
         # show what it would do and offer to run again with it turned on.
         if result.suggested_renames:
@@ -249,6 +278,32 @@ def generate_interview_from_bytes(
                 for old_name, new_name in result.suggested_renames
             ]
             payload["field_renames_applied"] = result.renames_applied
+            payload["suggested_field_renames_by_template"] = {
+                template_name: [
+                    {"from": old_name, "to": new_name}
+                    for old_name, new_name in template_renames
+                ]
+                for template_name, template_renames in (
+                    result.suggested_renames_by_template.items()
+                )
+            }
+        # The YAML refers to the renamed fields, so a caller that keeps the
+        # templates has to keep these rewritten copies, not what it uploaded.
+        if include_generated_template_bytes and result.normalized_template_paths:
+            payload["normalized_template_files"] = []
+            for (
+                template_name,
+                normalized_path,
+            ) in result.normalized_template_paths.items():
+                if not os.path.isfile(normalized_path):
+                    continue
+                with open(normalized_path, "rb") as normalized_handle:
+                    payload["normalized_template_files"].append(
+                        {
+                            "filename": template_name,
+                            "content_bytes": normalized_handle.read(),
+                        }
+                    )
         if include_yaml_text:
             payload["yaml_text"] = result.yaml_text
         if result.yaml_path:
@@ -275,8 +330,7 @@ def generate_interview_from_bytes(
 
         return payload
     finally:
-        if input_path and os.path.exists(input_path):
-            os.remove(input_path)
+        shutil.rmtree(input_dir, ignore_errors=True)
         shutil.rmtree(output_dir, ignore_errors=True)
 
 

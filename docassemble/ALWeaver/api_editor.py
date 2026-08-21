@@ -20,6 +20,11 @@ Provides:
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
     POST /al/editor/api/ai/generate-fields — draft fields for a question with AI
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
+    POST /al/editor/api/template/import — read a template already in a project
+    GET  /al/editor/api/template/import/jobs/<id> — poll a template import
+    POST /al/editor/api/template/apply — add the accepted parts of one to the YAML
+    GET  /al/editor/api/documents — the documents an interview assembles
+    POST /al/editor/api/documents — reorder documents or change what enables them
     GET  /al/editor/api/parse-order — parse order code into structured steps
     POST /al/editor/api/draft-order — generate a draft order from blocks
     POST /al/editor/api/draft-review-screen — generate draft review YAML
@@ -61,7 +66,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 import yaml
 from flask import Response, jsonify, redirect, request, url_for
@@ -95,6 +100,12 @@ from .docassemble_compat import (
     publish_github_package,
     run_target_action_raw,
     set_target_variables,
+)
+from .document_bundles import (
+    interview_documents,
+    set_bundle_elements,
+    set_enabled_expression,
+    template_status,
 )
 from .worker_config import (
     CELERY_CONFIGURATION_DOCS_URL,
@@ -6916,6 +6927,11 @@ GITHUB_PUBLISH_JOB_EXPIRE_SECONDS = 24 * 60 * 60
 GITHUB_PUBLISH_CELERY_TASK = (
     "docassemble.ALWeaver.api_weaver_worker.weaver_editor_github_publish_task"
 )
+TEMPLATE_IMPORT_JOB_KEY_PREFIX = "da:alweaver:editor:template-import:"
+TEMPLATE_IMPORT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
+TEMPLATE_IMPORT_CELERY_TASK = (
+    "docassemble.ALWeaver.api_weaver_worker.weaver_editor_template_import_task"
+)
 JOB_TERMINAL_STATES = {
     "succeeded",
     "failed",
@@ -6967,6 +6983,11 @@ GITHUB_PUBLISH_JOB = _EditorJobKind(
     key_prefix=GITHUB_PUBLISH_JOB_KEY_PREFIX,
     celery_task=GITHUB_PUBLISH_CELERY_TASK,
     expire_seconds=GITHUB_PUBLISH_JOB_EXPIRE_SECONDS,
+)
+TEMPLATE_IMPORT_JOB = _EditorJobKind(
+    key_prefix=TEMPLATE_IMPORT_JOB_KEY_PREFIX,
+    celery_task=TEMPLATE_IMPORT_CELERY_TASK,
+    expire_seconds=TEMPLATE_IMPORT_JOB_EXPIRE_SECONDS,
 )
 
 
@@ -7048,9 +7069,7 @@ def _complete_new_project_upload_job(
             started_at=time.time(),
             progress=5,
         )
-        temp_paths: List[str] = []
-        first_result: Optional[Dict[str, Any]] = None
-
+        documents: List[Dict[str, Any]] = []
         for payload in uploaded_files:
             filename = str(payload.get("filename") or "").strip()
             content_bytes = payload.get("content_bytes") or b""
@@ -7059,32 +7078,74 @@ def _complete_new_project_upload_job(
                 raise ValueError("Uploaded file is missing a filename.")
             if not isinstance(content_bytes, (bytes, bytearray)):
                 raise ValueError("Uploaded file bytes are invalid.")
+            documents.append(
+                {
+                    "filename": filename,
+                    "content_bytes": bytes(content_bytes),
+                    "mimetype": str(mimetype) if mimetype else None,
+                }
+            )
 
-            dest = os.path.join(temp_dir, filename)
-            with open(dest, "wb") as fh:
-                fh.write(bytes(content_bytes))
-            temp_paths.append(dest)
-
-            if first_result is None:
-                stage = "generate_interview"
-                _update_new_project_job_state(
-                    job_id,
-                    status="running",
-                    stage=stage,
-                    message="Generating interview from the uploaded document.",
-                    progress=20,
-                )
-                first_result = generate_interview_from_bytes(
-                    filename=filename,
-                    content_bytes=bytes(content_bytes),
-                    mimetype=str(mimetype) if mimetype else None,
-                    generation_options=generation_options,
-                    include_yaml_text=True,
-                    include_generated_template_bytes=True,
-                )
-
-        if first_result is None:
+        if not documents:
             raise ValueError("No valid files were uploaded.")
+
+        stage = "generate_interview"
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=stage,
+            message=(
+                "Generating interview from the uploaded document."
+                if len(documents) == 1
+                else f"Generating interview from {len(documents)} uploaded documents."
+            ),
+            progress=20,
+        )
+        # Every upload is woven into the one interview: each contributes its
+        # fields, its own attachment block, and an entry in the bundle.
+        first_result = generate_interview_from_bytes(
+            filename=documents[0]["filename"],
+            content_bytes=documents[0]["content_bytes"],
+            mimetype=documents[0]["mimetype"],
+            generation_options=generation_options,
+            include_yaml_text=True,
+            include_generated_template_bytes=True,
+            additional_documents=documents[1:],
+        )
+
+        # Renaming rewrites the template, and the YAML now refers to the new
+        # field names, so the project has to carry the rewritten file.
+        normalized_bytes: Dict[str, bytes] = {}
+        for normalized_file in first_result.get("normalized_template_files", []) or []:
+            if not isinstance(normalized_file, dict):
+                continue
+            normalized_name = os.path.basename(
+                str(normalized_file.get("filename") or "")
+            )
+            normalized_content = normalized_file.get("content_bytes")
+            if not normalized_name or not isinstance(
+                normalized_content, (bytes, bytearray)
+            ):
+                continue
+            normalized_bytes[normalized_name] = bytes(normalized_content)
+
+        # Weaver has the final say on template filenames -- two uploads that
+        # arrived sharing one are told apart there -- so the project stores
+        # them under the names the generated YAML refers to.
+        woven_names = [
+            os.path.basename(str(name))
+            for name in (first_result.get("template_filenames") or [])
+        ]
+        if len(woven_names) != len(documents) or not all(woven_names):
+            woven_names = [
+                os.path.basename(document["filename"]) for document in documents
+            ]
+        temp_paths: List[str] = []
+        for document, woven_name in zip(documents, woven_names):
+            dest = os.path.join(temp_dir, woven_name)
+            with open(dest, "wb") as fh:
+                fh.write(normalized_bytes.get(woven_name) or document["content_bytes"])
+            temp_paths.append(dest)
 
         yaml_text = str(first_result.get("yaml_text", "") or "")
         if not yaml_text:
@@ -7148,8 +7209,10 @@ def _complete_new_project_upload_job(
             "project": project_name,
             "filename": yaml_filename,
             "generated_from": first_result.get("input_filename"),
+            "woven_templates": woven_names,
             "uploaded_count": len(temp_paths),
             "generated_template_count": len(generated_paths),
+            "renamed_template_count": len(normalized_bytes),
         }
         _update_new_project_job_state(
             job_id,
@@ -8007,6 +8070,609 @@ def editor_api_new_project_job(job_id: str) -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: new-project job status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+def _template_import_target(uid: int, project: str, template_filename: str) -> str:
+    """Locate a template file inside the project's templates section.
+
+    Args:
+        uid (int): the Playground owner.
+        project (str): the project name.
+        template_filename (str): the template's filename.
+
+    Returns:
+        str: the path to the template on disk.
+
+    Raises:
+        FileNotFoundError: when the project has no such template.
+        ValueError: when the file is not a PDF or DOCX Weaver can read.
+    """
+    _area, directory = _editor_storage_directory(
+        uid, project, EDITOR_SECTION_TO_STORAGE["templates"]
+    )
+    path = os.path.join(directory, template_filename)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{template_filename} is not in this project")
+    if not template_filename.lower().endswith((".pdf", ".docx")):
+        raise ValueError("Only PDF and DOCX templates can be analyzed.")
+    return path
+
+
+def _complete_template_import_job(
+    *,
+    job_id: str,
+    uid: int,
+    project: str,
+    template_filename: str,
+    interview_filename: str,
+    use_llm_assist: bool,
+    request_id: str,
+) -> Dict[str, Any]:
+    """Work out what importing one template into an interview would take.
+
+    Args:
+        job_id (str): the job record to report progress into.
+        uid (int): the Playground owner.
+        project (str): the project holding both files.
+        template_filename (str): the template to analyze.
+        interview_filename (str): the interview it would join.
+        use_llm_assist (bool): whether to let AI refine labels and grouping.
+        request_id (str): the originating request, for the log.
+
+    Returns:
+        Dict[str, Any]: the analysis, in the shape the editor renders.
+
+    Raises:
+        Exception: re-raised after the failure is recorded on the job.
+    """
+    # Imported here, not at module import: analysis pulls in the whole
+    # generator, and only the worker ever runs it.
+    from .template_analysis import analyze_template
+
+    stage = "start"
+    try:
+        _update_job_state(
+            TEMPLATE_IMPORT_JOB,
+            job_id,
+            status="running",
+            stage=stage,
+            message=f"Reading {template_filename}.",
+            progress=10,
+        )
+        template_path = _template_import_target(uid, project, template_filename)
+        interview_yaml = playground_read_yaml(uid, project, interview_filename)
+
+        stage = "analyze"
+        _update_job_state(
+            TEMPLATE_IMPORT_JOB,
+            job_id,
+            status="running",
+            stage=stage,
+            message=f"Reading the fields in {template_filename}.",
+            progress=35,
+        )
+        analysis = analyze_template(
+            template_path=template_path,
+            template_filename=template_filename,
+            interview_yaml=interview_yaml,
+            use_llm_assist=use_llm_assist,
+        )
+        result = analysis.to_dict()
+        result["project"] = project
+        result["interview_filename"] = interview_filename
+        result["interview_revision"] = source_revision(interview_yaml)
+        _update_job_state(
+            TEMPLATE_IMPORT_JOB,
+            job_id,
+            status="succeeded",
+            stage="done",
+            message=f"Read {template_filename}.",
+            progress=100,
+            result=result,
+            finished_at=time.time(),
+        )
+        return result
+    except Exception as exc:
+        tb = traceback.format_exc()
+        _update_job_state(
+            TEMPLATE_IMPORT_JOB,
+            job_id,
+            status="failed",
+            stage=stage,
+            message="Reading the template failed.",
+            error={"type": "server_error", "message": str(exc)},
+            finished_at=time.time(),
+        )
+        log(
+            "ALWeaver editor: template import failed "
+            f"request_id={request_id} job_id={job_id} project={project} "
+            f"template={template_filename} stage={stage}: {exc!r}\n{tb}",
+            "error",
+        )
+        raise
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/template/import", methods=["POST"])
+def editor_api_import_template() -> Response:
+    """Queue the read of a template already sitting in the project.
+
+    The author calls this importing: the template becomes one of the documents
+    the interview assembles. Reading its fields is how that happens, and on a
+    template already imported it is how a revised form gets its new ones.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        template_filename = _normalize_storage_filename(post_data.get("template"))
+        interview_filename = _normalize_filename(post_data.get("filename"))
+        use_llm_assist = parse_bool(post_data.get("use_llm_assist"), default=False)
+        # Fail here rather than in the worker: an author who picked the wrong
+        # file should hear about it now.
+        _template_import_target(uid, project, template_filename)
+        playground_read_yaml(uid, project, interview_filename)
+
+        if not _editor_async_is_configured():
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "async_not_configured",
+                        "code": "editor_async_not_configured",
+                        "message": (
+                            "Reading a template runs in the background. Add "
+                            f"{NEW_PROJECT_CELERY_MODULE!r} to the Docassemble "
+                            "'celery modules' configuration list, then restart "
+                            "the Docassemble web and Celery services."
+                        ),
+                        "details": get_worker_configuration_status(),
+                    },
+                },
+                503,
+            )
+
+        job_id = str(uuid.uuid4())
+        initial_state: Dict[str, Any] = {
+            "status": "queued",
+            "stage": "queued",
+            "message": f"Queued a read of {template_filename}.",
+            "owner_user_id": uid,
+            "operation_type": "template_import",
+            "project": project,
+            "template": template_filename,
+            "filename": interview_filename,
+            "request_id": request_id,
+            "queued_at": time.time(),
+            "started_at": None,
+            "finished_at": None,
+            "progress": 0,
+            "result": None,
+            "error": None,
+        }
+        _store_job_state(TEMPLATE_IMPORT_JOB, job_id, initial_state)
+        task = workerapp.send_task(
+            TEMPLATE_IMPORT_CELERY_TASK,
+            kwargs={
+                "job_id": job_id,
+                "uid": uid,
+                "project": project,
+                "template_filename": template_filename,
+                "interview_filename": interview_filename,
+                "use_llm_assist": use_llm_assist,
+                "request_id": request_id,
+            },
+        )
+        _update_job_state(TEMPLATE_IMPORT_JOB, job_id, celery_task_id=task.id)
+        return jsonify_with_status(
+            {
+                "success": True,
+                "request_id": request_id,
+                "status": "queued",
+                "job_id": job_id,
+                "job_url": f"{EDITOR_BASE_PATH}/api/template/import/jobs/{job_id}",
+                "data": initial_state,
+            },
+            202,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: import template error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/template/import/jobs/<job_id>", methods=["GET"])
+def editor_api_import_template_job(job_id: str) -> Response:
+    """Get the status of a queued template import."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        state = _load_job_state(TEMPLATE_IMPORT_JOB, job_id)
+        if not state or state.get("owner_user_id") not in {None, uid}:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {"type": "not_found", "message": "Job not found."},
+                },
+                404,
+            )
+        state = _reconcile_job_state(
+            TEMPLATE_IMPORT_JOB,
+            job_id,
+            state,
+            success_message="Template read.",
+            failure_message="Reading the template failed.",
+        )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "job_id": job_id,
+                "status": str(state.get("status") or "queued"),
+                "data": state,
+            }
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: template import job status error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+_BLOCK_ID_LINE_RE = re.compile(r"""(?m)^id:[ \t]*(?P<id>.*?)[ \t]*$""")
+
+
+def _block_id_without_collision(
+    block_yaml: str, taken: Set[str]
+) -> Tuple[str, Optional[str]]:
+    """Give a block an id no other block in the file is already using.
+
+    An analyzed template's screens keep the ids the generator derived from
+    their question text, and two interviews drafted from related forms will
+    produce some of the same ones. `insert_block_in_yaml` refuses a duplicate,
+    which would throw away every other accepted block along with it, so the
+    newcomer is numbered instead -- the same way the generator resolves
+    duplicates within one file.
+
+    Args:
+        block_yaml (str): the block about to be inserted.
+        taken (Set[str]): the ids already in the file.
+
+    Returns:
+        Tuple[str, Optional[str]]: the block, and the id it ended up with.
+    """
+    match = _BLOCK_ID_LINE_RE.search(block_yaml)
+    if not match:
+        return block_yaml, None
+    current = match.group("id").strip().strip("\"'")
+    if not current:
+        return block_yaml, None
+    if current not in taken:
+        return block_yaml, current
+    counter = 2
+    while f"{current} {counter}" in taken:
+        counter += 1
+    new_id = f"{current} {counter}"
+    return (
+        block_yaml[: match.start()] + f"id: {new_id}" + block_yaml[match.end() :],
+        new_id,
+    )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/template/apply", methods=["POST"])
+def editor_api_apply_template_analysis() -> Response:
+    """Add the accepted pieces of a template import to the interview.
+
+    The blocks and the bundle changes land in one write, so an interview never
+    ends up with an attachment whose `ALDocument` was not declared.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        blocks = post_data.get("blocks")
+        if not isinstance(blocks, list):
+            raise ValueError("blocks must be a list")
+        bundle_updates = post_data.get("bundles") or []
+        if not isinstance(bundle_updates, list):
+            raise ValueError("bundles must be a list")
+        if not blocks and not bundle_updates:
+            raise ValueError("Nothing was selected to add.")
+
+        content = playground_read_yaml(uid, project, filename)
+        if source_revision(content) != expected_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": (
+                            "This interview changed since the template was "
+                            "read. Reload and read it again."
+                        ),
+                    },
+                },
+                409,
+            )
+
+        added_block_ids: List[str] = []
+        replaced_block_ids: List[str] = []
+        taken_ids = {
+            str(block.get("id") or "").strip()
+            for block in parse_interview_yaml(content)["blocks"]
+        }
+        for entry in blocks:
+            # A plain string adds a block. An object with `replace_block_id`
+            # rewrites one in place, which is what re-reading a revised form
+            # does to its attachment block.
+            replace_block_id = None
+            if isinstance(entry, dict):
+                block_yaml = entry.get("yaml")
+                raw_replace = entry.get("replace_block_id")
+                replace_block_id = str(raw_replace).strip() if raw_replace else None
+            else:
+                block_yaml = entry
+            if not isinstance(block_yaml, str) or not block_yaml.strip():
+                raise ValueError("Each block must be a non-empty YAML string")
+            _validate_block_yaml_payload(block_yaml)
+
+            if replace_block_id:
+                content = update_block_in_yaml(
+                    content, replace_block_id, block_yaml.strip("\r\n")
+                )
+                replaced_block_ids.append(replace_block_id)
+                continue
+
+            block_text, block_id = _block_id_without_collision(
+                block_yaml.strip("\r\n"), taken_ids
+            )
+            # Appended rather than placed: an author moves blocks around in the
+            # outline, and guessing at a position here would only be a guess.
+            existing_blocks = parse_interview_yaml(content)["blocks"]
+            insert_after_id = (
+                str(existing_blocks[-1].get("id")) if existing_blocks else None
+            )
+            content = insert_block_in_yaml(content, block_text, insert_after_id)
+            if block_id:
+                taken_ids.add(block_id)
+                added_block_ids.append(block_id)
+
+        for update in bundle_updates:
+            if not isinstance(update, dict):
+                raise ValueError("Each bundle change must be an object")
+            bundle_name = str(update.get("bundle") or "").strip()
+            elements = update.get("elements")
+            if not bundle_name or not isinstance(elements, list):
+                raise ValueError("A bundle change needs a bundle name and elements")
+            content = set_bundle_elements(content, bundle_name, elements)
+
+        playground_write_yaml(uid, project, filename, content)
+        updated_model = parse_interview_yaml(content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "blocks": updated_model["blocks"],
+                    "metadata_blocks": updated_model["metadata_blocks"],
+                    "include_blocks": updated_model["include_blocks"],
+                    "default_screen_parts_blocks": updated_model[
+                        "default_screen_parts_blocks"
+                    ],
+                    "order_blocks": updated_model["order_blocks"],
+                    "raw_yaml": content,
+                    "revision": source_revision(content),
+                    "added_block_ids": added_block_ids,
+                    "replaced_block_ids": replaced_block_ids,
+                    "documents": interview_documents(content).to_dict(),
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: apply template import error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["GET"])
+def editor_api_documents() -> Response:
+    """List the documents an interview assembles, and the bundles they sit in."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        content = playground_read_yaml(uid, project, filename)
+        data = interview_documents(content).to_dict()
+        template_files = [
+            str(item.get("filename") or "")
+            for item in _list_editor_section_files(uid, project, "templates")
+        ]
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(content),
+                "templates": template_status(content, template_files),
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: documents error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["POST"])
+def editor_api_save_documents() -> Response:
+    """Reorder an interview's documents, or change what turns them on.
+
+    Both are edits to `.using()` arguments inside `objects:` declarations:
+    `elements=[...]` is the order the bundle assembles, and `enabled=` is the
+    rule that decides whether a document is in the download at all.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        expected_revision = post_data.get("expected_revision")
+        if not isinstance(expected_revision, str) or not expected_revision:
+            raise ValueError("expected_revision is required")
+        bundle_updates = post_data.get("bundles") or []
+        enabled_updates = post_data.get("enabled") or []
+        if not isinstance(bundle_updates, list) or not isinstance(
+            enabled_updates, list
+        ):
+            raise ValueError("bundles and enabled must be lists")
+        if not bundle_updates and not enabled_updates:
+            raise ValueError("Nothing was changed.")
+
+        content = playground_read_yaml(uid, project, filename)
+        if source_revision(content) != expected_revision:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "revision_conflict",
+                        "code": "revision_conflict",
+                        "message": (
+                            "This interview changed somewhere else. Reload "
+                            "before changing the documents."
+                        ),
+                    },
+                },
+                409,
+            )
+
+        for update in bundle_updates:
+            if not isinstance(update, dict):
+                raise ValueError("Each bundle change must be an object")
+            bundle_name = str(update.get("bundle") or "").strip()
+            elements = update.get("elements")
+            if not bundle_name or not isinstance(elements, list):
+                raise ValueError("A bundle change needs a bundle name and elements")
+            content = set_bundle_elements(content, bundle_name, elements)
+
+        for update in enabled_updates:
+            if not isinstance(update, dict):
+                raise ValueError("Each enabled change must be an object")
+            name = str(update.get("name") or "").strip()
+            if not name:
+                raise ValueError("An enabled change needs the variable's name")
+            raw_expression = update.get("expression")
+            expression = None if raw_expression is None else str(raw_expression)
+            content = set_enabled_expression(content, name, expression)
+
+        playground_write_yaml(uid, project, filename, content)
+        updated_model = parse_interview_yaml(content)
+        data = interview_documents(content).to_dict()
+        data.update(
+            {
+                "project": project,
+                "filename": filename,
+                "revision": source_revision(content),
+                "blocks": updated_model["blocks"],
+                "raw_yaml": content,
+            }
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: save documents error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

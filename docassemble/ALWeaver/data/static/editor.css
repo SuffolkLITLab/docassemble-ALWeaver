@@ -2283,17 +2283,6 @@ html, body {
   margin-bottom: 6px;
 }
 
-.editor-upload-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #f1f3f7;
-  border: 1px solid var(--editor-border);
-  border-radius: 4px;
-  padding: 4px 10px 4px 12px;
-  font-size: 12px;
-}
-
 .editor-upload-chip-remove {
   border: none;
   background: transparent;
@@ -2305,6 +2294,283 @@ html, body {
 }
 
 .editor-upload-chip-remove:hover { color: #dc3545; }
+
+.editor-upload-list {
+  list-style: decimal;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.editor-upload-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.editor-upload-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-upload-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* The Templates tab reaches two places: the files themselves, and the
+   project-wide setup of the documents they become. */
+.editor-top-tab-split {
+  display: flex;
+  align-items: center;
+}
+
+.editor-top-tab-caret {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.editor-top-tab-caret:hover,
+.editor-top-tab-caret:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+/* ===== Templates tab: documents and template import =====
+   Two questions, one nested inside the other: which documents come out of each
+   bundle and in what order, and separately whether each document is produced
+   at all. Bundles are cards so their contents are visibly theirs; the rules
+   are a segmented control rather than a text box, because Always and Never are
+   what an author means nearly every time and an expression is the exception. */
+
+.editor-doc-section { margin-bottom: 20px; }
+
+.editor-doc-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.editor-doc-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--editor-fg);
+}
+
+.editor-bundle-card { overflow: hidden; }
+
+.editor-bundle-card-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 16px;
+  background: var(--editor-primary);
+  color: #fff;
+}
+
+.editor-bundle-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.editor-bundle-card-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.editor-doc-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--editor-border);
+}
+
+.editor-doc-row:first-child { padding-top: 0; }
+
+.editor-doc-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.editor-doc-row-name {
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--editor-primary);
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-row-file {
+  font-size: 12px;
+  color: var(--editor-muted);
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-row-missing { font-style: italic; }
+
+.editor-doc-row-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* The rule that decides whether something is produced. */
+.editor-enabled { margin-top: 12px; }
+
+.editor-enabled-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.editor-enabled-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--editor-muted);
+}
+
+.editor-enabled-label:empty { display: none; }
+
+.editor-enabled-custom { margin-top: 8px; }
+
+.editor-enabled-custom label { display: block; margin-bottom: 2px; }
+
+.editor-enabled-warning {
+  margin-top: 6px;
+  color: var(--editor-accent);
+}
+
+/* One document's rule, in the list of all of them. */
+.editor-doc-rule-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--editor-border);
+}
+
+.editor-doc-rule-row-first {
+  padding-top: 0;
+  border-top: none;
+}
+
+.editor-doc-rule-control {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.editor-doc-rule-control .editor-enabled { margin-top: 0; }
+
+.editor-doc-rule-control .editor-enabled-control { justify-content: flex-end; }
+
+/* Saving every rule at once is one action, so its control stays in reach. */
+.editor-doc-save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+  margin-top: 4px;
+  background: linear-gradient(to bottom, rgba(245, 247, 250, 0), var(--editor-bg) 40%);
+}
+
+.editor-doc-list {
+  list-style: decimal;
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+/* Numbering a set of orphans would imply an order they do not have. */
+.editor-doc-list-plain {
+  list-style: none;
+  padding-left: 0;
+}
+
+.editor-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.editor-doc-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-item-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.editor-outline-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  white-space: nowrap;
+}
+
+.editor-import-item {
+  border-top: 1px solid var(--editor-border);
+  padding: 8px 0 8px 1.6em;
+}
+
+.editor-import-item:first-of-type { border-top: none; }
+
+.editor-import-preview summary {
+  cursor: pointer;
+  color: var(--editor-muted);
+}
+
+.editor-import-yaml {
+  background: var(--editor-code-bg, #f6f8fa);
+  border: 1px solid var(--editor-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+}
 
 /* ===== Block type colors in outline ===== */
 
