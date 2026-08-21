@@ -651,6 +651,9 @@ class TestEditorFrontend(unittest.TestCase):
         # A declaration with no rule at all says what that means.
         self.assertIn("editor-enabled-warning", editor)
         self.assertIn("assembly will stop and ask", editor)
+        # Guidance is visible underneath rather than disappearing in a placeholder.
+        self.assertNotIn('placeholder="user_is_low_income"', editor)
+        self.assertIn("Example: <code>user_is_low_income</code>", editor)
 
     def test_nothing_selected_greys_the_button_instead_of_erroring(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
