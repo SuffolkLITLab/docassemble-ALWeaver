@@ -8558,6 +8558,11 @@
       parts.push(data.replaced
         ? 'replaces the review screen this file has'
         : 'adds a review screen to this file');
+      if (data.kept_entries) {
+        parts.push('keeps ' + data.kept_entries
+          + (data.kept_entries === 1 ? ' entry' : ' entries')
+          + ' the draft did not cover');
+      }
       if (diff.added || diff.removed) {
         parts.push('+' + Number(diff.added || 0) + ' \u2212' + Number(diff.removed || 0) + ' lines');
       }
@@ -8610,7 +8615,11 @@
     }).catch(function (error) {
       if (apply) apply.disabled = false;
       if (isSupersededRequest(error)) return;
-      window.alert('Unable to save the review screen.');
+      // The server's message is the useful half -- "Permission denied on
+      // main.yml" is something to act on, "unable to save" is not.
+      window.alert(error && error.message
+        ? 'Unable to save the review screen: ' + error.message
+        : 'Unable to save the review screen.');
     });
   }
 

@@ -367,8 +367,13 @@ project's include graph in both directions, since review screens usually live in
 a `review.yml` that the interviews include rather than the other way round; it
 keeps the interview's own `id`, `event` and question text, so the download
 screen's "Edit answers" button still resolves; and it replaces the old review
-block, revisit screens and tables in place rather than appending a second review
-screen. Because re-drafting is a large edit to one part of a file, the endpoint
+block in place, along with the revisit screens and tables it actually
+regenerates, rather than appending a second review screen. What the draft cannot
+see it keeps: AssemblyLine declares `plaintiffs`, `courts` and `docket_number` in
+a package the include walk does not follow, so lists the file already reviews are
+fed back to the generator as object declarations, entries with no counterpart in
+the draft are carried over instead of dropped, and a table the draft did not
+regenerate stays where it is -- the revisit screen displaying it still needs it. Because re-drafting is a large edit to one part of a file, the endpoint
 returns a unified diff alongside the new source and the editor confirms it in a
 modal -- what leaves, what arrives -- rather than reopening the whole interview
 in a source editor. Applying saves the file and returns to the review block;

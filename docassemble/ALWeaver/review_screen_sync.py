@@ -25,11 +25,14 @@ What this module adds on top of the Dashboard's generator:
 """
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 __all__ = [
     "ALDashboardUnavailable",
+    "carry_over_unmatched_entries",
     "collect_interview_yaml_texts",
+    "ensure_revisit_tables",
+    "inferred_objects_document",
     "generate_review_screen_yaml",
     "interview_scope",
     "project_include_chain",
@@ -283,34 +286,235 @@ def review_screen_identity(source_yaml: str) -> Dict[str, Any]:
     return {"found": False}
 
 
-def _generated_list_names(review_yaml: str) -> Set[str]:
+def _generated_tables(yaml_text: str) -> Set[str]:
+    """Lists that ``yaml_text`` defines a `<name>.table` block for."""
     names: Set[str] = set()
-    for document in _documents(review_yaml):
+    for document in _documents(yaml_text):
         parsed = _parsed(document["text"])
         if parsed is None:
             continue
         name = _list_name(parsed.get("table"), ".table")
         if name:
             names.add(name)
+    return names
+
+
+def _generated_revisits(yaml_text: str) -> Set[str]:
+    """Lists that ``yaml_text`` defines a `<name>.revisit` screen for."""
+    names: Set[str] = set()
+    for document in _documents(yaml_text):
+        parsed = _parsed(document["text"])
+        if parsed is None or "review" in parsed:
+            continue
         name = _list_name(parsed.get("continue button field"), ".revisit")
         if name:
             names.add(name)
     return names
 
 
+def _declared_object_names(yaml_texts: Sequence[str]) -> Set[str]:
+    """Every object named in an `objects:` block anywhere in scope."""
+    names: Set[str] = set()
+    for text in yaml_texts:
+        for document in _documents(str(text or "")):
+            parsed = _parsed(document["text"])
+            if parsed is None:
+                continue
+            objects = parsed.get("objects")
+            if isinstance(objects, dict):
+                names.update(str(key) for key in objects)
+            elif isinstance(objects, list):
+                for entry in objects:
+                    if isinstance(entry, dict):
+                        names.update(str(key) for key in entry)
+    return names
+
+
+def _reviewed_list_names(source_yaml: str) -> List[str]:
+    """Lists the file already treats as reviewable, in the order they appear.
+
+    A `table: plaintiffs.table` block, or a review entry pointing at
+    `plaintiffs.revisit`, is the interview saying "this is a list people edit
+    from the review screen" just as clearly as an `objects:` block does.
+    """
+    names: List[str] = []
+
+    def remember(name: Optional[str]) -> None:
+        if name and name not in names and not any(c in name for c in ".[]"):
+            names.append(name)
+
+    for document in _documents(source_yaml):
+        parsed = _parsed(document["text"])
+        if parsed is None:
+            continue
+        remember(_list_name(parsed.get("table"), ".table"))
+        remember(_list_name(parsed.get("continue button field"), ".revisit"))
+        review = parsed.get("review")
+        if isinstance(review, list):
+            for entry in review:
+                if isinstance(entry, dict):
+                    remember(_list_name(entry.get("Edit"), ".revisit"))
+    return names
+
+
+def inferred_objects_document(yaml_texts: Sequence[str]) -> Optional[str]:
+    """An `objects:` document for reviewable lists nothing in scope declares.
+
+    AssemblyLine declares `plaintiffs`, `defendants` and `courts` in its own
+    package, which the include walk deliberately does not follow -- an author
+    cannot edit those files from here. Without this, drafting over a
+    Weaver-generated interview silently drops the review entries for exactly
+    those lists, because the generator only knows about a list it has seen an
+    `objects:` block for.
+
+    The class name is a stand-in: it never reaches the file, and the generator
+    only asks whether the type looks like a list.
+    """
+    declared = _declared_object_names(yaml_texts)
+    reviewed: List[str] = []
+    for text in yaml_texts:
+        for name in _reviewed_list_names(str(text or "")):
+            if name not in reviewed:
+                reviewed.append(name)
+    missing = [name for name in reviewed if name not in declared]
+    if not missing:
+        return None
+    lines = ["objects:"]
+    lines.extend(f"  - {name}: DAList" for name in missing)
+    return "\n".join(lines) + "\n"
+
+
+def _round_trip_yaml():
+    from ruamel.yaml import YAML
+
+    yaml = YAML()
+    yaml.default_flow_style = False
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml.width = 4096
+    yaml.preserve_quotes = True
+    return yaml
+
+
+def carry_over_unmatched_entries(review_yaml: str, source_yaml: str) -> Tuple[str, int]:
+    """Keep review entries the draft has no opinion about.
+
+    Drafting reads the interview's YAML, so it only knows about variables this
+    project asks for. `docket_number` and the rest of AssemblyLine's built-in
+    questions live in a package the walk does not follow, and dropping their
+    entries would quietly shrink the review screen every time it is synced --
+    which is worse than carrying a stale entry the author can see in the diff
+    and delete.
+
+    Entries are matched by their "Edit" target. A `note:` separator is not
+    carried over: the draft regenerates the entries it labelled, so it would
+    arrive as a heading with nothing under it.
+
+    Returns the new draft and how many entries were kept.
+    """
+    from ruamel.yaml.compat import StringIO
+
+    yaml = _round_trip_yaml()
+    try:
+        draft_documents = list(yaml.load_all(review_yaml))
+        source_documents = list(yaml.load_all(source_yaml))
+    except Exception:
+        return review_yaml, 0
+
+    draft_review = None
+    for document in draft_documents:
+        if isinstance(document, dict) and isinstance(document.get("review"), list):
+            draft_review = document["review"]
+            break
+    if draft_review is None:
+        return review_yaml, 0
+
+    drafted_targets = {
+        str(entry.get("Edit"))
+        for entry in draft_review
+        if isinstance(entry, dict) and entry.get("Edit") is not None
+    }
+
+    kept = 0
+    for document in source_documents:
+        if not isinstance(document, dict) or not isinstance(
+            document.get("review"), list
+        ):
+            continue
+        for entry in document["review"]:
+            if not isinstance(entry, dict):
+                continue
+            target = entry.get("Edit")
+            if target is None or str(target) in drafted_targets:
+                continue
+            draft_review.append(entry)
+            drafted_targets.add(str(target))
+            kept += 1
+        break
+
+    if not kept:
+        return review_yaml, 0
+
+    stream = StringIO()
+    yaml.dump_all(draft_documents, stream)
+    return stream.getvalue(), kept
+
+
+_FALLBACK_TABLE = """table: {name}.table
+rows: {name}
+columns:
+  - Name: |
+      row_item
+edit: True
+confirm: True
+"""
+
+
+def ensure_revisit_tables(
+    review_yaml: str, existing_yaml: Union[str, Sequence[str]] = ""
+) -> str:
+    """Give every drafted revisit screen a table to show.
+
+    A revisit screen's whole body is `${{ <list>.table }}`, so one without a
+    matching `table:` block is a screen that errors the moment somebody opens
+    it. The generator omits the table when it never saw an indexed field for
+    that list, and the file being synced may not have one either.
+    """
+    if isinstance(existing_yaml, str):
+        existing_texts: Sequence[str] = [existing_yaml]
+    else:
+        existing_texts = list(existing_yaml)
+    revisits = _generated_revisits(review_yaml)
+    have = _generated_tables(review_yaml)
+    # Every file in scope counts: in a project that keeps its review screen in
+    # its own file, the table it displays is very often defined in another one,
+    # and adding a second definition here would shadow it.
+    for text in existing_texts:
+        have |= _generated_tables(str(text or ""))
+    missing = sorted(revisits - have)
+    if not missing:
+        return review_yaml
+    parts = [review_yaml.rstrip("\n")]
+    parts.extend(_FALLBACK_TABLE.format(name=name).rstrip("\n") for name in missing)
+    return "\n---\n".join(parts) + "\n"
+
+
 def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
     """Put ``review_yaml`` where the file's current review screen is.
 
     The review block is replaced in place, along with the revisit screens and
-    tables for the lists the new draft also covers -- those are regenerated, so
-    leaving the old copies behind would define the same table twice. A revisit
-    screen for a list the new draft says nothing about is left alone: the author
-    wrote it, not the Weaver.
+    tables the new draft actually regenerates -- leaving those behind would
+    define the same block twice. Anything the draft does not regenerate is left
+    alone: the author wrote it, not the Weaver, and a table the draft has no
+    replacement for is still the one its revisit screen displays.
 
     Returns the new source and whether an existing review screen was replaced;
     when there was none, the draft is appended.
     """
-    regenerated = _generated_list_names(review_yaml)
+    # Tracked apart on purpose. A draft can regenerate a list's revisit screen
+    # without regenerating its table, and dropping the table anyway leaves the
+    # new screen pointing at a `${ <list>.table }` that no longer exists.
+    regenerated_tables = _generated_tables(review_yaml)
+    regenerated_revisits = _generated_revisits(review_yaml)
     documents = _documents(source_yaml)
 
     review_index: Optional[int] = None
@@ -325,11 +529,11 @@ def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
             drop.add(index)
             continue
         name = _list_name(parsed.get("table"), ".table")
-        if name and name in regenerated:
+        if name and name in regenerated_tables:
             drop.add(index)
             continue
         name = _list_name(parsed.get("continue button field"), ".revisit")
-        if name and name in regenerated and "review" not in parsed:
+        if name and name in regenerated_revisits:
             drop.add(index)
 
     block = review_yaml.strip("\n")
@@ -371,9 +575,12 @@ def _apply_identity(
 
     from ruamel.yaml import YAML
     from ruamel.yaml.compat import StringIO
+    from ruamel.yaml.scalarstring import LiteralScalarString
 
     yaml = YAML()
     yaml.default_flow_style = False
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml.width = 4096
     documents = list(yaml.load_all(review_yaml))
     for document in documents:
         if not isinstance(document, dict) or "review" not in document:
@@ -383,7 +590,12 @@ def _apply_identity(
         if event_name:
             document["event"] = event_name
         if question_text:
-            document["question"] = question_text
+            # A literal block, not the quoted scalar with an escaped newline
+            # ruamel would otherwise write: this is going back into a file an
+            # author reads.
+            document["question"] = LiteralScalarString(
+                str(question_text).rstrip("\n") + "\n"
+            )
         break
     stream = StringIO()
     yaml.dump_all(documents, stream)

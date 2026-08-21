@@ -6,7 +6,10 @@ from unittest import mock
 from . import review_screen_sync
 from .review_screen_sync import (
     ALDashboardUnavailable,
+    carry_over_unmatched_entries,
     collect_interview_yaml_texts,
+    ensure_revisit_tables,
+    inferred_objects_document,
     interview_scope,
     generate_review_screen_yaml,
     project_include_chain,
@@ -188,6 +191,143 @@ class TestSync(unittest.TestCase):
         self.assertFalse(replaced)
         self.assertIn("id: intro", result)
         self.assertTrue(result.rstrip().endswith("- name.first"))
+
+
+class TestKeepingWhatTheDraftCannotSee(unittest.TestCase):
+    """A generated interview reviews lists AssemblyLine declares, not this file."""
+
+    WEAVER_FILE = """---
+objects:
+  - users: ALPeopleList
+---
+id: review screen
+event: review_form
+review:
+  - Edit: users.revisit
+    button: |
+      **Users**
+  - Edit: plaintiffs.revisit
+    button: |
+      **Plaintiffs**
+  - Edit: docket_number
+    button: |
+      **Docket number**
+---
+id: edit plaintiffs
+continue button field: plaintiffs.revisit
+question: |
+  Edit plaintiffs
+---
+table: plaintiffs.table
+rows: plaintiffs
+columns:
+  - Name: |
+      row_item
+edit:
+  - name.first
+---
+table: users.table
+rows: users
+columns:
+  - Name: |
+      row_item
+edit:
+  - name.first
+"""
+
+    def test_lists_only_assemblyline_declares_are_still_offered(self):
+        document = inferred_objects_document([self.WEAVER_FILE])
+        self.assertIsNotNone(document)
+        # `users` has its own objects: block, so it needs no help.
+        self.assertNotIn("users:", document)
+        self.assertIn("plaintiffs:", document)
+
+    def test_nothing_is_inferred_when_every_list_is_declared(self):
+        source = "---\nobjects:\n  - users: ALPeopleList\n---\ntable: users.table\nrows: users\n"
+        self.assertIsNone(inferred_objects_document([source]))
+
+    def test_a_regenerated_revisit_screen_never_loses_its_table(self):
+        """The draft can rebuild the screen without rebuilding the table."""
+        draft = (
+            "id: review screen\nevent: review_form\nreview:\n"
+            "  - Edit: users.revisit\n    button: |\n      **Users**\n"
+            "---\nid: revisit users\ncontinue button field: users.revisit\n"
+            "question: |\n  Edit users\nsubquestion: |\n  ${users.table}\n"
+        )
+        result, replaced = sync_review_screen(self.WEAVER_FILE, draft)
+
+        self.assertTrue(replaced)
+        # The screen that displays it was regenerated; the table it displays
+        # was not, so the author's table has to survive.
+        self.assertIn("table: users.table", result)
+        self.assertIn("table: plaintiffs.table", result)
+        self.assertEqual(result.count("continue button field: users.revisit"), 1)
+
+    def test_a_revisit_screen_with_no_table_anywhere_gets_one(self):
+        draft = (
+            "id: review screen\nevent: review_form\nreview: []\n"
+            "---\nid: revisit witnesses\ncontinue button field: witnesses.revisit\n"
+            "question: |\n  Edit witnesses\nsubquestion: |\n  ${witnesses.table}\n"
+        )
+        result = ensure_revisit_tables(draft, "---\nid: x\n")
+
+        self.assertIn("table: witnesses.table", result)
+        self.assertIn("rows: witnesses", result)
+        self.assertIn("edit: True", result)
+
+    def test_an_existing_table_is_not_duplicated_by_the_safety_net(self):
+        draft = (
+            "id: review screen\nevent: review_form\nreview: []\n"
+            "---\nid: revisit users\ncontinue button field: users.revisit\n"
+            "question: |\n  Edit users\n"
+        )
+        self.assertNotIn("rows: users", ensure_revisit_tables(draft, self.WEAVER_FILE))
+        # ...including when the table lives in another file of the same
+        # interview, which is where a split-out review screen usually finds it.
+        self.assertNotIn(
+            "rows: users",
+            ensure_revisit_tables(draft, ["---\nid: r\n", self.WEAVER_FILE]),
+        )
+
+    def test_lists_are_inferred_from_any_file_in_the_interview(self):
+        """The tables can sit in one file and the review screen in another."""
+        review_file = "---\nid: review screen\nreview:\n  - Edit: rent\n"
+        main_file = "---\ntable: plaintiffs.table\nrows: plaintiffs\n"
+        document = inferred_objects_document([review_file, main_file])
+        self.assertIsNotNone(document)
+        self.assertIn("plaintiffs:", document)
+
+    def test_entries_the_draft_cannot_see_are_carried_over(self):
+        draft = (
+            "id: review screen\nevent: review_form\nreview:\n"
+            "  - Edit: users.revisit\n    button: |\n      **Users**\n"
+        )
+        result, kept = carry_over_unmatched_entries(draft, self.WEAVER_FILE)
+
+        self.assertEqual(kept, 2)
+        self.assertIn("Edit: plaintiffs.revisit", result)
+        self.assertIn("Edit: docket_number", result)
+        # The draft's own version of an entry wins; it is not duplicated.
+        self.assertEqual(result.count("Edit: users.revisit"), 1)
+
+    def test_carrying_over_preserves_the_literal_block_style(self):
+        draft = (
+            "id: review screen\nevent: review_form\nreview:\n"
+            "  - Edit: rent\n    button: |\n      **Rent**\n"
+        )
+        result, kept = carry_over_unmatched_entries(draft, self.WEAVER_FILE)
+        self.assertEqual(kept, 3)
+        self.assertNotIn("\\n", result)
+        self.assertIn("button: |", result)
+
+    def test_a_file_without_a_review_screen_carries_nothing(self):
+        draft = (
+            "id: review screen\nevent: review_form\nreview:\n"
+            "  - Edit: rent\n    button: |\n      **Rent**\n"
+        )
+        result, kept = carry_over_unmatched_entries(draft, "---\nid: x\n")
+        self.assertEqual(kept, 0)
+        self.assertEqual(result, draft)
 
 
 class TestGeneration(unittest.TestCase):

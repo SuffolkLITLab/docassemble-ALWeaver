@@ -188,8 +188,11 @@ from .variable_report import (
 )
 from .review_screen_sync import (
     ALDashboardUnavailable,
+    carry_over_unmatched_entries,
     collect_interview_yaml_texts,
+    ensure_revisit_tables,
     generate_review_screen_yaml,
+    inferred_objects_document,
     review_screen_identity,
     sync_review_screen,
 )
@@ -718,16 +721,7 @@ def _build_file_response_data(
     inserted_block_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     model = parse_interview_yaml(updated_content)
-    order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-    order_steps: list = []
-    for idx in model.get("order_blocks", []):
-        block = model["blocks"][idx]
-        code = block.get("data", {}).get("code", "")
-        if code:
-            parsed_steps = parse_order_code(code)
-            order_step_map[block["id"]] = parsed_steps
-            if not order_steps:
-                order_steps = parsed_steps
+    order_step_map, order_steps = _order_steps_from_model(model)
     return {
         "project": project,
         "filename": filename,
@@ -846,6 +840,32 @@ def _list_editor_section_files(
             }
         )
     return items
+
+
+def _order_steps_from_model(model: Dict[str, Any]) -> Tuple[Dict[str, Any], list]:
+    """Parse every interview-order block a parsed file contains.
+
+    ``order_blocks`` holds *document* indices, which are what ``block["index"]``
+    records; they are not positions in ``blocks``, because empty documents never
+    become blocks. Reading them as positions returns the wrong block in any file
+    with a blank document, and raises IndexError when the order block is the
+    last one -- which is every file that opens with `---` and ends with its
+    mandatory code.
+    """
+    wanted = set(model.get("order_blocks") or [])
+    order_step_map: Dict[str, Any] = {}
+    order_steps: list = []
+    for block in model.get("blocks", []):
+        if block.get("index") not in wanted:
+            continue
+        code = (block.get("data") or {}).get("code", "")
+        if not code:
+            continue
+        parsed_steps = parse_order_code(code)
+        order_step_map[block["id"]] = parsed_steps
+        if not order_steps:
+            order_steps = parsed_steps
+    return order_step_map, order_steps
 
 
 def _project_yaml_filenames(user_id: int, project: str) -> List[str]:
@@ -3059,17 +3079,7 @@ def editor_api_get_file() -> Response:
         filename = _normalize_filename(request.args.get("filename"))
         raw_yaml = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(raw_yaml)
-
-        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-        order_steps: list = []
-        for idx in model.get("order_blocks", []):
-            block = model["blocks"][idx]
-            code = block.get("data", {}).get("code", "")
-            if code:
-                parsed_steps = parse_order_code(code)
-                order_step_map[block["id"]] = parsed_steps
-                if not order_steps:
-                    order_steps = parsed_steps
+        order_step_map, order_steps = _order_steps_from_model(model)
 
         return jsonify(
             {
@@ -7055,18 +7065,31 @@ def editor_api_draft_review_screen() -> Response:
             read_project_file, filename, _project_yaml_filenames(uid, project)
         )
         identity = review_screen_identity(raw_yaml)
-        review_yaml = generate_review_screen_yaml(
+        # AssemblyLine declares `plaintiffs`, `defendants` and `courts` in its
+        # own package, which the include walk does not follow. Telling the
+        # generator about the lists this file already reviews keeps their
+        # entries instead of silently dropping them.
+        inferred_objects = inferred_objects_document(yaml_texts)
+        generator_inputs = list(yaml_texts)
+        if inferred_objects:
+            generator_inputs.append(inferred_objects)
+        review_yaml = ensure_revisit_tables(
+            generate_review_screen_yaml(
+                generator_inputs,
+                screen_id=identity.get("id"),
+                event_name=identity.get("event"),
+                question_text=identity.get("question"),
+            ),
             yaml_texts,
-            screen_id=identity.get("id"),
-            event_name=identity.get("event"),
-            question_text=identity.get("question"),
         )
+        review_yaml, kept_entries = carry_over_unmatched_entries(review_yaml, raw_yaml)
 
         data: Dict[str, Any] = {
             "review_yaml": review_yaml,
             "sources": sources,
             "had_review_screen": bool(identity.get("found")),
             "replaced": False,
+            "kept_entries": kept_entries,
             "revision": source_revision(raw_yaml),
         }
         if mode == "sync":

@@ -2019,6 +2019,37 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
                     self.accepts(payload)
 
 
+class TestOrderBlockLookup(unittest.TestCase):
+    """`order_blocks` holds document indices, not positions in `blocks`."""
+
+    def test_an_order_block_in_the_last_document_is_found(self):
+        # Every file that opens with `---` has an empty first document, so the
+        # two numberings differ by one; reading an index as a position raised
+        # IndexError as soon as the order block was last.
+        model = {
+            "blocks": [
+                {"id": "meta", "index": 1, "data": {"metadata": {}}},
+                {"id": "inc", "index": 2, "data": {"include": ["questions.yml"]}},
+                {"id": "order", "index": 3, "data": {"code": "rent_amount\n"}},
+            ],
+            "order_blocks": [3],
+        }
+        order_step_map, _steps = api_editor._order_steps_from_model(model)
+        self.assertEqual(list(order_step_map), ["order"])
+
+    def test_the_right_block_is_read_when_documents_are_skipped(self):
+        model = {
+            "blocks": [
+                {"id": "meta", "index": 1, "data": {"metadata": {}}},
+                {"id": "order", "index": 2, "data": {"code": "rent_amount\n"}},
+                {"id": "q", "index": 3, "data": {"question": "Hi"}},
+            ],
+            "order_blocks": [2],
+        }
+        order_step_map, _steps = api_editor._order_steps_from_model(model)
+        self.assertEqual(list(order_step_map), ["order"])
+
+
 class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
     """The two endpoints that lean on ALDashboard at runtime."""
 
@@ -2073,16 +2104,19 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
         self.assertEqual(seen["screen_id"], "my review screen")
         self.assertTrue(data["replaced"])
         self.assertIn("Edit: rent_amount", data["full_yaml"])
-        self.assertNotIn("Edit: old_variable", data["full_yaml"])
         self.assertIn("id: download", data["full_yaml"])
+
+        # An entry the draft has no opinion about is carried over rather than
+        # dropped: AssemblyLine asks for plenty this generator cannot see, and
+        # a review screen that shrinks on every sync is the worse failure.
+        self.assertIn("Edit: old_variable", data["full_yaml"])
+        self.assertEqual(data["kept_entries"], 1)
 
         # The drafted block alone does not show what the sync will do to the
         # file, so the response carries the diff the confirmation reads from.
-        self.assertIn("- Edit: old_variable", data["diff"]["diff"])
         self.assertIn("+  - Edit: rent_amount", data["diff"]["diff"])
         self.assertFalse(data["diff"]["truncated"])
         self.assertGreater(data["diff"]["added"], 0)
-        self.assertGreater(data["diff"]["removed"], 0)
         self.assertFalse(data["unchanged"])
         self.assertTrue(data["revision"])
 
