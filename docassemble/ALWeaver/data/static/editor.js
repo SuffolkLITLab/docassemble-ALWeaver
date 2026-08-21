@@ -8586,21 +8586,41 @@
   }
 
   // Reordering redraws the whole Templates view, and the enabled rules are only
-  // read out of the DOM on save, so anything typed has to be folded back into
+  // read out of the DOM on save, so anything chosen has to be folded back into
   // the model first or it disappears under the arrow the author just clicked.
   function captureDocumentEnabledInputs() {
     var model = state.documents;
     if (!model) return;
-    $$('[data-enabled-for]').forEach(function (input) {
-      var name = input.getAttribute('data-enabled-for');
-      var value = String(input.value || '').trim();
-      (model.documents || []).forEach(function (document_) {
-        if (document_.name === name) document_.enabled = value;
-      });
-      (model.bundles || []).forEach(function (bundle) {
-        if (bundle.name === name) bundle.enabled = value;
-      });
+    $$('[data-enabled-mode]').forEach(function (radio) {
+      if (!radio.checked) return;
+      var name = radio.getAttribute('data-enabled-target');
+      var mode = radio.getAttribute('data-enabled-mode');
+      var value = mode === 'always' ? 'True' : mode === 'never' ? 'False' : '';
+      if (mode === 'custom') {
+        var expression = document.querySelector(
+          '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+        );
+        value = expression ? String(expression.value || '').trim() : '';
+      }
+      setEnabledValue(model, name, value);
     });
+  }
+
+  function setEnabledValue(model, name, value) {
+    (model.documents || []).forEach(function (document_) {
+      if (document_.name === name) document_.enabled = value;
+    });
+    (model.bundles || []).forEach(function (bundle) {
+      if (bundle.name === name) bundle.enabled = value;
+    });
+  }
+
+  // Object names are Python identifiers, so this is belt and braces -- but a
+  // selector built from data has no business trusting that.
+  function cssAttrValue(value) {
+    return String(value === null || value === undefined ? '' : value).replace(
+      /["\\]/g, '\\$&'
+    );
   }
 
   // Whether anything in the setup pane differs from what the file says.
@@ -8631,13 +8651,38 @@
     return null;
   }
 
+  // Custom with an empty box would write no rule at all, which is not what
+  // choosing Custom means. Name the first one so the author can fix it.
+  function documentsRuleProblem() {
+    var unfinished = null;
+    $$('[data-enabled-mode]').forEach(function (radio) {
+      if (unfinished || !radio.checked) return;
+      if (radio.getAttribute('data-enabled-mode') !== 'custom') return;
+      var name = radio.getAttribute('data-enabled-target');
+      var box = document.querySelector(
+        '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+      );
+      if (!box || !String(box.value || '').trim()) unfinished = name;
+    });
+    return unfinished;
+  }
+
   function markDocumentsDirty() {
     state.documentsDirty = documentsHaveChanges();
     updateTopbarSaveState();
+    var problem = documentsRuleProblem();
     var saveButton = document.getElementById('save-documents-btn');
-    if (saveButton) saveButton.disabled = state.documentsBusy || !state.documentsDirty;
+    if (saveButton) {
+      saveButton.disabled =
+        state.documentsBusy || !state.documentsDirty || Boolean(problem);
+    }
     var status = document.getElementById('documents-status');
-    if (status) status.textContent = state.documentsDirty ? 'Unsaved changes' : '';
+    if (!status) return;
+    if (problem) {
+      status.textContent = 'Write the rule for ' + problem + ', or choose Always or Never.';
+    } else {
+      status.textContent = state.documentsDirty ? 'Unsaved changes' : '';
+    }
   }
 
   function documentByName(name) {
@@ -8655,83 +8700,136 @@
     return document_.title || name;
   }
 
+  // How an `enabled=` expression reads as a choice. Always and Never are what
+  // an author means almost every time; anything else is a rule they wrote.
+  function enabledMode(expression) {
+    var text = String(expression || '').trim();
+    if (text === 'True') return 'always';
+    if (text === 'False') return 'never';
+    if (!text) return 'unset';
+    return 'custom';
+  }
+
+  function renderEnabledControl(name, expression, label) {
+    var mode = enabledMode(expression);
+    var safeId = 'enabled-' + String(name).replace(/[^A-Za-z0-9_-]/g, '-');
+    var html = '<div class="editor-enabled" data-enabled-group="' + esc(name) + '">';
+    html += '<div class="editor-enabled-control">';
+    html += '<span class="editor-enabled-label">' + esc(label) + '</span>';
+    html += '<div class="btn-group btn-group-sm" role="group" aria-label="Include ' + esc(name) + '">';
+    [
+      ['always', 'Always'],
+      ['never', 'Never'],
+      ['custom', 'Custom'],
+    ].forEach(function (option) {
+      var value = option[0];
+      var inputId = safeId + '-' + value;
+      html += '<input type="radio" class="btn-check" name="' + esc(safeId) + '" id="' + esc(inputId) + '"';
+      html += ' data-enabled-mode="' + value + '" data-enabled-target="' + esc(name) + '" autocomplete="off"';
+      html += (mode === value ? ' checked' : '') + '>';
+      html += '<label class="btn btn-outline-secondary" for="' + esc(inputId) + '">' + option[1] + '</label>';
+    });
+    html += '</div></div>';
+
+    html += '<div class="editor-enabled-custom"' + (mode === 'custom' ? '' : ' hidden') + ' data-enabled-custom="' + esc(name) + '">';
+    html += '<label class="editor-tiny" for="' + esc(safeId) + '-expression">Python expression, evaluated when the download screen is built</label>';
+    html += '<input class="form-control form-control-sm font-monospace" id="' + esc(safeId) + '-expression" data-enabled-expression="' + esc(name) + '"';
+    html += ' value="' + esc(mode === 'custom' ? expression : '') + '" placeholder="user_is_low_income" spellcheck="false">';
+    html += '</div>';
+
+    if (mode === 'unset') {
+      html += '<div class="editor-tiny editor-enabled-warning">No rule set here. Unless something else in the interview defines it, assembly will stop and ask.</div>';
+    }
+    return html + '</div>';
+  }
+
+  function renderDocumentRow(name) {
+    var document_ = documentByName(name);
+    var html = '<div class="editor-doc-row-main">';
+    html += '<div class="editor-doc-row-name">' + esc(name) + '</div>';
+    var file = document_ && document_.template_filename;
+    var title = document_ && document_.title;
+    if (file) {
+      html += '<div class="editor-doc-row-file">' + esc(file) + '</div>';
+    } else if (title) {
+      html += '<div class="editor-doc-row-file">' + esc(title) + '</div>';
+    } else {
+      html += '<div class="editor-doc-row-file editor-doc-row-missing">Not declared in this file</div>';
+    }
+    return html + '</div>';
+  }
+
   function renderDocumentsCard() {
     var model = state.documents;
-    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
-    html += '<span>Documents this interview assembles</span>';
+    var html = '<section class="editor-doc-section">';
+    html += '<div class="editor-doc-section-head">';
+    html += '<h3 class="editor-doc-section-title">Documents this interview assembles</h3>';
     html += '<a class="editor-tiny" href="' + ALDOCUMENT_DOCS_URL + '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
-    html += '</div><div class="editor-card-body">';
+    html += '</div>';
 
     if (!state.filename) {
-      html += '<p class="text-muted small mb-0">Open an interview file to see how its templates are assembled.</p>';
-      return html + '</div></div>';
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Open an interview file to see how its templates are assembled.</div></div></section>';
     }
     if (!model) {
-      html += '<p class="text-muted small mb-0">Weaver could not read the documents in ' + esc(state.filename) + '.</p>';
-      return html + '</div></div>';
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Weaver could not read the documents in ' + esc(state.filename) + '.</div></div></section>';
     }
 
     var documents = model.documents || [];
     var bundles = model.bundles || [];
     if (!documents.length && !bundles.length) {
-      html += '<p class="text-muted small mb-0">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</p>';
-      return html + '</div></div>';
+      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</div></div></section>';
     }
 
+    // One card per bundle: its documents in the order they come out, and the
+    // rule that decides whether the bundle is produced at all.
     bundles.forEach(function (bundle) {
-      html += '<div class="editor-doc-bundle" data-bundle="' + esc(bundle.name) + '">';
-      html += '<div class="editor-doc-bundle-head">';
-      html += '<code class="editor-tiny">' + esc(bundle.name) + '</code>';
-      if (bundle.title) html += '<span class="text-muted small">' + esc(bundle.title) + '</span>';
+      html += '<div class="editor-card editor-bundle-card">';
+      html += '<div class="editor-bundle-card-header">';
+      html += '<code class="editor-bundle-card-name">' + esc(bundle.name) + '</code>';
+      if (bundle.title) html += '<span class="editor-bundle-card-subtitle">' + esc(bundle.title) + '</span>';
       html += '</div>';
+      html += '<div class="editor-card-body">';
       if (!bundle.elements.length) {
-        html += '<div class="text-muted small">No documents in this bundle.</div>';
+        html += '<p class="text-muted small">No documents in this bundle.</p>';
       }
-      html += '<ol class="editor-doc-list">';
+      html += '<ol class="editor-doc-rows">';
       bundle.elements.forEach(function (element, index) {
-        html += '<li class="editor-doc-item">';
-        html += '<span class="editor-doc-item-name"><code>' + esc(element) + '</code>';
-        var label = documentLabel(element);
-        if (label !== element) html += ' <span class="text-muted">' + esc(label) + '</span>';
-        html += '</span>';
-        html += '<span class="editor-doc-item-actions">';
+        html += '<li class="editor-doc-row">';
+        html += renderDocumentRow(element);
+        html += '<div class="editor-doc-row-actions">';
         html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="up" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === 0 ? ' disabled' : '') + ' title="Assemble earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' earlier in ' + esc(bundle.name) + '</span></button>';
         html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="down" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === bundle.elements.length - 1 ? ' disabled' : '') + ' title="Assemble later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' later in ' + esc(bundle.name) + '</span></button>';
-        html += '</span></li>';
+        html += '</div></li>';
       });
       html += '</ol>';
-      html += '<div class="editor-form-group editor-form-group-compact">';
-      html += '<label class="editor-tiny" for="editor-bundle-enabled-' + esc(bundle.name) + '">Include this bundle when</label>';
-      html += '<input class="form-control form-control-sm font-monospace" id="editor-bundle-enabled-' + esc(bundle.name) + '" data-enabled-for="' + esc(bundle.name) + '" value="' + esc(bundle.enabled) + '" placeholder="True">';
-      html += '</div>';
-      html += '</div>';
+      html += renderEnabledControl(bundle.name, bundle.enabled, 'Produce this bundle');
+      html += '</div></div>';
     });
+
+    html += '</section>';
 
     if (!documents.length) {
-      // Bundles can list documents an included file declares. Their order is
-      // still this file's to change, so the save row below still applies.
       html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents it does not define.</p>';
+      return html;
     }
 
-    html += '<div class="editor-doc-rules"' + (documents.length ? '' : ' hidden') + '>';
-    html += '<div class="editor-tiny mb-1">Include each document when</div>';
-    documents.forEach(function (document_) {
-      html += '<div class="editor-doc-rule">';
-      html += '<label class="editor-doc-rule-label" for="editor-doc-enabled-' + esc(document_.name) + '"><code>' + esc(document_.name) + '</code>';
-      if (document_.template_filename) html += ' <span class="text-muted small">' + esc(document_.template_filename) + '</span>';
-      html += '</label>';
-      html += '<input class="form-control form-control-sm font-monospace" id="editor-doc-enabled-' + esc(document_.name) + '" data-enabled-for="' + esc(document_.name) + '" value="' + esc(document_.enabled) + '" placeholder="True">';
+    // The same question, one level down: each document has its own rule.
+    html += '<section class="editor-doc-section">';
+    html += '<div class="editor-doc-section-head">';
+    html += '<h3 class="editor-doc-section-title">Include each document when</h3>';
+    html += '</div>';
+    html += '<div class="editor-card"><div class="editor-card-body">';
+    documents.forEach(function (document_, index) {
+      html += '<div class="editor-doc-rule-row' + (index ? '' : ' editor-doc-rule-row-first') + '">';
+      html += renderDocumentRow(document_.name);
+      html += '<div class="editor-doc-rule-control">';
+      html += renderEnabledControl(document_.name, document_.enabled, '');
+      html += '</div>';
       html += '</div>';
     });
-    html += '<div class="text-muted small mt-1">A Python expression, evaluated when the download screen is built. Leave one blank to let AssemblyLine decide.</div>';
-    html += '</div>';
-
-    html += '<div class="mt-3 d-flex gap-2 align-items-center">';
-    html += '<button class="btn btn-sm btn-primary" id="save-documents-btn"' + (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') + '>Save document changes</button>';
-    html += '<span class="editor-tiny text-muted" id="documents-status">' + (state.documentsDirty ? 'Unsaved changes' : '') + '</span>';
-    html += '</div>';
-
-    return html + '</div></div>';
+    html += '</div></div>';
+    html += '</section>';
+    return html;
   }
 
   // "Import" rather than "analyze": reading the fields is the means, and what
@@ -9010,6 +9108,7 @@
     var model = state.documents;
     if (!model || state.documentsBusy) return Promise.resolve(true);
     captureDocumentEnabledInputs();
+    if (documentsRuleProblem()) return Promise.resolve(false);
     var original = state.documentsLoaded || { documents: [], bundles: [] };
 
     function originalEntry(list, name) {
@@ -9083,8 +9182,17 @@
     html += '</div></div>';
     html += renderDocumentsCard();
     html += renderUnimportedTemplatesCard();
+    if (state.filename && state.documents) {
+      // Pinned, because the rules are a long list and the save for all of them
+      // is one action.
+      html += '<div class="editor-doc-save">';
+      html += '<button class="btn btn-primary" id="save-documents-btn"' + (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') + '>Save document changes</button>';
+      html += '<span class="editor-tiny text-muted" id="documents-status"></span>';
+      html += '</div>';
+    }
     html += '</div>';
     canvasContent.innerHTML = html;
+    markDocumentsDirty();
   }
 
   function renderUnimportedTemplatesCard() {
@@ -11070,7 +11178,7 @@
       applyAssemblyLineSettingsFilter();
       return;
     }
-    if (target.matches('[data-enabled-for]')) {
+    if (target.matches('[data-enabled-expression]')) {
       // On `change` this would only run at blur -- which is the same click
       // that presses Save, so the first press would land on a still-disabled
       // button and do nothing.
@@ -11125,6 +11233,25 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-enabled-mode]')) {
+      var group = target.closest('[data-enabled-group]');
+      var wantsExpression = target.getAttribute('data-enabled-mode') === 'custom';
+      if (group) {
+        var custom = group.querySelector('[data-enabled-custom]');
+        if (custom) {
+          custom.hidden = !wantsExpression;
+          var box = custom.querySelector('[data-enabled-expression]');
+          // Typing the rule is the whole point of choosing Custom.
+          if (wantsExpression && box) box.focus();
+        }
+        // Whatever they picked, the rule is no longer unset.
+        var warning = group.querySelector('.editor-enabled-warning');
+        if (warning) warning.remove();
+      }
+      captureDocumentEnabledInputs();
+      markDocumentsDirty();
+      return;
+    }
     if (target.matches('[data-import-key]')) {
       // Recorded rather than re-rendered: unticking one proposal should not
       // collapse the YAML previews the author has open next to it.

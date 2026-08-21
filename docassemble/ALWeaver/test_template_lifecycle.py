@@ -347,6 +347,28 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.assertEqual(by_name["petition"]["enabled"], "True")
         self.assertEqual(self._lint(), [])
 
+    def test_the_three_choices_the_setup_pane_offers_all_round_trip(self):
+        """Always, Never and a written rule are what the control can produce."""
+        self._generate(
+            [
+                ("petition.pdf", ["users1_name_first"]),
+                ("affidavit.pdf", ["rent_amount"]),
+            ]
+        )
+
+        for expression in ("False", "user_is_low_income", "True"):
+            response = self._save_documents(
+                enabled=[{"name": "affidavit", "expression": expression}]
+            )
+            self.assertEqual(response.status_code, 200, response.get_json())
+            by_name = {
+                document["name"]: document
+                for document in self._documents()["documents"]
+            }
+            self.assertEqual(by_name["affidavit"]["enabled"], expression)
+            self.assertEqual(by_name["petition"]["enabled"], "True")
+            self.assertEqual(self._lint(), [])
+
     def test_a_rule_that_is_not_an_expression_changes_nothing(self):
         self._generate([("petition.pdf", ["users1_name_first"])])
         before = self.project.read_yaml(7, "P", "main.yml")

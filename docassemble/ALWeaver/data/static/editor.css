@@ -2348,19 +2348,160 @@ html, body {
   outline: none;
 }
 
-/* ===== Templates tab: documents and template import ===== */
-.editor-doc-bundle {
-  border: 1px solid var(--editor-border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
+/* ===== Templates tab: documents and template import =====
+   Two questions, one nested inside the other: which documents come out of each
+   bundle and in what order, and separately whether each document is produced
+   at all. Bundles are cards so their contents are visibly theirs; the rules
+   are a segmented control rather than a text box, because Always and Never are
+   what an author means nearly every time and an expression is the exception. */
+
+.editor-doc-section { margin-bottom: 20px; }
+
+.editor-doc-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
-.editor-doc-bundle-head {
+.editor-doc-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--editor-fg);
+}
+
+.editor-bundle-card { overflow: hidden; }
+
+.editor-bundle-card-header {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 16px;
+  background: var(--editor-primary);
+  color: #fff;
+}
+
+.editor-bundle-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.editor-bundle-card-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.editor-doc-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--editor-border);
+}
+
+.editor-doc-row:first-child { padding-top: 0; }
+
+.editor-doc-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.editor-doc-row-name {
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--editor-primary);
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-row-file {
+  font-size: 12px;
+  color: var(--editor-muted);
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+.editor-doc-row-missing { font-style: italic; }
+
+.editor-doc-row-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* The rule that decides whether something is produced. */
+.editor-enabled { margin-top: 12px; }
+
+.editor-enabled-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.editor-enabled-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--editor-muted);
+}
+
+.editor-enabled-label:empty { display: none; }
+
+.editor-enabled-custom { margin-top: 8px; }
+
+.editor-enabled-custom label { display: block; margin-bottom: 2px; }
+
+.editor-enabled-warning {
+  margin-top: 6px;
+  color: var(--editor-accent);
+}
+
+/* One document's rule, in the list of all of them. */
+.editor-doc-rule-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--editor-border);
+}
+
+.editor-doc-rule-row-first {
+  padding-top: 0;
+  border-top: none;
+}
+
+.editor-doc-rule-control {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.editor-doc-rule-control .editor-enabled { margin-top: 0; }
+
+.editor-doc-rule-control .editor-enabled-control { justify-content: flex-end; }
+
+/* Saving every rule at once is one action, so its control stays in reach. */
+.editor-doc-save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+  margin-top: 4px;
+  background: linear-gradient(to bottom, rgba(245, 247, 250, 0), var(--editor-bg) 40%);
 }
 
 .editor-doc-list {
@@ -2393,23 +2534,6 @@ html, body {
   display: inline-flex;
   gap: 2px;
   flex: 0 0 auto;
-}
-
-.editor-doc-rules { margin-top: 4px; }
-
-.editor-doc-rule {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 0;
-}
-
-.editor-doc-rule-label {
-  flex: 0 0 40%;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  margin: 0;
 }
 
 .editor-outline-status {

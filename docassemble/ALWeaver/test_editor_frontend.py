@@ -614,6 +614,44 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("if (state.documentsDirty) return saveDocumentChanges();", editor)
         self.assertIn("documentsDiscarded", editor)
 
+    def test_document_setup_has_a_hierarchy_instead_of_a_wall_of_text_boxes(self):
+        """Two nested questions, each shown as one, not four peer text fields."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        styles = (self.package_dir / "data/static/editor.css").read_text()
+
+        # Each bundle owns its documents, visibly.
+        self.assertIn("editor-bundle-card-header", editor)
+        self.assertIn(".editor-bundle-card-header", styles)
+        self.assertIn("Documents this interview assembles", editor)
+        self.assertIn("Include each document when", editor)
+        # A document reads as its variable over the file it fills, not as a
+        # label competing with an input.
+        self.assertIn("editor-doc-row-name", editor)
+        self.assertIn("editor-doc-row-file", editor)
+        # And the rule is a choice, with Bootstrap's own radio group.
+        self.assertIn('class="btn-check"', editor)
+        self.assertIn("btn-group btn-group-sm", editor)
+        for label in ("Always", "Never", "Custom"):
+            self.assertIn("'" + label + "'", editor)
+
+    def test_an_enabled_rule_is_a_choice_before_it_is_an_expression(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function enabledMode(", editor)
+        self.assertIn("if (text === 'True') return 'always';", editor)
+        self.assertIn("if (text === 'False') return 'never';", editor)
+        # The expression box only exists for the case that needs one.
+        self.assertIn("data-enabled-custom", editor)
+        self.assertIn("custom.hidden = !wantsExpression;", editor)
+        # Custom with nothing written would remove the rule, so it cannot save.
+        self.assertIn("function documentsRuleProblem(", editor)
+        self.assertIn(
+            "if (documentsRuleProblem()) return Promise.resolve(false);", editor
+        )
+        # A declaration with no rule at all says what that means.
+        self.assertIn("editor-enabled-warning", editor)
+        self.assertIn("assembly will stop and ask", editor)
+
     def test_nothing_selected_greys_the_button_instead_of_erroring(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
