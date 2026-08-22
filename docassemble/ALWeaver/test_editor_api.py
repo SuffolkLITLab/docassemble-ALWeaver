@@ -1,7 +1,7 @@
 # do not pre-load
 
 from io import BytesIO
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 import os
 import importlib
@@ -74,6 +74,7 @@ def _load_api_editor_for_tests():
         "delete_block_from_yaml": lambda content, block_id: content,
         "delete_saved_file": lambda *args, **kwargs: None,
         "generate_draft_order": lambda *args, **kwargs: {},
+        "add_object_declaration": lambda content, block_id, name, expression: content,
         "insert_block_in_yaml": lambda content, block_yaml, insert_after_id=None: content,
         "inserted_block_id_by_position": lambda blocks, insert_after_id: None,
         "is_comment_only_yaml": lambda text: bool(
@@ -1988,6 +1989,402 @@ class TestEditorListTopics(unittest.TestCase):
 
         status = response[1] if isinstance(response, tuple) else response.status_code
         self.assertEqual(status, 401)
+
+
+class TestEditorQuestionLibraryApi(unittest.TestCase):
+    """The AssemblyLine question library, reachable after project creation.
+
+    The Weaver copies these questions in only while it writes a new interview.
+    An object declared later needs them too, so the editor offers them for
+    whatever the file being edited declares now.
+    """
+
+    SOURCE = (
+        "objects:\n"
+        "  - users: ALPeopleList.using(there_are_any=True)\n"
+        "  - children: ALPeopleList.using(ask_number=True)\n"
+        "  - landlord: ALIndividual\n"
+        "  - al_court_bundle: ALDocumentBundle.using(elements=[])\n"
+        "---\n"
+        "id: users names\n"
+        "question: |\n"
+        "  Who are you?\n"
+        "fields:\n"
+        "  - code: |\n"
+        "      users[i].name_fields()\n"
+        "---\n"
+        "id: birthday\n"
+        "question: |\n"
+        "  When were you born?\n"
+        "fields:\n"
+        "  - Birthdate: users[i].birthdate\n"
+    )
+
+    def _real_editor_utils(self):
+        from . import editor_utils as real_editor_utils
+
+        return real_editor_utils
+
+    def _patches(self, source):
+        real_editor_utils = self._real_editor_utils()
+        return [
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=source),
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                side_effect=real_editor_utils.parse_interview_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "insert_block_in_yaml",
+                side_effect=real_editor_utils.insert_block_in_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "add_object_declaration",
+                side_effect=real_editor_utils.add_object_declaration,
+            ),
+            patch.object(
+                api_editor,
+                "source_revision",
+                side_effect=real_editor_utils.source_revision,
+            ),
+        ]
+
+    def _get_catalog(self, source=None):
+        with ExitStack() as stack:
+            for patcher in self._patches(source if source is not None else self.SOURCE):
+                stack.enter_context(patcher)
+            stack.enter_context(
+                api_editor.app.test_request_context(
+                    "/al/editor/api/question-library"
+                    "?project=default&filename=test.yml"
+                )
+            )
+            return api_editor.editor_api_question_library().get_json()
+
+    def _insert(self, questions, insert_after_id=None, source=None):
+        written = {}
+
+        def record_write(uid, project, filename, content):
+            written["content"] = content
+
+        with ExitStack() as stack:
+            for patcher in self._patches(source if source is not None else self.SOURCE):
+                stack.enter_context(patcher)
+            stack.enter_context(
+                patch.object(
+                    api_editor, "playground_write_yaml", side_effect=record_write
+                )
+            )
+            stack.enter_context(
+                api_editor.app.test_request_context(
+                    "/al/editor/api/question-library/insert",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "filename": "test.yml",
+                        "insert_after_id": insert_after_id,
+                        "questions": questions,
+                    },
+                )
+            )
+            response = api_editor.editor_api_question_library_insert()
+        return response, written.get("content")
+
+    def test_the_catalog_covers_the_people_this_file_declares(self):
+        payload = self._get_catalog()
+        self.assertTrue(payload["success"])
+        objects = payload["data"]["objects"]
+        self.assertEqual(
+            [entry["var"] for entry in objects], ["users", "children", "landlord"]
+        )
+
+    def test_a_question_already_written_into_the_file_is_marked_as_present(self):
+        payload = self._get_catalog()
+        users = payload["data"]["objects"][0]
+        by_kind = {question["kind"]: question for question in users["questions"]}
+        self.assertTrue(by_kind["names"]["present"])
+        self.assertFalse(by_kind["there_is_another"]["present"])
+        # The file asks for `users[i].birthdate`, so its question is worth a tick.
+        self.assertTrue(by_kind["birthdate"]["recommended"])
+        self.assertFalse(by_kind["mobile_number"]["recommended"])
+
+    def test_the_declaration_decides_which_gather_questions_are_offered(self):
+        payload = self._get_catalog()
+        by_var = {entry["var"]: entry for entry in payload["data"]["objects"]}
+        gather = {
+            var: [
+                question["kind"]
+                for question in entry["questions"]
+                if question["group"] == "gather"
+            ]
+            for var, entry in by_var.items()
+        }
+        # `users` already knows it has members; `children` counts itself.
+        self.assertEqual(gather["users"], ["names", "there_is_another"])
+        self.assertEqual(gather["children"], ["how_many", "names"])
+        self.assertEqual(gather["landlord"], ["name"])
+
+    def test_inserting_writes_the_blocks_the_weaver_would_have_written(self):
+        response, written = self._insert(
+            [
+                {"var": "children", "kind": "birthdate"},
+                {"var": "children", "kind": "how_many"},
+            ],
+            insert_after_id="birthday",
+        )
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(
+            payload["data"]["inserted_block_ids"],
+            ["how many children", "child birthdate"],
+        )
+        self.assertIn("id: how many children", written)
+        self.assertIn("children[i].birthdate", written)
+        # Inserted after the anchor block, in the order the catalog lists them:
+        # the gather flow before the questions about each child.
+        self.assertLess(written.index("id: birthday"), written.index("id: how many"))
+        self.assertLess(
+            written.index("id: how many children"), written.index("id: child birthdate")
+        )
+        # Nothing that was already in the file moved or changed.
+        self.assertIn("id: users names", written)
+
+    def test_a_write_answers_with_the_revision_the_file_now_has(self):
+        # Without it the editor keeps the revision from before its own write,
+        # and the next metadata save is rejected as a conflict.
+        real_editor_utils = self._real_editor_utils()
+        response, written = self._insert([{"var": "children", "kind": "names"}])
+        self.assertEqual(
+            response.get_json()["data"]["revision"],
+            real_editor_utils.source_revision(written),
+        )
+        response, written = self._declare(name="witnesses", class_name="ALPeopleList")
+        self.assertEqual(
+            response.get_json()["data"]["revision"],
+            real_editor_utils.source_revision(written),
+        )
+
+    def test_the_blocks_name_the_authors_own_object_not_a_generic_x(self):
+        _response, written = self._insert([{"var": "children", "kind": "names"}])
+        added = written[: written.index("objects:")]
+        self.assertIn("children[i].name_fields()", added)
+        self.assertNotIn("generic object", added)
+
+    def test_a_question_the_file_already_has_is_not_added_a_second_time(self):
+        response, written = self._insert(
+            [
+                {"var": "users", "kind": "names"},
+                {"var": "users", "kind": "there_is_another"},
+            ]
+        )
+        payload = response.get_json()
+        self.assertEqual(payload["data"]["inserted_block_ids"], ["another user"])
+        self.assertEqual(payload["data"]["skipped_block_ids"], ["users names"])
+        self.assertEqual(written.count("id: users names"), 1)
+
+    def test_the_same_question_asked_for_twice_is_added_once(self):
+        response, written = self._insert(
+            [
+                {"var": "children", "kind": "names"},
+                {"var": "children", "kind": "names"},
+            ]
+        )
+        payload = response.get_json()
+        self.assertEqual(payload["data"]["inserted_block_ids"], ["children names"])
+        self.assertEqual(written.count("id: children names"), 1)
+
+    def test_a_question_that_was_never_offered_is_refused(self):
+        response, written = self._insert(
+            [{"var": "al_court_bundle", "kind": "birthdate"}]
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+        self.assertIn("al_court_bundle", response.get_json()["error"]["message"])
+
+    def test_nothing_is_written_when_no_questions_are_asked_for(self):
+        response, written = self._insert([])
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+
+    def _declare(self, source=None, **payload):
+        written = {}
+
+        def record_write(uid, project, filename, content):
+            written["content"] = content
+
+        body = {"project": "default", "filename": "test.yml"}
+        body.update(payload)
+        with ExitStack() as stack:
+            for patcher in self._patches(source if source is not None else self.SOURCE):
+                stack.enter_context(patcher)
+            stack.enter_context(
+                patch.object(
+                    api_editor, "playground_write_yaml", side_effect=record_write
+                )
+            )
+            stack.enter_context(
+                api_editor.app.test_request_context(
+                    "/al/editor/api/question-library/object", method="POST", json=body
+                )
+            )
+            response = api_editor.editor_api_question_library_object()
+        return response, written.get("content")
+
+    def test_a_new_list_joins_the_block_that_already_declares_people(self):
+        response, written = self._declare(
+            name="witnesses",
+            class_name="ALPeopleList",
+            using_args="ask_number=True",
+        )
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(
+            payload["data"]["declared"],
+            {"var": "witnesses", "expression": "ALPeopleList.using(ask_number=True)"},
+        )
+        self.assertIn(
+            "  - witnesses: ALPeopleList.using(ask_number=True)",
+            written,
+        )
+        # Added to the people block, not to a new one.
+        self.assertEqual(written.count("objects:"), 1)
+        # And its questions are on offer straight away.
+        offered = {entry["var"] for entry in payload["data"]["objects"]}
+        self.assertIn("witnesses", offered)
+
+    def test_people_never_join_the_block_that_declares_the_documents(self):
+        source = (
+            "objects:\n"
+            "  - al_court_bundle: ALDocumentBundle.using(elements=[])\n"
+            "---\n"
+            "id: q\n"
+            "question: |\n"
+            "  Hello\n"
+        )
+        response, written = self._declare(
+            source=source, name="witnesses", class_name="ALPeopleList"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("objects:\n  - witnesses: ALPeopleList", written)
+        self.assertIn("al_court_bundle: ALDocumentBundle", written)
+        # A block of their own, written before the questions.
+        self.assertLess(written.index("witnesses"), written.index("id: q"))
+
+    def test_a_people_block_a_line_cannot_join_gets_a_block_beside_it(self):
+        # `objects: {users: ALPeopleList}` cannot take an indented line, and
+        # rewriting it into another style is an edit nobody asked for.
+        source = "objects: {users: ALPeopleList}\n---\nid: q\nquestion: |\n  Hello\n"
+        response, written = self._declare(
+            source=source, name="witnesses", class_name="ALPeopleList"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("objects: {users: ALPeopleList}", written)
+        self.assertIn("objects:\n  - witnesses: ALPeopleList", written)
+        self.assertLess(written.index("witnesses"), written.index("id: q"))
+
+    def test_the_quantity_choice_becomes_the_using_call(self):
+        for using_args, expected in (
+            ("", "ALPeopleList"),
+            ("there_are_any=True", "ALPeopleList.using(there_are_any=True)"),
+            ("ask_number=True", "ALPeopleList.using(ask_number=True)"),
+            (
+                "ask_number=True, target_number=2",
+                "ALPeopleList.using(ask_number=True, target_number=2)",
+            ),
+        ):
+            with self.subTest(using_args=using_args):
+                response, _written = self._declare(
+                    name="witnesses", class_name="ALPeopleList", using_args=using_args
+                )
+                self.assertEqual(
+                    response.get_json()["data"]["declared"]["expression"], expected
+                )
+
+    def test_only_the_how_many_parameters_can_be_written(self):
+        # An `objects:` entry is a Python expression the interview evaluates, so
+        # what the browser sends is a quantity choice, never source to pass on.
+        for using_args in (
+            'filename="x"',
+            "there_are_any=os.system('rm -rf /')",
+            "True",
+            "target_number=-1",
+            "there_are_any=1",
+        ):
+            with self.subTest(using_args=using_args):
+                response, written = self._declare(
+                    name="witnesses", class_name="ALPeopleList", using_args=using_args
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIsNone(written)
+
+    def test_only_the_classes_the_library_has_questions_for_are_declared(self):
+        for class_name in ("ALDocumentBundle", "DAList", "", "ALCourt"):
+            with self.subTest(class_name=class_name):
+                response, written = self._declare(
+                    name="witnesses", class_name=class_name
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIsNone(written)
+
+    def test_a_name_the_file_already_uses_is_refused(self):
+        response, written = self._declare(name="children", class_name="ALPeopleList")
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+        self.assertIn("already declared", response.get_json()["error"]["message"])
+
+    def test_a_name_assembly_line_manages_itself_is_refused(self):
+        # `plaintiffs` is derived from `users` and `other_parties`; declaring it
+        # here would clobber that.
+        response, written = self._declare(name="plaintiffs", class_name="ALPeopleList")
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+        self.assertIn("AssemblyLine", response.get_json()["error"]["message"])
+
+    def test_a_name_that_is_not_a_variable_name_is_refused(self):
+        for name in ("my witnesses", "2witnesses", "class", "", "witnesses.name"):
+            with self.subTest(name=name):
+                response, written = self._declare(name=name, class_name="ALPeopleList")
+                self.assertEqual(response.status_code, 400)
+                self.assertIsNone(written)
+
+    def test_declaring_one_person_takes_no_quantity(self):
+        response, _written = self._declare(name="landlord2", class_name="ALIndividual")
+        self.assertEqual(
+            response.get_json()["data"]["declared"]["expression"], "ALIndividual"
+        )
+        response, written = self._declare(
+            name="landlord2", class_name="ALIndividual", using_args="ask_number=True"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+
+    def test_every_endpoint_refuses_an_unauthenticated_request(self):
+        endpoints = (
+            (api_editor.editor_api_question_library, "/al/editor/api/question-library"),
+            (
+                api_editor.editor_api_question_library_insert,
+                "/al/editor/api/question-library/insert",
+            ),
+            (
+                api_editor.editor_api_question_library_object,
+                "/al/editor/api/question-library/object",
+            ),
+        )
+        for view, path in endpoints:
+            with self.subTest(path=path):
+                with (
+                    patch.object(api_editor, "_editor_auth_check", return_value=False),
+                    api_editor.app.test_request_context(path, method="POST", json={}),
+                ):
+                    response = view()
+                status = (
+                    response[1] if isinstance(response, tuple) else response.status_code
+                )
+                self.assertEqual(status, 401)
 
 
 class TestEditorBlockPayloadValidation(unittest.TestCase):

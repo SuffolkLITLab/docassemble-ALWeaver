@@ -154,20 +154,9 @@ _PERSON_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "guardians_ad_litem": {"ask_number": True},
 }
 
-# Objects AssemblyLine defines and configures itself. Re-declaring these in the
-# generated interview would clobber that setup -- `courts`, for instance, is an
-# ALCourtLoader-backed list whose gathering drives the court picker, and
-# `plaintiffs`/`defendants` are derived from `users` and `other_parties`.
-_AL_MANAGED_OBJECTS: Set[str] = {
-    "case_numbers",
-    "courts",
-    "defendants",
-    "docket_numbers",
-    "petitioners",
-    "plaintiffs",
-    "respondents",
-    "trial_court",
-}
+# Objects AssemblyLine defines and configures itself; the editor refuses to
+# declare one for the same reason the generator leaves them alone.
+_AL_MANAGED_OBJECTS: Set[str] = generator_constants.AL_MANAGED_OBJECTS
 
 
 __all__ = [

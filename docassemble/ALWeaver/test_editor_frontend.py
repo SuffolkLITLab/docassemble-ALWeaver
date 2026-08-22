@@ -109,6 +109,64 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("apiPost('/api/template/variable-report'", editor)
         self.assertIn("/api/template/variable-report/suggestion?project=", editor)
 
+    def test_the_question_library_is_reachable_from_the_add_block_menu(self):
+        """Not only from the checkbox on the new-project form.
+
+        The AssemblyLine questions about people are what an author needs
+        whenever they declare a new `ALPeopleList`, which is usually long after
+        the project was created.
+        """
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('data-insert="question-library"', template)
+        self.assertIn('id="question-library-modal"', template)
+        self.assertIn('id="question-library-apply"', template)
+        self.assertIn("function openQuestionLibraryPicker()", editor)
+        self.assertIn("if (kind === 'question-library') {", editor)
+        self.assertIn("/api/question-library?project=", editor)
+        self.assertIn("apiPost('/api/question-library/insert'", editor)
+        # The YAML is written by the server from the Weaver's own template, so
+        # the browser sends only the object and the question it picked.
+        self.assertIn("data-ql-var=", editor)
+        self.assertIn("data-ql-kind=", editor)
+        self.assertNotIn("block_yaml: questionLibrary", editor)
+        # It reads and writes the saved file, so unsaved work lands first.
+        self.assertIn(
+            "promptAndSaveUnsavedChanges('add questions from the AssemblyLine library')",
+            editor,
+        )
+
+    def test_the_question_library_can_declare_the_people_it_asks_about(self):
+        """An interview that has no `witnesses` yet has no witness questions.
+
+        Sending the author off to write an objects block by hand and come back
+        is the gap the library was meant to close, so the picker declares the
+        list itself.
+        """
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="question-library-new-name"', template)
+        # An example belongs under the field, not inside it: placeholder text
+        # disappears the moment someone starts typing.
+        self.assertIn("Example: <code>witnesses</code>", template)
+        self.assertIn('id="question-library-new-class"', template)
+        self.assertIn('value="ALPeopleList"', template)
+        self.assertIn('value="ALIndividual"', template)
+        self.assertIn('id="question-library-add-object"', template)
+        self.assertIn("apiPost('/api/question-library/object'", editor)
+        # The quantity control is the objects editor's, wording and all.
+        self.assertIn("PEOPLE_LIST_QUANTITY_MODES", editor)
+        self.assertIn("data-ql-quantity-mode=", editor)
+        # A new object redraws the list without losing boxes already ticked.
+        self.assertIn("function questionLibrarySelection()", editor)
+        self.assertIn("renderQuestionLibrary(previousSelection)", editor)
+        # Declaring the list is not the same as gathering it, and where that
+        # goes in the interview order is the author's call.
+        self.assertIn("to your interview order so the interview asks them", editor)
+        self.assertIn("'.gather()'", editor)
+
     def test_review_screen_is_re_synced_rather_than_appended(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
@@ -181,9 +239,10 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("How many people?", editor)
         self.assertIn("Other .using() parameters", editor)
 
-        # Both the save path and the redraw path recompose through the same
-        # helper, so the two can't drift apart.
-        self.assertEqual(editor.count("composePeopleListUsingArgs("), 2)
+        # The save path, the redraw path and the question library's "add
+        # someone new" form all compose through the same helper, so what "ask
+        # how many" writes cannot drift between them.
+        self.assertEqual(editor.count("composePeopleListUsingArgs("), 3)
         self.assertIn("function _syncObjectEditorRowsFromDom()", editor)
         self.assertIn("target.matches('[data-obj-quantity-mode]')", editor)
         self.assertIn("target.matches('[data-obj-prop=\"class\"]')", editor)

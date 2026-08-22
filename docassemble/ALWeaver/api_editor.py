@@ -15,6 +15,9 @@ Provides:
     POST /al/editor/api/file/metadata — update metadata-related documents only
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
+    GET  /al/editor/api/question-library — AssemblyLine questions for this file's objects
+    POST /al/editor/api/question-library/insert — copy chosen library questions in
+    POST /al/editor/api/question-library/object — declare a new list of people
     GET  /al/editor/api/package-file — parse a YAML file from an installed package
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
@@ -51,10 +54,12 @@ Provides:
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.resources
 import hashlib
 import json
+import keyword
 import mimetypes
 import os
 import re
@@ -153,15 +158,24 @@ from .editor_modules import (
     validate_module_filename,
 )
 from .assemblyline_settings import read_settings, update_settings
+from .question_library import (
+    attribute_references,
+    library_catalog,
+    PERSON_CLASSES,
+    PERSON_LIST_CLASSES,
+)
+from .generator_constants import generator_constants
 
 try:
     from .editor_utils import (
+        BLOCK_TYPE_OBJECTS,
         canonical_block_yaml,
         canonicalize_block_yaml,
         comment_out_block_in_yaml,
         delete_block_from_yaml,
         delete_saved_file,
         generate_draft_order,
+        add_object_declaration,
         insert_block_in_yaml,
         inserted_block_id_by_position,
         is_comment_only_yaml,
@@ -6676,6 +6690,358 @@ def editor_api_insert_block() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: insert block error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+QUESTION_LIBRARY_DOCS_URL = (
+    "https://assemblyline.suffolklitlab.org/docs/authoring/customizing_interview"
+)
+
+
+def _question_library_catalog(content: str) -> List[Dict[str, Any]]:
+    """The AssemblyLine questions on offer for the objects one file declares.
+
+    The Weaver copies these questions in when it first writes an interview, but
+    an object declared later -- in the editor, a week on -- needs them just as
+    much. The catalog is built from the file itself so the questions name the
+    author's own objects rather than AssemblyLine's generic ``x``.
+    """
+    model = parse_interview_yaml(content)
+    objects: List[Dict[str, Any]] = []
+    existing_ids: List[str] = []
+    for block in model["blocks"]:
+        block_id = str(block.get("id") or "").strip()
+        if block_id:
+            existing_ids.append(block_id)
+        # Only live `objects:` blocks carry `editor_objects`, so a commented-out
+        # declaration offers nothing — while its id still counts as taken.
+        objects.extend(block.get("editor_objects") or [])
+    return library_catalog(
+        objects,
+        references=attribute_references(content),
+        existing_ids=existing_ids,
+    )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/question-library", methods=["GET"])
+def editor_api_question_library() -> Response:
+    """List the AssemblyLine baseline questions this file's objects can use."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        filename = _normalize_filename(request.args.get("filename"))
+        content = playground_read_yaml(uid, project, filename)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "objects": _question_library_catalog(content),
+                    "docs_url": QUESTION_LIBRARY_DOCS_URL,
+                },
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: question library error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/question-library/insert", methods=["POST"])
+def editor_api_question_library_insert() -> Response:
+    """Copy the chosen baseline questions into a YAML file.
+
+    The blocks are rendered here rather than taken from the browser: the client
+    picks an object and a question kind, and the same template the Weaver uses
+    writes the YAML.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        _insert_raw = post_data.get("insert_after_id")
+        insert_after_id = str(_insert_raw).strip() if _insert_raw else None
+        requested = post_data.get("questions")
+        if not isinstance(requested, list) or not requested:
+            raise ValueError("questions must be a non-empty list")
+
+        content = playground_read_yaml(uid, project, filename)
+        catalog = _question_library_catalog(content)
+        offered = {
+            (entry["var"], question["kind"]): question
+            for entry in catalog
+            for question in entry["questions"]
+        }
+        # Insert in the catalog's own order — the gather flow before the
+        # questions about each person — rather than in whatever order the
+        # checkboxes were ticked. Keying by position also drops a question
+        # asked for twice, which would otherwise be two blocks with one id.
+        order = {key: position for position, key in enumerate(offered)}
+        chosen: Dict[int, Dict[str, Any]] = {}
+        for item in requested:
+            if not isinstance(item, dict):
+                raise ValueError("each question must be an object")
+            key = (
+                str(item.get("var") or "").strip(),
+                str(item.get("kind") or "").strip(),
+            )
+            question = offered.get(key)
+            if question is None:
+                raise ValueError(
+                    f"There is no {key[1]!r} question available for {key[0]!r}"
+                )
+            chosen[order[key]] = question
+
+        inserted_ids: List[str] = []
+        skipped_ids: List[str] = []
+        updated_content = content
+        anchor = insert_after_id
+        for _position, question in sorted(chosen.items()):
+            if question["present"]:
+                # Already copied in once. Inserting it again would give the file
+                # two blocks with one id, and docassemble would use only one.
+                skipped_ids.append(question["question_id"])
+                continue
+            block_text = str(question["yaml"]).strip("\r\n")
+            _validate_block_yaml_payload(block_text)
+            updated_content = insert_block_in_yaml(updated_content, block_text, anchor)
+            anchor = question["question_id"]
+            inserted_ids.append(question["question_id"])
+
+        if inserted_ids:
+            playground_write_yaml(uid, project, filename, updated_content)
+
+        data = _build_file_response_data(
+            updated_content,
+            project,
+            filename,
+            inserted_block_id=inserted_ids[0] if inserted_ids else None,
+        )
+        # The revision the file now has, so the next metadata save is not
+        # rejected as a conflict with a write the editor made itself.
+        data["revision"] = source_revision(updated_content)
+        data["inserted_block_ids"] = inserted_ids
+        data["skipped_block_ids"] = skipped_ids
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: question library insert error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+# The `.using()` parameters the "how many people?" control owns, and what each
+# one has to be. Anything else in a declaration is the author's own writing,
+# and this endpoint does not compose it.
+_PEOPLE_LIST_PARAMS: Dict[str, type] = {
+    "there_are_any": bool,
+    "ask_number": bool,
+    "target_number": int,
+}
+
+
+def _person_declaration(class_name: str, using_args: str) -> str:
+    """Compose the ``objects:`` expression for a new person or list of people.
+
+    The expression is rebuilt from the parameters rather than passed through:
+    what arrives is a quantity choice from a radio group, and an ``objects:``
+    entry is a Python expression the interview evaluates.
+    """
+    if class_name not in PERSON_LIST_CLASSES + PERSON_CLASSES:
+        raise ValueError(
+            "The question library declares people: "
+            f"{', '.join(PERSON_LIST_CLASSES + PERSON_CLASSES)}"
+        )
+    text = str(using_args or "").strip()
+    if not text:
+        return class_name
+    if class_name not in PERSON_LIST_CLASSES:
+        raise ValueError(f"{class_name} does not take how-many parameters")
+    try:
+        call = ast.parse(f"_f({text})", mode="eval").body
+    except SyntaxError as exc:
+        raise ValueError(f"Could not read the how-many parameters: {exc}") from exc
+    if not isinstance(call, ast.Call) or call.args:
+        raise ValueError("The how-many parameters must be named, e.g. ask_number=True")
+    parameters: List[str] = []
+    for keyword in call.keywords:
+        expected = _PEOPLE_LIST_PARAMS.get(str(keyword.arg or ""))
+        if expected is None:
+            raise ValueError(f"{keyword.arg!r} is not a how-many parameter")
+        try:
+            value = ast.literal_eval(keyword.value)
+        except ValueError as exc:
+            raise ValueError(f"{keyword.arg} must be a plain value") from exc
+        if expected is bool:
+            if not isinstance(value, bool):
+                raise ValueError(f"{keyword.arg} must be True or False")
+        elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{keyword.arg} must be a whole number")
+        parameters.append(f"{keyword.arg}={value!r}")
+    if not parameters:
+        return class_name
+    return f"{class_name}.using({', '.join(parameters)})"
+
+
+def _question_library_object_target(
+    model: Dict[str, Any],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Where a new person declaration should go: an existing block, or after one.
+
+    A generated interview has several ``objects:`` blocks -- the people, the
+    ALDocuments, the bundles -- so the people go in the block that already
+    declares people. Failing that a block of their own is written, after the
+    last block of the file's preamble, rather than dropping an `ALPeopleList`
+    among the documents.
+
+    Returns:
+        ``(block to extend, block to insert after)``, at most one of which is set.
+    """
+    head_indices = set(
+        list(model.get("metadata_blocks") or [])
+        + list(model.get("include_blocks") or [])
+        + list(model.get("default_screen_parts_blocks") or [])
+    )
+    anchor: Optional[str] = None
+    for block in model.get("blocks", []):
+        data = block.get("data")
+        if not isinstance(data, dict) or data.get("_commented"):
+            continue
+        is_objects = block.get("type") == BLOCK_TYPE_OBJECTS
+        if is_objects or block.get("index") in head_indices:
+            anchor = str(block.get("id") or "").strip() or anchor
+        if not is_objects:
+            continue
+        for row in block.get("editor_objects") or []:
+            if str(row.get("class_name") or "") in PERSON_LIST_CLASSES + PERSON_CLASSES:
+                return str(block.get("id") or "").strip(), None
+    return None, anchor
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/question-library/object", methods=["POST"])
+def editor_api_question_library_object() -> Response:
+    """Declare a new list of people, or one person, in this file.
+
+    The questions are only worth offering for objects the interview has, so the
+    picker can add one: declaring `witnesses` is the step that was missing
+    between wanting AssemblyLine's questions about witnesses and getting them.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        name = str(post_data.get("name") or "").strip()
+        if not name.isidentifier() or keyword.iskeyword(name):
+            raise ValueError(
+                "A variable name has to be a word Python can use: letters, "
+                "digits and underscores, not starting with a digit"
+            )
+        if name in generator_constants.AL_MANAGED_OBJECTS:
+            raise ValueError(
+                f"AssemblyLine declares and manages {name} itself, so declaring "
+                "it here would break it"
+            )
+        expression = _person_declaration(
+            str(post_data.get("class_name") or "").strip(),
+            str(post_data.get("using_args") or ""),
+        )
+
+        content = playground_read_yaml(uid, project, filename)
+        model = parse_interview_yaml(content)
+        for block in model["blocks"]:
+            for row in block.get("editor_objects") or []:
+                if str(row.get("name") or "").strip() == name:
+                    raise ValueError(f"{name} is already declared in this file")
+
+        extend_block_id, insert_after_id = _question_library_object_target(model)
+        updated_content: Optional[str] = None
+        if extend_block_id:
+            try:
+                updated_content = add_object_declaration(
+                    content, extend_block_id, name, expression
+                )
+            except ValueError:
+                # The people are declared in a shape a single line cannot join
+                # -- `objects: {users: ALPeopleList}`, say. Rewriting that block
+                # into another style is an edit nobody asked for, so the new
+                # person gets a block of their own next to it.
+                updated_content = None
+        if updated_content is None:
+            block_text = f"objects:\n  - {name}: {expression}"
+            _validate_block_yaml_payload(block_text)
+            updated_content = insert_block_in_yaml(
+                content, block_text, insert_after_id or extend_block_id
+            )
+        playground_write_yaml(uid, project, filename, updated_content)
+
+        data = _build_file_response_data(updated_content, project, filename)
+        data["revision"] = source_revision(updated_content)
+        data["declared"] = {"var": name, "expression": expression}
+        data["objects"] = _question_library_catalog(updated_content)
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: question library object error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

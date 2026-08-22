@@ -3834,7 +3834,7 @@ html, body {
   margin-top: 2px;
 }
 
-/* ===== LIST topic picker =====
+/* ===== Checkbox pickers: LIST topics, AssemblyLine question library =====
    Mirrors ALToolbox's al_tree_select: plain <details> groups, plain checkboxes. */
 
 .editor-topic-group {

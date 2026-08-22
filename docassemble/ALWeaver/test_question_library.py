@@ -16,7 +16,11 @@ from docassemble.ALWeaver.interview_generator import (
     generate_interview_from_path,
 )
 from docassemble.ALWeaver.question_library import (
+    _fix_id,
+    attribute_references,
     baseline_question_specs,
+    library_catalog,
+    render_baseline_question,
     singular_label,
 )
 
@@ -359,3 +363,161 @@ class TestGeneratedInterviewIncludesTheCopies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheCatalogTheEditorOffers(unittest.TestCase):
+    """`library_catalog` is the same questions, offered to a file that exists.
+
+    The Weaver only copies them in while it writes an interview.  An author who
+    declares another `ALPeopleList` a week later reaches them through here.
+    """
+
+    def catalog(self, objects, references=None, existing_ids=()):
+        return library_catalog(
+            objects,
+            references=attribute_references(references or ""),
+            existing_ids=existing_ids,
+        )
+
+    def kinds(self, entry):
+        return [question["kind"] for question in entry["questions"]]
+
+    def test_only_the_objects_assembly_line_has_questions_for_are_offered(self):
+        catalog = self.catalog(
+            [
+                {"name": "users", "class_name": "ALPeopleList"},
+                {"name": "landlord", "class_name": "ALIndividual"},
+                {"name": "al_court_bundle", "class_name": "ALDocumentBundle"},
+                {"name": "court", "class_name": "ALCourt"},
+            ]
+        )
+        self.assertEqual([entry["var"] for entry in catalog], ["users", "landlord"])
+
+    def test_the_gather_flow_follows_the_declaration_the_author_wrote(self):
+        catalog = self.catalog(
+            [
+                {"name": "users", "class_name": "ALPeopleList"},
+                {
+                    "name": "children",
+                    "class_name": "ALPeopleList",
+                    "using_args": "ask_number=True",
+                },
+                {
+                    "name": "witnesses",
+                    "class_name": "ALPeopleList",
+                    "using_args": "there_are_any=True",
+                },
+            ]
+        )
+        by_var = {entry["var"]: entry for entry in catalog}
+        gather = {
+            var: [
+                question["kind"]
+                for question in entry["questions"]
+                if question["group"] == "gather"
+            ]
+            for var, entry in by_var.items()
+        }
+        self.assertEqual(
+            gather["users"], ["there_are_any", "names", "there_is_another"]
+        )
+        self.assertEqual(gather["children"], ["how_many", "names"])
+        self.assertEqual(gather["witnesses"], ["names", "there_is_another"])
+
+    def test_a_declaration_that_answers_a_question_stops_it_being_offered(self):
+        # `there_are_any=user_has_children` answers the question from code, so
+        # docassemble never asks it -- copying the screen in would be a screen
+        # the interview can never reach.
+        catalog = self.catalog(
+            [
+                {
+                    "name": "children",
+                    "class_name": "ALPeopleList",
+                    "using_args": "there_are_any=user_has_children",
+                }
+            ]
+        )
+        self.assertNotIn("there_are_any", self.kinds(catalog[0]))
+        self.assertIn("names", self.kinds(catalog[0]))
+
+    def test_a_standalone_individual_is_offered_a_name_not_a_gather_flow(self):
+        catalog = self.catalog([{"name": "landlord", "class_name": "ALIndividual"}])
+        self.assertFalse(catalog[0]["is_list"])
+        gather = [
+            question["kind"]
+            for question in catalog[0]["questions"]
+            if question["group"] == "gather"
+        ]
+        self.assertEqual(gather, ["name"])
+
+    def test_every_attribute_question_is_offered_but_only_used_ones_are_ticked(self):
+        catalog = self.catalog(
+            [{"name": "users", "class_name": "ALPeopleList"}],
+            references="fields:\n  - Birthday: users[i].birthdate\n",
+        )
+        recommended = {
+            question["kind"]
+            for question in catalog[0]["questions"]
+            if question["group"] == "attribute" and question["recommended"]
+        }
+        offered = {
+            question["kind"]
+            for question in catalog[0]["questions"]
+            if question["group"] == "attribute"
+        }
+        self.assertEqual(recommended, {"birthdate"})
+        self.assertIn("email", offered)
+        self.assertIn("address", offered)
+
+    def test_the_gather_questions_are_ticked_because_the_list_cannot_work_without_them(
+        self,
+    ):
+        catalog = self.catalog([{"name": "users", "class_name": "ALPeopleList"}])
+        self.assertTrue(
+            all(
+                question["recommended"]
+                for question in catalog[0]["questions"]
+                if question["group"] == "gather"
+            )
+        )
+
+    def test_a_question_the_file_already_has_is_marked_rather_than_offered_again(self):
+        catalog = self.catalog(
+            [{"name": "users", "class_name": "ALPeopleList"}],
+            existing_ids=["users names", "some unrelated screen"],
+        )
+        by_kind = {question["kind"]: question for question in catalog[0]["questions"]}
+        self.assertTrue(by_kind["names"]["present"])
+        self.assertFalse(by_kind["there_is_another"]["present"])
+
+    def test_each_offer_carries_the_yaml_and_the_id_that_block_will_have(self):
+        catalog = self.catalog([{"name": "children", "class_name": "ALPeopleList"}])
+        by_kind = {question["kind"]: question for question in catalog[0]["questions"]}
+        self.assertEqual(by_kind["names"]["question_id"], "children names")
+        self.assertIn("children[i].name_fields()", by_kind["names"]["yaml"])
+        # The `---` belongs to the file the block is inserted into, not to the
+        # block itself.
+        self.assertFalse(by_kind["names"]["yaml"].startswith("---"))
+
+    def test_the_labels_use_the_authors_own_words_for_the_object(self):
+        catalog = self.catalog([{"name": "children", "class_name": "ALPeopleList"}])
+        labels = [question["label"] for question in catalog[0]["questions"]]
+        self.assertIn("Name of each child", labels)
+        self.assertIn("Is there another child?", labels)
+
+    def test_the_generators_specs_can_be_offered_too(self):
+        # `baseline_question_specs` takes objects with attributes rather than
+        # the editor's parsed rows, and both reach the same questions.
+        catalog = library_catalog(
+            [person_object("users", {"there_are_any": True}, "ALPeopleList")]
+        )
+        self.assertEqual(catalog[0]["var"], "users")
+        self.assertNotIn("there_are_any", self.kinds(catalog[0]))
+
+    def test_block_ids_are_the_ones_the_generator_would_have_written(self):
+        self.assertEqual(_fix_id("any other parties"), fix_id("any other parties"))
+        self.assertEqual(_fix_id("child's birthdate"), fix_id("child's birthdate"))
+
+    def test_an_unknown_kind_is_refused_rather_than_rendered_empty(self):
+        with self.assertRaises(ValueError):
+            render_baseline_question("users", "favorite_color")

@@ -2,7 +2,7 @@
 Constants for interview_generator.py
 """
 
-from typing import Dict, List
+from typing import Dict, List, Set
 
 
 # This is to workaround fact you can't do local import in Docassemble playground
@@ -21,6 +21,7 @@ class GeneratorConstantObject(object):
     DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX: Dict[str, str]
     FULL_DISPLAY: Dict[str, str]
     COURT_CHOICES: List[str]
+    AL_MANAGED_OBJECTS: Set[str]
 
 
 generator_constants = GeneratorConstantObject()
@@ -324,3 +325,19 @@ generator_constants.COURT_CHOICES = [
     "Juvenile Court",
     "Land Court",
 ]
+
+
+# Objects AssemblyLine defines and configures itself. Re-declaring these in an
+# interview would clobber that setup -- `courts`, for instance, is an
+# ALCourtLoader-backed list whose gathering drives the court picker, and
+# `plaintiffs`/`defendants` are derived from `users` and `other_parties`.
+generator_constants.AL_MANAGED_OBJECTS = {
+    "case_numbers",
+    "courts",
+    "defendants",
+    "docket_numbers",
+    "petitioners",
+    "plaintiffs",
+    "respondents",
+    "trial_court",
+}
