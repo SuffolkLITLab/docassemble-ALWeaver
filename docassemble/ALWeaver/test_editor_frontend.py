@@ -13,6 +13,7 @@ NODE_TESTS = (
     "test_editor_validation_source.js",
     "test_editor_agent_chat.js",
     "test_editor_screen_preview.js",
+    "test_editor_interview_report.js",
 )
 
 
@@ -813,6 +814,15 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="editor-account-nav"', template)
         self.assertIn("function renderAccountMenu()", editor)
         self.assertIn("authState.menuItems", editor)
+
+    def test_outline_filter_counts_reflect_kind_and_typing_filters(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function outlineFilterCounts(", editor)
+        self.assertIn("function updateOutlineFilterSummary(", editor)
+        self.assertIn("kindVisible: kindMatches", editor)
+        self.assertIn("counts.hasSearch && counts.kindVisible < counts.total", editor)
+        self.assertIn(" (' + counts.total + ' total)'", editor)
 
     def test_docassemble_codemirror_contract_on_supported_tags(self):
         checkout = Path(

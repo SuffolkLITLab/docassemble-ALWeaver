@@ -4976,28 +4976,6 @@
     };
   }
 
-  // How much of the file the selected outline view exposes, ignoring the
-  // free-text search: the summary describes the "Show" control, not the query.
-  function outlineFilterCounts() {
-    return {
-      visible: state.blocks.filter(jumpTargetMatcher()).length,
-      total: state.blocks.length
-    };
-  }
-
-  // Keeps "Showing X of Y blocks" honest about the fact that the outline
-  // defaults to a filtered view, and offers the one-click way out of it.
-  function updateOutlineFilterSummary() {
-    var summary = document.getElementById('outline-filter-summary');
-    var countEl = document.getElementById('outline-filter-count');
-    var showAllBtn = document.getElementById('btn-show-all-blocks');
-    if (!summary || !countEl || !showAllBtn) return;
-    var counts = outlineFilterCounts();
-    summary.classList.toggle('d-none', !isInterviewView() || counts.total === 0);
-    countEl.textContent = 'Showing ' + counts.visible + ' of ' + counts.total + ' block' + (counts.total === 1 ? '' : 's');
-    showAllBtn.classList.toggle('d-none', counts.visible >= counts.total);
-  }
-
   function filteredBlocks() {
     var q = state.searchQuery.toLowerCase().trim();
     var filtered = state.blocks.filter(jumpTargetMatcher());
@@ -5006,6 +4984,37 @@
       return [b.title, b.id, b.variable || '', b.yaml, (b.tags || []).join(' '), b.type]
         .join(' ').toLowerCase().indexOf(q) !== -1;
     });
+  }
+
+  // How much of the file the outline exposes, reflecting both the "Show" (kind)
+  // filter and the free-text search filter.
+  function outlineFilterCounts() {
+    var kindMatches = state.blocks.filter(jumpTargetMatcher()).length;
+    var visibleMatches = filteredBlocks().length;
+    return {
+      visible: visibleMatches,
+      kindVisible: kindMatches,
+      total: state.blocks.length,
+      hasSearch: Boolean(state.searchQuery.trim())
+    };
+  }
+
+  // Keeps "Showing X of Y blocks" honest about the fact that the outline
+  // can be filtered both by kind (the "Show" control) and by typing (the search query).
+  function updateOutlineFilterSummary() {
+    var summary = document.getElementById('outline-filter-summary');
+    var countEl = document.getElementById('outline-filter-count');
+    var showAllBtn = document.getElementById('btn-show-all-blocks');
+    if (!summary || !countEl || !showAllBtn) return;
+    var counts = outlineFilterCounts();
+    summary.classList.toggle('d-none', !isInterviewView() || counts.total === 0);
+    if (counts.hasSearch && counts.kindVisible < counts.total) {
+      countEl.textContent = 'Showing ' + counts.visible + ' of ' + counts.kindVisible + ' block' + (counts.kindVisible === 1 ? '' : 's') + ' (' + counts.total + ' total)';
+    } else {
+      var visible = counts.hasSearch ? counts.visible : counts.kindVisible;
+      countEl.textContent = 'Showing ' + visible + ' of ' + counts.total + ' block' + (counts.total === 1 ? '' : 's');
+    }
+    showAllBtn.classList.toggle('d-none', counts.kindVisible >= counts.total);
   }
 
   function isBlockVisibleInOutline(block) {
@@ -6111,18 +6120,18 @@
     if (counts.total === 0) {
       return '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
     }
-    var hidden = counts.total - counts.visible;
-    if (counts.visible === 0) {
+    if (counts.hasSearch) {
+      return '<div class="text-center py-5 text-muted">' +
+        '<p>No blocks match &ldquo;' + esc(state.searchQuery.trim()) + '&rdquo; in the current outline view.</p>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="clear-block-search">Clear search</button>' +
+        '</div>';
+    }
+    var hidden = counts.total - counts.kindVisible;
+    if (counts.kindVisible === 0) {
       return '<div class="text-center py-5 text-muted">' +
         '<p>No blocks match the current outline view.</p>' +
         '<p class="mb-3">' + esc(String(hidden)) + ' block' + (hidden === 1 ? ' is' : 's are') + ' hidden by the <strong>Show</strong> filter.</p>' +
         '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="show-all-blocks">Show all blocks</button>' +
-        '</div>';
-    }
-    if (state.searchQuery.trim()) {
-      return '<div class="text-center py-5 text-muted">' +
-        '<p>No blocks match &ldquo;' + esc(state.searchQuery.trim()) + '&rdquo; in the current outline view.</p>' +
-        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="clear-block-search">Clear search</button>' +
         '</div>';
     }
     // Blocks are visible but none is selected — a stale selection, not a filter.
