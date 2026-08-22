@@ -39,6 +39,7 @@ file-management cases are deleted by the test.
 | Insert | Insert a question after an existing question | New document is added without changing any pre-existing byte | Pass |
 | Order builder | Open an existing mandatory order block | Existing screen references parse into the builder | Pass |
 | Screen preview | Open Preview on a question using `users[0].name_fields()` | Modal iframe loads Docassemble's `bundle.css` and labelauty; AL prompts appear as real inputs; interview source is unchanged | Not yet executed |
+| Flow report | Click Flow report in the Interview Order panel | New tab lists every screen in order, including screens defined in project files the interview includes and in installed packages it includes (AssemblyLine's generic name/address questions render with the subject filled in), drawn with Docassemble's own stylesheets from absolute URLs (a blob: document cannot resolve rooted paths); Ctrl+P breaks pages by section; interview source is unchanged | Not yet executed |
 | Assistant | Open assistant panel | Panel opens without changing interview source | Pass |
 | Project search | Preview and apply a selected replacement | Only selected exact span changes | Pass |
 | Download | Download current interview | Downloaded bytes equal `raw_yaml` | Pass |
