@@ -2240,5 +2240,94 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertIn("already exists", response.get_json()["error"]["message"])
 
 
+class TestEditorPackageFileApi(unittest.TestCase):
+    """Reading a YAML file out of an installed package, and nothing else."""
+
+    def test_reads_a_question_file_from_an_installed_package(self):
+        source = (
+            "---\nquestion: |\n  What is your name?\nfields:\n  - Name: x.name.first\n"
+        )
+        parsed = []
+
+        def fake_parse(text):
+            parsed.append(text)
+            return {"blocks": [{"id": "b1", "title": "What is your name?"}]}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "ql_baseline.yml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(
+                    api_editor, "package_question_filename", return_value=path
+                ),
+                patch.object(api_editor, "parse_interview_yaml", fake_parse),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/package-file"
+                    "?reference=docassemble.AssemblyLine:ql_baseline.yml"
+                ):
+                    response = api_editor.editor_api_get_package_file()
+
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(parsed, [source], "the package's own YAML is what is parsed")
+        self.assertEqual(payload["data"]["blocks"][0]["title"], "What is your name?")
+        self.assertEqual(
+            payload["data"]["reference"], "docassemble.AssemblyLine:ql_baseline.yml"
+        )
+
+    def test_refuses_anything_that_is_not_a_package_yaml_reference(self):
+        refused = [
+            "../../../etc/passwd",
+            "docassemble.AssemblyLine:../../../etc/passwd.yml",
+            "docassemble.AssemblyLine:a/../b.yml",
+            "notdocassemble.Thing:a.yml",
+            "docassemble.AssemblyLine:secrets.txt",
+            "/etc/passwd",
+            "",
+        ]
+        for reference in refused:
+            with self.subTest(reference=reference):
+                with (
+                    patch.object(api_editor, "_editor_auth_check", return_value=True),
+                    patch.object(api_editor, "package_question_filename") as resolver,
+                ):
+                    with api_editor.app.test_request_context(
+                        "/al/editor/api/package-file",
+                        query_string={"reference": reference},
+                    ):
+                        response = api_editor.editor_api_get_package_file()
+                self.assertEqual(response.status_code, 400)
+                # The resolver is never handed a reference this shape.
+                resolver.assert_not_called()
+
+    def test_reports_a_package_that_is_not_installed_as_not_found(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "package_question_filename", return_value=None),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/package-file"
+                "?reference=docassemble.NotInstalled:questions.yml"
+            ):
+                response = api_editor.editor_api_get_package_file()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_requires_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/package-file"
+                "?reference=docassemble.AssemblyLine:ql_baseline.yml"
+            ):
+                response = api_editor.editor_api_get_package_file()
+
+        self.assertIn(response.status_code, (401, 403))
+
+
 if __name__ == "__main__":
     unittest.main()
