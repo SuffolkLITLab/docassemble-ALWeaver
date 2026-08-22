@@ -15,6 +15,7 @@ Provides:
     POST /al/editor/api/file/metadata — update metadata-related documents only
     POST /al/editor/api/block    — update a single block in-place
     POST /al/editor/api/insert-block — insert a new block at a target position
+    GET  /al/editor/api/package-file — parse a YAML file from an installed package
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
     POST /al/editor/api/ai/generate-screen — draft one question screen with AI
@@ -76,6 +77,16 @@ from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
 from docassemble.base.util import log
+
+try:
+    from docassemble.base.functions import package_question_filename
+    from docassemble.base.error import DAInvalidFilename
+except Exception:  # pragma: no cover - depends on the server's Docassemble
+    package_question_filename = None  # type: ignore[assignment]
+
+    class DAInvalidFilename(Exception):  # type: ignore[no-redef]
+        pass
+
 
 from .docassemble_compat import (
     bump_interview_source_index,
@@ -3057,6 +3068,98 @@ def editor_api_dashboard_editor_url() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: dashboard editor url error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+# A package name and a YAML file inside it, with no way to write ".." into
+# either half. Docassemble's resolver refuses a traversal too; this refuses to
+# hand it one in the first place.
+_PACKAGE_YAML_REFERENCE_RE = re.compile(
+    r"^(docassemble\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)"
+    r":((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.ya?ml)$"
+)
+
+
+def _read_package_yaml(reference: str) -> str:
+    """Read one YAML file out of an installed package.
+
+    An interview is made of more than the files in its playground: the screens
+    an author never wrote -- a person's name, an address, the court -- come
+    from ``docassemble.AssemblyLine`` and are installed alongside it. Reading
+    them is what Docassemble itself does with the same reference, through the
+    same resolver, so the report shows what a package really asks rather than
+    a copy of it that goes stale.
+    """
+    if not _PACKAGE_YAML_REFERENCE_RE.match(reference or ""):
+        raise ValueError("Not a package YAML reference")
+    if package_question_filename is None:
+        raise ValueError("This Docassemble cannot resolve package file references")
+    # Docassemble's own resolver, which rejects a traversal or an invalid
+    # package name rather than reaching outside the installed package.
+    try:
+        path = package_question_filename(reference)
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(f"{reference} is not installed on this server")
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/package-file", methods=["GET"])
+def editor_api_get_package_file() -> Response:
+    """Parse a YAML file from an installed package into the block model.
+
+    Read-only, and only ever a `data/questions` file of an installed
+    ``docassemble.*`` package: the editor cannot write here, and nothing in a
+    package is editable from this editor.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    reference = str(request.args.get("reference") or "").strip()
+    try:
+        raw_yaml = _read_package_yaml(reference)
+        model = parse_interview_yaml(raw_yaml)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "reference": reference,
+                    # The blocks carry their own `include:` entries, which is
+                    # how the caller walks on to the next package file.
+                    "blocks": model["blocks"],
+                },
+            }
+        )
+    except (ValueError, DAInvalidFilename) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except FileNotFoundError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "not_found", "message": str(exc)},
+            },
+            404,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: package file read error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

@@ -6479,6 +6479,187 @@
     openScreenPreview();
   }
 
+  /* What a file pulls in, split by where it lives. A bare filename inside a
+   * project file names another project file; inside a package file it names a
+   * file in that same package, which is how Docassemble reads it too. */
+  function _includeTargets(blocks, fromPackage) {
+    var project = [];
+    var packages = [];
+    (blocks || []).forEach(function (block) {
+      var included = (block && block.data) ? block.data.include : null;
+      if (typeof included === 'string') included = [included];
+      if (!Array.isArray(included)) return;
+      included.forEach(function (entry) {
+        var name = String(entry || '').trim();
+        if (!name || !/\.ya?ml$/i.test(name)) return;
+        if (name.indexOf(':') !== -1) {
+          if (/^docassemble\.[A-Za-z0-9_.]+:[A-Za-z0-9_\/-]+\.ya?ml$/.test(name) &&
+              packages.indexOf(name) === -1) {
+            packages.push(name);
+          }
+          return;
+        }
+        if (name.indexOf('/') !== -1 || name.indexOf('\\') !== -1) return;
+        if (fromPackage) {
+          var reference = fromPackage + ':' + name;
+          if (packages.indexOf(reference) === -1) packages.push(reference);
+        } else if (project.indexOf(name) === -1) {
+          project.push(name);
+        }
+      });
+    });
+    return { project: project, packages: packages };
+  }
+
+  // An interview that reaches more files than this is a cycle we failed to
+  // spot; the same ceiling the review-screen walk uses.
+  var MAX_REPORT_INCLUDED_FILES = 40;
+
+  /* Every block in the interview, not just in the open file.
+   *
+   * A screen the order asks for is very often somewhere else: in another file
+   * in the project, or -- for a person's name, an address, the court -- in
+   * AssemblyLine, installed on this server. Both are read here, so the report
+   * can draw what those screens really say instead of leaving a hole.
+   *
+   * Order is precedence: the open file first, then the project's own included
+   * files, then packages, because that is the order in which a definition
+   * wins when more than one answers the same variable.
+   */
+  function _collectInterviewBlocks() {
+    var seen = {};
+    seen[state.filename] = true;
+    var fileCount = 1;
+
+    var firstPass = _includeTargets(state.blocks, null);
+    var projectQueue = firstPass.project.slice();
+    var packageQueue = firstPass.packages.slice();
+    var projectBlocks = [];
+    var packageBlocks = [];
+
+    function done() {
+      return [].concat(state.blocks || [], projectBlocks, packageBlocks);
+    }
+
+    function readPackages() {
+      if (!packageQueue.length || fileCount >= MAX_REPORT_INCLUDED_FILES) {
+        return Promise.resolve(done());
+      }
+      var reference = packageQueue.shift();
+      if (seen[reference]) return readPackages();
+      seen[reference] = true;
+      fileCount += 1;
+      var packageName = reference.split(':')[0];
+      return apiGet('/api/package-file?reference=' + encodeURIComponent(reference))
+        .then(function (res) {
+          var blocks = (res && res.success && res.data) ? (res.data.blocks || []) : [];
+          blocks.forEach(function (block) {
+            block.sourceFile = reference;
+            // "AssemblyLine" reads better on a screen than the whole path.
+            block.sourceLabel = packageName.replace(/^docassemble\./, '');
+            packageBlocks.push(block);
+          });
+          _includeTargets(blocks, packageName).packages.forEach(function (name) {
+            if (!seen[name] && packageQueue.indexOf(name) === -1) packageQueue.push(name);
+          });
+        })
+        // A package that is not installed on this server is simply not part of
+        // the report; the rest of the interview still is.
+        .catch(function () { return null; })
+        .then(readPackages);
+    }
+
+    function readProjectFiles() {
+      if (!projectQueue.length || fileCount >= MAX_REPORT_INCLUDED_FILES) {
+        return readPackages();
+      }
+      var filename = projectQueue.shift();
+      if (seen[filename]) return readProjectFiles();
+      seen[filename] = true;
+      fileCount += 1;
+      return apiGet('/api/file?project=' + encodeURIComponent(state.project) +
+                    '&filename=' + encodeURIComponent(filename))
+        .then(function (res) {
+          var blocks = (res && res.success && res.data) ? (res.data.blocks || []) : [];
+          blocks.forEach(function (block) {
+            block.sourceFile = filename;
+            block.sourceLabel = filename;
+            projectBlocks.push(block);
+          });
+          var found = _includeTargets(blocks, null);
+          found.project.forEach(function (name) {
+            if (!seen[name] && projectQueue.indexOf(name) === -1) projectQueue.push(name);
+          });
+          found.packages.forEach(function (name) {
+            if (!seen[name] && packageQueue.indexOf(name) === -1) packageQueue.push(name);
+          });
+        })
+        .catch(function () { return null; })
+        .then(readProjectFiles);
+    }
+
+    return readProjectFiles();
+  }
+
+  /**
+   * Generate a self-contained HTML interview flow report and open it in a new
+   * browser tab. The report renders every screen in interview order at full
+   * size, with the branching logic between them and a flowchart of the same
+   * walk on top, and is laid out to print.
+   */
+  function openInterviewFlowReport() {
+    if (typeof ALWeaverInterviewReport === 'undefined') {
+      window.alert('Flow report module not loaded. Please refresh the editor and try again.');
+      return;
+    }
+
+    // The tab is opened now, while the click is still what is driving this
+    // code: reading the included files takes a round trip each, and a window
+    // opened after them is a pop-up the browser blocks.
+    var win = window.open('', '_blank');
+    if (!win) {
+      window.alert('Could not open the flow report. Please allow pop-ups for this site and try again.');
+      return;
+    }
+    win.document.write(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Interview flow report</title></head>' +
+      '<body style="font-family:system-ui,sans-serif;color:#636c76;padding:2rem">' +
+      'Reading the interview\u2026</body></html>');
+    win.document.close();
+
+    _collectInterviewBlocks().then(function (blocks) {
+      var resolved = _screenPreviewContext();
+      var interviewName = state.filename ? state.filename.replace(/\.ya?ml$/, '') : '';
+      var html = ALWeaverInterviewReport.buildReport(state.orderSteps || [], blocks, {
+        assets:          resolved.assets,
+        extraCss:        resolved.extraCss,
+        theme:           _screenPreviewDark ? 'dark' : 'light',
+        // Draw the screens the way the preview modal is currently drawing
+        // them, falling back to whatever the interview itself declares.
+        labelLayout:     _screenPreviewLabelLayout || resolved.declaredLayout,
+        continueLabel:   resolved.continueLabel,
+        backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
+        interview:       (typeof ALWeaverScreenPreview !== 'undefined')
+                           ? ALWeaverScreenPreview.buildInterviewContext(blocks)
+                           : null,
+        title:           (interviewName ? interviewName + ' \u2014 ' : '') + 'Interview flow report',
+        subtitle:        state.filename || '',
+        // The report is served from a blob: URL, which cannot resolve a
+        // root-relative stylesheet path on its own.
+        origin:          window.location.origin,
+      });
+
+      if (win.closed) return;
+      var url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+      win.location.replace(url);
+      // Long enough for the tab to load it, and for a reload soon after.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    }).catch(function (error) {
+      if (!win.closed) win.close();
+      window.alert('Could not build the flow report: ' + (error && error.message ? error.message : error));
+    });
+  }
+
   // --- Question block: rich field editor ---
   function renderQuestionBlock(block) {
     var data = block.data || {};
@@ -7973,6 +8154,7 @@
     html += '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="wrap-selected-order-steps">Wrap selected in if</button>';
     html += '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Edit YAML</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" id="open-interview-flow-report" title="Open a printable report: every screen in interview order, with a flowchart"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Flow report</button>';
     if (activeOrderBlock) {
       html += '<button class="btn btn-sm btn-outline-secondary" id="order-back-to-code">Back to code block</button>';
     }
@@ -11117,6 +11299,10 @@
       }
       if (deferNavigationForUnsavedChanges('return to the code block', returnToOrderCode)) return;
       returnToOrderCode();
+      return;
+    }
+    if (target.id === 'open-interview-flow-report') {
+      openInterviewFlowReport();
       return;
     }
     if (target.id === 'save-order-steps') {
