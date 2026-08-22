@@ -44,7 +44,23 @@ The Mako templates that build the YAML the Weaver produces live in
 `output_defs.mako` holds shared helpers, and `question_library.mako` holds the
 AssemblyLine person questions copied into a generated interview.
 `_render_interview_yaml()` (`interview_generator.py`) resolves and concatenates
-them. `output.mako` branches on how many templates the interview has: one
+them. `question_library.py` decides which of those person questions a set of
+objects needs: `baseline_question_specs()` answers that while an interview is
+being generated, and `library_catalog()` answers it for a file that already
+exists, which is what the editor's "AssemblyLine question library" item in the
+Add-a-block menu offers over `/al/editor/api/question-library`. The blocks are
+rendered from the same template either way, so a question copied in a week
+after the project was created is the one the Weaver would have written. The
+picker also declares the people it asks about: `question-library/object` adds
+an `ALPeopleList` or `ALIndividual` to the `objects:` block that already holds
+people, through `add_object_declaration()`, which adds the one line rather than
+re-serializing the block over the author's comments. It composes the
+declaration from the quantity choice rather than accepting an expression --
+an `objects:` entry is Python the interview evaluates. Declaring the list is
+where it stops: what gathers the list is a decision about the interview order,
+so the picker says which step to add instead of writing it.
+
+`output.mako` branches on how many templates the interview has: one
 template becomes `<label>_attachment`, and several each become an `ALDocument`
 named after the file by `document_names()`, listed in the bundle in the order
 they were given. That function is also what keeps two templates differing only

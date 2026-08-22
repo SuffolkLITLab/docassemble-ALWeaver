@@ -524,6 +524,306 @@
     closeBootstrapModal('list-topics-modal');
   }
 
+  // -------------------------------------------------------------------------
+  // AssemblyLine question library
+  // -------------------------------------------------------------------------
+  // The Weaver copies AssemblyLine's questions about people into an interview
+  // when it first writes one, specialized to that interview's own objects.
+  // Declaring another `ALPeopleList` later needs the same thing, so the picker
+  // below offers the same questions for whatever this file declares now. The
+  // YAML is written by the server from the same template the Weaver uses; the
+  // browser only says which object and which question.
+  var questionLibrary = {
+    objects: null,
+    // The "how many people?" choice for the list being declared, in the same
+    // terms the objects editor uses.
+    quantityMode: 'ask',
+    quantityNumber: 1,
+  };
+
+  function openQuestionLibraryPicker() {
+    if (!state.project || !state.filename) return;
+    var body = document.getElementById('question-library-body');
+    if (body) body.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
+    var applyBtn = document.getElementById('question-library-apply');
+    if (applyBtn) applyBtn.disabled = true;
+    var count = document.getElementById('question-library-selected-count');
+    if (count) count.textContent = '';
+    resetQuestionLibraryNewObjectForm();
+    var modal = getOrCreateBootstrapModal('question-library-modal');
+    if (modal) modal.show();
+    apiGet('/api/question-library?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+      .then(function (res) {
+        if (!res.success || !res.data) {
+          throw new Error((res.error && res.error.message) || 'Unable to load the question library.');
+        }
+        questionLibrary.objects = res.data.objects || [];
+        renderQuestionLibrary();
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        if (body) body.innerHTML = '<div class="alert alert-danger">' + esc((error && error.message) || 'Unable to load the question library.') + '</div>';
+      });
+  }
+
+  /* Which boxes are ticked right now, so that redrawing the list after a new
+     object is declared does not throw away what was already chosen. */
+  function questionLibrarySelection() {
+    var chosen = {};
+    var body = document.getElementById('question-library-body');
+    if (!body) return chosen;
+    body.querySelectorAll('input[data-ql-kind]').forEach(function (box) {
+      chosen[box.getAttribute('data-ql-var') + '|' + box.getAttribute('data-ql-kind')] = box.checked;
+    });
+    return chosen;
+  }
+
+  function renderQuestionLibrary(previousSelection) {
+    var body = document.getElementById('question-library-body');
+    if (!body) return;
+    var chosen = previousSelection || {};
+    var objects = questionLibrary.objects || [];
+    if (!objects.length) {
+      body.innerHTML = '<div class="alert alert-light border">'
+        + 'This file does not declare any people yet. Use <strong>Add someone new to this interview</strong> '
+        + 'above, and AssemblyLine\'s questions about them will show up here.'
+        + '</div>';
+      updateQuestionLibraryCount();
+      return;
+    }
+    var html = '';
+    objects.forEach(function (entry, entryIndex) {
+      var groupId = 'question-library-group-' + entryIndex;
+      html += '<details class="editor-topic-group" data-ql-group data-ql-var="' + esc(entry.var) + '" open>';
+      html += '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">'
+        + esc(entry.var) + ' <span class="text-muted font-monospace editor-tiny">' + esc(entry.class_name) + '</span></span>';
+      html += '<span class="badge text-bg-primary editor-topic-count" data-ql-count hidden></span></summary>';
+      html += '<div class="editor-topic-children">';
+      ['gather', 'attribute'].forEach(function (group) {
+        var questions = (entry.questions || []).filter(function (question) {
+          return question.group === group;
+        });
+        if (!questions.length) return;
+        html += '<div class="editor-tiny text-muted mt-2 mb-1">'
+          + esc(group === 'gather'
+            ? (entry.is_list ? 'Building the list of ' + entry.plural : 'Who they are')
+            : 'Questions about each ' + entry.singular)
+          + '</div>';
+        questions.forEach(function (question, questionIndex) {
+          var inputId = groupId + '-' + group + '-' + questionIndex;
+          html += '<div class="form-check editor-topic-item">';
+          var key = entry.var + '|' + question.kind;
+          var ticked = Object.prototype.hasOwnProperty.call(chosen, key) ? chosen[key] : question.recommended;
+          html += '<input class="form-check-input" type="checkbox" id="' + esc(inputId) + '"'
+            + ' data-ql-var="' + esc(entry.var) + '" data-ql-kind="' + esc(question.kind) + '"'
+            + (question.present ? ' disabled' : (ticked ? ' checked' : ''))
+            + '>';
+          html += '<label class="form-check-label" for="' + esc(inputId) + '">' + esc(question.label);
+          if (question.present) {
+            html += ' <span class="badge text-bg-light">already in this file</span>';
+          }
+          html += '<span class="editor-obj-hint d-block">' + esc(question.summary)
+            + ' <span class="font-monospace">' + esc(question.question_id) + '</span></span>';
+          html += '</label></div>';
+        });
+      });
+      html += '</div></details>';
+    });
+    body.innerHTML = html;
+    updateQuestionLibraryCount();
+  }
+
+  function updateQuestionLibraryCount() {
+    var body = document.getElementById('question-library-body');
+    var total = 0;
+    if (body) {
+      body.querySelectorAll('[data-ql-group]').forEach(function (group) {
+        var checked = group.querySelectorAll('input[data-ql-kind]:checked').length;
+        total += checked;
+        var badge = group.querySelector('[data-ql-count]');
+        if (badge) {
+          badge.textContent = checked ? String(checked) : '';
+          badge.hidden = checked === 0;
+        }
+      });
+    }
+    var count = document.getElementById('question-library-selected-count');
+    if (count) count.textContent = total === 1 ? '1 question selected' : total + ' questions selected';
+    var applyBtn = document.getElementById('question-library-apply');
+    if (applyBtn) applyBtn.disabled = total === 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Declaring the people the questions are for
+  //
+  // The questions are only worth offering for objects the interview has, so
+  // the picker can add one. The quantity wording and the `.using()` call come
+  // from the same serializer the objects editor uses, so "Ask how many" means
+  // the same thing in both places.
+  // -------------------------------------------------------------------------
+  function resetQuestionLibraryNewObjectForm() {
+    var nameInput = document.getElementById('question-library-new-name');
+    var classSelect = document.getElementById('question-library-new-class');
+    var details = document.getElementById('question-library-new-object');
+    if (nameInput) nameInput.value = '';
+    if (classSelect) classSelect.value = 'ALPeopleList';
+    if (details) details.open = false;
+    questionLibrary.quantityMode = 'ask';
+    questionLibrary.quantityNumber = 1;
+    showQuestionLibraryNewObjectError('');
+    showQuestionLibraryNewObjectNote('');
+    renderQuestionLibraryQuantity();
+  }
+
+  function showQuestionLibraryNewObjectError(message) {
+    var box = document.getElementById('question-library-new-error');
+    if (!box) return;
+    box.textContent = message || '';
+    box.classList.toggle('d-none', !message);
+    if (message) showQuestionLibraryNewObjectNote('');
+  }
+
+  function showQuestionLibraryNewObjectNote(message) {
+    var box = document.getElementById('question-library-new-note');
+    if (!box) return;
+    box.textContent = message || '';
+    box.classList.toggle('d-none', !message);
+  }
+
+  function renderQuestionLibraryQuantity() {
+    var wrap = document.getElementById('question-library-new-quantity');
+    if (!wrap) return;
+    var classSelect = document.getElementById('question-library-new-class');
+    var isList = !classSelect || classSelect.value === 'ALPeopleList';
+    if (!isList) {
+      wrap.innerHTML = '';
+      return;
+    }
+    var modes = (window.ALWeaverSerializers && window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) || [];
+    var html = '<fieldset class="editor-obj-quantity">';
+    html += '<legend class="editor-tiny">How many people?</legend>';
+    modes.forEach(function (modeOption, mi) {
+      var inputId = 'question-library-quantity-' + mi;
+      var checked = questionLibrary.quantityMode === modeOption.value ? ' checked' : '';
+      html += '<div class="form-check">';
+      html += '<input class="form-check-input" type="radio" name="question-library-quantity" id="' + inputId + '"'
+        + ' value="' + esc(modeOption.value) + '" data-ql-quantity-mode="1"' + checked + '>';
+      html += '<label class="form-check-label" for="' + inputId + '">' + esc(modeOption.label);
+      html += '<span class="editor-obj-hint">' + esc(modeOption.hint) + '</span></label>';
+      if (modeOption.value === 'exactly') {
+        html += '<div class="editor-obj-quantity-number' + (questionLibrary.quantityMode === 'exactly' ? '' : ' d-none') + '">';
+        html += '<label class="editor-tiny" for="question-library-quantity-number">Number of people</label>';
+        html += '<input class="form-control form-control-sm" id="question-library-quantity-number" type="number" min="0" step="1"'
+          + ' value="' + esc(String(questionLibrary.quantityNumber)) + '" data-ql-quantity-number="1">';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</fieldset>';
+    wrap.innerHTML = html;
+  }
+
+  function addQuestionLibraryObject() {
+    if (!state.project || !state.filename) return;
+    var nameInput = document.getElementById('question-library-new-name');
+    var classSelect = document.getElementById('question-library-new-class');
+    var name = nameInput ? String(nameInput.value || '').trim() : '';
+    var className = classSelect ? String(classSelect.value || 'ALPeopleList') : 'ALPeopleList';
+    if (!name) {
+      showQuestionLibraryNewObjectError('Give the new variable a name first.');
+      if (nameInput) nameInput.focus();
+      return;
+    }
+    var usingArgs = '';
+    if (className === 'ALPeopleList' && window.ALWeaverSerializers) {
+      usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
+        questionLibrary.quantityMode,
+        questionLibrary.quantityNumber,
+        ''
+      );
+    }
+    showQuestionLibraryNewObjectError('');
+    var previousSelection = questionLibrarySelection();
+    _setButtonLoading('question-library-add-object', true, 'Adding...');
+    apiPost('/api/question-library/object', {
+      project: state.project,
+      filename: state.filename,
+      name: name,
+      class_name: className,
+      using_args: usingArgs,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        throw new Error((res.error && res.error.message) || 'Unable to add that object.');
+      }
+      questionLibrary.objects = res.data.objects || [];
+      // The objects block on screen is now behind the file, and the picker is
+      // still open on top of it.
+      refreshFromFileResponse(res.data);
+      renderQuestionLibrary(previousSelection);
+      if (nameInput) {
+        nameInput.value = '';
+        nameInput.focus();
+      }
+      var added = document.querySelector('[data-ql-group][data-ql-var="' + name + '"]');
+      if (added && added.scrollIntoView) added.scrollIntoView({ block: 'nearest' });
+      // Declaring the object and copying its questions in still leaves nothing
+      // asking for it, and that is a decision about the interview's order that
+      // belongs to the author, not to this modal.
+      var declaredEntry = (questionLibrary.objects || []).filter(function (entry) {
+        return entry.var === name;
+      })[0];
+      var orderStep = declaredEntry && declaredEntry.is_list === false
+        ? name + '.name.first'
+        : name + '.gather()';
+      showQuestionLibraryNewObjectNote(
+        name + ' is declared. Tick the questions you want below, then add '
+        + orderStep + ' to your interview order so the interview asks them.'
+      );
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      showQuestionLibraryNewObjectError(String((error && error.message) || 'Unable to add that object.'));
+    }).finally(function () {
+      _setButtonLoading('question-library-add-object', false, '');
+    });
+  }
+
+  function insertQuestionLibrarySelection() {
+    var body = document.getElementById('question-library-body');
+    if (!body || !state.project || !state.filename) return;
+    var questions = [];
+    body.querySelectorAll('input[data-ql-kind]:checked').forEach(function (box) {
+      questions.push({
+        'var': box.getAttribute('data-ql-var'),
+        kind: box.getAttribute('data-ql-kind'),
+      });
+    });
+    if (!questions.length) return;
+    _setButtonLoading('question-library-apply', true, 'Adding...');
+    apiPost('/api/question-library/insert', {
+      project: state.project,
+      filename: state.filename,
+      insert_after_id: state.insertAfterBlockId,
+      questions: questions,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        throw new Error((res.error && res.error.message) || 'Unable to add these questions.');
+      }
+      closeBootstrapModal('question-library-modal');
+      // The author was most likely looking at the objects block that prompted
+      // this, and that filter hides every question screen just added.
+      if (state.jumpTarget !== 'all' && state.jumpTarget !== 'questions') {
+        state.jumpTarget = 'questions';
+        syncJumpSelect();
+      }
+      refreshFromFileResponse(res.data);
+    }).catch(function (error) {
+      if (isSupersededRequest(error)) return;
+      window.alert(String((error && error.message) || 'Unable to add these questions.'));
+    }).finally(function () {
+      _setButtonLoading('question-library-apply', false, '');
+    });
+  }
+
   function closeBootstrapModal(elementId) {
     var modalEl = document.getElementById(elementId);
     if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
@@ -10204,6 +10504,31 @@
       applyListTopicsSelection();
       return;
     }
+    if (target.id === 'question-library-apply') {
+      insertQuestionLibrarySelection();
+      return;
+    }
+    if (target.id === 'question-library-add-object') {
+      addQuestionLibraryObject();
+      return;
+    }
+    if (target.matches('[data-ql-quantity-mode]')) {
+      questionLibrary.quantityMode = target.value;
+      var qlNumberWrap = document.querySelector('#question-library-new-quantity .editor-obj-quantity-number');
+      if (qlNumberWrap) qlNumberWrap.classList.toggle('d-none', target.value !== 'exactly');
+      return;
+    }
+    if (target.id === 'question-library-clear') {
+      document.querySelectorAll('#question-library-body input[data-ql-kind]').forEach(function (box) {
+        box.checked = false;
+      });
+      updateQuestionLibraryCount();
+      return;
+    }
+    if (target.matches('#question-library-body input[data-ql-kind]')) {
+      updateQuestionLibraryCount();
+      return;
+    }
     if (target.id === 'list-topics-expand' || target.id === 'list-topics-collapse') {
       var shouldOpen = target.id === 'list-topics-expand';
       document.querySelectorAll('#list-topics-tree [data-topic-group]').forEach(function (group) {
@@ -10235,6 +10560,18 @@
     if (insertChoiceBtn) {
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
+      if (kind === 'question-library') {
+        // The library writes whole blocks of its own, so it replaces the blank
+        // block this modal would otherwise insert. It reads the file from the
+        // Playground and writes back to it, so unsaved work has to land first
+        // or the refresh afterwards would drop it.
+        closeBootstrapModal('insert-modal');
+        promptAndSaveUnsavedChanges('add questions from the AssemblyLine library')
+          .then(function (canContinue) {
+            if (canContinue) openQuestionLibraryPicker();
+          });
+        return;
+      }
       var isAiScreen = kind === 'ai-screen';
       var insertKind = isAiScreen ? 'question' : kind;
       var newYaml = makeNewBlockYaml(insertKind);
@@ -11692,6 +12029,14 @@
   // Track dirty state from inline inputs
   document.addEventListener('input', function (e) {
     var target = e.target;
+    if (target.matches('[data-ql-quantity-number]')) {
+      questionLibrary.quantityNumber = target.value;
+      return;
+    }
+    if (target.id === 'question-library-new-name') {
+      showQuestionLibraryNewObjectError('');
+      return;
+    }
     if (target.id === 'list-topics-filter') {
       applyListTopicsFilter();
       return;
@@ -11756,6 +12101,11 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.id === 'question-library-new-class') {
+      // One person has no gather flow, so there is nothing to ask "how many".
+      renderQuestionLibraryQuantity();
+      return;
+    }
     if (target.name === 'new-template-kind') {
       setNewTemplateError('');
       syncNewTemplateFields();

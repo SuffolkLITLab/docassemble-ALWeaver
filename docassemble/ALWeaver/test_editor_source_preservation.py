@@ -9,6 +9,7 @@ import unittest
 import yaml
 
 from .editor_utils import (
+    add_object_declaration,
     inserted_block_id_by_position,
     is_comment_only_yaml,
     comment_out_block_in_yaml,
@@ -176,6 +177,97 @@ class TestEditorSourcePreservation(unittest.TestCase):
         duplicated = SOURCE + "---\nid: intro\nquestion: Other\n"
         with self.assertRaisesRegex(ValueError, "duplicated"):
             update_block_in_yaml(duplicated, "intro", "id: intro\nquestion: Edited\n")
+
+
+class TestAddingAnObjectDeclaration(unittest.TestCase):
+    """Declaring one more object must not rewrite the block around it.
+
+    An `objects:` block is one of the places a generated interview explains
+    itself in comments, and re-serializing it to add a line would drop them.
+    """
+
+    OBJECTS_SOURCE = (
+        "metadata:\n"
+        "  title: Example\n"
+        "--- # people\n"
+        "# The people this interview is about\n"
+        "objects:\n"
+        "  - users: ALPeopleList.using(there_are_any=True)  # the filers\n"
+        "  # the other side\n"
+        "  - other_parties: ALPeopleList\n"
+        "---\n"
+        "objects:\n"
+        "  - al_court_bundle: ALDocumentBundle.using(elements=[])\n"
+    )
+
+    def objects_block_id(self, source, position=0):
+        blocks = [
+            block
+            for block in parse_interview_yaml(source)["blocks"]
+            if block["type"] == "objects"
+        ]
+        return blocks[position]["id"]
+
+    def test_a_new_declaration_is_the_only_line_that_changes(self):
+        block_id = self.objects_block_id(self.OBJECTS_SOURCE)
+        updated = add_object_declaration(
+            self.OBJECTS_SOURCE,
+            block_id,
+            "witnesses",
+            "ALPeopleList.using(ask_number=True)",
+        )
+        added = "  - witnesses: ALPeopleList.using(ask_number=True)\n"
+        point = self.OBJECTS_SOURCE.index("---\nobjects:\n  - al_court_bundle")
+        self.assertEqual(
+            updated,
+            self.OBJECTS_SOURCE[:point] + added + self.OBJECTS_SOURCE[point:],
+        )
+        self.assertIn("# the filers", updated)
+        self.assertIn("# the other side", updated)
+
+    def test_the_declaration_lands_in_the_block_it_was_asked_for(self):
+        block_id = self.objects_block_id(self.OBJECTS_SOURCE, position=1)
+        updated = add_object_declaration(
+            self.OBJECTS_SOURCE, block_id, "witnesses", "ALPeopleList"
+        )
+        documents = list(yaml.safe_load_all(updated))
+        self.assertEqual(
+            documents[2]["objects"],
+            [
+                {"al_court_bundle": "ALDocumentBundle.using(elements=[])"},
+                {"witnesses": "ALPeopleList"},
+            ],
+        )
+
+    def test_the_authors_own_indentation_and_style_is_followed(self):
+        mapping_style = (
+            "id: things\nobjects:\n    users: ALPeopleList\ncomment: |\n  after\n"
+        )
+        updated = add_object_declaration(
+            mapping_style, "things", "witnesses", "ALPeopleList"
+        )
+        self.assertIn("    users: ALPeopleList\n    witnesses: ALPeopleList\n", updated)
+        # The keys after the list stay where they were.
+        self.assertTrue(updated.endswith("comment: |\n  after\n"))
+
+    def test_a_name_already_declared_there_is_refused(self):
+        block_id = self.objects_block_id(self.OBJECTS_SOURCE)
+        with self.assertRaisesRegex(ValueError, "already declared"):
+            add_object_declaration(
+                self.OBJECTS_SOURCE, block_id, "users", "ALPeopleList"
+            )
+
+    def test_a_block_that_is_not_an_objects_block_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "not an objects block"):
+            add_object_declaration(SOURCE, "intro", "witnesses", "ALPeopleList")
+
+    def test_a_flow_style_objects_block_is_left_alone(self):
+        # `objects: {users: ALPeopleList}` cannot take an indented line, and
+        # rewriting it into block style would be an edit nobody asked for.
+        flow = "objects: {users: ALPeopleList}\n"
+        block_id = self.objects_block_id(flow)
+        with self.assertRaisesRegex(ValueError, "indented list"):
+            add_object_declaration(flow, block_id, "witnesses", "ALPeopleList")
 
 
 class TestEditorBlockTitles(unittest.TestCase):

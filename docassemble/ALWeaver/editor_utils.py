@@ -31,6 +31,7 @@ __all__ = [
     "insert_block_in_yaml",
     "inserted_block_id_by_position",
     "update_block_in_yaml",
+    "add_object_declaration",
     "delete_block_from_yaml",
     "comment_out_block_in_yaml",
     "enable_commented_block_in_yaml",
@@ -1146,6 +1147,99 @@ def update_block_in_yaml(
         trailing = original_body[-trailing_len:] if trailing_len else ""
         replacement = leading + edited_body + trailing
     return _replace_document_body(full_yaml, start, end, replacement)
+
+
+_OBJECTS_KEY_RE = re.compile(r"^objects:[ \t]*(#.*)?$")
+_LIST_ENTRY_RE = re.compile(r"^([ \t]*)-[ \t]+\S")
+_MAPPING_ENTRY_RE = re.compile(r"^([ \t]+)\S")
+
+
+def add_object_declaration(
+    full_yaml: str, block_id: str, name: str, expression: str
+) -> str:
+    """Add one ``name: expression`` entry to an existing ``objects:`` block.
+
+    Only a line is added.  Re-serializing the block would be enough to declare
+    the object, but it would also drop the block's comments and rewrite the
+    author's own quoting, and an ``objects:`` block is one of the places a
+    generated interview explains itself in comments.
+
+    Raises:
+        ValueError: if the block is not an ``objects:`` block written as an
+        indented list or mapping under the key, if ``name`` is already
+        declared there, or if the edited block would no longer say what it was
+        asked to say.
+    """
+    block, start, end, body = _unique_block_document(full_yaml, block_id)
+    data = block.get("data") or {}
+    if not isinstance(data, dict) or "objects" not in data:
+        raise ValueError(f"Block {block_id!r} is not an objects block")
+    if name in {declared for declared, _value in _declared_objects(data)}:
+        raise ValueError(f"{name!r} is already declared in this block")
+
+    newline = "\r\n" if "\r\n" in body else "\n"
+    lines = body.splitlines()
+    key_index = next(
+        (i for i, line in enumerate(lines) if _OBJECTS_KEY_RE.match(line)), None
+    )
+    if key_index is None:
+        # `objects: {...}` on one line, or a key this function cannot read.
+        raise ValueError(
+            f"Block {block_id!r} does not write its objects as an indented list"
+        )
+
+    last_entry = key_index
+    indent = "  "
+    dashed = True
+    for i in range(key_index + 1, len(lines)):
+        line = lines[i]
+        if not line.strip():
+            continue
+        entry_match = _LIST_ENTRY_RE.match(line) or _MAPPING_ENTRY_RE.match(line)
+        if entry_match is None:
+            break  # back to column one: the next top-level key
+        if line.lstrip().startswith("#"):
+            continue
+        last_entry = i
+        dashed = bool(_LIST_ENTRY_RE.match(line))
+        indent = entry_match.group(1)
+
+    entry = (
+        f"{indent}- {name}: {expression}" if dashed else f"{indent}{name}: {expression}"
+    )
+    lines.insert(last_entry + 1, entry)
+    edited_body = newline.join(lines)
+    if body.endswith(("\n", "\r")):
+        edited_body += newline
+
+    # The block has to still parse, and to say what it was asked to say: the
+    # entry is written into the author's own indentation, and a file that
+    # indents its objects unusually must not be silently rewritten wrong.
+    try:
+        parsed = yaml.safe_load(edited_body)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Adding {name!r} would break this block: {exc}") from exc
+    if (
+        not isinstance(parsed, dict)
+        or dict(_declared_objects(parsed)).get(name) != expression
+    ):
+        raise ValueError(f"Adding {name!r} to this block did not declare it")
+    return _replace_document_body(full_yaml, start, end, edited_body)
+
+
+def _declared_objects(data: Dict[str, Any]) -> List[Tuple[str, Any]]:
+    """The ``(name, expression)`` pairs a parsed objects block declares."""
+    objects = data.get("objects")
+    declared: List[Tuple[str, Any]] = []
+    if isinstance(objects, dict):
+        declared.extend((str(name), value) for name, value in objects.items())
+    elif isinstance(objects, list):
+        for item in objects:
+            if isinstance(item, dict):
+                declared.extend((str(name), value) for name, value in item.items())
+            elif isinstance(item, str):
+                declared.append((item.strip(), None))
+    return declared
 
 
 def insert_block_in_yaml(
