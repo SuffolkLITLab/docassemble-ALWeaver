@@ -115,7 +115,9 @@ class TestCourtFormOptions(unittest.TestCase):
 
 class TestWriteVariableReportDocx(unittest.TestCase):
     def setUp(self):
-        self.tempdir = tempfile.mkdtemp(prefix="weaver_variable_report_")
+        self._tempdir = tempfile.TemporaryDirectory(prefix="weaver_variable_report_")
+        self.addCleanup(self._tempdir.cleanup)
+        self.tempdir = self._tempdir.name
 
     def _path(self, name="draft.docx"):
         return os.path.join(self.tempdir, name)
