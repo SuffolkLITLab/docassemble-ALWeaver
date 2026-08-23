@@ -473,12 +473,14 @@
         <div class="form-check editor-choice-card mt-2">
           <input class="form-check-input" type="radio" name="new-template-kind" id="new-template-kind-report" value="variable-report">
           <label class="form-check-label" for="new-template-kind-report">
-            <span class="fw-semibold">Variable report</span>
+            <span class="fw-semibold">Draft from this interview&#39;s questions</span>
             <span class="d-block editor-tiny text-muted">
               A DOCX drafted from the questions this interview already asks, with a
-              Jinja field for every variable. The same document ALDashboard's
+              Jinja field for every variable. The same document ALDashboard&#39;s
               interview intake document generator produces. Useful when the answers
-              <em>are</em> the output, so there is no form to start from.
+              <em>are</em> the output, so there is no form to start from &mdash; or
+              when you want a court filing whose caption and signature block come
+              from a jurisdiction template.
             </span>
           </label>
         </div>
@@ -491,6 +493,23 @@
           <input class="form-control form-control-sm mt-1" id="new-template-report-title" autocomplete="off">
           <label class="editor-tiny mt-2" for="new-template-report-filename">Filename</label>
           <input class="form-control form-control-sm mt-1" id="new-template-report-filename" autocomplete="off">
+          <div class="d-none" id="new-template-report-shape-wrap">
+            <label class="editor-tiny mt-2" for="new-template-report-shape">Shape</label>
+            <select class="form-select form-select-sm mt-1" id="new-template-report-shape"></select>
+          </div>
+          <div class="d-none" id="new-template-report-court-wrap">
+            <label class="editor-tiny mt-2" for="new-template-report-profile">Court / jurisdiction</label>
+            <select class="form-select form-select-sm mt-1" id="new-template-report-profile"></select>
+            <div class="editor-tiny text-muted mt-1">
+              Supplies the caption, running footer and signature block. Fonts are
+              Word styles, so a court that wants a different one is a small edit
+              to the template in ALDashboard rather than a rebuild here.
+            </div>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="new-template-report-cos">
+              <label class="form-check-label editor-tiny" for="new-template-report-cos">Include a certificate of service</label>
+            </div>
+          </div>
           <div class="form-check mt-2">
             <input class="form-check-input" type="checkbox" id="new-template-report-varnames">
             <label class="form-check-label editor-tiny" for="new-template-report-varnames">Show variable names beside each label</label>

@@ -208,6 +208,7 @@ except Exception as _editor_utils_import_err:
     raise
 
 from .variable_report import (
+    court_form_options,
     suggested_report_names,
     write_variable_report_docx,
 )
@@ -2703,6 +2704,9 @@ def editor_api_template_variable_report_suggestion() -> Response:
             read_project_file, filename, _project_yaml_filenames(uid, project)
         )
         suggested = suggested_report_names(yaml_texts, primary_filename=filename)
+        # Which shapes this server can draft depends on the ALDashboard it has
+        # installed, so the editor asks rather than assuming.
+        options = court_form_options()
         return jsonify(
             {
                 "success": True,
@@ -2711,6 +2715,9 @@ def editor_api_template_variable_report_suggestion() -> Response:
                     "title": suggested["title"],
                     "filename": suggested["filename"],
                     "sources": sources,
+                    "court_forms_supported": bool(options.get("supported")),
+                    "shapes": options.get("shapes", []),
+                    "court_profiles": options.get("profiles", []),
                 },
             }
         )
@@ -2762,6 +2769,13 @@ def editor_api_template_variable_report() -> Response:
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
         show_variable_names = bool(post_data.get("show_variable_names"))
+        shape = str(post_data.get("shape") or "intake").strip().lower() or "intake"
+        court_profile = str(post_data.get("court_profile") or "").strip() or None
+        include_certificate_of_service = (
+            bool(post_data.get("include_certificate_of_service"))
+            if post_data.get("include_certificate_of_service") is not None
+            else None
+        )
 
         raw_yaml = playground_read_yaml(uid, project, filename)
 
@@ -2794,6 +2808,9 @@ def editor_api_template_variable_report() -> Response:
             path,
             report_title=report_title or None,
             show_variable_names=show_variable_names,
+            shape=shape,
+            court_profile=court_profile,
+            include_certificate_of_service=include_certificate_of_service,
         )
         area.finalize()
 
