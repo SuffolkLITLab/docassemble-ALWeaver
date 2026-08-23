@@ -99,6 +99,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="new-template-kind-blank"', template)
         self.assertIn('id="new-template-kind-report"', template)
         self.assertIn('id="new-template-report-filename"', template)
+        self.assertIn('id="new-template-report-shape"', template)
+        self.assertIn('id="new-template-report-profile"', template)
+        self.assertIn('id="new-template-report-cos"', template)
         self.assertIn('id="new-template-report-sources"', template)
         self.assertIn(".editor-choice-card", css)
 
@@ -108,6 +111,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="btn-new-template-setup"', editor)
         self.assertIn("apiPost('/api/template/variable-report'", editor)
         self.assertIn("/api/template/variable-report/suggestion?project=", editor)
+        self.assertIn("applyVariableReportOptions(res.data)", editor)
+        self.assertIn("payload.court_profile", editor)
+        self.assertIn("payload.include_certificate_of_service", editor)
 
     def test_review_screen_is_re_synced_rather_than_appended(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()

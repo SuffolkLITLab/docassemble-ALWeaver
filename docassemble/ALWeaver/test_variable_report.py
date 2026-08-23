@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from typing import Any, Dict, List, Tuple
 from unittest import mock
 
 from . import variable_report
@@ -31,7 +32,7 @@ class _FakeDashboard:
 
     def __init__(self, court_shapes: bool = True):
         self.court_shapes = court_shapes
-        self.calls = []
+        self.calls: List[Tuple[List[str], Dict[str, Any]]] = []
 
     def generate(self, texts, **kwargs):
         self.calls.append((texts, kwargs))
