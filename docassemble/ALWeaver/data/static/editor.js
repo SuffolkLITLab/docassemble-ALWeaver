@@ -8880,6 +8880,7 @@
     }
     if (reportName) reportName.value = '';
     if (reportTitle) reportTitle.value = '';
+    resetVariableReportShapes();
     if (sources) {
       sources.textContent = haveInterview
         ? 'Reading ' + state.filename + '\u2026'
@@ -8891,6 +8892,60 @@
     if (haveInterview) loadVariableReportSuggestion();
   }
 
+  // Which shapes and courts are on offer depends on the ALDashboard installed
+  // on this server, so the suggestion response tells us rather than the editor
+  // hard-coding a list that might not work when used.
+  function resetVariableReportShapes() {
+    var shapeWrap = document.getElementById('new-template-report-shape-wrap');
+    var courtWrap = document.getElementById('new-template-report-court-wrap');
+    var shape = document.getElementById('new-template-report-shape');
+    var profile = document.getElementById('new-template-report-profile');
+    var cos = document.getElementById('new-template-report-cos');
+    if (shapeWrap) shapeWrap.classList.add('d-none');
+    if (courtWrap) courtWrap.classList.add('d-none');
+    if (shape) shape.innerHTML = '';
+    if (profile) profile.innerHTML = '';
+    if (cos) cos.checked = false;
+  }
+
+  function fillSelect(select, items, selectedValue) {
+    if (!select) return;
+    select.innerHTML = '';
+    items.forEach(function (item) {
+      var option = document.createElement('option');
+      option.value = item.value;
+      option.textContent = item.label;
+      if (item.value === selectedValue) option.selected = true;
+      select.appendChild(option);
+    });
+  }
+
+  function syncVariableReportShapeFields() {
+    var shape = document.getElementById('new-template-report-shape');
+    var courtWrap = document.getElementById('new-template-report-court-wrap');
+    if (!courtWrap) return;
+    var isCourt = Boolean(shape && shape.value && shape.value !== 'intake');
+    courtWrap.classList.toggle('d-none', !isCourt);
+  }
+
+  function applyVariableReportOptions(data) {
+    var shapeWrap = document.getElementById('new-template-report-shape-wrap');
+    var shape = document.getElementById('new-template-report-shape');
+    var profile = document.getElementById('new-template-report-profile');
+    var shapes = (data && data.shapes) || [];
+    var profiles = (data && data.court_profiles) || [];
+    // An older ALDashboard offers the intake report only; showing a shape
+    // picker with one entry would just be noise.
+    if (!data || !data.court_forms_supported || shapes.length < 2) {
+      resetVariableReportShapes();
+      return;
+    }
+    fillSelect(shape, shapes, 'intake');
+    fillSelect(profile, profiles, 'generic');
+    if (shapeWrap) shapeWrap.classList.remove('d-none');
+    syncVariableReportShapeFields();
+  }
+
   function loadVariableReportSuggestion() {
     apiGet('/api/template/variable-report/suggestion?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
       .then(function (res) {
@@ -8900,6 +8955,7 @@
         var sources = document.getElementById('new-template-report-sources');
         if (reportName && !reportName.value) reportName.value = res.data.filename || '';
         if (reportTitle && !reportTitle.value) reportTitle.value = res.data.title || '';
+        applyVariableReportOptions(res.data);
         if (sources) {
           var names = res.data.sources || [];
           sources.textContent = names.length > 1
@@ -8956,13 +9012,23 @@
     var titleInput = document.getElementById('new-template-report-title');
     var reportNameInput = document.getElementById('new-template-report-filename');
     var varNames = document.getElementById('new-template-report-varnames');
-    apiPost('/api/template/variable-report', {
+    var shapeInput = document.getElementById('new-template-report-shape');
+    var profileInput = document.getElementById('new-template-report-profile');
+    var cosInput = document.getElementById('new-template-report-cos');
+    var shape = shapeInput && shapeInput.value ? shapeInput.value : 'intake';
+    var payload = {
       project: state.project,
       filename: state.filename,
       title: titleInput ? titleInput.value.trim() : '',
       output_filename: reportNameInput ? reportNameInput.value.trim() : '',
       show_variable_names: Boolean(varNames && varNames.checked),
-    }).then(function (res) {
+      shape: shape,
+    };
+    if (shape !== 'intake') {
+      payload.court_profile = profileInput ? profileInput.value : '';
+      payload.include_certificate_of_service = Boolean(cosInput && cosInput.checked);
+    }
+    apiPost('/api/template/variable-report', payload).then(function (res) {
       finish();
       if (!res.success) {
         setNewTemplateError((res.error && res.error.message) || 'Unable to draft the document.');
@@ -8972,7 +9038,11 @@
       state.sectionSelectedFile.templates = res.data.filename;
       state.sectionDirty = false;
       loadSectionFiles('templates');
-      _showSuccessBanner('Drafted ' + esc(res.data.filename) + ' from ' + res.data.variables_count + ' variables. Import it under Document setup to assemble it.');
+      var drafted = 'Drafted ' + esc(res.data.filename) + ' from ' + res.data.variables_count + ' variables.';
+      if (res.data.profile_name) {
+        drafted += ' Caption and signature block from ' + esc(res.data.profile_name) + '.';
+      }
+      _showSuccessBanner(drafted + ' Import it under Document setup to assemble it.');
     }).catch(function (error) {
       finish();
       setNewTemplateError(error.message || 'Unable to draft the document.');
@@ -11759,6 +11829,10 @@
     if (target.name === 'new-template-kind') {
       setNewTemplateError('');
       syncNewTemplateFields();
+      return;
+    }
+    if (target.id === 'new-template-report-shape') {
+      syncVariableReportShapeFields();
       return;
     }
     if (target.matches('[data-enabled-mode]')) {

@@ -2202,6 +2202,192 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertEqual(written["title"], "Main Draft")
             self.assertTrue(os.path.exists(written["path"]))
 
+    def test_the_suggestion_reports_the_shapes_this_server_can_draft(self):
+        files = self._files()
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: files[filename],
+            ),
+            patch.object(
+                api_editor,
+                "suggested_report_names",
+                return_value={"title": "Main Draft", "filename": "main_draft.docx"},
+            ),
+            patch.object(
+                api_editor,
+                "court_form_options",
+                return_value={
+                    "supported": True,
+                    "shapes": [
+                        {"value": "intake", "label": "Intake summary"},
+                        {"value": "motion", "label": "Motion"},
+                    ],
+                    "profiles": [{"value": "ma_trial_court", "label": "Massachusetts"}],
+                },
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/variable-report/suggestion"
+                "?project=default&filename=main.yml",
+                method="GET",
+            ):
+                response = api_editor.editor_api_template_variable_report_suggestion()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertTrue(data["court_forms_supported"])
+        self.assertIn("motion", {shape["value"] for shape in data["shapes"]})
+        self.assertEqual(data["court_profiles"][0]["value"], "ma_trial_court")
+
+    def test_the_suggestion_still_works_against_an_older_dashboard(self):
+        files = self._files()
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: files[filename],
+            ),
+            patch.object(
+                api_editor,
+                "suggested_report_names",
+                return_value={"title": "Main Draft", "filename": "main_draft.docx"},
+            ),
+            patch.object(
+                api_editor,
+                "court_form_options",
+                return_value={"supported": False, "shapes": [], "profiles": []},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/template/variable-report/suggestion"
+                "?project=default&filename=main.yml",
+                method="GET",
+            ):
+                response = api_editor.editor_api_template_variable_report_suggestion()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertFalse(data["court_forms_supported"])
+        self.assertEqual(data["shapes"], [])
+        self.assertEqual(data["title"], "Main Draft")
+
+    def test_a_court_shape_reaches_the_dashboard_and_comes_back_named(self):
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = {}
+
+            def fake_write(yaml_texts, output_path, **kwargs):
+                written.update(kwargs)
+                with open(output_path, "wb") as handle:
+                    handle.write(b"docx")
+                return {
+                    "variables_count": 4,
+                    "list_count": 1,
+                    "scalar_count": 3,
+                    "size": 4,
+                    "shape": kwargs.get("shape"),
+                    "profile_id": kwargs.get("court_profile"),
+                    "profile_name": "Massachusetts Trial Court",
+                    "sections": {"caption": "yaml"},
+                }
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(api_editor, "write_variable_report_docx", fake_write),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "filename": "main.yml",
+                        "shape": "motion",
+                        "court_profile": "ma_trial_court",
+                        "include_certificate_of_service": True,
+                    },
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(written["shape"], "motion")
+            self.assertEqual(written["court_profile"], "ma_trial_court")
+            self.assertIs(written["include_certificate_of_service"], True)
+            data = response.get_json()["data"]
+            self.assertEqual(data["profile_name"], "Massachusetts Trial Court")
+            self.assertEqual(data["sections"]["caption"], "yaml")
+
+    def test_omitting_the_shape_still_drafts_the_intake_report(self):
+        """The editor drafted intake reports before shapes existed."""
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = {}
+
+            def fake_write(yaml_texts, output_path, **kwargs):
+                written.update(kwargs)
+                with open(output_path, "wb") as handle:
+                    handle.write(b"docx")
+                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(api_editor, "write_variable_report_docx", fake_write),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={"project": "default", "filename": "main.yml"},
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(written["shape"], "intake")
+            self.assertIsNone(written["court_profile"])
+            self.assertIsNone(written["include_certificate_of_service"])
+
     def test_an_existing_template_is_not_silently_overwritten(self):
         files = self._files()
         with tempfile.TemporaryDirectory() as tmpdir:
