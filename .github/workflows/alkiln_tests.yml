@@ -42,6 +42,22 @@ jobs:
           INSTALL_METHOD: "server"
           # To learn more, see https://assemblyline.suffolklitlab.org/docs/alkiln/writing/#optional-inputs
           ALKILN_TAG_EXPRESSION: "${{ env.ALKILN_TAG_EXPRESSION }}"
+      - name: Install accessibility test dependencies
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p /tmp/alweaver-a11y
+          cd /tmp/alweaver-a11y
+          npm init -y
+          npm install playwright @axe-core/playwright
+          npx playwright install --with-deps chromium
+      - name: Check /al/editor accessibility
+        if: ${{ !cancelled() }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
+          EDITOR_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+        run: node .github/scripts/editor_a11y.js
       - run: echo "Finished running ALKiln end-to-end tests"
       
       ## To make a new issue in your repository when a test fails,
