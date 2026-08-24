@@ -1,0 +1,25 @@
+metadata:
+  title: Accessibility editor fixture
+  short title: Accessibility fixture
+  description: A small interview used to exercise the Weaver editor in CI.
+---
+code: |
+  editor_fixture_value = "ready"
+---
+question: What is your name?
+subquestion: This screen gives the graphical editor a real field to edit.
+fields:
+  - First name: editor_fixture_name
+    datatype: text
+---
+question: Choose a color
+fields:
+  - Color: editor_fixture_color
+    datatype: radio
+    choices:
+      - Blue
+      - Green
+---
+question: Fixture complete
+subquestion: |
+  Hello ${ editor_fixture_name }.

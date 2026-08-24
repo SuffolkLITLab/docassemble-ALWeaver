@@ -15,9 +15,7 @@ const pageErrors = [];
 async function signInIfNeeded(page) {
   await page.goto(`${serverUrl}/al/editor`, { waitUntil: "domcontentloaded" });
 
-  if (new URL(page.url()).pathname.endsWith("/al/editor")) {
-    return;
-  }
+  if (new URL(page.url()).pathname.endsWith("/al/editor")) return;
 
   const emailInput = page
     .locator('input[type="email"], input[name="email"], input[name="username"]')
@@ -56,8 +54,44 @@ async function audit(page, label) {
       })
     );
   }
-
   return blocking;
+}
+
+async function auditAfter(page, label, locator, action) {
+  await action();
+  await locator.waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(250);
+  return audit(page, label);
+}
+
+async function selectOption(page, selector, value, description) {
+  const control = page.locator(selector);
+  await control.waitFor({ state: "visible", timeout: 30_000 });
+  const options = await control.locator("option").evaluateAll((items) =>
+    items.map((item) => ({ value: item.value, label: item.textContent.trim() }))
+  );
+  const option = options.find((item) => item.value === value || item.label === value);
+  if (!option) {
+    throw new Error(
+      `Could not find ${description} ${value}; available options: ${JSON.stringify(options)}`
+    );
+  }
+  await control.selectOption(option.value);
+}
+
+async function closeModal(page, selector) {
+  const modal = page.locator(selector);
+  if (await modal.locator(".btn-close").count()) {
+    await modal.locator(".btn-close").first().click();
+  } else {
+    await modal.locator('[data-bs-dismiss="modal"]').first().click();
+  }
+  await modal.waitFor({ state: "hidden", timeout: 10_000 });
+}
+
+async function openMoreMenu(page) {
+  await page.locator("#topbar-more-menu").click();
+  await page.locator("#topbar-more-menu").getAttribute("aria-expanded");
 }
 
 async function main() {
@@ -68,17 +102,166 @@ async function main() {
   const page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(String(error)));
 
+  let blockingViolations = [];
   try {
     await signInIfNeeded(page);
     await page.locator("#editor-app").waitFor({ state: "visible", timeout: 30_000 });
 
-    let blockingViolations = await audit(page, "interview");
+    // Open a real Playground interview and its file-backed editing areas.
+    await selectOption(page, "#project-select", "default", "project");
+    await page.locator('#file-select option[value="editor_accessibility.yml"]').waitFor({
+      state: "attached",
+      timeout: 30_000,
+    });
+    await selectOption(page, "#file-select", "editor_accessibility.yml", "interview file");
+    await page.locator("#outline-list .editor-outline-item").first().waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "interview editor")
+    );
+
+    // Visit every file-backed secondary editor, not only the empty shell.
     for (const view of ["templates", "modules", "static", "data"]) {
       const tab = page.locator(`.editor-top-tab[data-view="${view}"]`).first();
-      await tab.click();
-      await page.waitForTimeout(500);
-      blockingViolations = blockingViolations.concat(await audit(page, view));
+      blockingViolations = blockingViolations.concat(
+        await auditAfter(
+          page,
+          `${view} source editor`,
+          page.locator("#section-file-source-editor"),
+          () => tab.click()
+        )
+      );
     }
+    await page.locator('.editor-top-tab[data-view="interview"]').click();
+    await page.locator("#outline-list .editor-outline-item").first().waitFor();
+
+    // Project selector and the new-project editing form.
+    blockingViolations = blockingViolations.concat(
+      await auditAfter(
+        page,
+        "project selector",
+        page.locator("#project-search-input"),
+        () => page.locator('[data-action="open-project-selector"]').first().click()
+      )
+    );
+    blockingViolations = blockingViolations.concat(
+      await auditAfter(
+        page,
+        "new project form",
+        page.locator("#new-project-name"),
+        () => page.locator("#open-new-project-card").click()
+      )
+    );
+    await page.locator("#cancel-new-project").click();
+    await page.locator('[data-project-card="default"]').click();
+    await page.locator("#outline-list .editor-outline-item").first().waitFor();
+
+    // Project-wide search dialog and its result state.
+    await page.locator("#btn-project-search").click();
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "project search dialog")
+    );
+    await page.locator("#project-search-query").fill("editor_fixture");
+    await page.locator("#project-search-submit").click();
+    await page.locator("#project-search-status").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "project search results")
+    );
+    await closeModal(page, "#project-search-modal");
+
+    // Validation actions and the open results drawer.
+    await page.locator('[data-action="check-errors"]').click();
+    await page.waitForTimeout(1_000);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "validation drawer")
+    );
+    await page.locator('[aria-label="Validation actions"]').click();
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "validation actions menu")
+    );
+    await page.locator("#btn-style-check").click();
+    await page.waitForTimeout(1_000);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "style-check results")
+    );
+
+    // Full YAML, metadata, and interview-order source editors.
+    await openMoreMenu(page);
+    await page.locator('[data-action="open-full-yaml"]').click();
+    await page.locator("#full-source-editor").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "full YAML editor")
+    );
+    for (const tabName of ["metadata", "order"]) {
+      await page.locator(`[data-yaml-tab="${tabName}"]`).click();
+      await page.waitForTimeout(250);
+      blockingViolations = blockingViolations.concat(
+        await audit(page, `${tabName} YAML editor`)
+      );
+    }
+    await page.locator("#back-to-question").click();
+    await page.locator("#outline-list .editor-outline-item").first().waitFor();
+
+    // AssemblyLine settings, including its explanatory popover.
+    await openMoreMenu(page);
+    await page.locator('[data-action="open-assemblyline-settings"]').click();
+    await page.locator("#assemblyline-settings-filter").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "AssemblyLine settings")
+    );
+    await page.locator("[data-al-settings-explainer]").click();
+    await page.locator(".popover").waitFor({ state: "visible", timeout: 10_000 });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "AssemblyLine settings explainer")
+    );
+    await page.locator("#close-assemblyline-settings").click();
+    await page.locator("#outline-list .editor-outline-item").first().waitFor();
+
+    // Graphical question editing, field settings, YAML editing, and preview.
+    const question = page.locator('.editor-outline-item[data-block-id]').filter({
+      hasText: "What is your name?",
+    });
+    await question.first().click();
+    await page.locator("#q-title").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "graphical question editor")
+    );
+    await page.locator('[data-question-tab="options"]').click();
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "question options editor")
+    );
+    await page.locator(".editor-field-kebab-btn").first().click();
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "field settings editor")
+    );
+    await page.locator(".editor-field-kebab-btn").first().click();
+    await page.locator("#toggle-edit-mode-tab").click();
+    await page.locator("#block-source-editor").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "question YAML editor")
+    );
+    await page.locator('[data-question-mode="preview"]').first().click();
+    await page.locator("#q-title").waitFor({ state: "visible" });
+    await page.locator("#question-preview-tab").click();
+    await page.locator("#screen-preview-modal").waitFor({ state: "visible" });
+    await page.locator("#screen-preview-frame").waitFor({ state: "visible" });
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "screen preview dialog")
+    );
+    await closeModal(page, "#screen-preview-modal");
+
+    // The insert-block dialog is the main entry point for authoring new work.
+    await page.locator(".editor-outline-insert-btn").first().click();
+    await page.locator("#insert-modal").waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "insert-block dialog")
+    );
+    await closeModal(page, "#insert-modal");
 
     if (pageErrors.length) {
       console.error("Browser page errors:");

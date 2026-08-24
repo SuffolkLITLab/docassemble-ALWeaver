@@ -53,6 +53,37 @@ jobs:
           INSTALL_METHOD: "server"
           # To learn more, see https://assemblyline.suffolklitlab.org/docs/alkiln/writing/#optional-inputs
           ALKILN_TAG_EXPRESSION: "${{ env.ALKILN_TAG_EXPRESSION }}"
+      - name: Seed editor accessibility fixture
+        if: ${{ !cancelled() }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          ADMIN_API_KEY: "${{ steps.github_server.outputs.DA_ADMIN_API_KEY }}"
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=questions -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.yml \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=templates -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.md \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=modules -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.py \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=static -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.js \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=sources -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.txt \
+            "$SERVER_URL/api/playground"
       - name: Install accessibility test dependencies
         if: ${{ !cancelled() }}
         run: |
