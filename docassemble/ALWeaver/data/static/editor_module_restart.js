@@ -11,7 +11,7 @@
  * Restarting is server-wide and disruptive, so the developer is told what it
  * costs and can always decline and keep working.
  */
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   'use strict';
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -23,9 +23,11 @@
   var POLL_TIMEOUT_MS = 180000;
 
   function describeFiles(files) {
-    var names = (files || []).map(function (entry) {
-      return entry && entry.filename ? String(entry.filename) : '';
-    }).filter(Boolean);
+    var names = (files || [])
+      .map(function (entry) {
+        return entry && entry.filename ? String(entry.filename) : '';
+      })
+      .filter(Boolean);
     if (!names.length) return '';
     if (names.length === 1) return names[0];
     if (names.length === 2) return names[0] + ' and ' + names[1];
@@ -37,11 +39,23 @@
     var api = options.api;
     var doc = options.document;
     var win = options.window;
-    var getProject = options.getProject || function () { return null; };
-    var sleep = options.sleep || function (ms) {
-      return new Promise(function (resolve) { win.setTimeout(resolve, ms); });
-    };
-    var now = options.now || function () { return Date.now(); };
+    var getProject =
+      options.getProject ||
+      function () {
+        return null;
+      };
+    var sleep =
+      options.sleep ||
+      function (ms) {
+        return new Promise(function (resolve) {
+          win.setTimeout(resolve, ms);
+        });
+      };
+    var now =
+      options.now ||
+      function () {
+        return Date.now();
+      };
     var state = null;
     var restartInFlight = null;
     // The modal is a single static element, so a second prompt opened before
@@ -63,11 +77,13 @@
         banner.classList.add('d-none');
         return;
       }
-      var message = banner.querySelector('[data-module-restart-banner-message]');
+      var message = banner.querySelector(
+        '[data-module-restart-banner-message]',
+      );
       if (message) {
         var listed = describeFiles(state.files);
         message.textContent = listed
-          ? ('Restart the server to load ' + listed + '.')
+          ? 'Restart the server to load ' + listed + '.'
           : 'Restart the server to load them.';
       }
       var button = banner.querySelector('[data-action="restart-for-modules"]');
@@ -96,7 +112,8 @@
     function refresh() {
       var project = getProject();
       if (!project) return Promise.resolve(state);
-      return api.get('/api/server/restart-state?project=' + encodeURIComponent(project))
+      return api
+        .get('/api/server/restart-state?project=' + encodeURIComponent(project))
         .then(function (response) {
           return adopt(response && response.data);
         })
@@ -130,7 +147,10 @@
         }
         return sleep(POLL_INTERVAL_MS)
           .then(function () {
-            return api.get('/api/server/restart-status?task_id=' + encodeURIComponent(taskId));
+            return api.get(
+              '/api/server/restart-status?task_id=' +
+                encodeURIComponent(taskId),
+            );
           })
           .then(function (response) {
             var status = response && response.data ? response.data.status : '';
@@ -151,8 +171,11 @@
       if (restartInFlight) return restartInFlight;
       var project = getProject();
       setError('');
-      setProgress('Restarting the server… this normally takes 10 to 30 seconds.');
-      restartInFlight = api.post('/api/server/restart', { project: project })
+      setProgress(
+        'Restarting the server… this normally takes 10 to 30 seconds.',
+      );
+      restartInFlight = api
+        .post('/api/server/restart', { project: project })
         .then(function (response) {
           var taskId = response && response.data ? response.data.task_id : null;
           if (!taskId) return false;
@@ -164,13 +187,17 @@
             state = null;
             renderBanner();
           } else {
-            setProgress('The server is taking longer than usual to come back. It should finish shortly.');
+            setProgress(
+              'The server is taking longer than usual to come back. It should finish shortly.',
+            );
           }
           return completed;
         })
         .catch(function (error) {
           setProgress('');
-          setError((error && error.message) || 'The server could not be restarted.');
+          setError(
+            (error && error.message) || 'The server could not be restarted.',
+          );
           throw error;
         })
         .finally(function () {
@@ -192,27 +219,35 @@
         list.innerHTML = '';
         (state.files || []).forEach(function (entry) {
           var item = doc.createElement('li');
-          item.textContent = entry.reason && entry.reason !== 'changed'
-            ? (entry.filename + ' (' + entry.reason + ')')
-            : entry.filename;
+          item.textContent =
+            entry.reason && entry.reason !== 'changed'
+              ? entry.filename + ' (' + entry.reason + ')'
+              : entry.filename;
           list.appendChild(item);
         });
       }
       var message = el('module-restart-message');
       if (message) {
         message.textContent = actionLabel
-          ? ('Before you ' + actionLabel
-            + ', note that these Python modules have changed since the server last started:')
+          ? 'Before you ' +
+            actionLabel +
+            ', note that these Python modules have changed since the server last started:'
           : 'These Python modules have changed since the server last started:';
       }
-      var restartButton = doc.querySelector('[data-module-restart-choice="restart"]');
-      if (restartButton) restartButton.classList.toggle('d-none', !state.restart_allowed);
+      var restartButton = doc.querySelector(
+        '[data-module-restart-choice="restart"]',
+      );
+      if (restartButton)
+        restartButton.classList.toggle('d-none', !state.restart_allowed);
       // Asked from the banner there is no pending action to continue to, so
       // the only choices are restarting and closing the dialog.
       var skipButton = doc.querySelector('[data-module-restart-choice="skip"]');
       if (skipButton) skipButton.classList.toggle('d-none', !allowSkip);
-      var cancelButton = doc.querySelector('[data-module-restart-choice="cancel"]');
-      if (cancelButton) cancelButton.textContent = allowSkip ? 'Cancel' : 'Not now';
+      var cancelButton = doc.querySelector(
+        '[data-module-restart-choice="cancel"]',
+      );
+      if (cancelButton)
+        cancelButton.textContent = allowSkip ? 'Cancel' : 'Not now';
       setError(state.restart_allowed ? '' : state.restart_blocked_reason);
       setProgress('');
     }
@@ -229,7 +264,7 @@
       fillModal(actionLabel, allowSkip !== false);
       promptInFlight = new Promise(function (resolve) {
         var buttons = Array.prototype.slice.call(
-          doc.querySelectorAll('[data-module-restart-choice]')
+          doc.querySelectorAll('[data-module-restart-choice]'),
         );
 
         function cleanup() {
@@ -247,16 +282,24 @@
         }
 
         function onClick(event) {
-          var choice = event.currentTarget.getAttribute('data-module-restart-choice');
+          var choice = event.currentTarget.getAttribute(
+            'data-module-restart-choice',
+          );
           if (choice === 'cancel') return finish(false);
           if (choice === 'skip') return finish(true);
-          buttons.forEach(function (button) { button.disabled = true; });
+          buttons.forEach(function (button) {
+            button.disabled = true;
+          });
           restartNow()
-            .then(function () { finish(true); })
+            .then(function () {
+              finish(true);
+            })
             .catch(function () {
               // The failure is already shown in the modal; let the developer
               // decide whether to continue anyway.
-              buttons.forEach(function (button) { button.disabled = false; });
+              buttons.forEach(function (button) {
+                button.disabled = false;
+              });
             });
         }
 
@@ -275,7 +318,14 @@
         if (!current || !current.pending) return true;
         if (current.policy === 'never') return true;
         if (current.policy === 'auto' && current.restart_allowed) {
-          return restartNow().then(function () { return true; }, function () { return true; });
+          return restartNow().then(
+            function () {
+              return true;
+            },
+            function () {
+              return true;
+            },
+          );
         }
         return promptForRestart(actionLabel, true);
       });

@@ -1,0 +1,25 @@
+name: JavaScript static checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  javascript-checks:
+    name: Prettier, ESLint, and checkJs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JavaScript tooling
+        run: npm ci
+
+      - name: Run JavaScript checks
+        run: npm run check
