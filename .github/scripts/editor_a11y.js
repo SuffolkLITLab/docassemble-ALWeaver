@@ -294,7 +294,13 @@ async function main() {
 
     // The insert-block dialog is the main entry point for authoring new work.
     await page.locator(".editor-outline-insert-btn").first().click();
-    await page.locator("#insert-modal").waitFor({ state: "visible" });
+    const insertModal = page.locator("#insert-modal");
+    await insertModal.waitFor({ state: "visible" });
+    await page.locator("#insert-modal.show").waitFor({
+      state: "attached",
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(250);
     blockingViolations = blockingViolations.concat(
       await audit(page, "insert-block dialog")
     );
