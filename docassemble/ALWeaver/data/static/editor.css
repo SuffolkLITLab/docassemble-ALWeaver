@@ -239,7 +239,7 @@ html, body {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--bs-link-color);
+  color: var(--editor-primary);
   font-family: var(--bs-font-monospace);
   font-size: 0.82rem;
   text-align: left;
@@ -931,7 +931,7 @@ html, body {
 }
 
 .editor-question-tabs-actions .btn-outline-primary,
-.editor-full-yaml-header a.btn-outline-secondary {
+.editor-full-yaml-header .btn-outline-secondary {
   color: var(--editor-primary);
   border-color: var(--editor-primary);
 }
@@ -3833,7 +3833,21 @@ html, body {
 }
 
 .editor-al-setting-key {
-  opacity: 0.75;
+  color: var(--editor-muted);
+  opacity: 1;
+}
+
+.editor-advanced-body #adv-show-more {
+  color: var(--editor-primary);
+}
+
+.popover-header,
+.popover-body {
+  color: var(--editor-fg);
+}
+
+.popover-header {
+  background: #fff;
 }
 
 .editor-field-mod-hint {

@@ -6227,9 +6227,11 @@
   }
 
   function _settingsInput(field, value) {
-    var key = esc(field.key);
+    var rawKey = String(field.key || '');
+    var key = esc(rawKey);
+    var inputId = 'al-setting-' + rawKey.replace(/[^a-zA-Z0-9_-]/g, '-');
     var kind = field.kind || 'text';
-    var common = ' data-al-setting="' + key + '" id="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '"';
+    var common = ' data-al-setting="' + key + '" id="' + inputId + '"';
     var helpText = field && field.help ? '<div class="form-text editor-al-setting-help">' + esc(field.help) + '</div>' : '';
     var computedBlock = _settingComputedBlock(field);
     var variableHint = helpText
@@ -6242,23 +6244,22 @@
       // expression rather than a value. A checkbox or a dropdown would have to
       // pick some position to sit in and would misreport the interview, so the
       // expression is shown as read-only text instead.
-      var computedId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
-      return '<label class="editor-tiny" for="' + computedId + '">' + esc(field.label) + '</label>'
+      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label>'
         + '<input class="form-control form-control-sm mt-1 font-monospace"' + common + ' value="'
         + esc(value === null || value === undefined ? '' : value) + '" readonly disabled aria-disabled="true">'
         + variableHint;
     }
     if (kind === 'boolean') {
-      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
+      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="' + inputId + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
     }
     if (kind === 'choice') {
-      var select = '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
+      var select = '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
       (field.choices || []).forEach(function (choice) { select += '<option value="' + esc(choice) + '"' + (String(value) === String(choice) ? ' selected' : '') + '>' + esc(String(choice).replace(/_/g, ' ')) + '</option>'; });
       return select + '</select>' + variableHint;
     }
     var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
     if (field.key === 'LIST_topics') {
-      var topicsId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
+      var topicsId = inputId;
       return '<label class="editor-tiny" for="' + topicsId + '">' + esc(field.label) + '</label>'
         + '<textarea class="form-control form-control-sm mt-1" rows="3"' + common + '>' + esc(rendered) + '</textarea>'
         + '<div class="mt-1"><button class="btn btn-sm btn-outline-secondary" type="button" data-open-list-topics="' + topicsId + '" data-topic-separator="newline"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
@@ -6266,9 +6267,9 @@
         + variableHint;
     }
     if (kind === 'area' || kind === 'list' || kind === 'python') {
-      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
+      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
     }
-    return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
+    return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
   }
 
   function applyAssemblyLineSettingsFilter() {
