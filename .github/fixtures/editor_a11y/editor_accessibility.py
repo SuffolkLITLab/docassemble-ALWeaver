@@ -1,0 +1,1 @@
+EDITOR_FIXTURE_VALUE = "ready"

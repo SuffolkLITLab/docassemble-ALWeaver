@@ -1158,6 +1158,7 @@ version = "2.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "dayamlchecker" },
     { name = "docassemble-altoolbox" },
     { name = "docassemble-assemblyline" },
     { name = "docx2python" },
@@ -1171,7 +1172,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "boto3" },
-    { name = "dayamlchecker" },
     { name = "docassemble-base" },
     { name = "docassemble-webapp" },
     { name = "docx2python" },
@@ -1187,6 +1187,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.11.1" },
+    { name = "dayamlchecker" },
     { name = "docassemble-altoolbox", specifier = ">=0.4.2" },
     { name = "docassemble-assemblyline", specifier = ">=2.11.3" },
     { name = "docx2python", specifier = ">=1.27.1" },
@@ -1200,7 +1201,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "boto3" },
-    { name = "dayamlchecker" },
     { name = "docassemble-base", specifier = ">=1.8.0" },
     { name = "docassemble-webapp", specifier = ">=1.8.0" },
     { name = "docx2python" },

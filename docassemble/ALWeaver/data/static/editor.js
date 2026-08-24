@@ -6227,9 +6227,11 @@
   }
 
   function _settingsInput(field, value) {
-    var key = esc(field.key);
+    var rawKey = String(field.key || '');
+    var key = esc(rawKey);
+    var inputId = 'al-setting-' + rawKey.replace(/[^a-zA-Z0-9_-]/g, '-');
     var kind = field.kind || 'text';
-    var common = ' data-al-setting="' + key + '" id="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '"';
+    var common = ' data-al-setting="' + key + '" id="' + inputId + '"';
     var helpText = field && field.help ? '<div class="form-text editor-al-setting-help">' + esc(field.help) + '</div>' : '';
     var computedBlock = _settingComputedBlock(field);
     var variableHint = helpText
@@ -6242,23 +6244,22 @@
       // expression rather than a value. A checkbox or a dropdown would have to
       // pick some position to sit in and would misreport the interview, so the
       // expression is shown as read-only text instead.
-      var computedId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
-      return '<label class="editor-tiny" for="' + computedId + '">' + esc(field.label) + '</label>'
+      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label>'
         + '<input class="form-control form-control-sm mt-1 font-monospace"' + common + ' value="'
         + esc(value === null || value === undefined ? '' : value) + '" readonly disabled aria-disabled="true">'
         + variableHint;
     }
     if (kind === 'boolean') {
-      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-') + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
+      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="' + inputId + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
     }
     if (kind === 'choice') {
-      var select = '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
+      var select = '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
       (field.choices || []).forEach(function (choice) { select += '<option value="' + esc(choice) + '"' + (String(value) === String(choice) ? ' selected' : '') + '>' + esc(String(choice).replace(/_/g, ' ')) + '</option>'; });
       return select + '</select>' + variableHint;
     }
     var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
     if (field.key === 'LIST_topics') {
-      var topicsId = 'al-setting-' + key.replace(/[^a-zA-Z0-9_-]/g, '-');
+      var topicsId = inputId;
       return '<label class="editor-tiny" for="' + topicsId + '">' + esc(field.label) + '</label>'
         + '<textarea class="form-control form-control-sm mt-1" rows="3"' + common + '>' + esc(rendered) + '</textarea>'
         + '<div class="mt-1"><button class="btn btn-sm btn-outline-secondary" type="button" data-open-list-topics="' + topicsId + '" data-topic-separator="newline"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
@@ -6266,9 +6267,9 @@
         + variableHint;
     }
     if (kind === 'area' || kind === 'list' || kind === 'python') {
-      return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
+      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
     }
-    return '<label class="editor-tiny" for="al-setting-' + key + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
+    return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
   }
 
   function applyAssemblyLineSettingsFilter() {
@@ -6992,9 +6993,9 @@
     // Unified tab row: Screen | Question options | Preview | YAML
     html += '<div class="editor-question-tabs-row">';
     html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" id="question-screen-tab" aria-controls="question-screen-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'screen' ? 'true' : 'false') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" id="question-options-tab" aria-controls="question-options-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'options' ? 'true' : 'false') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" aria-controls="question-yaml-panel" aria-selected="' + (state.questionEditMode === 'yaml' ? 'true' : 'false') + '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
     html += '<div class="editor-question-tabs-actions">';
     html += '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
@@ -7009,7 +7010,7 @@
 
     if (isPreview) {
       if (state.questionBlockTab === 'screen') {
-      html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
+      html += '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
 
       // Block ID — always visible at top
       html += '<div class="editor-block-id-row">';
@@ -7242,12 +7243,14 @@
       }
 
       if (state.questionBlockTab === 'options') {
+        html += '<div id="question-options-panel" role="tabpanel" aria-labelledby="question-options-tab" tabindex="0">';
         html += renderAdvancedPanel(block);
+        html += '</div>';
       }
 
     } else {
       // YAML source edit mode
-      html += '<div class="editor-card"><div class="editor-card-body">';
+      html += '<div class="editor-card" id="question-yaml-panel" role="tabpanel" aria-labelledby="toggle-edit-mode-tab" tabindex="0"><div class="editor-card-body">';
       html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }

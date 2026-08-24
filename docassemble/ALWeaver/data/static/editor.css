@@ -239,7 +239,7 @@ html, body {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--bs-link-color);
+  color: var(--editor-primary);
   font-family: var(--bs-font-monospace);
   font-size: 0.82rem;
   text-align: left;
@@ -664,7 +664,7 @@ html, body {
   gap: 6px;
   margin-top: 1px;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--editor-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -924,9 +924,16 @@ html, body {
 .editor-question-tabs .nav-link {
   font-size: 13px;
   padding: 8px 14px;
+  color: var(--editor-primary);
   border-bottom-color: transparent;
   border-top-left-radius: var(--editor-radius-sm);
   border-top-right-radius: var(--editor-radius-sm);
+}
+
+.editor-question-tabs-actions .btn-outline-primary,
+.editor-full-yaml-header .btn-outline-secondary {
+  color: var(--editor-primary);
+  border-color: var(--editor-primary);
 }
 
 /* active tab merges into card below */
@@ -3826,7 +3833,61 @@ html, body {
 }
 
 .editor-al-setting-key {
-  opacity: 0.75;
+  color: var(--editor-muted);
+  opacity: 1;
+}
+
+.editor-advanced-body #adv-show-more {
+  color: var(--editor-primary);
+}
+
+.popover-header,
+.popover-body {
+  color: var(--editor-fg) !important;
+  opacity: 1 !important;
+}
+
+.popover {
+  color: var(--editor-fg) !important;
+  background: #fff !important;
+  opacity: 1 !important;
+}
+
+.popover-header {
+  background: #fff;
+}
+
+.popover h3,
+.popover p {
+  color: var(--editor-fg) !important;
+}
+
+#insert-modal .editor-insert-title,
+#insert-modal .editor-insert-cancel,
+#insert-modal .editor-insert-group-label,
+#insert-modal .editor-insert-desc,
+#insert-modal .editor-insert-footnote,
+#insert-modal .editor-insert-footnote a {
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+#insert-modal .editor-insert-title {
+  color: var(--editor-fg) !important;
+}
+
+#insert-modal .editor-insert-cancel,
+#insert-modal .editor-insert-footnote a {
+  color: #0d3970 !important;
+}
+
+#insert-modal .editor-insert-body {
+  background: #f8fafc !important;
+}
+
+#insert-modal .editor-insert-card {
+  background: #fff !important;
+  opacity: 1 !important;
 }
 
 .editor-field-mod-hint {

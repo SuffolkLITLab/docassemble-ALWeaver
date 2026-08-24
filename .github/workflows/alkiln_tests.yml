@@ -32,6 +32,17 @@ jobs:
           SHOW_DOCKER_OUTPUT: "${{ github.event.inputs.show_docker_output }}"
           DOCASSEMBLECLI_VERSION: "0.0.25"
       - run: echo "ALKiln finished starting the isolated GitHub docassemble server"
+      - name: Mask temporary server credentials
+        env:
+          ADMIN_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
+          ADMIN_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
+          ADMIN_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+          DEVELOPER_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+        run: |
+          echo "::add-mask::$ADMIN_EMAIL"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          echo "::add-mask::$ADMIN_API_KEY"
+          echo "::add-mask::$DEVELOPER_API_KEY"
       - name: Use ALKiln to run tests
         uses: SuffolkLITLab/ALKiln@v5
         env:
@@ -42,6 +53,53 @@ jobs:
           INSTALL_METHOD: "server"
           # To learn more, see https://assemblyline.suffolklitlab.org/docs/alkiln/writing/#optional-inputs
           ALKILN_TAG_EXPRESSION: "${{ env.ALKILN_TAG_EXPRESSION }}"
+      - name: Seed editor accessibility fixture
+        if: ${{ !cancelled() }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          ADMIN_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=questions -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.yml \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=templates -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.md \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=modules -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.py \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=static -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.js \
+            "$SERVER_URL/api/playground"
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: $ADMIN_API_KEY" \
+            -F folder=sources -F project=default -F restart=0 \
+            -F file=@.github/fixtures/editor_a11y/editor_accessibility.txt \
+            "$SERVER_URL/api/playground"
+      - name: Install accessibility test dependencies
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p /tmp/alweaver-a11y
+          cd /tmp/alweaver-a11y
+          npm init -y
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @axe-core/playwright
+          npx playwright install --with-deps chromium
+      - name: Check /al/editor accessibility
+        if: ${{ !cancelled() }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
+          EDITOR_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+        run: node .github/scripts/editor_a11y.js
       - run: echo "Finished running ALKiln end-to-end tests"
       
       ## To make a new issue in your repository when a test fails,

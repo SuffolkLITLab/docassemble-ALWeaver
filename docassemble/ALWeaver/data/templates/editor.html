@@ -66,7 +66,7 @@
        id="editor-celery-warning" role="status" aria-live="polite">
     <strong>Weaver worker setup is incomplete.</strong>
     <span data-celery-warning-message></span>
-    <a data-celery-warning-docs target="_blank" rel="noopener noreferrer">View setup instructions</a>.
+    <a class="alert-link" data-celery-warning-docs target="_blank" rel="noopener noreferrer">View setup instructions</a>.
   </div>
 
   <div class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-none d-flex flex-wrap align-items-center gap-2"
@@ -194,7 +194,7 @@
         </ul>
       </div>
     </div>
-    <div class="editor-validation-body" id="validation-drawer-body"></div>
+    <div class="editor-validation-body" id="validation-drawer-body" tabindex="0"></div>
   </div>
 </div>
 
@@ -531,18 +531,18 @@
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable editor-insert-dialog">
     <div class="modal-content editor-insert-content">
       <div class="modal-header editor-insert-header">
-        <button type="button" class="btn btn-link editor-insert-cancel" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-link editor-insert-cancel" style="color:#0d3970" data-bs-dismiss="modal">Cancel</button>
         <h5 class="modal-title editor-insert-title" id="insert-modal-title">Add a block</h5>
         <span class="editor-insert-header-spacer" aria-hidden="true"></span>
       </div>
       <div class="modal-body editor-insert-body">
-        <div class="editor-insert-group-label">Screens</div>
+        <div class="editor-insert-group-label" style="color:#334155">Screens</div>
         <div class="editor-insert-list">
           <button type="button" class="editor-insert-card" data-insert="question">
             <span class="editor-insert-icon"><i class="fa-solid fa-rectangle-list" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Question screen</span>
-              <span class="editor-insert-desc">Ask the user one or more fields.</span>
+              <span class="editor-insert-desc" style="color:#334155">Ask the user one or more fields.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -550,7 +550,7 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">AI draft screen</span>
-              <span class="editor-insert-desc">Draft a question screen from a short prompt.</span>
+              <span class="editor-insert-desc" style="color:#334155">Draft a question screen from a short prompt.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -558,7 +558,7 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-people-group" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">AssemblyLine question library</span>
-              <span class="editor-insert-desc">Copy a ready-made question about the people in this interview.</span>
+              <span class="editor-insert-desc" style="color:#334155">Copy a ready-made question about the people in this interview.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -566,18 +566,18 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Review screen</span>
-              <span class="editor-insert-desc">Let the user check and edit their answers.</span>
+              <span class="editor-insert-desc" style="color:#334155">Let the user check and edit their answers.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
         </div>
-        <div class="editor-insert-group-label">Logic and data</div>
+        <div class="editor-insert-group-label" style="color:#334155">Logic and data</div>
         <div class="editor-insert-list">
           <button type="button" class="editor-insert-card" data-insert="code">
             <span class="editor-insert-icon"><i class="fa-solid fa-code" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Code block</span>
-              <span class="editor-insert-desc">Python that sets variables or controls the flow.</span>
+              <span class="editor-insert-desc" style="color:#334155">Python that sets variables or controls the flow.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -585,7 +585,7 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-cubes" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Objects block</span>
-              <span class="editor-insert-desc">Declare people, lists, and other objects.</span>
+              <span class="editor-insert-desc" style="color:#334155">Declare people, lists, and other objects.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -593,18 +593,18 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Attachment block</span>
-              <span class="editor-insert-desc">Assemble a PDF or Word document.</span>
+              <span class="editor-insert-desc" style="color:#334155">Assemble a PDF or Word document.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
         </div>
-        <div class="editor-insert-group-label">Other</div>
+        <div class="editor-insert-group-label" style="color:#334155">Other</div>
         <div class="editor-insert-list">
           <button type="button" class="editor-insert-card" data-insert="comment">
             <span class="editor-insert-icon"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Comment block</span>
-              <span class="editor-insert-desc">A note to yourself that the interview ignores.</span>
+              <span class="editor-insert-desc" style="color:#334155">A note to yourself that the interview ignores.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
@@ -612,13 +612,13 @@
             <span class="editor-insert-icon"><i class="fa-solid fa-file-code" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
               <span class="editor-insert-name">Raw YAML block</span>
-              <span class="editor-insert-desc">Start from a blank line and write any block by hand.</span>
+              <span class="editor-insert-desc" style="color:#334155">Start from a blank line and write any block by hand.</span>
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
         </div>
         <div class="editor-insert-footnote">
-          <a href="https://docassemble.org/docs/initial.html" target="_blank" rel="noopener">Block type docs</a>
+          <a href="https://docassemble.org/docs/initial.html" style="color:#0d3970" target="_blank" rel="noopener">Block type docs</a>
         </div>
       </div>
     </div>
