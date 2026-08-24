@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "docassemble/ALWeaver/data/static/editor_api_client.js",
+    "docassemble/ALWeaver/data/static/editor_agent_chat.js",
+    "docassemble/ALWeaver/data/static/editor_module_restart.js",
+    "docassemble/ALWeaver/data/static/editor_runtime_inspector.js",
+    "docassemble/ALWeaver/data/static/editor_validation_source.js",
+    "docassemble/ALWeaver/data/static/editor_dirty_state.js"
+  ]
+}

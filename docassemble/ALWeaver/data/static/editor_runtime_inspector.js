@@ -1,5 +1,5 @@
 /* Runtime inspector UI backed exclusively by Weaver's authenticated endpoints. */
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   'use strict';
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -13,44 +13,67 @@
   }
 
   function filterVariables(variables, query) {
-    var needle = String(query || '').trim().toLowerCase();
+    var needle = String(query || '')
+      .trim()
+      .toLowerCase();
     var result = {};
-    Object.keys(variables || {}).sort().forEach(function (name) {
-      if (!needle || name.toLowerCase().indexOf(needle) !== -1) result[name] = variables[name];
-    });
+    Object.keys(variables || {})
+      .sort()
+      .forEach(function (name) {
+        if (!needle || name.toLowerCase().indexOf(needle) !== -1)
+          result[name] = variables[name];
+      });
     return result;
   }
 
   function changedVariableNames(before, after) {
     var names = {};
-    Object.keys(before || {}).concat(Object.keys(after || {})).forEach(function (name) {
-      if (JSON.stringify((before || {})[name]) !== JSON.stringify((after || {})[name])) {
-        names[name] = true;
-      }
-    });
+    Object.keys(before || {})
+      .concat(Object.keys(after || {}))
+      .forEach(function (name) {
+        if (
+          JSON.stringify((before || {})[name]) !==
+          JSON.stringify((after || {})[name])
+        ) {
+          names[name] = true;
+        }
+      });
     return Object.keys(names).sort();
   }
 
   function findQuestionSource(question, blocks) {
     var questionName = question && question.questionName;
     if (!questionName) return null;
-    return (blocks || []).find(function (block) {
-      return block && (
-        block.id === questionName ||
-        (block.data && (block.data.id === questionName || block.data.event === questionName))
-      );
-    }) || null;
+    return (
+      (blocks || []).find(function (block) {
+        return (
+          block &&
+          (block.id === questionName ||
+            (block.data &&
+              (block.data.id === questionName ||
+                block.data.event === questionName)))
+        );
+      }) || null
+    );
   }
 
   function createRuntimeInspector(options) {
     options = options || {};
     var api = options.api;
     var getContext = options.getContext;
-    var getBlocks = options.getBlocks || function () { return []; };
+    var getBlocks =
+      options.getBlocks ||
+      function () {
+        return [];
+      };
     var onSessionChange = options.onSessionChange || function () {};
     // Runs before a test session is created, so pending Python module changes
     // can be loaded first. Resolving false abandons the start.
-    var beforeStart = options.beforeStart || function () { return Promise.resolve(true); };
+    var beforeStart =
+      options.beforeStart ||
+      function () {
+        return Promise.resolve(true);
+      };
     var session = null;
     var question = null;
     var variables = {};
@@ -63,8 +86,13 @@
     var container = null;
 
     function sessionPath(suffix) {
-      if (!session || !session.weaver_session_id) throw new Error('Start a test session first.');
-      return '/api/runtime/sessions/' + encodeURIComponent(session.weaver_session_id) + (suffix || '');
+      if (!session || !session.weaver_session_id)
+        throw new Error('Start a test session first.');
+      return (
+        '/api/runtime/sessions/' +
+        encodeURIComponent(session.weaver_session_id) +
+        (suffix || '')
+      );
     }
 
     function setStatus(message, isError) {
@@ -78,24 +106,30 @@
         if (proceed === false) return undefined;
         setStatus('Starting a separate Docassemble test session...');
         render(container);
-        return api.post('/api/runtime/sessions', {
-          project: context.project,
-          filename: context.filename,
-          purpose: 'test',
-        }).then(function (response) {
-          session = clone(response.data);
-          question = null;
-          variables = {};
-          previousVariables = {};
-          changed = [];
-          onSessionChange(clone(session));
-          setStatus('Test session started.');
-          render(container);
-          return refreshAll();
-        }).catch(function (requestError) {
-          setStatus(requestError.message || 'Unable to start the test session.', true);
-          render(container);
-        });
+        return api
+          .post('/api/runtime/sessions', {
+            project: context.project,
+            filename: context.filename,
+            purpose: 'test',
+          })
+          .then(function (response) {
+            session = clone(response.data);
+            question = null;
+            variables = {};
+            previousVariables = {};
+            changed = [];
+            onSessionChange(clone(session));
+            setStatus('Test session started.');
+            render(container);
+            return refreshAll();
+          })
+          .catch(function (requestError) {
+            setStatus(
+              requestError.message || 'Unable to start the test session.',
+              true,
+            );
+            render(container);
+          });
       });
     }
 
@@ -121,7 +155,9 @@
     }
 
     function refreshVariables() {
-      var path = sessionPath('/variables') + (includeInternal ? '?include_internal=true' : '');
+      var path =
+        sessionPath('/variables') +
+        (includeInternal ? '?include_internal=true' : '');
       return api.get(path).then(function (response) {
         previousVariables = variables;
         variables = clone(response.data.variables || {});
@@ -132,27 +168,46 @@
 
     function refreshAll() {
       if (!session) return Promise.resolve();
-      return Promise.all([refreshQuestion(), refreshVariables()]).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to refresh runtime facts.', true);
-        render(container);
-      });
+      return Promise.all([refreshQuestion(), refreshVariables()]).catch(
+        function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to refresh runtime facts.',
+            true,
+          );
+          render(container);
+        },
+      );
     }
 
     function goBack() {
-      return api.post(sessionPath('/back'), {}).then(refreshAll).catch(function (requestError) {
-        setStatus(requestError.message || 'Docassemble could not go back.', true);
-        render(container);
-      });
+      return api
+        .post(sessionPath('/back'), {})
+        .then(refreshAll)
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Docassemble could not go back.',
+            true,
+          );
+          render(container);
+        });
     }
 
     function applyScenario(text) {
-      return api.post(sessionPath('/variables'), { scenario_yaml: String(text || '') }).then(function () {
-        setStatus('Scenario applied. Seeded state may bypass earlier questions.');
-        return refreshAll();
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to apply the scenario.', true);
-        render(container);
-      });
+      return api
+        .post(sessionPath('/variables'), { scenario_yaml: String(text || '') })
+        .then(function () {
+          setStatus(
+            'Scenario applied. Seeded state may bypass earlier questions.',
+          );
+          return refreshAll();
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to apply the scenario.',
+            true,
+          );
+          render(container);
+        });
     }
 
     function appendVariableRows(target) {
@@ -166,9 +221,13 @@
       names.forEach(function (name) {
         var details = document.createElement('details');
         details.className = 'editor-runtime-variable border rounded p-2 mb-2';
-        if (changed.indexOf(name) !== -1) details.classList.add('border-warning', 'bg-warning-subtle');
+        if (changed.indexOf(name) !== -1)
+          details.classList.add('border-warning', 'bg-warning-subtle');
         var summary = document.createElement('summary');
-        summary.textContent = name + ' · ' + (visible[name] === null ? 'null' : typeof visible[name]);
+        summary.textContent =
+          name +
+          ' · ' +
+          (visible[name] === null ? 'null' : typeof visible[name]);
         details.appendChild(summary);
         var value = document.createElement('pre');
         value.className = 'small mt-2 mb-0 text-wrap';
@@ -196,7 +255,8 @@
       var undefinedName = question.undefinedVariable || question.undefined;
       if (undefinedName) {
         var undefinedEl = document.createElement('p');
-        undefinedEl.textContent = 'Undefined variable: ' + String(undefinedName);
+        undefinedEl.textContent =
+          'Undefined variable: ' + String(undefinedName);
         target.appendChild(undefinedEl);
       }
       var sourceBlock = findQuestionSource(question, getBlocks());
@@ -223,15 +283,20 @@
       wrapper.setAttribute('aria-labelledby', 'runtime-inspector-title');
       wrapper.innerHTML =
         '<div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">' +
-          '<div><h2 class="h4 mb-1" id="runtime-inspector-title">Runtime inspector</h2>' +
-          '<p class="text-muted small">Docassemble is the authoritative runtime. This view only inspects a separate test session.</p></div>' +
-          '<div class="d-flex flex-wrap gap-2" id="runtime-session-actions"></div>' +
+        '<div><h2 class="h4 mb-1" id="runtime-inspector-title">Runtime inspector</h2>' +
+        '<p class="text-muted small">Docassemble is the authoritative runtime. This view only inspects a separate test session.</p></div>' +
+        '<div class="d-flex flex-wrap gap-2" id="runtime-session-actions"></div>' +
         '</div>' +
         '<div class="alert alert-info py-2" id="runtime-status" role="status" aria-live="polite"></div>' +
         '<div id="runtime-session-content"></div>';
       container.appendChild(wrapper);
       var statusNode = wrapper.querySelector('#runtime-status');
-      statusNode.textContent = error || status || (session ? 'Test session is active.' : 'Start a test session to inspect Docassemble runtime facts.');
+      statusNode.textContent =
+        error ||
+        status ||
+        (session
+          ? 'Test session is active.'
+          : 'Start a test session to inspect Docassemble runtime facts.');
       statusNode.classList.toggle('alert-danger', Boolean(error));
       statusNode.classList.toggle('alert-info', !error);
       var actions = wrapper.querySelector('#runtime-session-actions');
@@ -254,7 +319,12 @@
       open.rel = 'noopener';
       open.href = session.target_url;
       actions.appendChild(open);
-      [['Inspect current question', refreshQuestion], ['Refresh variables', refreshVariables], ['Back', goBack]].forEach(function (item) {
+      var sessionActions = /** @type {Array<[string, function(): any]>} */ ([
+        ['Inspect current question', refreshQuestion],
+        ['Refresh variables', refreshVariables],
+        ['Back', goBack],
+      ]);
+      sessionActions.forEach(function (item) {
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'btn btn-outline-secondary';
@@ -266,7 +336,9 @@
       restart.type = 'button';
       restart.className = 'btn btn-outline-secondary';
       restart.textContent = 'Start new test session';
-      restart.addEventListener('click', function () { endSession().then(startSession); });
+      restart.addEventListener('click', function () {
+        endSession().then(startSession);
+      });
       actions.appendChild(restart);
       var end = document.createElement('button');
       end.type = 'button';
@@ -277,36 +349,45 @@
 
       content.innerHTML =
         '<div class="row g-3">' +
-          '<div class="col-12 col-xl-6"><div class="card h-100"><div class="card-body">' +
-            '<h3 class="h5">Current question</h3><div id="runtime-question"></div>' +
-          '</div></div></div>' +
-          '<div class="col-12 col-xl-6"><div class="card h-100"><div class="card-body">' +
-            '<h3 class="h5">Apply scenario</h3>' +
-            '<p class="small text-muted">A scenario is a test fixture and may bypass earlier questions.</p>' +
-            '<label for="runtime-scenario" class="form-label">Scenario YAML</label>' +
-            '<textarea id="runtime-scenario" class="form-control font-monospace" rows="7">name: Test scenario\nvariables:\n  user.marital_status: married\ndelete:\n  - final_document</textarea>' +
-            '<button type="button" class="btn btn-outline-primary mt-2" id="runtime-apply-scenario">Apply scenario</button>' +
-          '</div></div></div>' +
-          '<div class="col-12"><div class="card"><div class="card-body">' +
-            '<div class="d-flex flex-wrap justify-content-between gap-2"><h3 class="h5">Session variables</h3>' +
-              '<label class="form-check"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show _internal data</span></label></div>' +
-            '<label for="runtime-variable-search" class="visually-hidden">Search variables</label>' +
-            '<input id="runtime-variable-search" class="form-control form-control-sm mb-3" placeholder="Search variables">' +
-            '<div id="runtime-variable-list"></div>' +
-          '</div></div></div>' +
+        '<div class="col-12 col-xl-6"><div class="card h-100"><div class="card-body">' +
+        '<h3 class="h5">Current question</h3><div id="runtime-question"></div>' +
+        '</div></div></div>' +
+        '<div class="col-12 col-xl-6"><div class="card h-100"><div class="card-body">' +
+        '<h3 class="h5">Apply scenario</h3>' +
+        '<p class="small text-muted">A scenario is a test fixture and may bypass earlier questions.</p>' +
+        '<label for="runtime-scenario" class="form-label">Scenario YAML</label>' +
+        '<textarea id="runtime-scenario" class="form-control font-monospace" rows="7">name: Test scenario\nvariables:\n  user.marital_status: married\ndelete:\n  - final_document</textarea>' +
+        '<button type="button" class="btn btn-outline-primary mt-2" id="runtime-apply-scenario">Apply scenario</button>' +
+        '</div></div></div>' +
+        '<div class="col-12"><div class="card"><div class="card-body">' +
+        '<div class="d-flex flex-wrap justify-content-between gap-2"><h3 class="h5">Session variables</h3>' +
+        '<label class="form-check"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show _internal data</span></label></div>' +
+        '<label for="runtime-variable-search" class="visually-hidden">Search variables</label>' +
+        '<input id="runtime-variable-search" class="form-control form-control-sm mb-3" placeholder="Search variables">' +
+        '<div id="runtime-variable-list"></div>' +
+        '</div></div></div>' +
         '</div>';
       renderQuestion(content.querySelector('#runtime-question'));
       appendVariableRows(content.querySelector('#runtime-variable-list'));
-      content.querySelector('#runtime-apply-scenario').addEventListener('click', function () {
-        applyScenario(content.querySelector('#runtime-scenario').value);
-      });
-      var internalToggle = content.querySelector('#runtime-include-internal');
+      content
+        .querySelector('#runtime-apply-scenario')
+        .addEventListener('click', function () {
+          var scenario = /** @type {HTMLTextAreaElement} */ (
+            content.querySelector('#runtime-scenario')
+          );
+          applyScenario(scenario.value);
+        });
+      var internalToggle = /** @type {HTMLInputElement} */ (
+        content.querySelector('#runtime-include-internal')
+      );
       internalToggle.checked = includeInternal;
       internalToggle.addEventListener('change', function () {
         includeInternal = internalToggle.checked;
         refreshVariables();
       });
-      var search = content.querySelector('#runtime-variable-search');
+      var search = /** @type {HTMLInputElement} */ (
+        content.querySelector('#runtime-variable-search')
+      );
       search.value = variableQuery;
       search.addEventListener('input', function () {
         variableQuery = search.value;
@@ -319,8 +400,13 @@
     return {
       render: render,
       refreshAll: refreshAll,
-      getSession: function () { return clone(session); },
-      setSession: function (value) { session = clone(value); onSessionChange(clone(session)); },
+      getSession: function () {
+        return clone(session);
+      },
+      setSession: function (value) {
+        session = clone(value);
+        onSessionChange(clone(session));
+      },
     };
   }
 

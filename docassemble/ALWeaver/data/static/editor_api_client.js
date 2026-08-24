@@ -1,11 +1,13 @@
 /* Centralized HTTP client for the graphical editor. */
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   'use strict';
   var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.ALWeaverApiClient = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
+
+  var requestCounter = 0;
 
   function EditorApiError(message, options) {
     options = options || {};
@@ -24,7 +26,8 @@
     if (root.crypto && typeof root.crypto.randomUUID === 'function') {
       return root.crypto.randomUUID();
     }
-    return 'editor-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    requestCounter += 1;
+    return 'editor-' + Date.now().toString(36) + '-' + requestCounter;
   }
 
   function discoverCsrfToken() {
@@ -33,15 +36,20 @@
     if (meta && meta.content) return meta.content;
     var input = root.document.querySelector('input[name="csrf_token"]');
     if (input && input.value) return input.value;
-    var match = String(root.document.cookie || '').match(/(?:^|;\s*)csrf_token=([^;]+)/);
+    var match = String(root.document.cookie || '').match(
+      /(?:^|;\s*)csrf_token=([^;]+)/,
+    );
     return match ? decodeURIComponent(match[1]) : null;
   }
 
   function requestKey(method, path) {
     try {
-      return method + ':' + new URL(path, 'http://editor.invalid').pathname;
-    } catch (_error) {
-      return method + ':' + String(path).split('?')[0];
+      return method + ':' + new URL(path, 'https://editor.invalid').pathname;
+    } catch (error) {
+      if (error instanceof TypeError) {
+        return method + ':' + String(path).split('?')[0];
+      }
+      throw error;
     }
   }
 
@@ -56,7 +64,8 @@
     options = options || {};
     var baseUrl = options.baseUrl || '';
     var fetchImpl = options.fetchImpl || root.fetch;
-    var onError = typeof options.onError === 'function' ? options.onError : null;
+    var onError =
+      typeof options.onError === 'function' ? options.onError : null;
     var requestIdFactory = options.requestIdFactory || defaultRequestId;
     var timeoutMs = Number(options.timeoutMs || 30000);
     var sequences = {};
@@ -67,7 +76,11 @@
     }
 
     function emit(error) {
-      if (onError && error.code !== 'stale_response' && error.code !== 'request_cancelled') {
+      if (
+        onError &&
+        error.code !== 'stale_response' &&
+        error.code !== 'request_cancelled'
+      ) {
         onError(error);
       }
       return error;
@@ -76,17 +89,25 @@
     function request(method, path, body, requestOptions) {
       requestOptions = requestOptions || {};
       var key = requestOptions.staleKey || requestKey(method, path);
-      var preventStale = requestOptions.preventStale !== undefined
-        ? Boolean(requestOptions.preventStale)
-        : (method === 'GET' || method === 'HEAD');
+      var preventStale = method === 'GET' || method === 'HEAD';
+      if (requestOptions.preventStale !== undefined) {
+        preventStale = Boolean(requestOptions.preventStale);
+      }
       var sequence = preventStale ? (sequences[key] || 0) + 1 : 0;
       if (preventStale) sequences[key] = sequence;
-      if (preventStale && controllers[key] && requestOptions.cancelPrevious !== false) {
+      if (
+        preventStale &&
+        controllers[key] &&
+        requestOptions.cancelPrevious !== false
+      ) {
         controllers[key].abort();
       }
 
       var AbortControllerImpl = root.AbortController;
-      var controller = typeof AbortControllerImpl === 'function' ? new AbortControllerImpl() : null;
+      var controller = null;
+      if (typeof AbortControllerImpl === 'function') {
+        controller = new AbortControllerImpl();
+      }
       if (controller && preventStale) controllers[key] = controller;
       var timedOut = false;
       var requestId = requestIdFactory();
@@ -111,12 +132,13 @@
       }
       if (controller) fetchOptions.signal = controller.signal;
 
-      var timeout = controller && timeoutMs > 0
-        ? setTimeout(function () {
-          timedOut = true;
-          controller.abort();
-        }, timeoutMs)
-        : null;
+      var timeout =
+        controller && timeoutMs > 0
+          ? setTimeout(function () {
+              timedOut = true;
+              controller.abort();
+            }, timeoutMs)
+          : null;
 
       return Promise.resolve()
         .then(function () {
@@ -124,62 +146,105 @@
         })
         .catch(function (cause) {
           if (preventStale && sequences[key] !== sequence) {
-            throw new EditorApiError('A newer response replaced this request.', {
-              code: 'stale_response', requestId: requestId,
-            });
+            throw new EditorApiError(
+              'A newer response replaced this request.',
+              {
+                code: 'stale_response',
+                requestId: requestId,
+              },
+            );
           }
           var cancelled = cause && cause.name === 'AbortError';
-          throw emit(new EditorApiError(
-            timedOut ? 'The editor server took too long to respond.' :
-              (cancelled ? 'The request was cancelled.' : 'Unable to reach the editor server.'),
-            {
-              code: timedOut ? 'request_timeout' : (cancelled ? 'request_cancelled' : 'network_error'),
+          var errorMessage = 'Unable to reach the editor server.';
+          var errorCode = 'network_error';
+          if (timedOut) {
+            errorMessage = 'The editor server took too long to respond.';
+            errorCode = 'request_timeout';
+          } else if (cancelled) {
+            errorMessage = 'The request was cancelled.';
+            errorCode = 'request_cancelled';
+          }
+          var causeMessage =
+            cause && cause.message ? cause.message : String(cause || '');
+          throw emit(
+            new EditorApiError(errorMessage, {
+              code: errorCode,
               requestId: requestId,
-              details: { cause: cause && cause.message ? cause.message : String(cause || '') },
-            }
-          ));
+              details: { cause: causeMessage },
+            }),
+          );
         })
         .then(function (response) {
           return response.text().then(function (text) {
             if (preventStale && sequences[key] !== sequence) {
-              throw new EditorApiError('A newer response replaced this request.', {
-                code: 'stale_response', requestId: requestId,
-              });
+              throw new EditorApiError(
+                'A newer response replaced this request.',
+                {
+                  code: 'stale_response',
+                  requestId: requestId,
+                },
+              );
             }
             var contentType = response.headers.get('content-type') || '';
             if (contentType.toLowerCase().indexOf('json') === -1) {
-              throw emit(new EditorApiError('The server returned an unexpected response type.', {
-                status: response.status,
-                code: 'invalid_content_type',
-                requestId: requestId,
-                details: { contentType: contentType },
-              }));
+              throw emit(
+                new EditorApiError(
+                  'The server returned an unexpected response type.',
+                  {
+                    status: response.status,
+                    code: 'invalid_content_type',
+                    requestId: requestId,
+                    details: { contentType: contentType },
+                  },
+                ),
+              );
             }
             var payload;
             try {
               payload = text ? JSON.parse(text) : null;
-            } catch (_error) {
-              throw emit(new EditorApiError('The server returned invalid JSON.', {
-                status: response.status,
-                code: 'invalid_json',
-                requestId: requestId,
-              }));
+            } catch (error) {
+              throw emit(
+                new EditorApiError('The server returned invalid JSON.', {
+                  status: response.status,
+                  code: 'invalid_json',
+                  requestId: requestId,
+                  details: {
+                    cause:
+                      error && error.message ? error.message : String(error),
+                  },
+                }),
+              );
             }
             if (!response.ok || !payload || payload.success === false) {
-              var serverError = payload && payload.error ? payload.error : (payload || {});
-              var serverMessage = typeof serverError === 'string' ? serverError : serverError.message;
-              var serverCode = typeof serverError === 'object' && serverError
-                ? (serverError.code || serverError.type)
-                : null;
-              var serverDetails = typeof serverError === 'object' && serverError
-                ? (serverError.details || serverError)
-                : {};
-              throw emit(new EditorApiError(serverMessage || ('Request failed with status ' + response.status + '.'), {
-                status: response.status,
-                code: serverCode || 'http_error',
-                details: serverDetails,
-                requestId: payload && payload.request_id ? payload.request_id : requestId,
-              }));
+              var serverError =
+                payload && payload.error ? payload.error : payload || {};
+              var serverMessage =
+                typeof serverError === 'string'
+                  ? serverError
+                  : serverError.message;
+              var serverCode =
+                typeof serverError === 'object' && serverError
+                  ? serverError.code || serverError.type
+                  : null;
+              var serverDetails =
+                typeof serverError === 'object' && serverError
+                  ? serverError.details || serverError
+                  : {};
+              throw emit(
+                new EditorApiError(
+                  serverMessage ||
+                    'Request failed with status ' + response.status + '.',
+                  {
+                    status: response.status,
+                    code: serverCode || 'http_error',
+                    details: serverDetails,
+                    requestId:
+                      payload && payload.request_id
+                        ? payload.request_id
+                        : requestId,
+                  },
+                ),
+              );
             }
             if (requestOptions.includeResponse) {
               return {
@@ -193,7 +258,8 @@
         })
         .finally(function () {
           if (timeout) clearTimeout(timeout);
-          if (preventStale && controllers[key] === controller) delete controllers[key];
+          if (preventStale && controllers[key] === controller)
+            delete controllers[key];
         });
     }
 
@@ -208,11 +274,15 @@
         return request('DELETE', path, body, requestOptions);
       },
       upload: function (path, formData, requestOptions) {
-        requestOptions = Object.assign({}, requestOptions || {}, { json: false });
+        requestOptions = Object.assign({}, requestOptions || {}, {
+          json: false,
+        });
         return request('POST', path, formData, requestOptions);
       },
       getDetailed: function (path, requestOptions) {
-        requestOptions = Object.assign({}, requestOptions || {}, { includeResponse: true });
+        requestOptions = Object.assign({}, requestOptions || {}, {
+          includeResponse: true,
+        });
         return request('GET', path, undefined, requestOptions);
       },
       uploadDetailed: function (path, formData, requestOptions) {

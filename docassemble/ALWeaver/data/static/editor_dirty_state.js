@@ -1,5 +1,5 @@
 /* Per-file and per-block unsaved-change tracking for the graphical editor. */
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   'use strict';
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -21,7 +21,12 @@
     };
   }
 
-  function preserveDirtyBlocks(serverBlocks, localBlocks, dirtyBlockIds, savedBlockId) {
+  function preserveDirtyBlocks(
+    serverBlocks,
+    localBlocks,
+    dirtyBlockIds,
+    savedBlockId,
+  ) {
     var localById = {};
     (localBlocks || []).forEach(function (block) {
       if (block && block.id) localById[block.id] = block;
@@ -30,7 +35,11 @@
       return blockId !== savedBlockId;
     });
     return (serverBlocks || []).map(function (serverBlock) {
-      if (!serverBlock || preserveIds.indexOf(serverBlock.id) === -1 || !localById[serverBlock.id]) {
+      if (
+        !serverBlock ||
+        preserveIds.indexOf(serverBlock.id) === -1 ||
+        !localById[serverBlock.id]
+      ) {
         return clone(serverBlock);
       }
       return clone(localById[serverBlock.id]);
@@ -66,7 +75,8 @@
     }
 
     function addCommand(fileState, filename, commandId, blockId) {
-      if (!commandId || fileState.pendingCommandIds.indexOf(commandId) !== -1) return;
+      if (!commandId || fileState.pendingCommandIds.indexOf(commandId) !== -1)
+        return;
       fileState.pendingCommandIds.push(commandId);
       commandBlocks[filename][commandId] = blockId || null;
     }
@@ -79,7 +89,12 @@
       if (fileState.dirtyBlockIds.indexOf(targetBlock) === -1) {
         fileState.dirtyBlockIds.push(targetBlock);
       }
-      addCommand(fileState, target, commandId || ('edit-block:' + targetBlock), targetBlock);
+      addCommand(
+        fileState,
+        target,
+        commandId || 'edit-block:' + targetBlock,
+        targetBlock,
+      );
     }
 
     function markSourceDirty(commandId, filename) {
@@ -87,7 +102,7 @@
       var fileState = requireFile(target);
       if (!fileState) return;
       fileState.sourceDirty = true;
-      addCommand(fileState, target, commandId || ('edit-source:' + target), null);
+      addCommand(fileState, target, commandId || 'edit-source:' + target, null);
     }
 
     function setFileSaved(filename, revision, model) {
@@ -107,11 +122,13 @@
       fileState.dirtyBlockIds = fileState.dirtyBlockIds.filter(function (id) {
         return id !== blockId;
       });
-      fileState.pendingCommandIds = fileState.pendingCommandIds.filter(function (commandId) {
-        var keep = commandBlocks[target][commandId] !== blockId;
-        if (!keep) delete commandBlocks[target][commandId];
-        return keep;
-      });
+      fileState.pendingCommandIds = fileState.pendingCommandIds.filter(
+        function (commandId) {
+          var keep = commandBlocks[target][commandId] !== blockId;
+          if (!keep) delete commandBlocks[target][commandId];
+          return keep;
+        },
+      );
       savedModels[target] = clone(model);
     }
 
@@ -122,11 +139,12 @@
 
     function hasDirty(filename) {
       var fileState = state.files[filename || state.activeFile];
-      return Boolean(fileState && (
-        fileState.sourceDirty ||
-        fileState.dirtyBlockIds.length ||
-        fileState.pendingCommandIds.length
-      ));
+      return Boolean(
+        fileState &&
+        (fileState.sourceDirty ||
+          fileState.dirtyBlockIds.length ||
+          fileState.pendingCommandIds.length),
+      );
     }
 
     function getSavedModel(filename) {
@@ -135,7 +153,8 @@
 
     function discardFile(filename) {
       var target = filename || state.activeFile;
-      if (!Object.prototype.hasOwnProperty.call(savedModels, target)) return undefined;
+      if (!Object.prototype.hasOwnProperty.call(savedModels, target))
+        return undefined;
       var fileState = requireFile(target);
       if (!fileState) return undefined;
       fileState.sourceDirty = false;
@@ -156,7 +175,9 @@
       getSavedModel: getSavedModel,
       discardFile: discardFile,
       hasDirty: hasDirty,
-      getState: function () { return clone(state); },
+      getState: function () {
+        return clone(state);
+      },
     };
   }
 

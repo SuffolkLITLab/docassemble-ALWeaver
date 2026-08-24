@@ -1,0 +1,25 @@
+{
+  "name": "docassemble-alweaver-static-checks",
+  "private": true,
+  "scripts": {
+    "format": "prettier --write $npm_package_config_jsFiles",
+    "format:check": "prettier --check $npm_package_config_jsFiles",
+    "lint": "eslint $npm_package_config_jsFiles",
+    "typecheck": "tsc --project tsconfig.json",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
+  },
+  "config": {
+    "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.35.0",
+    "eslint-plugin-sonarjs": "^3.0.5",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "ts-api-utils": "^2.5.0",
+    "typescript": "^5.9.2"
+  }
+}

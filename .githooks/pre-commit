@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -eu
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.js')
+if [ -n "$files" ]; then
+  npx --no-install prettier --write $files
+  printf '%s\n' "$files" | xargs git add --
+fi
+
+npm run check
