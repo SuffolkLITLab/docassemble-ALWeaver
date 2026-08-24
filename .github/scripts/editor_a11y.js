@@ -109,8 +109,17 @@ async function closeModal(page, selector) {
 }
 
 async function openMoreMenu(page) {
-  await page.locator("#topbar-more-menu").click();
-  await page.locator("#topbar-more-menu").getAttribute("aria-expanded");
+  const button = page.locator("#topbar-more-menu");
+  const menu = page.locator('ul[aria-labelledby="topbar-more-menu"]');
+  if ((await button.getAttribute("aria-expanded")) !== "true") {
+    await button.click();
+  }
+  await page.waitForFunction(
+    () => document.querySelector("#topbar-more-menu")?.getAttribute("aria-expanded") === "true",
+    undefined,
+    { timeout: 10_000 }
+  );
+  await menu.waitFor({ state: "visible", timeout: 10_000 });
 }
 
 async function main() {

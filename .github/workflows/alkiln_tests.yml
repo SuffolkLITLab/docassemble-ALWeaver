@@ -90,7 +90,7 @@ jobs:
           mkdir -p /tmp/alweaver-a11y
           cd /tmp/alweaver-a11y
           npm init -y
-          npm install playwright @axe-core/playwright
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @axe-core/playwright
           npx playwright install --with-deps chromium
       - name: Check /al/editor accessibility
         if: ${{ !cancelled() }}
