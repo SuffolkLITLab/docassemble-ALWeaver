@@ -176,7 +176,7 @@ async function main() {
       )
     );
     await page.locator("#cancel-new-project").click();
-    await page.locator('[data-project-card="default"]').click();
+    await page.locator('[data-project-card="default"]').last().click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
     // Project-wide search dialog and its result state.
