@@ -237,6 +237,7 @@ async function main() {
     blockingViolations = blockingViolations.concat(
       await audit(page, "AssemblyLine settings explainer")
     );
+    await page.keyboard.press("Escape");
     await page.locator("#close-assemblyline-settings").click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
@@ -245,6 +246,7 @@ async function main() {
       hasText: "What is your name?",
     });
     await question.first().click();
+    await page.locator('[data-question-tab="screen"]').click();
     await page.locator("#q-title").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")

@@ -3843,11 +3843,16 @@ html, body {
 
 .popover-header,
 .popover-body {
-  color: var(--editor-fg);
+  color: var(--editor-fg) !important;
 }
 
 .popover-header {
   background: #fff;
+}
+
+.popover h3,
+.popover p {
+  color: var(--editor-fg) !important;
 }
 
 .editor-field-mod-hint {
