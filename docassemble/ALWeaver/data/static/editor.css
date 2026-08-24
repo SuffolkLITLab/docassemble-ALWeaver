@@ -3868,7 +3868,7 @@ html, body {
 #insert-modal .editor-insert-desc,
 #insert-modal .editor-insert-footnote,
 #insert-modal .editor-insert-footnote a {
-  color: #334155 !important;
+  color: #0f172a !important;
   opacity: 1 !important;
 }
 
@@ -3879,6 +3879,15 @@ html, body {
 #insert-modal .editor-insert-cancel,
 #insert-modal .editor-insert-footnote a {
   color: var(--editor-primary) !important;
+}
+
+#insert-modal .editor-insert-body {
+  background: #f8fafc !important;
+}
+
+#insert-modal .editor-insert-card {
+  background: #fff !important;
+  opacity: 1 !important;
 }
 
 .editor-field-mod-hint {
