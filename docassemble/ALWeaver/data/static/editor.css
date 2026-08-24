@@ -3878,7 +3878,7 @@ html, body {
 
 #insert-modal .editor-insert-cancel,
 #insert-modal .editor-insert-footnote a {
-  color: var(--editor-primary) !important;
+  color: #0d3970 !important;
 }
 
 #insert-modal .editor-insert-body {
