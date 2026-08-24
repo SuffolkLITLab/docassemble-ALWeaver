@@ -3850,6 +3850,7 @@ html, body {
 .popover {
   color: var(--editor-fg) !important;
   background: #fff !important;
+  opacity: 1 !important;
 }
 
 .popover-header {
@@ -3859,6 +3860,25 @@ html, body {
 .popover h3,
 .popover p {
   color: var(--editor-fg) !important;
+}
+
+#insert-modal .editor-insert-title,
+#insert-modal .editor-insert-cancel,
+#insert-modal .editor-insert-group-label,
+#insert-modal .editor-insert-desc,
+#insert-modal .editor-insert-footnote,
+#insert-modal .editor-insert-footnote a {
+  color: #334155 !important;
+  opacity: 1 !important;
+}
+
+#insert-modal .editor-insert-title {
+  color: var(--editor-fg) !important;
+}
+
+#insert-modal .editor-insert-cancel,
+#insert-modal .editor-insert-footnote a {
+  color: var(--editor-primary) !important;
 }
 
 .editor-field-mod-hint {
