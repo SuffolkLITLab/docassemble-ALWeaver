@@ -45,11 +45,8 @@
   function requestKey(method, path) {
     try {
       return method + ':' + new URL(path, 'https://editor.invalid').pathname;
-    } catch (error) {
-      if (error instanceof TypeError) {
-        return method + ':' + String(path).split('?')[0];
-      }
-      throw error;
+    } catch {
+      return method + ':' + String(path).split('?')[0];
     }
   }
 
