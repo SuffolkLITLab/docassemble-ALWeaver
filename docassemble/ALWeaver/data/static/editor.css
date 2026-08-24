@@ -664,7 +664,7 @@ html, body {
   gap: 6px;
   margin-top: 1px;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--editor-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -924,9 +924,16 @@ html, body {
 .editor-question-tabs .nav-link {
   font-size: 13px;
   padding: 8px 14px;
+  color: var(--editor-primary);
   border-bottom-color: transparent;
   border-top-left-radius: var(--editor-radius-sm);
   border-top-right-radius: var(--editor-radius-sm);
+}
+
+.editor-question-tabs-actions .btn-outline-primary,
+.editor-full-yaml-header a.btn-outline-secondary {
+  color: var(--editor-primary);
+  border-color: var(--editor-primary);
 }
 
 /* active tab merges into card below */

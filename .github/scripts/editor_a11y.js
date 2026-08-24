@@ -64,6 +64,25 @@ async function auditAfter(page, label, locator, action) {
   return audit(page, label);
 }
 
+async function auditSecondaryView(page, view, filename, blockingViolations) {
+  await page.locator(`.editor-top-tab[data-view="${view}"]`).click();
+  await page
+    .locator(".editor-full-yaml-header h2")
+    .filter({ hasText: filename })
+    .waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator("#section-file-source-editor").waitFor({
+    state: "visible",
+    timeout: 30_000,
+  });
+  const apiError = page.locator("#editor-api-error");
+  if (await apiError.isVisible()) {
+    throw new Error(`Editor API error while opening ${view}: ${await apiError.innerText()}`);
+  }
+  return blockingViolations.concat(
+    await audit(page, `${view} source editor`)
+  );
+}
+
 async function selectOption(page, selector, value, description) {
   const control = page.locator(selector);
   await control.waitFor({ state: "visible", timeout: 30_000 });
@@ -123,15 +142,17 @@ async function main() {
     );
 
     // Visit every file-backed secondary editor, not only the empty shell.
-    for (const view of ["templates", "modules", "static", "data"]) {
-      const tab = page.locator(`.editor-top-tab[data-view="${view}"]`).first();
-      blockingViolations = blockingViolations.concat(
-        await auditAfter(
-          page,
-          `${view} source editor`,
-          page.locator("#section-file-source-editor"),
-          () => tab.click()
-        )
+    for (const [view, filename] of [
+      ["templates", "editor_accessibility.md"],
+      ["modules", "editor_accessibility.py"],
+      ["static", "editor_accessibility.js"],
+      ["data", "editor_accessibility.txt"],
+    ]) {
+      blockingViolations = await auditSecondaryView(
+        page,
+        view,
+        filename,
+        blockingViolations
       );
     }
     await page.locator('.editor-top-tab[data-view="interview"]').click();

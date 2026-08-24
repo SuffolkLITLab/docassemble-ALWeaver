@@ -6992,9 +6992,9 @@
     // Unified tab row: Screen | Question options | Preview | YAML
     html += '<div class="editor-question-tabs-row">';
     html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" id="question-screen-tab" aria-controls="question-screen-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'screen' ? 'true' : 'false') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" id="question-options-tab" aria-controls="question-options-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'options' ? 'true' : 'false') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" aria-controls="question-yaml-panel" aria-selected="' + (state.questionEditMode === 'yaml' ? 'true' : 'false') + '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
     html += '<div class="editor-question-tabs-actions">';
     html += '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
@@ -7009,7 +7009,7 @@
 
     if (isPreview) {
       if (state.questionBlockTab === 'screen') {
-      html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
+      html += '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
 
       // Block ID — always visible at top
       html += '<div class="editor-block-id-row">';
@@ -7242,12 +7242,14 @@
       }
 
       if (state.questionBlockTab === 'options') {
+        html += '<div id="question-options-panel" role="tabpanel" aria-labelledby="question-options-tab" tabindex="0">';
         html += renderAdvancedPanel(block);
+        html += '</div>';
       }
 
     } else {
       // YAML source edit mode
-      html += '<div class="editor-card"><div class="editor-card-body">';
+      html += '<div class="editor-card" id="question-yaml-panel" role="tabpanel" aria-labelledby="toggle-edit-mode-tab" tabindex="0"><div class="editor-card-body">';
       html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
