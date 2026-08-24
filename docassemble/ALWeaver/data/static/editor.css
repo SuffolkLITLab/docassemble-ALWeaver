@@ -3844,6 +3844,12 @@ html, body {
 .popover-header,
 .popover-body {
   color: var(--editor-fg) !important;
+  opacity: 1 !important;
+}
+
+.popover {
+  color: var(--editor-fg) !important;
+  background: #fff !important;
 }
 
 .popover-header {

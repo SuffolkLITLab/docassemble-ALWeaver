@@ -9,12 +9,14 @@ code: |
 question: What is your name?
 subquestion: This screen gives the graphical editor a real field to edit.
 fields:
-  - First name: editor_fixture_name
+  - label: First name
+    field: editor_fixture_name
     datatype: text
 ---
 question: Choose a color
 fields:
-  - Color: editor_fixture_color
+  - label: Color
+    field: editor_fixture_color
     datatype: radio
     choices:
       - Blue
