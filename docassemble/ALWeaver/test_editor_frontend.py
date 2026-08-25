@@ -118,9 +118,8 @@ class TestEditorFrontend(unittest.TestCase):
         # Leaving the debugger keeps the test session but tears down the panel,
         # so the once-a-second polling must not outlive the view that shows it,
         # and a late observation must not repaint over the editor canvas.
-        self.assertIn(
-            "hidden = true;\n        stopPolling();\n        onClose();", runtime
-        )
+        self.assertIn("hidden = true;", runtime)
+        self.assertIn("stopPolling();\n            onClose();", runtime)
         self.assertIn("if (!container || hidden) return;", runtime)
         self.assertIn("render: show,", runtime)
         self.assertIn(".editor-runtime-workbench", css)

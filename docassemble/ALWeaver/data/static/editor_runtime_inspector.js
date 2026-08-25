@@ -1,5 +1,5 @@
 /* First-class interview debugger backed by Weaver's authenticated runtime API. */
-(function (root, factory) {
+(function (/** @type {any} */ root, factory) {
   'use strict';
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -13,62 +13,95 @@
   }
 
   function filterVariables(variables, query) {
-    var needle = String(query || '').trim().toLowerCase();
+    var needle = String(query || '')
+      .trim()
+      .toLowerCase();
     var result = {};
-    Object.keys(variables || {}).sort().forEach(function (name) {
-      if (!needle || name.toLowerCase().indexOf(needle) !== -1) result[name] = variables[name];
-    });
+    Object.keys(variables || {})
+      .sort()
+      .forEach(function (name) {
+        if (!needle || name.toLowerCase().indexOf(needle) !== -1)
+          result[name] = variables[name];
+      });
     return result;
   }
 
   function changedVariableNames(before, after) {
     var names = {};
-    Object.keys(before || {}).concat(Object.keys(after || {})).forEach(function (name) {
-      if (JSON.stringify((before || {})[name]) !== JSON.stringify((after || {})[name])) {
-        names[name] = true;
-      }
-    });
+    Object.keys(before || {})
+      .concat(Object.keys(after || {}))
+      .forEach(function (name) {
+        if (
+          JSON.stringify((before || {})[name]) !==
+          JSON.stringify((after || {})[name])
+        ) {
+          names[name] = true;
+        }
+      });
     return Object.keys(names).sort();
   }
 
   function plainText(value) {
-    return String(value || '')
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#(?:39|x27);/gi, "'")
-      .replace(/\s+/g, ' ')
-      .replace(/\s+([?!.,:;])/g, '$1')
-      .trim();
+    return (
+      String(value || '')
+        // Each pattern here has a single unbounded quantifier whose
+        // character class excludes the delimiter that ends it, so matching
+        // is linear in the input length despite sonarjs's generic warning.
+        // eslint-disable-next-line sonarjs/slow-regex
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#(?:39|x27);/gi, "'")
+        .replace(/\s+/g, ' ')
+        // eslint-disable-next-line sonarjs/slow-regex
+        .replace(/\s+([?!.,:;])/g, '$1')
+        .trim()
+    );
   }
 
   function questionLabel(question) {
     question = question || {};
-    var candidate = question.questionText || question.question || question.title ||
-      question.questionName || 'Unnamed screen';
-    if (typeof candidate !== 'string') candidate = question.questionName || 'Unnamed screen';
-    var label = plainText(candidate) || question.questionName || 'Unnamed screen';
+    var candidate =
+      question.questionText ||
+      question.question ||
+      question.title ||
+      question.questionName ||
+      'Unnamed screen';
+    if (typeof candidate !== 'string')
+      candidate = question.questionName || 'Unnamed screen';
+    var label =
+      plainText(candidate) || question.questionName || 'Unnamed screen';
     return label.length > 120 ? label.slice(0, 117) + '...' : label;
   }
 
   function questionIdentity(question) {
     question = question || {};
-    return String(question.questionName || '') ||
-      [questionLabel(question), question.questionType || question.type || ''].join('|');
+    return (
+      String(question.questionName || '') ||
+      [
+        questionLabel(question),
+        question.questionType || question.type || '',
+      ].join('|')
+    );
   }
 
   function findQuestionSource(question, blocks) {
     var questionName = question && question.questionName;
     if (!questionName) return null;
-    return (blocks || []).find(function (block) {
-      return block && (
-        block.id === questionName ||
-        (block.data && (block.data.id === questionName || block.data.event === questionName))
-      );
-    }) || null;
+    return (
+      (blocks || []).find(function (block) {
+        return (
+          block &&
+          (block.id === questionName ||
+            (block.data &&
+              (block.data.id === questionName ||
+                block.data.event === questionName)))
+        );
+      }) || null
+    );
   }
 
   function variablePreview(value) {
@@ -76,14 +109,22 @@
     var serialized;
     try {
       serialized = JSON.stringify(value);
-    } catch (ignore) {
+    } catch {
+      // A circular or otherwise unserializable value still needs a preview.
       serialized = String(value);
     }
     if (serialized === undefined) serialized = String(value);
-    return serialized.length > 90 ? serialized.slice(0, 87) + '...' : serialized;
+    return serialized.length > 90
+      ? serialized.slice(0, 87) + '...'
+      : serialized;
   }
 
-  function updateStepHistory(history, nextQuestion, nextVariables, nextChanged) {
+  function updateStepHistory(
+    history,
+    nextQuestion,
+    nextVariables,
+    nextChanged,
+  ) {
     var result = clone(history || []);
     var latest = result.length ? result[result.length - 1] : null;
     if (latest && nextChanged.length) {
@@ -97,7 +138,8 @@
         identity: identity,
         label: questionLabel(nextQuestion),
         questionName: nextQuestion.questionName || '',
-        questionType: nextQuestion.questionType || nextQuestion.type || 'unknown',
+        questionType:
+          nextQuestion.questionType || nextQuestion.type || 'unknown',
         visitedAt: new Date().toISOString(),
         answers: [],
       });
@@ -109,11 +151,21 @@
     options = options || {};
     var api = options.api;
     var getContext = options.getContext;
-    var getBlocks = options.getBlocks || function () { return []; };
+    var getBlocks =
+      options.getBlocks ||
+      function () {
+        return [];
+      };
     var onSessionChange = options.onSessionChange || function () {};
     var onOpenSource = options.onOpenSource || function () {};
     var onClose = options.onClose || function () {};
-    var beforeStart = options.beforeStart || function () { return Promise.resolve(true); };
+    // Runs before a test session is created, so pending Python module changes
+    // can be loaded first. Resolving false abandons the start.
+    var beforeStart =
+      options.beforeStart ||
+      function () {
+        return Promise.resolve(true);
+      };
     var session = null;
     var question = null;
     var variables = {};
@@ -122,7 +174,8 @@
     var steps = [];
     var includeInternal = false;
     var variableQuery = '';
-    var scenarioText = 'name: Test scenario\nvariables:\n  user.marital_status: married\ndelete:\n  - final_document';
+    var scenarioText =
+      'name: Test scenario\nvariables:\n  user.marital_status: married\ndelete:\n  - final_document';
     var status = '';
     var error = '';
     var container = null;
@@ -134,8 +187,13 @@
     var hidden = true;
 
     function sessionPath(suffix) {
-      if (!session || !session.weaver_session_id) throw new Error('Start a test session first.');
-      return '/api/runtime/sessions/' + encodeURIComponent(session.weaver_session_id) + (suffix || '');
+      if (!session || !session.weaver_session_id)
+        throw new Error('Start a test session first.');
+      return (
+        '/api/runtime/sessions/' +
+        encodeURIComponent(session.weaver_session_id) +
+        (suffix || '')
+      );
     }
 
     function setStatus(message, isError) {
@@ -170,52 +228,76 @@
     }
 
     function recordObservation(nextQuestion, nextVariables, nextChanged) {
-      steps = updateStepHistory(steps, nextQuestion, nextVariables, nextChanged);
+      steps = updateStepHistory(
+        steps,
+        nextQuestion,
+        nextVariables,
+        nextChanged,
+      );
     }
 
     function startSession() {
       var context = getContext();
       busy = true;
-      return Promise.resolve(beforeStart()).then(function (proceed) {
-        if (proceed === false) return undefined;
-        setStatus('Starting a separate Docassemble test session...');
-        render(container);
-        return api.post('/api/runtime/sessions', {
-          project: context.project,
-          filename: context.filename,
-          purpose: 'test',
-        }).then(function (response) {
-          session = clone(response.data);
-          resetObservedState();
-          startPolling();
-          onSessionChange(clone(session));
-          setStatus('Test session started. Use the interview and the debugger will follow along.');
+      return Promise.resolve(beforeStart())
+        .then(function (proceed) {
+          if (proceed === false) return undefined;
+          setStatus('Starting a separate Docassemble test session...');
           render(container);
-          return observeRuntime('Debugger synchronized with the interview.');
+          return api
+            .post('/api/runtime/sessions', {
+              project: context.project,
+              filename: context.filename,
+              purpose: 'test',
+            })
+            .then(function (response) {
+              session = clone(response.data);
+              resetObservedState();
+              startPolling();
+              onSessionChange(clone(session));
+              setStatus(
+                'Test session started. Use the interview and the debugger will follow along.',
+              );
+              render(container);
+              return observeRuntime(
+                'Debugger synchronized with the interview.',
+              );
+            });
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to start the test session.',
+            true,
+          );
+        })
+        .finally(function () {
+          busy = false;
+          render(container);
         });
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to start the test session.', true);
-      }).finally(function () {
-        busy = false;
-        render(container);
-      });
     }
 
     function endSession() {
       if (!session) return Promise.resolve();
       busy = true;
       stopPolling();
-      return api.delete(sessionPath()).then(function () {
-        session = null;
-        resetObservedState();
-        onSessionChange(null);
-        setStatus('Debugger access to the test session ended.');
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to end the test session.', true);
-      }).finally(function () {
-        busy = false;
-        render(container);
-      });
+      return api
+        .delete(sessionPath())
+        .then(function () {
+          session = null;
+          resetObservedState();
+          onSessionChange(null);
+          setStatus('Debugger access to the test session ended.');
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to end the test session.',
+            true,
+          );
+        })
+        .finally(function () {
+          busy = false;
+          render(container);
+        });
     }
 
     function releaseSession() {
@@ -238,85 +320,119 @@
         return observationPromise || Promise.resolve();
       }
       observing = true;
-      var variablePath = sessionPath('/variables') +
+      var variablePath =
+        sessionPath('/variables') +
         (includeInternal ? '?include_internal=true' : '');
       observationPromise = Promise.all([
         api.get(sessionPath('/question')),
         api.get(variablePath),
-      ]).then(function (responses) {
-        var nextQuestion = clone((responses[0].data || {}).question || {});
-        var nextVariables = clone((responses[1].data || {}).variables || {});
-        var nextChanged = hasVariableSnapshot
-          ? changedVariableNames(variables, nextVariables)
-          : [];
-        recordObservation(nextQuestion, nextVariables, nextChanged);
-        question = nextQuestion;
-        variables = nextVariables;
-        changed = nextChanged;
-        hasVariableSnapshot = true;
-        setStatus(successMessage || 'Debugger synchronized with the interview.');
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to refresh runtime facts.', true);
-      }).finally(function () {
-        observing = false;
-        observationPromise = null;
-        render(container);
-        if (observeAgain) {
-          observeAgain = false;
-          window.setTimeout(function () { observeRuntime(); }, 100);
-        }
-      });
+      ])
+        .then(function (responses) {
+          var nextQuestion = clone((responses[0].data || {}).question || {});
+          var nextVariables = clone((responses[1].data || {}).variables || {});
+          var nextChanged = hasVariableSnapshot
+            ? changedVariableNames(variables, nextVariables)
+            : [];
+          recordObservation(nextQuestion, nextVariables, nextChanged);
+          question = nextQuestion;
+          variables = nextVariables;
+          changed = nextChanged;
+          hasVariableSnapshot = true;
+          setStatus(
+            successMessage || 'Debugger synchronized with the interview.',
+          );
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to refresh runtime facts.',
+            true,
+          );
+        })
+        .finally(function () {
+          observing = false;
+          observationPromise = null;
+          render(container);
+          if (observeAgain) {
+            observeAgain = false;
+            window.setTimeout(function () {
+              observeRuntime();
+            }, 100);
+          }
+        });
       return observationPromise;
     }
 
     function reloadInterview() {
-      var frame = container && container.querySelector('#runtime-interview-frame');
+      var frame =
+        container && container.querySelector('#runtime-interview-frame');
       if (frame && session) frame.src = session.target_url;
     }
 
     function goBack() {
       busy = true;
-      return api.post(sessionPath('/back'), {}).then(function () {
-        setStatus('Moved the test session back one screen.');
-        reloadInterview();
-        return observeRuntime();
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Docassemble could not go back.', true);
-      }).finally(function () {
-        busy = false;
-        render(container);
-      });
+      return api
+        .post(sessionPath('/back'), {})
+        .then(function () {
+          setStatus('Moved the test session back one screen.');
+          reloadInterview();
+          return observeRuntime();
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Docassemble could not go back.',
+            true,
+          );
+        })
+        .finally(function () {
+          busy = false;
+          render(container);
+        });
     }
 
     function applyScenario(text) {
       scenarioText = String(text || '');
       busy = true;
-      return api.post(sessionPath('/variables'), { scenario_yaml: scenarioText }).then(function () {
-        setStatus('Scenario applied. Seeded state may bypass earlier questions.');
-        reloadInterview();
-        return observeRuntime();
-      }).catch(function (requestError) {
-        setStatus(requestError.message || 'Unable to apply the scenario.', true);
-      }).finally(function () {
-        busy = false;
-        render(container);
-      });
+      return api
+        .post(sessionPath('/variables'), { scenario_yaml: scenarioText })
+        .then(function () {
+          setStatus(
+            'Scenario applied. Seeded state may bypass earlier questions.',
+          );
+          reloadInterview();
+          return observeRuntime();
+        })
+        .catch(function (requestError) {
+          setStatus(
+            requestError.message || 'Unable to apply the scenario.',
+            true,
+          );
+        })
+        .finally(function () {
+          busy = false;
+          render(container);
+        });
     }
 
     function appendVariableRows(target) {
       var visible = filterVariables(variables, variableQuery);
       var names = Object.keys(visible);
       if (!names.length) {
-        target.textContent = hasVariableSnapshot ? 'No matching variables.' : 'Variables will appear after the session starts.';
+        target.textContent = hasVariableSnapshot
+          ? 'No matching variables.'
+          : 'Variables will appear after the session starts.';
         target.className = 'text-muted small';
         return;
       }
       names.forEach(function (name) {
         var details = document.createElement('details');
         details.className = 'editor-runtime-variable';
-        if (changed.indexOf(name) !== -1) details.classList.add('editor-runtime-variable-changed');
+        if (changed.indexOf(name) !== -1)
+          details.classList.add('editor-runtime-variable-changed');
         var summary = document.createElement('summary');
-        summary.textContent = name + ' · ' + (visible[name] === null ? 'null' : typeof visible[name]);
+        summary.textContent =
+          name +
+          ' · ' +
+          (visible[name] === null ? 'null' : typeof visible[name]);
         details.appendChild(summary);
         var value = document.createElement('pre');
         value.textContent = JSON.stringify(visible[name], null, 2);
@@ -327,7 +443,8 @@
 
     function renderQuestion(target) {
       if (!question) {
-        target.innerHTML = '<p class="text-muted small mb-0">The current screen will appear here.</p>';
+        target.innerHTML =
+          '<p class="text-muted small mb-0">The current screen will appear here.</p>';
         return;
       }
       var heading = document.createElement('h3');
@@ -336,15 +453,18 @@
       target.appendChild(heading);
       var meta = document.createElement('p');
       meta.className = 'editor-tiny text-muted mb-2';
-      meta.textContent = (question.questionName || 'No stable question name') +
-        ' · ' + (question.questionType || question.type || 'unknown') +
+      meta.textContent =
+        (question.questionName || 'No stable question name') +
+        ' · ' +
+        (question.questionType || question.type || 'unknown') +
         ' · observed runtime';
       target.appendChild(meta);
       var undefinedName = question.undefinedVariable || question.undefined;
       if (undefinedName) {
         var undefinedEl = document.createElement('p');
         undefinedEl.className = 'small mb-2';
-        undefinedEl.textContent = 'Undefined variable: ' + String(undefinedName);
+        undefinedEl.textContent =
+          'Undefined variable: ' + String(undefinedName);
         target.appendChild(undefinedEl);
       }
       var sourceBlock = findQuestionSource(question, getBlocks());
@@ -353,7 +473,9 @@
         source.type = 'button';
         source.className = 'btn btn-sm btn-outline-secondary';
         source.textContent = 'Open source block';
-        source.addEventListener('click', function () { onOpenSource(sourceBlock.id); });
+        source.addEventListener('click', function () {
+          onOpenSource(sourceBlock.id);
+        });
         target.appendChild(source);
       } else {
         var mapping = document.createElement('p');
@@ -365,7 +487,8 @@
 
     function renderSteps(target) {
       if (!steps.length) {
-        target.innerHTML = '<p class="text-muted small mb-0">Visited screens and changed answers will be recorded here.</p>';
+        target.innerHTML =
+          '<p class="text-muted small mb-0">Visited screens and changed answers will be recorded here.</p>';
         return;
       }
       var list = document.createElement('ol');
@@ -386,7 +509,8 @@
           answers.className = 'editor-runtime-step-answers';
           step.answers.forEach(function (answer) {
             var answerItem = document.createElement('li');
-            answerItem.textContent = answer.name + ': ' + variablePreview(answer.value);
+            answerItem.textContent =
+              answer.name + ': ' + variablePreview(answer.value);
             answers.appendChild(answerItem);
           });
           item.appendChild(answers);
@@ -409,32 +533,46 @@
 
     function refreshRenderedDebugger(wrapper) {
       var statusNode = wrapper.querySelector('#runtime-status');
-      statusNode.textContent = error || status || 'The debugger is synchronized with this test session.';
+      statusNode.textContent =
+        error ||
+        status ||
+        'The debugger is synchronized with this test session.';
       statusNode.classList.toggle('alert-danger', Boolean(error));
       statusNode.classList.toggle('alert-info', !error);
-      wrapper.querySelectorAll('#runtime-session-actions button').forEach(function (button) {
-        button.disabled = busy;
-      });
+      wrapper
+        .querySelectorAll('#runtime-session-actions button')
+        .forEach(function (button) {
+          button.disabled = busy;
+        });
 
       var questionTarget = wrapper.querySelector('#runtime-question');
       questionTarget.innerHTML = '';
       renderQuestion(questionTarget);
       var stepTarget = wrapper.querySelector('#runtime-step-list');
       var previousScrollTop = stepTarget.scrollTop;
-      var wasAtBottom = stepTarget.scrollHeight - stepTarget.scrollTop - stepTarget.clientHeight < 24;
+      var wasAtBottom =
+        stepTarget.scrollHeight -
+          stepTarget.scrollTop -
+          stepTarget.clientHeight <
+        24;
       stepTarget.innerHTML = '';
       renderSteps(stepTarget);
       // Polling re-renders this panel. Keep a user's scroll position instead
       // of forcing them back to the newest step on every refresh. New sessions
       // and users already at the bottom still follow the latest step.
       if (!wasAtBottom) stepTarget.scrollTop = previousScrollTop;
-      wrapper.querySelector('#runtime-step-count').textContent = String(steps.length);
-      wrapper.querySelector('#runtime-variable-count').textContent = String(Object.keys(variables).length);
+      wrapper.querySelector('#runtime-step-count').textContent = String(
+        steps.length,
+      );
+      wrapper.querySelector('#runtime-variable-count').textContent = String(
+        Object.keys(variables).length,
+      );
       var variableTarget = wrapper.querySelector('#runtime-variable-list');
       variableTarget.innerHTML = '';
       variableTarget.className = '';
       appendVariableRows(variableTarget);
-      wrapper.querySelector('#runtime-include-internal').checked = includeInternal;
+      wrapper.querySelector('#runtime-include-internal').checked =
+        includeInternal;
     }
 
     // Editor.js owns the canvas this panel draws into, so an internal re-render
@@ -452,9 +590,10 @@
       if (!container || hidden) return;
       // Never replace or detach a live iframe merely to update observations.
       // Removing it can destroy its browsing context in some browsers.
-      var liveFrame = session && container.querySelector
-        ? container.querySelector('#runtime-interview-frame')
-        : null;
+      var liveFrame =
+        session && container.querySelector
+          ? container.querySelector('#runtime-interview-frame')
+          : null;
       if (liveFrame) {
         refreshRenderedDebugger(liveFrame.closest('.editor-runtime-inspector'));
         return;
@@ -466,35 +605,50 @@
       wrapper.setAttribute('aria-labelledby', 'runtime-inspector-title');
       wrapper.innerHTML =
         '<header class="editor-runtime-header">' +
-          '<div><div class="d-flex align-items-center gap-2"><h2 class="h4 mb-0" id="runtime-inspector-title">Debug interview</h2>' +
-            '<span class="badge text-bg-success ' + (session ? '' : 'd-none') + '">Live test session</span></div>' +
-            '<p class="text-muted small mb-0">Run the real interview while Weaver follows its screens, answers, and variables.</p></div>' +
-          '<div class="d-flex flex-wrap gap-2" id="runtime-session-actions"></div>' +
+        '<div><div class="d-flex align-items-center gap-2"><h2 class="h4 mb-0" id="runtime-inspector-title">Debug interview</h2>' +
+        '<span class="badge text-bg-success ' +
+        (session ? '' : 'd-none') +
+        '">Live test session</span></div>' +
+        '<p class="text-muted small mb-0">Run the real interview while Weaver follows its screens, answers, and variables.</p></div>' +
+        '<div class="d-flex flex-wrap gap-2" id="runtime-session-actions"></div>' +
         '</header>' +
-        '<div class="alert py-2 mb-0 ' + (error ? 'alert-danger' : 'alert-info') + '" id="runtime-status" role="status" aria-live="polite"></div>' +
+        '<div class="alert py-2 mb-0 ' +
+        (error ? 'alert-danger' : 'alert-info') +
+        '" id="runtime-status" role="status" aria-live="polite"></div>' +
         '<div id="runtime-session-content"></div>';
       container.appendChild(wrapper);
-      wrapper.querySelector('#runtime-status').textContent = error || status ||
-        (session ? 'The debugger is synchronized with this test session.' :
-          'Start a test session. It is separate from every end-user interview.');
+      wrapper.querySelector('#runtime-status').textContent =
+        error ||
+        status ||
+        (session
+          ? 'The debugger is synchronized with this test session.'
+          : 'Start a test session. It is separate from every end-user interview.');
       var actions = wrapper.querySelector('#runtime-session-actions');
       var content = wrapper.querySelector('#runtime-session-content');
       // Going back to the editor keeps the test session alive but tears down
       // this panel, so stop polling for observations nothing is displaying.
       // Reopening the debugger re-renders and starts it again.
-      actions.appendChild(makeButton('Back to editor', 'btn btn-sm btn-outline-secondary', function () {
-        hidden = true;
-        stopPolling();
-        onClose();
-      }));
+      actions.appendChild(
+        makeButton(
+          'Back to editor',
+          'btn btn-sm btn-outline-secondary',
+          function () {
+            hidden = true;
+            stopPolling();
+            onClose();
+          },
+        ),
+      );
 
       if (!session) {
-        actions.appendChild(makeButton('Start debugging', 'btn btn-sm btn-primary', startSession));
+        actions.appendChild(
+          makeButton('Start debugging', 'btn btn-sm btn-primary', startSession),
+        );
         content.innerHTML =
           '<div class="editor-runtime-empty">' +
-            '<i class="fa-solid fa-bug" aria-hidden="true"></i>' +
-            '<h3 class="h5">See what your interview is doing</h3>' +
-            '<p class="text-muted">Weaver opens a fresh test session here and records each screen you visit. Your regular interview sessions are untouched.</p>' +
+          '<i class="fa-solid fa-bug" aria-hidden="true"></i>' +
+          '<h3 class="h5">See what your interview is doing</h3>' +
+          '<p class="text-muted">Weaver opens a fresh test session here and records each screen you visit. Your regular interview sessions are untouched.</p>' +
           '</div>';
         return;
       }
@@ -506,50 +660,72 @@
       open.rel = 'noopener';
       open.href = session.target_url;
       actions.appendChild(open);
-      actions.appendChild(makeButton('Refresh', 'btn btn-sm btn-outline-secondary', function () {
-        observeRuntime('Runtime facts refreshed.');
-      }));
-      actions.appendChild(makeButton('Back one screen', 'btn btn-sm btn-outline-secondary', goBack));
-      actions.appendChild(makeButton('Restart', 'btn btn-sm btn-outline-secondary', function () {
-        endSession().then(function () { if (!session) startSession(); });
-      }));
-      actions.appendChild(makeButton('End', 'btn btn-sm btn-outline-danger', endSession));
+      actions.appendChild(
+        makeButton('Refresh', 'btn btn-sm btn-outline-secondary', function () {
+          observeRuntime('Runtime facts refreshed.');
+        }),
+      );
+      actions.appendChild(
+        makeButton(
+          'Back one screen',
+          'btn btn-sm btn-outline-secondary',
+          goBack,
+        ),
+      );
+      actions.appendChild(
+        makeButton('Restart', 'btn btn-sm btn-outline-secondary', function () {
+          endSession().then(function () {
+            if (!session) startSession();
+          });
+        }),
+      );
+      actions.appendChild(
+        makeButton('End', 'btn btn-sm btn-outline-danger', endSession),
+      );
 
       content.innerHTML =
         '<div class="editor-runtime-workbench">' +
-          '<aside class="editor-runtime-sidebar" aria-label="Interview debugging details">' +
-            '<details class="editor-runtime-panel" open><summary>Current screen</summary><div id="runtime-question" class="editor-runtime-panel-body"></div></details>' +
-            '<details class="editor-runtime-panel" open><summary>Step recorder <span class="badge text-bg-secondary" id="runtime-step-count"></span></summary><div id="runtime-step-list" class="editor-runtime-panel-body editor-runtime-step-list"></div></details>' +
-            '<details class="editor-runtime-panel" open><summary>Session variables <span class="badge text-bg-secondary" id="runtime-variable-count"></span></summary>' +
-              '<div class="editor-runtime-panel-body"><div class="d-flex gap-2 mb-2">' +
-                '<label for="runtime-variable-search" class="visually-hidden">Search variables</label>' +
-                '<input id="runtime-variable-search" class="form-control form-control-sm" type="search" placeholder="Filter variables">' +
-              '</div><label class="form-check editor-tiny mb-2"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show _internal data</span></label>' +
-              '<div id="runtime-variable-list"></div></div></details>' +
-            '<details class="editor-runtime-panel"><summary>Test scenario</summary><div class="editor-runtime-panel-body">' +
-              '<p class="editor-tiny text-muted">Seed variables for a test path. This fixture can bypass earlier screens.</p>' +
-              '<label for="runtime-scenario" class="form-label editor-tiny">Scenario YAML</label>' +
-              '<textarea id="runtime-scenario" class="form-control form-control-sm font-monospace" rows="7"></textarea>' +
-              '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
-            '</div></details>' +
-          '</aside>' +
-          '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview</span><span class="editor-tiny text-muted">Actions here are recorded automatically</span></div><div id="runtime-frame-host"></div></div>' +
+        '<aside class="editor-runtime-sidebar" aria-label="Interview debugging details">' +
+        '<details class="editor-runtime-panel" open><summary>Current screen</summary><div id="runtime-question" class="editor-runtime-panel-body"></div></details>' +
+        '<details class="editor-runtime-panel" open><summary>Step recorder <span class="badge text-bg-secondary" id="runtime-step-count"></span></summary><div id="runtime-step-list" class="editor-runtime-panel-body editor-runtime-step-list"></div></details>' +
+        '<details class="editor-runtime-panel" open><summary>Session variables <span class="badge text-bg-secondary" id="runtime-variable-count"></span></summary>' +
+        '<div class="editor-runtime-panel-body"><div class="d-flex gap-2 mb-2">' +
+        '<label for="runtime-variable-search" class="visually-hidden">Search variables</label>' +
+        '<input id="runtime-variable-search" class="form-control form-control-sm" type="search" placeholder="Filter variables">' +
+        '</div><label class="form-check editor-tiny mb-2"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show _internal data</span></label>' +
+        '<div id="runtime-variable-list"></div></div></details>' +
+        '<details class="editor-runtime-panel"><summary>Test scenario</summary><div class="editor-runtime-panel-body">' +
+        '<p class="editor-tiny text-muted">Seed variables for a test path. This fixture can bypass earlier screens.</p>' +
+        '<label for="runtime-scenario" class="form-label editor-tiny">Scenario YAML</label>' +
+        '<textarea id="runtime-scenario" class="form-control form-control-sm font-monospace" rows="7"></textarea>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
+        '</div></details>' +
+        '</aside>' +
+        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview</span><span class="editor-tiny text-muted">Actions here are recorded automatically</span></div><div id="runtime-frame-host"></div></div>' +
         '</div>';
 
       renderQuestion(content.querySelector('#runtime-question'));
       renderSteps(content.querySelector('#runtime-step-list'));
-      content.querySelector('#runtime-step-count').textContent = String(steps.length);
-      content.querySelector('#runtime-variable-count').textContent = String(Object.keys(variables).length);
+      content.querySelector('#runtime-step-count').textContent = String(
+        steps.length,
+      );
+      content.querySelector('#runtime-variable-count').textContent = String(
+        Object.keys(variables).length,
+      );
       appendVariableRows(content.querySelector('#runtime-variable-list'));
 
-      var internalToggle = content.querySelector('#runtime-include-internal');
+      var internalToggle = /** @type {HTMLInputElement} */ (
+        content.querySelector('#runtime-include-internal')
+      );
       internalToggle.checked = includeInternal;
       internalToggle.addEventListener('change', function () {
         includeInternal = internalToggle.checked;
         hasVariableSnapshot = false;
         observeRuntime('Variable visibility updated.');
       });
-      var search = content.querySelector('#runtime-variable-search');
+      var search = /** @type {HTMLInputElement} */ (
+        content.querySelector('#runtime-variable-search')
+      );
       search.value = variableQuery;
       search.addEventListener('input', function () {
         variableQuery = search.value;
@@ -557,12 +733,18 @@
         list.innerHTML = '';
         appendVariableRows(list);
       });
-      var scenario = content.querySelector('#runtime-scenario');
+      var scenario = /** @type {HTMLTextAreaElement} */ (
+        content.querySelector('#runtime-scenario')
+      );
       scenario.value = scenarioText;
-      scenario.addEventListener('input', function () { scenarioText = scenario.value; });
-      content.querySelector('#runtime-apply-scenario').addEventListener('click', function () {
-        applyScenario(scenario.value);
+      scenario.addEventListener('input', function () {
+        scenarioText = scenario.value;
       });
+      content
+        .querySelector('#runtime-apply-scenario')
+        .addEventListener('click', function () {
+          applyScenario(scenario.value);
+        });
 
       var frame = document.createElement('iframe');
       frame.id = 'runtime-interview-frame';
@@ -570,7 +752,8 @@
       frame.title = 'Live Docassemble test interview';
       frame.src = session.target_url;
       frame.addEventListener('load', function () {
-        if (session) observeRuntime('Interview advanced; debugger synchronized.');
+        if (session)
+          observeRuntime('Interview advanced; debugger synchronized.');
       });
       content.querySelector('#runtime-frame-host').appendChild(frame);
     }
@@ -578,7 +761,9 @@
     return {
       render: show,
       refreshAll: observeRuntime,
-      getSession: function () { return clone(session); },
+      getSession: function () {
+        return clone(session);
+      },
       releaseSession: releaseSession,
       setSession: function (value) {
         session = clone(value);

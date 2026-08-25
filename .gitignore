@@ -22,9 +22,8 @@ _al_test_project_name*
 alkiln-*
 cucumber-report.txt
 runtime_config.json
-# package.json is for local development only
-package.json
-package-lock.json
+# JavaScript tooling dependencies
+node_modules/
 .mypy_cache/
 .creds
 .codex
