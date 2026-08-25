@@ -80,9 +80,13 @@ def initialize_interview_context() -> None:
             device_id=device_id,
             session_uid=str(user_id or "alweaver-runtime"),
         )
-    except Exception:
+    except (Exception, SystemExit):
         # The downstream Docassemble call provides the authoritative error if
-        # this compatibility setup is unavailable on an older release.
+        # this compatibility setup is unavailable on an older release. A
+        # server with no config file (e.g. this test suite) makes importing
+        # ``docassemble.webapp.utils.helpers`` call ``sys.exit(1)``, which is
+        # a ``SystemExit`` rather than an ``Exception`` and must be caught
+        # here too so it does not escape as a fatal error.
         return
 
 
