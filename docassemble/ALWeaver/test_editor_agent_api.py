@@ -235,6 +235,11 @@ class TestConfiguration(unittest.TestCase):
         with patch.object(api_editor, "_daconfig", return_value=config):
             self.assertTrue(api_editor._runtime_inspector_enabled())
 
+    def test_the_runtime_debugger_can_be_explicitly_disabled(self):
+        config = {"weaver": {"runtime inspector": False}}
+        with patch.object(api_editor, "_daconfig", return_value=config):
+            self.assertFalse(api_editor._runtime_inspector_enabled())
+
     def test_the_model_can_be_named_in_the_configuration(self):
         config = {"weaver": {"assistant model": "gpt-5-mini"}}
         with patch.object(api_editor, "_daconfig", return_value=config):
@@ -394,7 +399,7 @@ class TestFeatureFlags(AgentApiTestCase):
         ):
             features = api_editor._editor_feature_bootstrap()
         self.assertFalse(features["patch_model"])
-        self.assertFalse(features["runtime_inspector"])
+        self.assertTrue(features["runtime_inspector"])
         self.assertTrue(features["agent_editor"])
         self.assertTrue(features["assistant_status"]["available"])
 

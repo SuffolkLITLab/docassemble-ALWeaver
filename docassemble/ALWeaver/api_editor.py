@@ -4644,7 +4644,8 @@ RUNTIME_VARIABLE_RESULT_LIMIT = 1024 * 1024
 
 
 def _runtime_inspector_enabled() -> bool:
-    return _weaver_flag("runtime inspector", False)
+    """The developer-only interview debugger is on unless explicitly disabled."""
+    return _weaver_flag("runtime inspector", True)
 
 
 def _runtime_disabled(request_id: str) -> Response:
@@ -4700,6 +4701,27 @@ def _runtime_operation_failed(
     )
 
 
+def _browser_session_secret() -> Optional[str]:
+    """The developer's own Docassemble decryption key, from their cookie.
+
+    Docassemble's ``/interview`` route decrypts a session with nothing but the
+    visitor's ``secret`` cookie — there is no query-string equivalent — so the
+    debugger iframe can open the target session only if Weaver encrypted it
+    with that same key. Creating the session with any other key makes
+    Docassemble discard it and silently start a different one in the iframe,
+    leaving the panels describing a session the developer is not using.
+
+    Read per request rather than stored: this key decrypts every session the
+    developer owns, and it is already in the browser making the request.
+    """
+    try:
+        secret = request.cookies.get("secret")
+    except RuntimeError:
+        # Outside a request context there is no browser to keep in sync.
+        return None
+    return str(secret) if secret else None
+
+
 def _runtime_target_url(record: Any) -> str:
     return (
         "/interview?i="
@@ -4743,13 +4765,12 @@ def editor_api_runtime_create_session() -> Response:
         # does not, so without this the inspector can run against a parse from
         # before the developer's last save.
         bump_interview_source_index(yaml_filename)
+        browser_secret = _browser_session_secret()
         target = create_target_session(
             yaml_filename,
-            secret=None,
+            secret=browser_secret,
             url_args=url_args or None,
         )
-        if target.secret is not None:
-            raise ValueError("Encrypted target sessions are not currently supported")
         record = create_runtime_record(
             weaver_session_id=str(uuid.uuid4()),
             owner_user_id=uid,
@@ -4758,6 +4779,7 @@ def editor_api_runtime_create_session() -> Response:
             yaml_filename=yaml_filename,
             target=target,
             purpose=purpose,
+            persist_secret=browser_secret is None,
         )
         store_runtime_record(r, record)
         return jsonify_with_status(
@@ -4783,7 +4805,11 @@ def editor_api_runtime_create_session() -> Response:
             status,
         )
     except Exception as exc:
-        log(f"ALWeaver editor: runtime session creation failed: {exc!r}", "error")
+        log(
+            "ALWeaver editor: runtime session creation failed: "
+            f"{exc!r}\n{traceback.format_exc()}",
+            "error",
+        )
         return jsonify_with_status(
             {
                 "success": False,
@@ -4839,7 +4865,7 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
     if record is None:
         return _runtime_not_found(request_id)
     try:
-        target = record.target()
+        target = record.target(_browser_session_secret())
         if request.method == "POST":
             post_data = request.get_json(silent=True)
             if not isinstance(post_data, dict):
@@ -4954,7 +4980,7 @@ def editor_api_runtime_question(weaver_session_id: str) -> Response:
     if record is None:
         return _runtime_not_found(request_id)
     try:
-        question = get_target_question(record.target())
+        question = get_target_question(record.target(_browser_session_secret()))
         append_runtime_event(
             r,
             record,
@@ -4986,7 +5012,7 @@ def editor_api_runtime_back(weaver_session_id: str) -> Response:
     if record is None:
         return _runtime_not_found(request_id)
     try:
-        go_back_target_session(record.target())
+        go_back_target_session(record.target(_browser_session_secret()))
         append_runtime_event(r, record, "back_invoked")
         return jsonify(
             {
@@ -5042,7 +5068,10 @@ def editor_api_runtime_action(weaver_session_id: str, action_name: str) -> Respo
         )
     try:
         result = run_target_action_raw(
-            record.target(), action_name, arguments=arguments, read_only=True
+            record.target(_browser_session_secret()),
+            action_name,
+            arguments=arguments,
+            read_only=True,
         )
     except Exception as exc:
         return _runtime_operation_failed(request_id, "action", exc)
@@ -5219,16 +5248,17 @@ class _AgentRuntimeBridge:
     def _target(self) -> Any:
         if self._record is None:
             raise ValueError("No runtime session has been started")
-        return self._record.target()
+        return self._record.target(_browser_session_secret())
 
     def start_session(self) -> Dict[str, Any]:
         playground_read_yaml(self._user_id, self._project, self._filename)
         yaml_filename = playground_yaml_filename(
             self._user_id, self._project, self._filename
         )
-        target = create_target_session(yaml_filename, secret=None, url_args=None)
-        if target.secret is not None:
-            raise ValueError("Encrypted target sessions are not currently supported")
+        browser_secret = _browser_session_secret()
+        target = create_target_session(
+            yaml_filename, secret=browser_secret, url_args=None
+        )
         record = create_runtime_record(
             weaver_session_id=str(uuid.uuid4()),
             owner_user_id=self._user_id,
@@ -5237,6 +5267,7 @@ class _AgentRuntimeBridge:
             yaml_filename=yaml_filename,
             target=target,
             purpose="inspection",
+            persist_secret=browser_secret is None,
         )
         store_runtime_record(r, record)
         self._record = record

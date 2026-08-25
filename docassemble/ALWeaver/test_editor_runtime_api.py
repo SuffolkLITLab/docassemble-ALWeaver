@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from .docassemble_compat import TargetActionResult, TargetSession
 from .runtime_sessions import (
+    RUNTIME_SESSION_KEY_PREFIX,
     create_runtime_record,
     delete_runtime_record,
     load_runtime_record,
@@ -107,6 +108,55 @@ class TestEditorRuntimeApi(unittest.TestCase):
         create.assert_called_once_with(
             "docassemble.playground7:main.yml", secret=None, url_args=None
         )
+
+    def test_the_debuggers_iframe_can_decrypt_the_session_weaver_created(self):
+        """Docassemble decrypts a session only with the visitor's own cookie.
+
+        A target session encrypted with any other key makes ``/interview``
+        discard it and start a different one, so the iframe would show a
+        session the debugger panels are not describing.
+        """
+        target = TargetSession(
+            "docassemble.playground7:main.yml", "raw-target-id", secret="browser-key"
+        )
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="id: intro\n"
+            ),
+            patch.object(
+                api_editor, "create_target_session", return_value=target
+            ) as create,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+                headers={"Cookie": "secret=browser-key"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+
+        self.assertEqual(response.status_code, 201)
+        create.assert_called_once_with(
+            "docassemble.playground7:main.yml",
+            secret="browser-key",
+            url_args=None,
+        )
+        stored = json.loads(
+            self.redis.get(
+                RUNTIME_SESSION_KEY_PREFIX
+                + response.get_json()["data"]["weaver_session_id"]
+            )
+        )
+        self.assertTrue(stored["encrypted"])
+        # The developer's key decrypts every session they own; the browser
+        # sends it on each request, so Weaver never keeps a copy.
+        self.assertIsNone(stored["encrypted_secret"])
+        self.assertNotIn("browser-key", json.dumps(stored))
 
     def test_variable_read_filters_internal_values_by_default(self):
         self._record()

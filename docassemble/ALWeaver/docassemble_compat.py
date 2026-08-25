@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 import base64
 import importlib
@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 import tarfile
+import pathlib
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote, urlparse
 
@@ -59,6 +61,109 @@ class TargetActionResult:
     data: Any = None
     warnings: List[str] = field(default_factory=list)
     raw: Any = field(default=None, repr=False, compare=False)
+
+
+def initialize_interview_context() -> None:
+    """Install Docassemble's normal request context for server-side sessions."""
+    try:
+        from flask import request
+        from flask_login import current_user
+        from docassemble.base.thread_context import this_thread
+        from docassemble.webapp.utils.helpers import current_info
+
+        user_id = getattr(current_user, "id", None)
+        device_id = request.cookies.get("ds") or "alweaver-runtime"
+        this_thread.current_info = current_info(
+            yaml=None,
+            req=request,
+            secret=None,
+            device_id=device_id,
+            session_uid=str(user_id or "alweaver-runtime"),
+        )
+    except Exception:
+        # The downstream Docassemble call provides the authoritative error if
+        # this compatibility setup is unavailable on an older release.
+        return
+
+
+_CUSTOM_DATATYPES_LOADED = False
+_CUSTOM_DATATYPES_LOCK = threading.Lock()
+
+
+def _custom_datatype_roots() -> List[pathlib.Path]:
+    """The ``docassemble`` package trees to search for custom datatypes.
+
+    Docassemble installs every package — including the copies it makes of each
+    developer's Playground modules at startup — under one directory, so walking
+    that covers exactly what its own ``import_necessary`` covers.  The
+    ``sys.path`` fallback is for processes that never loaded the webapp
+    configuration and therefore cannot say where that directory is.
+    """
+    directory = full_package_directory()
+    if directory:
+        return [pathlib.Path(directory) / "docassemble"]
+    return [pathlib.Path(root) / "docassemble" for root in sys.path]
+
+
+def _load_custom_datatypes() -> None:
+    """Register installed Docassemble custom datatypes, if startup did not.
+
+    Docassemble registers ``CustomDataType`` subclasses as a side effect of
+    importing the modules that define them, which its ``import_necessary`` does
+    for every installed package when a web or Celery process boots.  A process
+    where that did not happen renders custom fields as plain text and can fail
+    to assemble a screen that depends on one, so this repeats the same narrowly
+    scoped discovery as a fallback; unlike ``import_necessary`` it never
+    imports arbitrary endpoint modules.
+
+    Docassemble having any custom datatype registered means its own startup
+    import already ran, so the scan never happens on a healthy server.
+    """
+    global _CUSTOM_DATATYPES_LOADED
+    if _CUSTOM_DATATYPES_LOADED:
+        return
+    # Without this lock two first requests in a threaded worker would both run
+    # the filesystem walk below.
+    with _CUSTOM_DATATYPES_LOCK:
+        if _CUSTOM_DATATYPES_LOADED:
+            return
+        try:
+            already_registered = bool(_base_functions().custom_types)
+        except Exception:
+            already_registered = False
+        if not already_registered:
+            _import_custom_datatype_modules()
+        _CUSTOM_DATATYPES_LOADED = True
+
+
+def _import_custom_datatype_modules() -> None:
+    for package_root in _custom_datatype_roots():
+        if not package_root.is_dir():
+            continue
+        for source in package_root.glob("*/**/*.py"):
+            try:
+                text = source.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if "class " not in text or "(CustomDataType" not in text:
+                continue
+            relative = source.relative_to(package_root).with_suffix("")
+            module_name = "docassemble." + ".".join(relative.parts)
+            try:
+                importlib.import_module(module_name)
+            except Exception:
+                continue
+
+
+@contextmanager
+def _runtime_context():
+    """Provide the thread-local globals Docassemble expects for API calls."""
+    from docassemble.base.thread_context import empty_globals, global_context
+
+    with global_context(empty_globals()):
+        initialize_interview_context()
+        _load_custom_datatypes()
+        yield
 
 
 def _base_functions() -> Any:
@@ -179,9 +284,19 @@ def create_target_session(
     secret: Optional[str] = None,
     url_args: Optional[Dict[str, Any]] = None,
 ) -> TargetSession:
-    session_id = _base_functions().create_session(
-        yaml_filename, secret=secret, url_args=url_args
-    )
+    if secret is None:
+        # Docassemble encrypts a new session whether or not a secret was
+        # supplied, generating its own and discarding it, which would leave the
+        # session unreadable.  Generate one Weaver can keep instead.  Callers
+        # that want the developer's browser to be able to open the session must
+        # pass that browser's own key; see ``_browser_session_secret``.
+        from docassemble.base.generate_key import random_string
+
+        secret = random_string(16)
+    with _runtime_context():
+        session_id = _base_functions().create_session(
+            yaml_filename, secret=secret, url_args=url_args
+        )
     return TargetSession(
         yaml_filename=yaml_filename,
         session_id=str(session_id),
@@ -192,12 +307,13 @@ def create_target_session(
 def get_target_variables(
     target: TargetSession, *, simplify: bool = True
 ) -> Dict[str, Any]:
-    result = _base_functions().get_session_variables(
-        target.yaml_filename,
-        target.session_id,
-        secret=target.secret,
-        simplify=simplify,
-    )
+    with _runtime_context():
+        result = _base_functions().get_session_variables(
+            target.yaml_filename,
+            target.session_id,
+            secret=target.secret,
+            simplify=simplify,
+        )
     if not isinstance(result, dict):
         raise DocassembleCompatibilityError(
             "Docassemble returned a non-dictionary session variable result"
@@ -213,21 +329,23 @@ def set_target_variables(
     overwrite: bool = False,
     process_objects: bool = False,
 ) -> None:
-    _base_functions().set_session_variables(
-        target.yaml_filename,
-        target.session_id,
-        variables,
-        secret=target.secret,
-        delete=delete,
-        overwrite=overwrite,
-        process_objects=process_objects,
-    )
+    with _runtime_context():
+        _base_functions().set_session_variables(
+            target.yaml_filename,
+            target.session_id,
+            variables,
+            secret=target.secret,
+            delete=delete,
+            overwrite=overwrite,
+            process_objects=process_objects,
+        )
 
 
 def get_target_question(target: TargetSession) -> Dict[str, Any]:
-    result = _base_functions().get_question_data(
-        target.yaml_filename, target.session_id, secret=target.secret
-    )
+    with _runtime_context():
+        result = _base_functions().get_question_data(
+            target.yaml_filename, target.session_id, secret=target.secret
+        )
     if not isinstance(result, dict):
         raise DocassembleCompatibilityError(
             "Docassemble returned a non-dictionary question result"
@@ -236,9 +354,10 @@ def get_target_question(target: TargetSession) -> Dict[str, Any]:
 
 
 def go_back_target_session(target: TargetSession) -> Any:
-    return _base_functions().go_back_in_session(
-        target.yaml_filename, target.session_id, secret=target.secret
-    )
+    with _runtime_context():
+        return _base_functions().go_back_in_session(
+            target.yaml_filename, target.session_id, secret=target.secret
+        )
 
 
 def run_target_action(
@@ -248,14 +367,15 @@ def run_target_action(
     arguments: Optional[Dict[str, Any]] = None,
     read_only: bool = True,
 ) -> None:
-    _base_functions().run_action_in_session(
-        target.yaml_filename,
-        target.session_id,
-        action,
-        arguments=arguments or {},
-        secret=target.secret,
-        read_only=read_only,
-    )
+    with _runtime_context():
+        _base_functions().run_action_in_session(
+            target.yaml_filename,
+            target.session_id,
+            action,
+            arguments=arguments or {},
+            secret=target.secret,
+            read_only=read_only,
+        )
 
 
 def _normalize_raw_action_result(result: Any) -> TargetActionResult:
@@ -308,7 +428,8 @@ def run_target_action_raw(
         raise DocassembleCompatibilityError(
             "This Docassemble installation does not expose raw session actions"
         )
-    return _normalize_raw_action_result(raw_action(**kwargs))
+    with _runtime_context():
+        return _normalize_raw_action_result(raw_action(**kwargs))
 
 
 def get_flask_app() -> Any:

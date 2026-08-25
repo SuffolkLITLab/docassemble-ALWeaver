@@ -105,7 +105,7 @@ grouped under one heading:
 weaver:
   assistant: True            # the editing assistant; on unless set to False
   assistant model: gpt-5-mini
-  runtime inspector: False   # opt-in
+  runtime inspector: True    # developer interview debugger; set False to hide
   source patch api: False    # opt-in
 ```
 
@@ -269,13 +269,16 @@ Pluggy hook and otherwise use the populated 1.9 server implementation. The same
 module owns access to initialized Flask, storage, Redis, and worker objects so
 the rest of Weaver does not depend on version-specific private module paths.
 
-The runtime inspector server API is disabled by default behind
-`WEAVER_ENABLE_RUNTIME_INSPECTOR`. It creates a Docassemble session separate from
-the editor and stores an expiring, owner-scoped `WeaverTargetSession` record in
-Redis. Browser calls use only Weaver's opaque session ID; every lookup verifies
-the current developer, and public session metadata excludes the raw Docassemble
-ID and any secret. Deleting the Weaver record revokes further inspector access;
-it does not claim to delete Docassemble's underlying session.
+The interview debugger and its runtime inspector API are enabled by default for
+authenticated developers and administrators, and can be disabled with
+`weaver: {runtime inspector: False}` or the legacy
+`WEAVER_ENABLE_RUNTIME_INSPECTOR` setting. It creates a Docassemble session
+separate from the editor and stores an expiring, owner-scoped
+`WeaverTargetSession` record in Redis. Browser calls use only Weaver's opaque
+session ID; every lookup verifies the current developer, and public session
+metadata excludes the raw Docassemble ID and any secret. Deleting the Weaver
+record revokes further inspector access; it does not claim to delete
+Docassemble's underlying session.
 
 Variable reads are simplified and omit `_internal` by default. Variable writes
 never deserialize objects. Question and back operations call Docassemble through
@@ -285,14 +288,18 @@ HTML, non-JSON, and oversized responses. Returned questions, variables, and
 action data are labeled `observed_runtime` so they cannot be confused with
 static-analysis findings. Weaver never chooses the next question.
 
-The browser inspector is isolated in `editor_runtime_inspector.js`. It can start
-or restart a test session, open the authoritative interview, inspect the current
-question, browse simplified variables, reveal `_internal` data explicitly, go
-back, and apply a YAML test scenario. Scenario YAML is parsed and validated on
-the server, never in browser JavaScript. Scenario seeding is labeled as a fixture
-that may bypass earlier questions. Question-to-source links are shown only when a
-stable returned `questionName` matches a known block; otherwise the UI says that
-no confident match is available.
+The browser debugger is isolated in `editor_runtime_inspector.js`. Its main pane
+runs the authoritative interview in an iframe while a sidebar follows the
+current question, records visited screens and the variables changed on each
+screen, and provides searchable simplified session variables. It can restart a
+test session, reveal `_internal` data explicitly, go back, and apply a YAML test
+scenario. Iframe loads trigger a fresh observation, while the iframe node itself
+survives sidebar redraws so inspection cannot accidentally restart the
+interview. Scenario YAML is parsed and validated on the server, never in browser
+JavaScript. Scenario seeding is labeled as a fixture that may bypass earlier
+questions. Question-to-source links are shown only when a stable returned
+`questionName` matches a known block; otherwise the UI says that no confident
+match is available.
 
 Saving a Playground Python module is the one editor action that cannot take
 effect on its own. Docassemble does not import modules from where the Playground

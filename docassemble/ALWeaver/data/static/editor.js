@@ -1551,6 +1551,14 @@
     onError: showApiError,
   });
 
+  // Runtime inspector renders its own inline, aria-live status.  Keep its
+  // failures out of the editor-wide floating error banner so one failure is
+  // announced exactly once.
+  var runtimeApiClient = window.ALWeaverApiClient.createClient({
+    baseUrl: API,
+    csrfToken: BOOT.csrfToken || null,
+  });
+
   function apiGet(path, options) {
     return apiClient.get(path, options);
   }
@@ -2228,9 +2236,9 @@
 
   var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
     api: {
-      get: apiGet,
-      post: apiPost,
-      delete: apiDelete,
+      get: runtimeApiClient.get,
+      post: runtimeApiClient.post,
+      delete: runtimeApiClient.delete,
     },
     getContext: function () {
       return { project: state.project, filename: state.filename };
@@ -2239,6 +2247,26 @@
     beforeStart: function () { return ensureModulesLoaded('start a test session'); },
     onSessionChange: function (session) {
       state.runtimeTargetSession = session;
+    },
+    onOpenSource: function (blockId) {
+      var block = getBlockById(blockId);
+      if (!block) return;
+      state.currentView = 'interview';
+      state.canvasMode = 'question';
+      state.selectedBlockId = blockId;
+      state.questionEditMode = 'preview';
+      // A runtime question may live outside the developer's current outline
+      // filter. Widen it before selecting so the source link cannot land on a
+      // block that the outline immediately replaces.
+      state.jumpTarget = 'all';
+      syncJumpSelect();
+      renderCanvas();
+      renderOutline();
+    },
+    onClose: function () {
+      state.canvasMode = 'question';
+      renderCanvas();
+      renderOutline();
     },
   });
 
@@ -5016,6 +5044,12 @@
 
   function loadFile() {
     if (!state.filename) return Promise.resolve();
+    var runtimeSession = runtimeInspector.getSession();
+    if (runtimeSession && (
+      runtimeSession.project !== state.project || runtimeSession.filename !== state.filename
+    )) {
+      runtimeInspector.releaseSession();
+    }
     endAssistantSessionForFileChange();
     return apiGet(
       '/api/file?project=' + encodeURIComponent(state.project) +
@@ -6384,6 +6418,13 @@
 
   function renderCanvas() {
     disposeSourceEditors();
+    var editorLayout = document.getElementById('editor-layout');
+    if (editorLayout) {
+      editorLayout.classList.toggle(
+        'editor-layout-runtime',
+        state.currentView === 'interview' && state.canvasMode === 'runtime-inspector'
+      );
+    }
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
