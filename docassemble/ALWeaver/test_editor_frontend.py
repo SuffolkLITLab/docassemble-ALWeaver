@@ -14,6 +14,7 @@ NODE_TESTS = (
     "test_editor_agent_chat.js",
     "test_editor_screen_preview.js",
     "test_editor_interview_report.js",
+    "test_editor_runtime_inspector.js",
 )
 
 
@@ -89,6 +90,40 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("Display text — unchanged", editor)
         self.assertIn("hasUnsavedChanges()", editor)
         self.assertIn(".editor-project-search-context", css)
+
+    def test_interview_debugger_is_a_first_class_editor_workbench(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        runtime = (
+            self.package_dir / "data/static/editor_runtime_inspector.js"
+        ).read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="btn-debug-interview"', template)
+        self.assertIn('data-action="open-runtime-inspector"', template)
+        self.assertLess(
+            template.index("editor_runtime_inspector.js"), template.index("editor.js")
+        )
+        self.assertIn("editor-layout-runtime", editor)
+        self.assertIn("onOpenSource: function (blockId)", editor)
+        self.assertIn("Live interview", runtime)
+        self.assertIn("Step recorder", runtime)
+        self.assertIn("Session variables", runtime)
+        self.assertIn("frame.addEventListener('load'", runtime)
+        self.assertIn("recordObservation(nextQuestion", runtime)
+        self.assertIn("refreshRenderedDebugger", runtime)
+        self.assertIn("if (liveFrame)", runtime)
+        self.assertIn("releaseSession: releaseSession", runtime)
+        self.assertIn("runtimeInspector.releaseSession()", editor)
+        # Leaving the debugger keeps the test session but tears down the panel,
+        # so the once-a-second polling must not outlive the view that shows it,
+        # and a late observation must not repaint over the editor canvas.
+        self.assertIn("hidden = true;", runtime)
+        self.assertIn("stopPolling();\n            onClose();", runtime)
+        self.assertIn("if (!container || hidden) return;", runtime)
+        self.assertIn("render: show,", runtime)
+        self.assertIn(".editor-runtime-workbench", css)
+        self.assertIn(".editor-runtime-frame", css)
 
     def test_new_template_offers_a_blank_file_or_a_drafted_document(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()

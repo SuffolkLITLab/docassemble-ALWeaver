@@ -32,15 +32,24 @@ class WeaverTargetSession:
     purpose: str
     history: List[Dict[str, Any]] = field(default_factory=list)
 
-    def target(self) -> TargetSession:
-        # Encrypted target sessions are not enabled until Weaver has a supported
-        # server-side secret handoff. Never expose or accept secrets in browser APIs.
-        if self.encrypted or self.encrypted_secret:
-            raise ValueError("Encrypted target sessions are not currently supported")
+    def target(self, secret: Optional[str] = None) -> TargetSession:
+        """Address the Docassemble session, decrypting it with ``secret``.
+
+        The developer's own Docassemble key is deliberately not part of this
+        record: it can decrypt every session they own, so callers supply it per
+        request from the browser cookie that already carries it. ``encrypted_secret``
+        holds a key only for a session Weaver had to encrypt with a generated
+        one, which no browser can open.
+        """
+        secret = secret or self.encrypted_secret
+        if self.encrypted and not secret:
+            raise ValueError(
+                "This target session is encrypted and no decryption key is available"
+            )
         return TargetSession(
             yaml_filename=self.yaml_filename,
             session_id=self.docassemble_session_id,
-            secret=None,
+            secret=secret,
         )
 
     def public_dict(self, target_url: str) -> Dict[str, Any]:
@@ -72,7 +81,13 @@ def create_runtime_record(
     yaml_filename: str,
     target: TargetSession,
     purpose: str = "test",
+    persist_secret: bool = True,
 ) -> WeaverTargetSession:
+    """Build the server-side record for one target session.
+
+    Pass ``persist_secret=False`` when the target was encrypted with a key the
+    caller can recover on every later request, so the record never stores it.
+    """
     timestamp = utc_now()
     return WeaverTargetSession(
         weaver_session_id=weaver_session_id,
@@ -82,7 +97,7 @@ def create_runtime_record(
         yaml_filename=yaml_filename,
         docassemble_session_id=target.session_id,
         encrypted=target.secret is not None,
-        encrypted_secret=None,
+        encrypted_secret=target.secret if persist_secret else None,
         created_at=timestamp,
         last_accessed_at=timestamp,
         purpose=purpose,

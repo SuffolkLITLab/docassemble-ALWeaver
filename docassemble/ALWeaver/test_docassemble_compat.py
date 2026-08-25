@@ -26,6 +26,9 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
 
         class FakeFunctions:
             server = types.SimpleNamespace()
+            # Stands in for a server whose startup already imported every
+            # package, so the custom datatype fallback stays out of the way.
+            custom_types = {"fake_datatype": {}}
 
             @staticmethod
             def create_session(yaml_filename, secret=None, url_args=None):
@@ -124,6 +127,51 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
 
         self.assertEqual(result.data, {"hook": True})
         self.assertTrue(captured["read_only"])
+
+    def test_every_target_session_call_gets_the_runtime_thread_context(self):
+        """Actions need the same thread context the other wrappers install.
+
+        Without it Docassemble runs an allowlisted ``al_weaver.inspect_*``
+        action with no ``current_info`` and no guarantee that custom datatypes
+        are registered, unlike the identical question and variable reads.
+        """
+        entered = []
+        target = docassemble_compat.TargetSession("pkg:interview.yml", "session-123")
+
+        @contextmanager
+        def counting_context():
+            entered.append(True)
+            yield
+
+        with patch.object(docassemble_compat, "_runtime_context", counting_context):
+            docassemble_compat.run_target_action(target, "inspect")
+            docassemble_compat.run_target_action_raw(target, "inspect")
+
+        self.assertEqual(len(entered), 2)
+
+    def test_custom_datatype_discovery_is_skipped_when_docassemble_loaded_them(self):
+        """Docassemble's own startup import is what normally registers these.
+
+        Repeating its filesystem walk on a server that already has custom
+        datatypes would read every installed package on the first debugger
+        click for nothing.
+        """
+        self.functions.custom_types = {"al_phone": object()}
+        with (
+            patch.object(docassemble_compat, "_CUSTOM_DATATYPES_LOADED", False),
+            patch.object(docassemble_compat, "_import_custom_datatype_modules") as scan,
+        ):
+            docassemble_compat._load_custom_datatypes()
+            self.assertFalse(scan.called)
+
+        self.functions.custom_types = {}
+        with (
+            patch.object(docassemble_compat, "_CUSTOM_DATATYPES_LOADED", False),
+            patch.object(docassemble_compat, "_import_custom_datatype_modules") as scan,
+        ):
+            docassemble_compat._load_custom_datatypes()
+            docassemble_compat._load_custom_datatypes()
+            self.assertEqual(scan.call_count, 1)
 
     def test_docx_jinja_environment_uses_installed_docassemble_layout(self):
         environment = docassemble_compat.create_docx_jinja_environment(
