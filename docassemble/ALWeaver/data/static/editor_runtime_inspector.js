@@ -47,7 +47,7 @@
         // Each pattern here has a single unbounded quantifier whose
         // character class excludes the delimiter that ends it, so matching
         // is linear in the input length despite sonarjs's generic warning.
-        // eslint-disable-next-line sonarjs/slow-regex
+        // eslint-disable-next-line sonarjs/super-linear-regex
         .replace(/<[^>]*>/g, ' ')
         .replace(/&nbsp;/gi, ' ')
         .replace(/&amp;/gi, '&')
@@ -56,7 +56,7 @@
         .replace(/&quot;/gi, '"')
         .replace(/&#(?:39|x27);/gi, "'")
         .replace(/\s+/g, ' ')
-        // eslint-disable-next-line sonarjs/slow-regex
+        // eslint-disable-next-line sonarjs/super-linear-regex
         .replace(/\s+([?!.,:;])/g, '$1')
         .trim()
     );
