@@ -104,6 +104,19 @@
     );
   }
 
+  function blockIdLabel(questionName, questionType) {
+    // Docassemble prefixes its own internal Question.name with "ID " when a
+    // block has an explicit `id:` field (docassemble_base/base/parse.py:
+    // ``self.name = "ID " + self.id``). Strip that prefix so the label
+    // matches the literal ``id: <value>`` text in the source YAML and can be
+    // pasted straight into a source search. A name without that prefix is an
+    // auto-generated Question_N/Block_N label, not a literal id, so it is
+    // not one Weaver can claim matches the source.
+    var name = String(questionName || '');
+    if (name.indexOf('ID ') === 0) return 'id: ' + name.slice(3);
+    return name || questionType;
+  }
+
   function variablePreview(value) {
     if (value === undefined) return '(removed)';
     var serialized;
@@ -174,6 +187,15 @@
     var steps = [];
     var includeInternal = false;
     var variableQuery = '';
+    // Polling rebuilds the variable list every second (see startPolling), so
+    // <details> elements are recreated from scratch on every refresh. Without
+    // remembering which names were open, an expanded variable snaps shut on
+    // the next poll tick, mid-read.
+    var expandedVariables = {};
+    // See refreshRenderedDebugger: lets a poll tick skip rebuilding a panel
+    // whose underlying data has not changed.
+    var lastRenderedQuestionKey = null;
+    var lastRenderedStepsKey = null;
     var scenarioText =
       'name: Test scenario\nvariables:\n  user.marital_status: married\ndelete:\n  - final_document';
     var status = '';
@@ -207,6 +229,9 @@
       changed = [];
       hasVariableSnapshot = false;
       steps = [];
+      expandedVariables = {};
+      lastRenderedQuestionKey = null;
+      lastRenderedStepsKey = null;
     }
 
     function stopPolling() {
@@ -426,6 +451,11 @@
       names.forEach(function (name) {
         var details = document.createElement('details');
         details.className = 'editor-runtime-variable';
+        details.open = Boolean(expandedVariables[name]);
+        details.addEventListener('toggle', function () {
+          if (details.open) expandedVariables[name] = true;
+          else delete expandedVariables[name];
+        });
         if (changed.indexOf(name) !== -1)
           details.classList.add('editor-runtime-variable-changed');
         var summary = document.createElement('summary');
@@ -502,7 +532,7 @@
         item.appendChild(label);
         var meta = document.createElement('div');
         meta.className = 'editor-tiny text-muted';
-        meta.textContent = step.questionName || step.questionType;
+        meta.textContent = blockIdLabel(step.questionName, step.questionType);
         item.appendChild(meta);
         if (step.answers && step.answers.length) {
           var answers = document.createElement('ul');
@@ -545,22 +575,37 @@
           button.disabled = busy;
         });
 
+      // Polling calls this every second (see startPolling). Rebuilding a
+      // panel that has not actually changed destroys and recreates its
+      // elements for nothing — which, mid double-click, makes the browser's
+      // word-selection lose its anchor node and fall back to selecting the
+      // nearest surviving ancestor (the whole step, label included) instead
+      // of just the word that was clicked. Skipping the rebuild when the
+      // observed data is unchanged avoids that, along with the flicker.
       var questionTarget = wrapper.querySelector('#runtime-question');
-      questionTarget.innerHTML = '';
-      renderQuestion(questionTarget);
+      var questionKey = JSON.stringify(question);
+      if (questionKey !== lastRenderedQuestionKey) {
+        lastRenderedQuestionKey = questionKey;
+        questionTarget.innerHTML = '';
+        renderQuestion(questionTarget);
+      }
       var stepTarget = wrapper.querySelector('#runtime-step-list');
-      var previousScrollTop = stepTarget.scrollTop;
-      var wasAtBottom =
-        stepTarget.scrollHeight -
-          stepTarget.scrollTop -
-          stepTarget.clientHeight <
-        24;
-      stepTarget.innerHTML = '';
-      renderSteps(stepTarget);
-      // Polling re-renders this panel. Keep a user's scroll position instead
-      // of forcing them back to the newest step on every refresh. New sessions
-      // and users already at the bottom still follow the latest step.
-      if (!wasAtBottom) stepTarget.scrollTop = previousScrollTop;
+      var stepsKey = JSON.stringify(steps);
+      if (stepsKey !== lastRenderedStepsKey) {
+        lastRenderedStepsKey = stepsKey;
+        var previousScrollTop = stepTarget.scrollTop;
+        var wasAtBottom =
+          stepTarget.scrollHeight -
+            stepTarget.scrollTop -
+            stepTarget.clientHeight <
+          24;
+        stepTarget.innerHTML = '';
+        renderSteps(stepTarget);
+        // Keep a user's scroll position instead of forcing them back to the
+        // newest step on every refresh. New sessions and users already at
+        // the bottom still follow the latest step.
+        if (!wasAtBottom) stepTarget.scrollTop = previousScrollTop;
+      }
       wrapper.querySelector('#runtime-step-count').textContent = String(
         steps.length,
       );
@@ -780,6 +825,7 @@
     findQuestionSource: findQuestionSource,
     questionLabel: questionLabel,
     questionIdentity: questionIdentity,
+    blockIdLabel: blockIdLabel,
     variablePreview: variablePreview,
     updateStepHistory: updateStepHistory,
   };

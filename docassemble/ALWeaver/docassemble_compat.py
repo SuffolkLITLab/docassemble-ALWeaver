@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 import base64
 import importlib
@@ -64,12 +64,35 @@ class TargetActionResult:
 
 
 def initialize_interview_context() -> None:
-    """Install Docassemble's normal request context for server-side sessions."""
+    """Install Docassemble's normal request context for server-side sessions.
+
+    1.10.x moved ``this_thread`` into ``docassemble.base.thread_context`` and
+    ``current_info`` into ``docassemble.webapp.utils.helpers``; neither module
+    exists on 1.9.x, where the same objects live on ``docassemble.base.functions``
+    and ``docassemble.webapp.server`` respectively. Without this fallback,
+    ``this_thread.current_info`` is silently never populated on a 1.9.x
+    server, and Docassemble's own session-creation code (which reads
+    ``this_thread.current_info['user']['device_id']`` unconditionally) fails
+    in ways that surface as unrelated-looking interview parse errors.
+    """
     try:
         from flask import request
         from flask_login import current_user
-        from docassemble.base.thread_context import this_thread
-        from docassemble.webapp.utils.helpers import current_info
+
+        this_thread = _first_webapp_attr(
+            (
+                ("docassemble.base.thread_context", "this_thread"),
+                ("docassemble.base.functions", "this_thread"),
+            ),
+            "its per-thread request context",
+        )
+        current_info = _first_webapp_attr(
+            (
+                ("docassemble.webapp.utils.helpers", "current_info"),
+                ("docassemble.webapp.server", "current_info"),
+            ),
+            "its current_info context builder",
+        )
 
         user_id = getattr(current_user, "id", None)
         device_id = request.cookies.get("ds") or "alweaver-runtime"
@@ -84,9 +107,9 @@ def initialize_interview_context() -> None:
         # The downstream Docassemble call provides the authoritative error if
         # this compatibility setup is unavailable on an older release. A
         # server with no config file (e.g. this test suite) makes importing
-        # ``docassemble.webapp.utils.helpers`` call ``sys.exit(1)``, which is
-        # a ``SystemExit`` rather than an ``Exception`` and must be caught
-        # here too so it does not escape as a fatal error.
+        # ``docassemble.webapp.server`` call ``sys.exit(1)``, which is a
+        # ``SystemExit`` rather than an ``Exception`` and must be caught here
+        # too so it does not escape as a fatal error.
         return
 
 
@@ -161,10 +184,22 @@ def _import_custom_datatype_modules() -> None:
 
 @contextmanager
 def _runtime_context():
-    """Provide the thread-local globals Docassemble expects for API calls."""
-    from docassemble.base.thread_context import empty_globals, global_context
+    """Provide the thread-local globals Docassemble expects for API calls.
 
-    with global_context(empty_globals()):
+    ``docassemble.base.thread_context`` (with its per-call ``global_context``
+    reset) is a 1.10.x addition. 1.9.x has no equivalent module: its
+    ``this_thread`` is a plain ``threading.local()`` on
+    ``docassemble.base.functions`` that already isolates state per worker
+    thread, so there is nothing else to reset here.
+    """
+    try:
+        from docassemble.base.thread_context import empty_globals, global_context
+    except ImportError:
+        context_manager = nullcontext()
+    else:
+        context_manager = global_context(empty_globals())
+
+    with context_manager:
         initialize_interview_context()
         _load_custom_datatypes()
         yield
