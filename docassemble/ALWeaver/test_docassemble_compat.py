@@ -290,6 +290,78 @@ class TestWebappAccessors(unittest.TestCase):
                 )
             self.assertEqual(imported, [])
 
+    def test_initialize_interview_context_falls_back_to_19x_locations(self):
+        """1.9.x has neither ``docassemble.base.thread_context`` nor
+        ``docassemble.webapp.utils.helpers`` — confirmed against the real
+        upstream source at v1.9.13 in
+        ``test_19_and_110_session_contracts_when_checkout_available``. On
+        1.9.x, ``this_thread`` lives on ``docassemble.base.functions`` and
+        ``current_info`` lives on ``docassemble.webapp.server``. Without this
+        fallback ``this_thread.current_info`` is silently never populated on
+        a 1.9.x server, and Docassemble's own session creation (which reads
+        ``this_thread.current_info['user']['device_id']`` unconditionally)
+        breaks in ways that surface as unrelated-looking interview errors.
+        """
+        functions_stub = types.ModuleType("docassemble.base.functions")
+        this_thread = types.SimpleNamespace()
+        functions_stub.this_thread = this_thread
+
+        captured = {}
+
+        def fake_current_info(**kwargs):
+            captured.update(kwargs)
+            return {"user": {"device_id": kwargs["device_id"]}}
+
+        layout = dict(self.LAYOUT_19)
+        layout["docassemble.webapp.server"] = dict(layout["docassemble.webapp.server"])
+        layout["docassemble.webapp.server"]["current_info"] = fake_current_info
+
+        removed_base = {}
+        if "docassemble.base.thread_context" in sys.modules:
+            removed_base["docassemble.base.thread_context"] = sys.modules.pop(
+                "docassemble.base.thread_context"
+            )
+
+        app = Flask(__name__)
+        try:
+            with self._layout(layout):
+                with patch.dict(
+                    sys.modules,
+                    {"docassemble.base.functions": functions_stub},
+                    clear=False,
+                ):
+                    with app.test_request_context("/"):
+                        with patch("flask_login.current_user") as mock_user:
+                            mock_user.id = 7
+                            docassemble_compat.initialize_interview_context()
+        finally:
+            sys.modules.update(removed_base)
+
+        self.assertEqual(
+            this_thread.current_info, {"user": {"device_id": "alweaver-runtime"}}
+        )
+        self.assertEqual(captured["session_uid"], "7")
+
+    def test_runtime_context_degrades_when_thread_context_is_missing(self):
+        """``_runtime_context`` must not require the 1.10.x-only module."""
+        removed_base = {}
+        if "docassemble.base.thread_context" in sys.modules:
+            removed_base["docassemble.base.thread_context"] = sys.modules.pop(
+                "docassemble.base.thread_context"
+            )
+        try:
+            with self._layout({}):
+                with (
+                    patch.object(
+                        docassemble_compat, "initialize_interview_context"
+                    ),
+                    patch.object(docassemble_compat, "_load_custom_datatypes"),
+                ):
+                    with docassemble_compat._runtime_context():
+                        pass
+        finally:
+            sys.modules.update(removed_base)
+
 
 class TestNativeGithubCompatibility(unittest.TestCase):
     def test_repository_snapshot_uses_one_archive_download(self):

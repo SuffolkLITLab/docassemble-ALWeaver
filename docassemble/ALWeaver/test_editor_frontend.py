@@ -124,6 +124,24 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("render: show,", runtime)
         self.assertIn(".editor-runtime-workbench", css)
         self.assertIn(".editor-runtime-frame", css)
+        # Polling rebuilds the variable list every second; an expanded
+        # <details> must stay expanded across that rebuild instead of
+        # snapping shut mid-read.
+        self.assertIn("var expandedVariables = {};", runtime)
+        self.assertIn("details.open = Boolean(expandedVariables[name]);", runtime)
+        self.assertIn("details.addEventListener('toggle'", runtime)
+        # The step recorder shows each screen's stable name formatted exactly
+        # as it appears in the source YAML (stripping Docassemble's own "ID "
+        # prefix on Question.name), so it can be copied and searched for
+        # directly in the source editor.
+        self.assertIn("function blockIdLabel(questionName, questionType)", runtime)
+        self.assertIn("meta.textContent = blockIdLabel(", runtime)
+        # Rebuilding a panel every poll tick even when nothing changed can
+        # sever a double-click's word-selection anchor mid-click, expanding
+        # the selection to the nearest surviving ancestor. Skip the rebuild
+        # when the underlying data is unchanged.
+        self.assertIn("if (questionKey !== lastRenderedQuestionKey)", runtime)
+        self.assertIn("if (stepsKey !== lastRenderedStepsKey)", runtime)
 
     def test_new_template_offers_a_blank_file_or_a_drafted_document(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
