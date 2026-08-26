@@ -219,13 +219,14 @@ class TestWebappAccessors(unittest.TestCase):
         }
         for name in removed:
             del sys.modules[name]
+
+        def unavailable_import(module_name):
+            raise ImportError(f"{module_name} is not installed")
+
+        isolated_importlib = types.SimpleNamespace(import_module=unavailable_import)
         try:
             with patch.dict(sys.modules, stubs, clear=False):
-                with patch.object(
-                    docassemble_compat.importlib,
-                    "import_module",
-                    side_effect=ImportError("not installed"),
-                ):
+                with patch.object(docassemble_compat, "importlib", isolated_importlib):
                     yield
         finally:
             sys.modules.update(removed)
@@ -316,26 +317,23 @@ class TestWebappAccessors(unittest.TestCase):
         layout["docassemble.webapp.server"] = dict(layout["docassemble.webapp.server"])
         layout["docassemble.webapp.server"]["current_info"] = fake_current_info
 
-        removed_base = {}
-        if "docassemble.base.thread_context" in sys.modules:
-            removed_base["docassemble.base.thread_context"] = sys.modules.pop(
-                "docassemble.base.thread_context"
-            )
-
+        flask_login_stub = types.ModuleType("flask_login")
+        flask_login_stub.current_user = types.SimpleNamespace(id=7)
         app = Flask(__name__)
-        try:
+        with patch.dict(
+            sys.modules, {"docassemble.base.thread_context": None}, clear=False
+        ):
             with self._layout(layout):
                 with patch.dict(
                     sys.modules,
                     {"docassemble.base.functions": functions_stub},
                     clear=False,
                 ):
-                    with app.test_request_context("/"):
-                        with patch("flask_login.current_user") as mock_user:
-                            mock_user.id = 7
+                    with patch.dict(
+                        sys.modules, {"flask_login": flask_login_stub}, clear=False
+                    ):
+                        with app.test_request_context("/"):
                             docassemble_compat.initialize_interview_context()
-        finally:
-            sys.modules.update(removed_base)
 
         self.assertEqual(
             this_thread.current_info, {"user": {"device_id": "alweaver-runtime"}}
@@ -344,23 +342,16 @@ class TestWebappAccessors(unittest.TestCase):
 
     def test_runtime_context_degrades_when_thread_context_is_missing(self):
         """``_runtime_context`` must not require the 1.10.x-only module."""
-        removed_base = {}
-        if "docassemble.base.thread_context" in sys.modules:
-            removed_base["docassemble.base.thread_context"] = sys.modules.pop(
-                "docassemble.base.thread_context"
-            )
-        try:
+        with patch.dict(
+            sys.modules, {"docassemble.base.thread_context": None}, clear=False
+        ):
             with self._layout({}):
                 with (
-                    patch.object(
-                        docassemble_compat, "initialize_interview_context"
-                    ),
+                    patch.object(docassemble_compat, "initialize_interview_context"),
                     patch.object(docassemble_compat, "_load_custom_datatypes"),
                 ):
                     with docassemble_compat._runtime_context():
                         pass
-        finally:
-            sys.modules.update(removed_base)
 
 
 class TestNativeGithubCompatibility(unittest.TestCase):
