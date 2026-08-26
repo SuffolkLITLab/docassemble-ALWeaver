@@ -226,8 +226,23 @@ question: |
   Get started with the Weaver
 subquestion: |
   Use the Weaver to rapidly build a draft automation for your court or other legal form.
+
+  <div class="da-alert alert alert-warning alert-dismissible fade show" role="alert">
+    <strong>Important:</strong> The old Wizard-based Weaver is deprecated and is no longer being actively developed. Please use the new Weaver instead.
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
   
   <div class="row row-cols-1 row-cols-md-2 g-2">
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">Try the new Weaver</h5>
+          <p class="card-text">The new Weaver is a full replacement with many advanced additional features.</p>
+          <a class="btn btn-primary stretched-link align-self-end" href="https://assemblyline.suffolklitlab.org/al/editor" role="button">Open the new Weaver</a>
+          <p class="card-text mt-3 mb-0"><a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/weaver_overview">Read the new Weaver documentation</a></p>
+        </div>
+      </div>
+    </div>
     <div class="col">
       <div class="card h-100">
         <img src="${ upload_template_image.url_for() }" class="card-img-top p-2" style="max-height: 15rem;" alt="...">
