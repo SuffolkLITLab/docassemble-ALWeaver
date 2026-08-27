@@ -37,6 +37,10 @@ def _local_file_finder(file_reference: Any, **kwargs: Any) -> Dict[str, Any]:
 @pytest.fixture(autouse=True)
 def docassemble_test_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Provide the minimal server and thread context Docassemble tests expect."""
+    try:
+        import defusedxml.ElementTree  # type: ignore # Prevent NLTK inisec guard from blocking CWD-nested venv
+    except ImportError:
+        pass
     import docassemble.base.dates as da_dates
     import docassemble.base.functions as da_functions
     import docassemble.base.util as da_util

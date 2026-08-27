@@ -128,6 +128,7 @@ from .document_bundles import (
 from .worker_config import (
     CELERY_CONFIGURATION_DOCS_URL,
     CELERY_MODULE,
+    add_celery_module_to_config_yaml,
     get_worker_configuration_status,
     worker_configuration_is_ready,
 )
@@ -414,6 +415,17 @@ def _editor_auth_check() -> bool:
             current_user.is_authenticated
             and callable(has_role)
             and has_role("admin", "developer")
+        )
+    except Exception:
+        return False
+
+
+def _editor_admin_check() -> bool:
+    """Return True only for an authenticated Docassemble administrator."""
+    try:
+        has_role = getattr(current_user, "has_role", None)
+        return bool(
+            current_user.is_authenticated and callable(has_role) and has_role("admin")
         )
     except Exception:
         return False
@@ -1145,12 +1157,14 @@ def _render_editor_page() -> str:
     if not html:
         return ""
     login_url, logout_url = _editor_auth_urls()
+    celery_check = get_worker_configuration_status()
+    celery_check["setup"] = _celery_setup_capability()
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
         "csrfToken": generate_csrf(),
         "features": _editor_feature_bootstrap(),
         "systemChecks": {
-            "celery": get_worker_configuration_status(),
+            "celery": celery_check,
         },
         "auth": {
             "authenticated": False,
@@ -3759,6 +3773,57 @@ def _filesystem_is_read_only() -> bool:
     return bool(_daconfig().get("read only file system", False))
 
 
+def _celery_setup_capability() -> Dict[str, Any]:
+    """Describe who may make the narrowly-scoped Celery config change."""
+    is_admin = _editor_admin_check()
+    config_editing_enabled = bool(app.config.get("ALLOW_CONFIGURATION_EDITING"))
+    read_only = _filesystem_is_read_only()
+    config_url = ""
+    if is_admin:
+        config_url = _resolve_endpoint("admin.config_page", "config_page")
+    if not is_admin:
+        reason = "Ask an administrator to add the Weaver worker module."
+    elif not config_editing_enabled:
+        reason = "Configuration editing is disabled on this server."
+    elif read_only:
+        reason = "This server's configuration file system is read-only."
+    else:
+        reason = None
+    return {
+        "is_admin": is_admin,
+        "can_save": bool(is_admin and config_editing_enabled and not read_only),
+        "config_url": config_url,
+        "blocked_reason": reason,
+    }
+
+
+def _config_file_path() -> str:
+    path = _daconfig().get("config file")
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("Docassemble did not provide the path to config.yml.")
+    return path
+
+
+def _write_config_source(source: str) -> None:
+    """Write config source verbatim locally and to configured shared storage."""
+    config_path = _config_file_path()
+    from .docassemble_compat import cloud_object
+
+    cloud = cloud_object()
+    if cloud is not None:
+        cloud.get_key("config.yml").set_contents_from_string(source)
+    stat_result = os.stat(config_path)
+    temporary_path = f"{config_path}.weaver-{uuid.uuid4().hex}.tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as config_file:
+            config_file.write(source)
+        os.chmod(temporary_path, stat_result.st_mode)
+        os.replace(temporary_path, config_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
 def _restarting_is_allowed() -> bool:
     """Whether this server permits restarts at all.
 
@@ -6215,6 +6280,97 @@ def editor_api_delete_section_file() -> Response:
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/server/celery-config", methods=["POST"])
+def editor_api_add_celery_config() -> Response:
+    """Add Weaver's Celery module without reformatting the server config."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _editor_admin_check():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "authorization_error",
+                    "message": "Only an administrator may update config.yml.",
+                },
+            },
+            403,
+        )
+    setup = _celery_setup_capability()
+    if not setup["can_save"]:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "configuration_not_editable",
+                    "message": setup["blocked_reason"],
+                },
+            },
+            409,
+        )
+    restart_capability = _restart_capability()
+    if not restart_capability["allowed"]:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "restart_not_allowed",
+                    "message": restart_capability["reason"],
+                },
+            },
+            409,
+        )
+    try:
+        config_path = _config_file_path()
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            original = config_file.read()
+        updated, changed = add_celery_module_to_config_yaml(original)
+        if changed:
+            _write_config_source(updated)
+        # Celery discovers task modules on process start.  Restart only after
+        # the precise config change is durable, just as Docassemble's own
+        # configuration workflow does.
+        restart_docassemble()
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "changed": changed,
+                    "required_module": CELERY_MODULE,
+                    "restarting": True,
+                },
+            }
+        )
+    except (OSError, ValueError) as exc:
+        log(f"ALWeaver editor: Celery configuration update error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "configuration_error", "message": str(exc)},
+            },
+            500,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: unexpected Celery configuration error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "configuration_error",
+                    "message": "Unable to update the Celery configuration.",
+                },
             },
             500,
         )

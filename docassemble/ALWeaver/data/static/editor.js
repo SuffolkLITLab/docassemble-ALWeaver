@@ -7,9 +7,7 @@
 (function () {
   'use strict';
 
-
   // -------------------------------------------------------------------------
-
 
   // Bootstrap data injected by the server
   // -------------------------------------------------------------------------
@@ -112,7 +110,8 @@
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
   var DOCASSEMBLE_FIELDS_DOCS_URL = 'https://docassemble.org/docs/fields.html';
-  var ASSEMBLYLINE_AL_GENERAL_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/al_general/';
+  var ASSEMBLYLINE_AL_GENERAL_DOCS_URL =
+    'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/al_general/';
   var UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
   var UPLOAD_JOB_MAX_ATTEMPTS = 480;
   var GITHUB_PUBLISH_JOB_POLL_INTERVAL_MS = 1500;
@@ -146,7 +145,9 @@
 
   function buildStandardPlaygroundUrl() {
     if (!state.project) return null;
-    var section = isInterviewView() ? 'playground' : getSectionFromView(state.currentView);
+    var section = isInterviewView()
+      ? 'playground'
+      : getSectionFromView(state.currentView);
     var filename = getCurrentSectionFilename(state.currentView);
     var url = '/playground?project=' + encodeURIComponent(state.project);
     if (section) url += '&section=' + encodeURIComponent(section);
@@ -165,19 +166,24 @@
 
   function updateLeftSearchPlaceholder() {
     if (!searchInput) return;
-    searchInput.placeholder = isInterviewView() ? 'Type to filter...' : 'Search files...';
+    searchInput.placeholder = isInterviewView()
+      ? 'Type to filter...'
+      : 'Search files...';
   }
 
   function updateLeftRailMode() {
     var fileSection = document.getElementById('editor-file-section');
     var jumpTargets = document.getElementById('jump-targets');
-    if (fileSection) fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
+    if (fileSection)
+      fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
     if (jumpTargets) jumpTargets.classList.toggle('d-none', !isInterviewView());
     updateOutlineHeader();
   }
 
   function updateOutlineHeader() {
-    var outlineHeader = document.querySelector('.editor-outline-header .editor-tiny');
+    var outlineHeader = document.querySelector(
+      '.editor-outline-header .editor-tiny',
+    );
     var orderButton = document.getElementById('btn-order-builder');
     if (outlineHeader) {
       outlineHeader.textContent = isInterviewView() ? 'Outline' : 'File list';
@@ -191,7 +197,11 @@
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
-    var isDirty = dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
+    var isDirty =
+      dirtyState.hasDirty(state.filename) ||
+      state.sectionDirty ||
+      state.assemblyLineSettingsDirty ||
+      state.documentsDirty;
     buttons.forEach(function (btn) {
       btn.disabled = !isDirty;
       var badge = btn.querySelector('.js-save-badge');
@@ -222,12 +232,20 @@
   }
 
   function isCommentedBlock(block) {
-    return Boolean(block && (block.type === 'commented' || (block.tags || []).indexOf('commented') !== -1));
+    return Boolean(
+      block &&
+      (block.type === 'commented' ||
+        (block.tags || []).indexOf('commented') !== -1),
+    );
   }
 
   function getBlockDisplayType(block) {
     if (!block) return '';
-    if (block.type === 'commented' && block.data && block.data._commented_type) {
+    if (
+      block.type === 'commented' &&
+      block.data &&
+      block.data._commented_type
+    ) {
       return String(block.data._commented_type || 'commented');
     }
     return String(block.type || '');
@@ -242,16 +260,27 @@
     if (isPlaceholderSectionFile(filename)) return '';
     var size = Number((fileMeta && fileMeta.size) || 0);
     if (Number.isFinite(size) && size === 0) return 'empty file';
-    var tag = String((fileMeta && (fileMeta.preview_kind || fileMeta.mimetype || 'file')) || 'file').toUpperCase();
+    var tag = String(
+      (fileMeta && (fileMeta.preview_kind || fileMeta.mimetype || 'file')) ||
+        'file',
+    ).toUpperCase();
     return tag.slice(0, 4);
   }
 
   function supportsDashboardEditor(fileMeta) {
-    return Boolean(fileMeta && (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx'));
+    return Boolean(
+      fileMeta &&
+      (fileMeta.preview_kind === 'pdf' || fileMeta.preview_kind === 'docx'),
+    );
   }
 
   function hasUnsavedChanges() {
-    return dirtyState.hasDirty(state.filename) || state.sectionDirty || state.assemblyLineSettingsDirty || state.documentsDirty;
+    return (
+      dirtyState.hasDirty(state.filename) ||
+      state.sectionDirty ||
+      state.assemblyLineSettingsDirty ||
+      state.documentsDirty
+    );
   }
 
   function sectionSnapshotKey() {
@@ -311,7 +340,9 @@
     if (!container) return null;
     options = options || {};
     if (typeof window.daNewEditor !== 'function') {
-      throw new Error('CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?');
+      throw new Error(
+        'CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?',
+      );
     }
     if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
     container.innerHTML = '';
@@ -324,10 +355,12 @@
       String(value === undefined || value === null ? '' : value),
       mode || 'yaml',
       'default',
-      true
+      true,
     );
     if (!bundle || !bundle.ev) {
-      throw new Error('Docassemble could not initialize its CodeMirror editor.');
+      throw new Error(
+        'Docassemble could not initialize its CodeMirror editor.',
+      );
     }
     var view = bundle.ev;
     var subscribers = [];
@@ -337,29 +370,42 @@
       originalDispatch.apply(view, arguments);
       var after = view.state.doc.toString();
       if (after !== before) {
-        subscribers.slice().forEach(function (callback) { callback(after); });
+        subscribers.slice().forEach(function (callback) {
+          callback(after);
+        });
       }
     };
     if (view.contentDOM && typeof view.contentDOM.setAttribute === 'function') {
-      view.contentDOM.setAttribute('aria-label', options.ariaLabel || 'Source editor');
+      view.contentDOM.setAttribute(
+        'aria-label',
+        options.ariaLabel || 'Source editor',
+      );
       view.contentDOM.setAttribute('aria-multiline', 'true');
     }
     var editor = {
-      getValue: function () { return view.state.doc.toString(); },
+      getValue: function () {
+        return view.state.doc.toString();
+      },
       setValue: function (nextValue) {
         view.dispatch({
           changes: {
             from: 0,
             to: view.state.doc.length,
-            insert: String(nextValue === undefined || nextValue === null ? '' : nextValue),
+            insert: String(
+              nextValue === undefined || nextValue === null ? '' : nextValue,
+            ),
           },
         });
       },
       onChange: function (callback) {
         subscribers.push(callback);
-        return { dispose: function () {
-          subscribers = subscribers.filter(function (candidate) { return candidate !== callback; });
-        } };
+        return {
+          dispose: function () {
+            subscribers = subscribers.filter(function (candidate) {
+              return candidate !== callback;
+            });
+          },
+        };
       },
       dispose: function () {
         subscribers = [];
@@ -378,7 +424,8 @@
 
   function getOrCreateBootstrapModal(elementId) {
     var modalEl = document.getElementById(elementId);
-    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return null;
+    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal)
+      return null;
     return bootstrap.Modal.getOrCreateInstance(modalEl);
   }
 
@@ -402,15 +449,18 @@
   function loadListTopics() {
     if (listTopics.groups) return Promise.resolve(listTopics.groups);
     if (listTopics.loading) return listTopics.loading;
-    listTopics.loading = apiGet('/api/list-topics').then(function (res) {
-      listTopics.loading = null;
-      if (!res.success || !res.data) throw new Error('Unable to load the LIST taxonomy.');
-      listTopics.groups = res.data.groups || [];
-      return listTopics.groups;
-    }).catch(function (error) {
-      listTopics.loading = null;
-      throw error;
-    });
+    listTopics.loading = apiGet('/api/list-topics')
+      .then(function (res) {
+        listTopics.loading = null;
+        if (!res.success || !res.data)
+          throw new Error('Unable to load the LIST taxonomy.');
+        listTopics.groups = res.data.groups || [];
+        return listTopics.groups;
+      })
+      .catch(function (error) {
+        listTopics.loading = null;
+        throw error;
+      });
     return listTopics.loading;
   }
 
@@ -418,7 +468,9 @@
     if (!input) return [];
     return String(input.value || '')
       .split(/[\n,]/)
-      .map(function (part) { return part.trim(); })
+      .map(function (part) {
+        return part.trim();
+      })
       .filter(Boolean);
   }
 
@@ -426,21 +478,46 @@
     var tree = document.getElementById('list-topics-tree');
     if (!tree) return;
     var chosen = {};
-    (selected || []).forEach(function (code) { chosen[code] = true; });
+    (selected || []).forEach(function (code) {
+      chosen[code] = true;
+    });
     var html = '';
     (listTopics.groups || []).forEach(function (group, groupIndex) {
       var groupId = 'list-topic-group-' + groupIndex;
       html += '<details class="editor-topic-group" data-topic-group open>';
-      html += '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">' + esc(group.label) + '</span>';
-      html += '<span class="badge text-bg-primary editor-topic-count" data-topic-count hidden></span></summary>';
+      html +=
+        '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">' +
+        esc(group.label) +
+        '</span>';
+      html +=
+        '<span class="badge text-bg-primary editor-topic-count" data-topic-count hidden></span></summary>';
       html += '<div class="editor-topic-children">';
       (group.topics || []).forEach(function (topic, topicIndex) {
         var inputId = groupId + '-' + topicIndex;
         var searchText = (topic.label + ' ' + topic.code).toLowerCase();
-        html += '<div class="form-check editor-topic-item" data-topic-item data-search="' + esc(searchText) + '">';
-        html += '<input class="form-check-input" type="checkbox" id="' + esc(inputId) + '" data-topic-code="' + esc(topic.code) + '"' + (chosen[topic.code] ? ' checked' : '') + '>';
-        html += '<label class="form-check-label' + (topic.heading ? ' fw-semibold' : '') + '" for="' + esc(inputId) + '">' + esc(topic.label);
-        html += ' <span class="text-muted font-monospace editor-tiny">' + esc(topic.code) + '</span></label>';
+        html +=
+          '<div class="form-check editor-topic-item" data-topic-item data-search="' +
+          esc(searchText) +
+          '">';
+        html +=
+          '<input class="form-check-input" type="checkbox" id="' +
+          esc(inputId) +
+          '" data-topic-code="' +
+          esc(topic.code) +
+          '"' +
+          (chosen[topic.code] ? ' checked' : '') +
+          '>';
+        html +=
+          '<label class="form-check-label' +
+          (topic.heading ? ' fw-semibold' : '') +
+          '" for="' +
+          esc(inputId) +
+          '">' +
+          esc(topic.label);
+        html +=
+          ' <span class="text-muted font-monospace editor-tiny">' +
+          esc(topic.code) +
+          '</span></label>';
         html += '</div>';
       });
       html += '</div></details>';
@@ -454,7 +531,9 @@
     if (!tree) return;
     var total = 0;
     tree.querySelectorAll('[data-topic-group]').forEach(function (group) {
-      var checked = group.querySelectorAll('input[data-topic-code]:checked').length;
+      var checked = group.querySelectorAll(
+        'input[data-topic-code]:checked',
+      ).length;
       total += checked;
       var badge = group.querySelector('[data-topic-count]');
       if (badge) {
@@ -463,19 +542,25 @@
       }
     });
     var count = document.getElementById('list-topics-selected-count');
-    if (count) count.textContent = total === 1 ? '1 topic selected' : total + ' topics selected';
+    if (count)
+      count.textContent =
+        total === 1 ? '1 topic selected' : total + ' topics selected';
   }
 
   function applyListTopicsFilter() {
     var field = document.getElementById('list-topics-filter');
     var tree = document.getElementById('list-topics-tree');
     if (!tree) return;
-    var query = String((field && field.value) || '').trim().toLowerCase();
+    var query = String((field && field.value) || '')
+      .trim()
+      .toLowerCase();
     var anyVisible = false;
     tree.querySelectorAll('[data-topic-group]').forEach(function (group) {
       var visibleItems = 0;
       group.querySelectorAll('[data-topic-item]').forEach(function (item) {
-        var visible = !query || String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
+        var visible =
+          !query ||
+          String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
         item.classList.toggle('d-none', !visible);
         if (visible) visibleItems += 1;
       });
@@ -497,17 +582,25 @@
     listTopics.targetId = targetId;
     listTopics.separator = separator || ', ';
     var tree = document.getElementById('list-topics-tree');
-    if (tree) tree.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
+    if (tree)
+      tree.innerHTML =
+        '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
     var filter = document.getElementById('list-topics-filter');
     if (filter) filter.value = '';
     var modal = getOrCreateBootstrapModal('list-topics-modal');
     if (modal) modal.show();
-    loadListTopics().then(function () {
-      renderListTopicsTree(_readTopicCodes(input));
-      applyListTopicsFilter();
-    }).catch(function (error) {
-      if (tree) tree.innerHTML = '<div class="alert alert-danger">' + esc(error.message || 'Unable to load the LIST taxonomy.') + '</div>';
-    });
+    loadListTopics()
+      .then(function () {
+        renderListTopicsTree(_readTopicCodes(input));
+        applyListTopicsFilter();
+      })
+      .catch(function (error) {
+        if (tree)
+          tree.innerHTML =
+            '<div class="alert alert-danger">' +
+            esc(error.message || 'Unable to load the LIST taxonomy.') +
+            '</div>';
+      });
   }
 
   function applyListTopicsSelection() {
@@ -515,9 +608,11 @@
     var tree = document.getElementById('list-topics-tree');
     if (!input || !tree) return;
     var codes = [];
-    tree.querySelectorAll('input[data-topic-code]:checked').forEach(function (box) {
-      codes.push(box.getAttribute('data-topic-code'));
-    });
+    tree
+      .querySelectorAll('input[data-topic-code]:checked')
+      .forEach(function (box) {
+        codes.push(box.getAttribute('data-topic-code'));
+      });
     input.value = codes.join(listTopics.separator);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -544,7 +639,9 @@
   function openQuestionLibraryPicker() {
     if (!state.project || !state.filename) return;
     var body = document.getElementById('question-library-body');
-    if (body) body.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
+    if (body)
+      body.innerHTML =
+        '<div class="text-center py-4"><div class="spinner-border" role="status"></div></div>';
     var applyBtn = document.getElementById('question-library-apply');
     if (applyBtn) applyBtn.disabled = true;
     var count = document.getElementById('question-library-selected-count');
@@ -552,17 +649,32 @@
     resetQuestionLibraryNewObjectForm();
     var modal = getOrCreateBootstrapModal('question-library-modal');
     if (modal) modal.show();
-    apiGet('/api/question-library?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    apiGet(
+      '/api/question-library?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
       .then(function (res) {
         if (!res.success || !res.data) {
-          throw new Error((res.error && res.error.message) || 'Unable to load the question library.');
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to load the question library.',
+          );
         }
         questionLibrary.objects = res.data.objects || [];
         renderQuestionLibrary();
       })
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
-        if (body) body.innerHTML = '<div class="alert alert-danger">' + esc((error && error.message) || 'Unable to load the question library.') + '</div>';
+        if (body)
+          body.innerHTML =
+            '<div class="alert alert-danger">' +
+            esc(
+              (error && error.message) ||
+                'Unable to load the question library.',
+            ) +
+            '</div>';
       });
   }
 
@@ -573,7 +685,9 @@
     var body = document.getElementById('question-library-body');
     if (!body) return chosen;
     body.querySelectorAll('input[data-ql-kind]').forEach(function (box) {
-      chosen[box.getAttribute('data-ql-var') + '|' + box.getAttribute('data-ql-kind')] = box.checked;
+      chosen[
+        box.getAttribute('data-ql-var') + '|' + box.getAttribute('data-ql-kind')
+      ] = box.checked;
     });
     return chosen;
   }
@@ -584,46 +698,78 @@
     var chosen = previousSelection || {};
     var objects = questionLibrary.objects || [];
     if (!objects.length) {
-      body.innerHTML = '<div class="alert alert-light border">'
-        + 'This file does not declare any people yet. Use <strong>Add someone new to this interview</strong> '
-        + 'above, and AssemblyLine\'s questions about them will show up here.'
-        + '</div>';
+      body.innerHTML =
+        '<div class="alert alert-light border">' +
+        'This file does not declare any people yet. Use <strong>Add someone new to this interview</strong> ' +
+        "above, and AssemblyLine's questions about them will show up here." +
+        '</div>';
       updateQuestionLibraryCount();
       return;
     }
     var html = '';
     objects.forEach(function (entry, entryIndex) {
       var groupId = 'question-library-group-' + entryIndex;
-      html += '<details class="editor-topic-group" data-ql-group data-ql-var="' + esc(entry.var) + '" open>';
-      html += '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">'
-        + esc(entry.var) + ' <span class="text-muted font-monospace editor-tiny">' + esc(entry.class_name) + '</span></span>';
-      html += '<span class="badge text-bg-primary editor-topic-count" data-ql-count hidden></span></summary>';
+      html +=
+        '<details class="editor-topic-group" data-ql-group data-ql-var="' +
+        esc(entry.var) +
+        '" open>';
+      html +=
+        '<summary class="editor-topic-summary"><span class="editor-topic-summary-label">' +
+        esc(entry.var) +
+        ' <span class="text-muted font-monospace editor-tiny">' +
+        esc(entry.class_name) +
+        '</span></span>';
+      html +=
+        '<span class="badge text-bg-primary editor-topic-count" data-ql-count hidden></span></summary>';
       html += '<div class="editor-topic-children">';
       ['gather', 'attribute'].forEach(function (group) {
         var questions = (entry.questions || []).filter(function (question) {
           return question.group === group;
         });
         if (!questions.length) return;
-        html += '<div class="editor-tiny text-muted mt-2 mb-1">'
-          + esc(group === 'gather'
-            ? (entry.is_list ? 'Building the list of ' + entry.plural : 'Who they are')
-            : 'Questions about each ' + entry.singular)
-          + '</div>';
+        html +=
+          '<div class="editor-tiny text-muted mt-2 mb-1">' +
+          esc(
+            group === 'gather'
+              ? entry.is_list
+                ? 'Building the list of ' + entry.plural
+                : 'Who they are'
+              : 'Questions about each ' + entry.singular,
+          ) +
+          '</div>';
         questions.forEach(function (question, questionIndex) {
           var inputId = groupId + '-' + group + '-' + questionIndex;
           html += '<div class="form-check editor-topic-item">';
           var key = entry.var + '|' + question.kind;
-          var ticked = Object.prototype.hasOwnProperty.call(chosen, key) ? chosen[key] : question.recommended;
-          html += '<input class="form-check-input" type="checkbox" id="' + esc(inputId) + '"'
-            + ' data-ql-var="' + esc(entry.var) + '" data-ql-kind="' + esc(question.kind) + '"'
-            + (question.present ? ' disabled' : (ticked ? ' checked' : ''))
-            + '>';
-          html += '<label class="form-check-label" for="' + esc(inputId) + '">' + esc(question.label);
+          var ticked = Object.prototype.hasOwnProperty.call(chosen, key)
+            ? chosen[key]
+            : question.recommended;
+          html +=
+            '<input class="form-check-input" type="checkbox" id="' +
+            esc(inputId) +
+            '"' +
+            ' data-ql-var="' +
+            esc(entry.var) +
+            '" data-ql-kind="' +
+            esc(question.kind) +
+            '"' +
+            (question.present ? ' disabled' : ticked ? ' checked' : '') +
+            '>';
+          html +=
+            '<label class="form-check-label" for="' +
+            esc(inputId) +
+            '">' +
+            esc(question.label);
           if (question.present) {
-            html += ' <span class="badge text-bg-light">already in this file</span>';
+            html +=
+              ' <span class="badge text-bg-light">already in this file</span>';
           }
-          html += '<span class="editor-obj-hint d-block">' + esc(question.summary)
-            + ' <span class="font-monospace">' + esc(question.question_id) + '</span></span>';
+          html +=
+            '<span class="editor-obj-hint d-block">' +
+            esc(question.summary) +
+            ' <span class="font-monospace">' +
+            esc(question.question_id) +
+            '</span></span>';
           html += '</label></div>';
         });
       });
@@ -638,7 +784,9 @@
     var total = 0;
     if (body) {
       body.querySelectorAll('[data-ql-group]').forEach(function (group) {
-        var checked = group.querySelectorAll('input[data-ql-kind]:checked').length;
+        var checked = group.querySelectorAll(
+          'input[data-ql-kind]:checked',
+        ).length;
         total += checked;
         var badge = group.querySelector('[data-ql-count]');
         if (badge) {
@@ -648,7 +796,9 @@
       });
     }
     var count = document.getElementById('question-library-selected-count');
-    if (count) count.textContent = total === 1 ? '1 question selected' : total + ' questions selected';
+    if (count)
+      count.textContent =
+        total === 1 ? '1 question selected' : total + ' questions selected';
     var applyBtn = document.getElementById('question-library-apply');
     if (applyBtn) applyBtn.disabled = total === 0;
   }
@@ -699,22 +849,47 @@
       wrap.innerHTML = '';
       return;
     }
-    var modes = (window.ALWeaverSerializers && window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) || [];
+    var modes =
+      (window.ALWeaverSerializers &&
+        window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) ||
+      [];
     var html = '<fieldset class="editor-obj-quantity">';
     html += '<legend class="editor-tiny">How many people?</legend>';
     modes.forEach(function (modeOption, mi) {
       var inputId = 'question-library-quantity-' + mi;
-      var checked = questionLibrary.quantityMode === modeOption.value ? ' checked' : '';
+      var checked =
+        questionLibrary.quantityMode === modeOption.value ? ' checked' : '';
       html += '<div class="form-check">';
-      html += '<input class="form-check-input" type="radio" name="question-library-quantity" id="' + inputId + '"'
-        + ' value="' + esc(modeOption.value) + '" data-ql-quantity-mode="1"' + checked + '>';
-      html += '<label class="form-check-label" for="' + inputId + '">' + esc(modeOption.label);
-      html += '<span class="editor-obj-hint">' + esc(modeOption.hint) + '</span></label>';
+      html +=
+        '<input class="form-check-input" type="radio" name="question-library-quantity" id="' +
+        inputId +
+        '"' +
+        ' value="' +
+        esc(modeOption.value) +
+        '" data-ql-quantity-mode="1"' +
+        checked +
+        '>';
+      html +=
+        '<label class="form-check-label" for="' +
+        inputId +
+        '">' +
+        esc(modeOption.label);
+      html +=
+        '<span class="editor-obj-hint">' +
+        esc(modeOption.hint) +
+        '</span></label>';
       if (modeOption.value === 'exactly') {
-        html += '<div class="editor-obj-quantity-number' + (questionLibrary.quantityMode === 'exactly' ? '' : ' d-none') + '">';
-        html += '<label class="editor-tiny" for="question-library-quantity-number">Number of people</label>';
-        html += '<input class="form-control form-control-sm" id="question-library-quantity-number" type="number" min="0" step="1"'
-          + ' value="' + esc(String(questionLibrary.quantityNumber)) + '" data-ql-quantity-number="1">';
+        html +=
+          '<div class="editor-obj-quantity-number' +
+          (questionLibrary.quantityMode === 'exactly' ? '' : ' d-none') +
+          '">';
+        html +=
+          '<label class="editor-tiny" for="question-library-quantity-number">Number of people</label>';
+        html +=
+          '<input class="form-control form-control-sm" id="question-library-quantity-number" type="number" min="0" step="1"' +
+          ' value="' +
+          esc(String(questionLibrary.quantityNumber)) +
+          '" data-ql-quantity-number="1">';
         html += '</div>';
       }
       html += '</div>';
@@ -728,7 +903,9 @@
     var nameInput = document.getElementById('question-library-new-name');
     var classSelect = document.getElementById('question-library-new-class');
     var name = nameInput ? String(nameInput.value || '').trim() : '';
-    var className = classSelect ? String(classSelect.value || 'ALPeopleList') : 'ALPeopleList';
+    var className = classSelect
+      ? String(classSelect.value || 'ALPeopleList')
+      : 'ALPeopleList';
     if (!name) {
       showQuestionLibraryNewObjectError('Give the new variable a name first.');
       if (nameInput) nameInput.focus();
@@ -739,7 +916,7 @@
       usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
         questionLibrary.quantityMode,
         questionLibrary.quantityNumber,
-        ''
+        '',
       );
     }
     showQuestionLibraryNewObjectError('');
@@ -751,52 +928,69 @@
       name: name,
       class_name: className,
       using_args: usingArgs,
-    }).then(function (res) {
-      if (!res.success || !res.data) {
-        throw new Error((res.error && res.error.message) || 'Unable to add that object.');
-      }
-      questionLibrary.objects = res.data.objects || [];
-      // The objects block on screen is now behind the file, and the picker is
-      // still open on top of it.
-      refreshFromFileResponse(res.data);
-      renderQuestionLibrary(previousSelection);
-      if (nameInput) {
-        nameInput.value = '';
-        nameInput.focus();
-      }
-      var added = document.querySelector('[data-ql-group][data-ql-var="' + name + '"]');
-      if (added && added.scrollIntoView) added.scrollIntoView({ block: 'nearest' });
-      // Declaring the object and copying its questions in still leaves nothing
-      // asking for it, and that is a decision about the interview's order that
-      // belongs to the author, not to this modal.
-      var declaredEntry = (questionLibrary.objects || []).filter(function (entry) {
-        return entry.var === name;
-      })[0];
-      var orderStep = declaredEntry && declaredEntry.is_list === false
-        ? name + '.name.first'
-        : name + '.gather()';
-      showQuestionLibraryNewObjectNote(
-        name + ' is declared. Tick the questions you want below, then add '
-        + orderStep + ' to your interview order so the interview asks them.'
-      );
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return;
-      showQuestionLibraryNewObjectError(String((error && error.message) || 'Unable to add that object.'));
-    }).finally(function () {
-      _setButtonLoading('question-library-add-object', false, '');
-    });
+    })
+      .then(function (res) {
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) || 'Unable to add that object.',
+          );
+        }
+        questionLibrary.objects = res.data.objects || [];
+        // The objects block on screen is now behind the file, and the picker is
+        // still open on top of it.
+        refreshFromFileResponse(res.data);
+        renderQuestionLibrary(previousSelection);
+        if (nameInput) {
+          nameInput.value = '';
+          nameInput.focus();
+        }
+        var added = document.querySelector(
+          '[data-ql-group][data-ql-var="' + name + '"]',
+        );
+        if (added && added.scrollIntoView)
+          added.scrollIntoView({ block: 'nearest' });
+        // Declaring the object and copying its questions in still leaves nothing
+        // asking for it, and that is a decision about the interview's order that
+        // belongs to the author, not to this modal.
+        var declaredEntry = (questionLibrary.objects || []).filter(
+          function (entry) {
+            return entry.var === name;
+          },
+        )[0];
+        var orderStep =
+          declaredEntry && declaredEntry.is_list === false
+            ? name + '.name.first'
+            : name + '.gather()';
+        showQuestionLibraryNewObjectNote(
+          name +
+            ' is declared. Tick the questions you want below, then add ' +
+            orderStep +
+            ' to your interview order so the interview asks them.',
+        );
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        showQuestionLibraryNewObjectError(
+          String((error && error.message) || 'Unable to add that object.'),
+        );
+      })
+      .finally(function () {
+        _setButtonLoading('question-library-add-object', false, '');
+      });
   }
 
   function insertQuestionLibrarySelection() {
     var body = document.getElementById('question-library-body');
     if (!body || !state.project || !state.filename) return;
     var questions = [];
-    body.querySelectorAll('input[data-ql-kind]:checked').forEach(function (box) {
-      questions.push({
-        'var': box.getAttribute('data-ql-var'),
-        kind: box.getAttribute('data-ql-kind'),
+    body
+      .querySelectorAll('input[data-ql-kind]:checked')
+      .forEach(function (box) {
+        questions.push({
+          var: box.getAttribute('data-ql-var'),
+          kind: box.getAttribute('data-ql-kind'),
+        });
       });
-    });
     if (!questions.length) return;
     _setButtonLoading('question-library-apply', true, 'Adding...');
     apiPost('/api/question-library/insert', {
@@ -804,29 +998,38 @@
       filename: state.filename,
       insert_after_id: state.insertAfterBlockId,
       questions: questions,
-    }).then(function (res) {
-      if (!res.success || !res.data) {
-        throw new Error((res.error && res.error.message) || 'Unable to add these questions.');
-      }
-      closeBootstrapModal('question-library-modal');
-      // The author was most likely looking at the objects block that prompted
-      // this, and that filter hides every question screen just added.
-      if (state.jumpTarget !== 'all' && state.jumpTarget !== 'questions') {
-        state.jumpTarget = 'questions';
-        syncJumpSelect();
-      }
-      refreshFromFileResponse(res.data);
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return;
-      window.alert(String((error && error.message) || 'Unable to add these questions.'));
-    }).finally(function () {
-      _setButtonLoading('question-library-apply', false, '');
-    });
+    })
+      .then(function (res) {
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to add these questions.',
+          );
+        }
+        closeBootstrapModal('question-library-modal');
+        // The author was most likely looking at the objects block that prompted
+        // this, and that filter hides every question screen just added.
+        if (state.jumpTarget !== 'all' && state.jumpTarget !== 'questions') {
+          state.jumpTarget = 'questions';
+          syncJumpSelect();
+        }
+        refreshFromFileResponse(res.data);
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        window.alert(
+          String((error && error.message) || 'Unable to add these questions.'),
+        );
+      })
+      .finally(function () {
+        _setButtonLoading('question-library-apply', false, '');
+      });
   }
 
   function closeBootstrapModal(elementId) {
     var modalEl = document.getElementById(elementId);
-    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+    if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal)
+      return;
     var instance = bootstrap.Modal.getInstance(modalEl);
     if (instance) instance.hide();
   }
@@ -852,7 +1055,9 @@
     el.style.overflow = 'hidden';
     el.style.resize = 'none';
     _autoResize(el);
-    el.addEventListener('input', function () { _autoResize(el); });
+    el.addEventListener('input', function () {
+      _autoResize(el);
+    });
   }
 
   function captureInterviewModel() {
@@ -883,7 +1088,8 @@
     state.activeOrderBlockId = model.activeOrderBlockId || null;
     state.rawYaml = typeof model.rawYaml === 'string' ? model.rawYaml : '';
     state.revision = model.revision || null;
-    state.metadataRawYaml = typeof model.metadataRawYaml === 'string' ? model.metadataRawYaml : '';
+    state.metadataRawYaml =
+      typeof model.metadataRawYaml === 'string' ? model.metadataRawYaml : '';
     state.orderDirty = false;
     state.fullYamlStash = {};
     if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
@@ -912,16 +1118,26 @@
     state.defaultSpIndices = data.default_screen_parts_blocks || [];
     state.orderIndices = data.order_blocks || [];
     state.orderStepMap = data.order_step_map || state.orderStepMap || {};
-    state.rawYaml = typeof data.raw_yaml === 'string' ? data.raw_yaml : state.rawYaml;
+    state.rawYaml =
+      typeof data.raw_yaml === 'string' ? data.raw_yaml : state.rawYaml;
     state.revision = data.revision || state.revision;
     state.metadataRawYaml = data.metadata_raw_yaml || '';
     var nextOrderBlockId = state.activeOrderBlockId;
     if (!nextOrderBlockId || !getBlockById(nextOrderBlockId)) {
       nextOrderBlockId = getDefaultOrderBlockId();
     }
-    setActiveOrderBlock(nextOrderBlockId, nextOrderBlockId ? state.orderStepMap[nextOrderBlockId] : (data.order_steps || []));
+    setActiveOrderBlock(
+      nextOrderBlockId,
+      nextOrderBlockId
+        ? state.orderStepMap[nextOrderBlockId]
+        : data.order_steps || [],
+    );
     state.selectedBlockId = data.inserted_block_id || state.selectedBlockId;
-    if (!state.selectedBlockId || !getBlockById(state.selectedBlockId) || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+    if (
+      !state.selectedBlockId ||
+      !getBlockById(state.selectedBlockId) ||
+      !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))
+    ) {
       state.selectedBlockId = getDefaultVisibleBlockId();
     }
     state.canvasMode = 'question';
@@ -930,12 +1146,17 @@
     state.fullYamlStash = {};
     var savedModel = captureInterviewModel();
     if (options.savedBlockId) {
-      dirtyState.markBlockSaved(options.savedBlockId, state.revision, savedModel, state.filename);
+      dirtyState.markBlockSaved(
+        options.savedBlockId,
+        state.revision,
+        savedModel,
+        state.filename,
+      );
       state.blocks = window.ALWeaverDirtyState.preserveDirtyBlocks(
         state.blocks,
         localBlocksBefore,
         fileBefore ? fileBefore.dirtyBlockIds : [],
-        options.savedBlockId
+        options.savedBlockId,
       );
     } else {
       dirtyState.setFileSaved(state.filename, state.revision, savedModel);
@@ -972,7 +1193,9 @@
     var nextOrderBlockId = getDefaultOrderBlockId();
     setActiveOrderBlock(
       nextOrderBlockId,
-      nextOrderBlockId ? state.orderStepMap[nextOrderBlockId] : (data.order_steps || [])
+      nextOrderBlockId
+        ? state.orderStepMap[nextOrderBlockId]
+        : data.order_steps || [],
     );
     var selected = getBlockById(state.selectedBlockId);
     if (!selected || !isBlockVisibleInOutline(selected)) {
@@ -981,7 +1204,7 @@
     dirtyState.activate(state.filename, state.selectedBlockId);
     dirtyState.markSourceDirty(
       'agent-apply:' + (data.candidate_revision || ''),
-      state.filename
+      state.filename,
     );
     loadAvailableSymbols(true);
     renderOutline();
@@ -1005,8 +1228,12 @@
   // -------------------------------------------------------------------------
   // DOM refs
   // -------------------------------------------------------------------------
-  var $ = function (sel) { return document.querySelector(sel); };
-  var $$ = function (sel) { return document.querySelectorAll(sel); };
+  var $ = function (sel) {
+    return document.querySelector(sel);
+  };
+  var $$ = function (sel) {
+    return document.querySelectorAll(sel);
+  };
 
   var projectSelect = $('#project-select');
   var fileSelect = $('#file-select');
@@ -1023,118 +1250,364 @@
   var AL_FIELD_METHODS = {
     name_fields: {
       label: 'Name fields',
-      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.name_fields',
+      docsUrl:
+        ASSEMBLYLINE_AL_GENERAL_DOCS_URL +
+        '#AssemblyLine.al_general.ALIndividual.name_fields',
       sets: ['name.first', 'name.last', 'name.middle', 'name.suffix'],
       parameters: [
-        { name: 'person_or_business', label: 'Person or business', kind: 'select', defaultLiteral: 'person', options: [
-          { value: '', label: 'Person (default)' },
-          { value: "'business'", label: 'Business' },
-          { value: "'unsure'", label: 'Ask person or business' }
-        ] },
+        {
+          name: 'person_or_business',
+          label: 'Person or business',
+          kind: 'select',
+          defaultLiteral: 'person',
+          options: [
+            { value: '', label: 'Person (default)' },
+            { value: "'business'", label: 'Business' },
+            { value: "'unsure'", label: 'Ask person or business' },
+          ],
+        },
         { name: 'show_suffix', label: 'Show suffix', kind: 'boolean' },
         { name: 'show_title', label: 'Show title', kind: 'boolean' },
-        { name: 'title_choices', label: 'Title choices', kind: 'expression', placeholder: 'al_name_titles' },
-        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
-        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'first': 40, 'last': 40}" },
-        { name: 'suffix_choices', label: 'Suffix choices', kind: 'expression', placeholder: 'al_name_suffixes' },
-        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'middle': False}" }
-      ]
+        {
+          name: 'title_choices',
+          label: 'Title choices',
+          kind: 'expression',
+          placeholder: 'al_name_titles',
+        },
+        {
+          name: 'show_if',
+          label: 'Show if',
+          kind: 'expression',
+          placeholder: "{'variable': 'condition', 'is': True}",
+        },
+        {
+          name: 'maxlengths',
+          label: 'Maximum lengths',
+          kind: 'expression',
+          placeholder: "{'first': 40, 'last': 40}",
+        },
+        {
+          name: 'suffix_choices',
+          label: 'Suffix choices',
+          kind: 'expression',
+          placeholder: 'al_name_suffixes',
+        },
+        {
+          name: 'required',
+          label: 'Required fields',
+          kind: 'expression',
+          placeholder: "{'middle': False}",
+        },
+      ],
     },
     address_fields: {
       label: 'Address fields',
-      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.address_fields',
-      sets: ['address.address', 'address.city', 'address.zip', 'address.unit', 'address.state', 'address.country'],
+      docsUrl:
+        ASSEMBLYLINE_AL_GENERAL_DOCS_URL +
+        '#AssemblyLine.al_general.ALIndividual.address_fields',
+      sets: [
+        'address.address',
+        'address.city',
+        'address.zip',
+        'address.unit',
+        'address.state',
+        'address.country',
+      ],
       parameters: [
-        { name: 'country_code', label: 'Country code', kind: 'expression', placeholder: "'US' or AL_DEFAULT_COUNTRY" },
-        { name: 'default_state', label: 'Default state', kind: 'expression', placeholder: "'MA' or AL_DEFAULT_STATE" },
+        {
+          name: 'country_code',
+          label: 'Country code',
+          kind: 'expression',
+          placeholder: "'US' or AL_DEFAULT_COUNTRY",
+        },
+        {
+          name: 'default_state',
+          label: 'Default state',
+          kind: 'expression',
+          placeholder: "'MA' or AL_DEFAULT_STATE",
+        },
         { name: 'show_country', label: 'Show country', kind: 'boolean' },
         { name: 'show_county', label: 'Show county', kind: 'boolean' },
-        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
-        { name: 'allow_no_address', label: 'Allow no address', kind: 'boolean' },
-        { name: 'ask_if_impounded', label: 'Ask if impounded', kind: 'boolean' },
-        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'address': 60, 'city': 40}" },
-        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'unit': False}" }
-      ]
+        {
+          name: 'show_if',
+          label: 'Show if',
+          kind: 'expression',
+          placeholder: "{'variable': 'condition', 'is': True}",
+        },
+        {
+          name: 'allow_no_address',
+          label: 'Allow no address',
+          kind: 'boolean',
+        },
+        {
+          name: 'ask_if_impounded',
+          label: 'Ask if impounded',
+          kind: 'boolean',
+        },
+        {
+          name: 'maxlengths',
+          label: 'Maximum lengths',
+          kind: 'expression',
+          placeholder: "{'address': 60, 'city': 40}",
+        },
+        {
+          name: 'required',
+          label: 'Required fields',
+          kind: 'expression',
+          placeholder: "{'unit': False}",
+        },
+      ],
     },
     gender_fields: {
       label: 'Gender fields',
-      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.gender_fields',
+      docsUrl:
+        ASSEMBLYLINE_AL_GENERAL_DOCS_URL +
+        '#AssemblyLine.al_general.ALIndividual.gender_fields',
       sets: ['gender'],
       parameters: [
         { name: 'show_help', label: 'Show help', kind: 'boolean' },
-        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
-        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'gender': 40}" },
-        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'custom_gender_choices' },
-        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'gender': True}" }
-      ]
+        {
+          name: 'show_if',
+          label: 'Show if',
+          kind: 'expression',
+          placeholder: "{'variable': 'condition', 'is': True}",
+        },
+        {
+          name: 'maxlengths',
+          label: 'Maximum lengths',
+          kind: 'expression',
+          placeholder: "{'gender': 40}",
+        },
+        {
+          name: 'choices',
+          label: 'Choices',
+          kind: 'expression',
+          placeholder: 'custom_gender_choices',
+        },
+        {
+          name: 'required',
+          label: 'Required fields',
+          kind: 'expression',
+          placeholder: "{'gender': True}",
+        },
+      ],
     },
     pronoun_fields: {
       label: 'Pronoun fields',
-      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.pronoun_fields',
+      docsUrl:
+        ASSEMBLYLINE_AL_GENERAL_DOCS_URL +
+        '#AssemblyLine.al_general.ALIndividual.pronoun_fields',
       sets: ['pronouns'],
       parameters: [
         { name: 'show_help', label: 'Show help', kind: 'boolean' },
-        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
-        { name: 'required', label: 'Required', kind: 'expression', placeholder: 'True, False, or a field mapping' },
+        {
+          name: 'show_if',
+          label: 'Show if',
+          kind: 'expression',
+          placeholder: "{'variable': 'condition', 'is': True}",
+        },
+        {
+          name: 'required',
+          label: 'Required',
+          kind: 'expression',
+          placeholder: 'True, False, or a field mapping',
+        },
         { name: 'shuffle', label: 'Shuffle choices', kind: 'boolean' },
-        { name: 'show_unknown', label: 'Show unknown option', kind: 'select', defaultLiteral: 'guess', options: [
-          { value: '', label: 'Guess (default)' },
-          { value: 'True', label: 'Always' },
-          { value: 'False', label: 'Never' }
-        ] },
-        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'pronouns_self_described': 80}" },
-        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'custom_pronoun_choices' }
-      ]
+        {
+          name: 'show_unknown',
+          label: 'Show unknown option',
+          kind: 'select',
+          defaultLiteral: 'guess',
+          options: [
+            { value: '', label: 'Guess (default)' },
+            { value: 'True', label: 'Always' },
+            { value: 'False', label: 'Never' },
+          ],
+        },
+        {
+          name: 'maxlengths',
+          label: 'Maximum lengths',
+          kind: 'expression',
+          placeholder: "{'pronouns_self_described': 80}",
+        },
+        {
+          name: 'choices',
+          label: 'Choices',
+          kind: 'expression',
+          placeholder: 'custom_pronoun_choices',
+        },
+      ],
     },
     language_fields: {
       label: 'Language fields',
-      docsUrl: ASSEMBLYLINE_AL_GENERAL_DOCS_URL + '#AssemblyLine.al_general.ALIndividual.language_fields',
+      docsUrl:
+        ASSEMBLYLINE_AL_GENERAL_DOCS_URL +
+        '#AssemblyLine.al_general.ALIndividual.language_fields',
       sets: ['language'],
       parameters: [
-        { name: 'choices', label: 'Choices', kind: 'expression', placeholder: 'al_language_user_choices' },
-        { name: 'style', label: 'Style', kind: 'select', defaultLiteral: 'radio', options: [
-          { value: '', label: 'Radio (default)' },
-          { value: "'dropdown'", label: 'Dropdown' }
-        ] },
-        { name: 'show_if', label: 'Show if', kind: 'expression', placeholder: "{'variable': 'condition', 'is': True}" },
-        { name: 'maxlengths', label: 'Maximum lengths', kind: 'expression', placeholder: "{'language_other': 80}" },
-        { name: 'required', label: 'Required fields', kind: 'expression', placeholder: "{'language': True}" }
-      ]
-    }
+        {
+          name: 'choices',
+          label: 'Choices',
+          kind: 'expression',
+          placeholder: 'al_language_user_choices',
+        },
+        {
+          name: 'style',
+          label: 'Style',
+          kind: 'select',
+          defaultLiteral: 'radio',
+          options: [
+            { value: '', label: 'Radio (default)' },
+            { value: "'dropdown'", label: 'Dropdown' },
+          ],
+        },
+        {
+          name: 'show_if',
+          label: 'Show if',
+          kind: 'expression',
+          placeholder: "{'variable': 'condition', 'is': True}",
+        },
+        {
+          name: 'maxlengths',
+          label: 'Maximum lengths',
+          kind: 'expression',
+          placeholder: "{'language_other': 80}",
+        },
+        {
+          name: 'required',
+          label: 'Required fields',
+          kind: 'expression',
+          placeholder: "{'language': True}",
+        },
+      ],
+    },
   };
   var AL_FIELD_METHOD_TYPES = Object.keys(AL_FIELD_METHODS);
 
   // Known docassemble field datatypes and graphical pseudo-datatypes.
   var FIELD_TYPES = [
-    'text', 'textC', 'area', 'areaC', 'yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe',
-    'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe',
-    'number', 'integer', 'currency', 'date', 'time', 'datetime',
-    'email', 'password', 'url', 'al_international_phone',
-    'file', 'files', 'camera',
-    'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
-    'range', 'object', 'object_radio', 'object_checkboxes', 'object_multiselect',
-    'ThreePartsDate', 'BirthDate',
-    'ml', 'mlarea', 'microphone', 'camcorder',
-    'hidden', 'raw', 'note', 'html', 'raw html', 'code',
-    'user', 'environment',
+    'text',
+    'textC',
+    'area',
+    'areaC',
+    'yesno',
+    'yesnowide',
+    'yesnoradio',
+    'yesnomaybe',
+    'noyes',
+    'noyeswide',
+    'noyesradio',
+    'noyesmaybe',
+    'number',
+    'integer',
+    'currency',
+    'date',
+    'time',
+    'datetime',
+    'email',
+    'password',
+    'url',
+    'al_international_phone',
+    'file',
+    'files',
+    'camera',
+    'radio',
+    'checkboxes',
+    'combobox',
+    'multiselect',
+    'dropdown',
+    'range',
+    'object',
+    'object_radio',
+    'object_checkboxes',
+    'object_multiselect',
+    'ThreePartsDate',
+    'BirthDate',
+    'ml',
+    'mlarea',
+    'microphone',
+    'camcorder',
+    'hidden',
+    'raw',
+    'note',
+    'html',
+    'raw html',
+    'code',
+    'user',
+    'environment',
   ].concat(AL_FIELD_METHOD_TYPES);
-  var AI_FIELD_TYPES = FIELD_TYPES.filter(function (type) { return !_isALFieldMethodType(type); });
+  var AI_FIELD_TYPES = FIELD_TYPES.filter(function (type) {
+    return !_isALFieldMethodType(type);
+  });
 
   var FIELD_TYPE_GROUPS = [
-    { label: 'Text inputs', items: ['text', 'textC', 'area', 'areaC', 'raw', 'email', 'password', 'url', 'al_international_phone', 'ml', 'mlarea'] },
+    {
+      label: 'Text inputs',
+      items: [
+        'text',
+        'textC',
+        'area',
+        'areaC',
+        'raw',
+        'email',
+        'password',
+        'url',
+        'al_international_phone',
+        'ml',
+        'mlarea',
+      ],
+    },
     { label: 'Numbers', items: ['number', 'integer', 'currency', 'range'] },
-    { label: 'Choices', items: ['radio', 'checkboxes', 'dropdown', 'combobox', 'multiselect'] },
-    { label: 'Booleans', items: ['yesno', 'yesnowide', 'yesnoradio', 'yesnomaybe', 'noyes', 'noyeswide', 'noyesradio', 'noyesmaybe'] },
-    { label: 'Date and time', items: ['date', 'time', 'datetime', 'ThreePartsDate', 'BirthDate'] },
-    { label: 'Files and media', items: ['file', 'files', 'camera', 'microphone', 'camcorder', 'environment'] },
-    { label: 'Objects', items: ['object', 'object_radio', 'object_checkboxes', 'object_multiselect', 'user'] },
+    {
+      label: 'Choices',
+      items: ['radio', 'checkboxes', 'dropdown', 'combobox', 'multiselect'],
+    },
+    {
+      label: 'Booleans',
+      items: [
+        'yesno',
+        'yesnowide',
+        'yesnoradio',
+        'yesnomaybe',
+        'noyes',
+        'noyeswide',
+        'noyesradio',
+        'noyesmaybe',
+      ],
+    },
+    {
+      label: 'Date and time',
+      items: ['date', 'time', 'datetime', 'ThreePartsDate', 'BirthDate'],
+    },
+    {
+      label: 'Files and media',
+      items: [
+        'file',
+        'files',
+        'camera',
+        'microphone',
+        'camcorder',
+        'environment',
+      ],
+    },
+    {
+      label: 'Objects',
+      items: [
+        'object',
+        'object_radio',
+        'object_checkboxes',
+        'object_multiselect',
+        'user',
+      ],
+    },
     { label: 'Assembly Line person fields', items: AL_FIELD_METHOD_TYPES },
     { label: 'Standalone content', items: ['note', 'html', 'raw html'] },
     { label: 'Special', items: ['hidden', 'code'] },
   ];
 
   var FIELD_STANDALONE_TYPES = ['note', 'html', 'raw html', 'code'];
-  var DEFAULT_CODE_FIELD_EXPRESSION = "[{'Apples': 'num_apples', 'datatype': 'integer'},\n       {'Oranges': 'num_oranges', 'datatype': 'integer'}]";
+  var DEFAULT_CODE_FIELD_EXPRESSION =
+    "[{'Apples': 'num_apples', 'datatype': 'integer'},\n       {'Oranges': 'num_oranges', 'datatype': 'integer'}]";
 
   var FIELD_TYPE_LABELS = {
     raw: 'Raw',
@@ -1166,7 +1639,11 @@
   };
 
   function _normalizeFieldType(type) {
-    return String(type || 'text').trim().toLowerCase() || 'text';
+    return (
+      String(type || 'text')
+        .trim()
+        .toLowerCase() || 'text'
+    );
   }
 
   function _isStandaloneFieldType(type) {
@@ -1178,7 +1655,10 @@
   }
 
   function _isALFieldMethodType(type) {
-    return Object.prototype.hasOwnProperty.call(AL_FIELD_METHODS, String(type || ''));
+    return Object.prototype.hasOwnProperty.call(
+      AL_FIELD_METHODS,
+      String(type || ''),
+    );
   }
 
   function _splitPythonArguments(text) {
@@ -1187,30 +1667,32 @@
     var depth = 0;
     var quote = '';
     var escaped = false;
-    String(text || '').split('').forEach(function (ch) {
-      if (quote) {
-        current += ch;
-        if (escaped) escaped = false;
-        else if (ch === '\\') escaped = true;
-        else if (ch === quote) quote = '';
-        return;
-      }
-      if (ch === "'" || ch === '"') {
-        quote = ch;
-        current += ch;
-      } else if (ch === '(' || ch === '[' || ch === '{') {
-        depth += 1;
-        current += ch;
-      } else if (ch === ')' || ch === ']' || ch === '}') {
-        depth = Math.max(0, depth - 1);
-        current += ch;
-      } else if (ch === ',' && depth === 0) {
-        if (current.trim()) parts.push(current.trim());
-        current = '';
-      } else {
-        current += ch;
-      }
-    });
+    String(text || '')
+      .split('')
+      .forEach(function (ch) {
+        if (quote) {
+          current += ch;
+          if (escaped) escaped = false;
+          else if (ch === '\\') escaped = true;
+          else if (ch === quote) quote = '';
+          return;
+        }
+        if (ch === "'" || ch === '"') {
+          quote = ch;
+          current += ch;
+        } else if (ch === '(' || ch === '[' || ch === '{') {
+          depth += 1;
+          current += ch;
+        } else if (ch === ')' || ch === ']' || ch === '}') {
+          depth = Math.max(0, depth - 1);
+          current += ch;
+        } else if (ch === ',' && depth === 0) {
+          if (current.trim()) parts.push(current.trim());
+          current = '';
+        } else {
+          current += ch;
+        }
+      });
     if (current.trim()) parts.push(current.trim());
     return parts;
   }
@@ -1230,7 +1712,8 @@
       }
       if (ch === "'" || ch === '"') quote = ch;
       else if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-      else if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+      else if (ch === ')' || ch === ']' || ch === '}')
+        depth = Math.max(0, depth - 1);
       else if (ch === '=' && depth === 0) {
         var name = text.slice(0, i).trim();
         if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -1251,7 +1734,13 @@
   function _parseALFieldMethodCall(codeValue) {
     var code = String(codeValue || '').trim();
     var methodAlternation = AL_FIELD_METHOD_TYPES.join('|');
-    var match = code.match(new RegExp('^([A-Za-z_][A-Za-z0-9_]*(?:\\[[^\\]\\n]+\\]|\\.[A-Za-z_][A-Za-z0-9_]*)*)\\.(' + methodAlternation + ')\\s*\\(([\\s\\S]*)\\)$'));
+    var match = code.match(
+      new RegExp(
+        '^([A-Za-z_][A-Za-z0-9_]*(?:\\[[^\\]\\n]+\\]|\\.[A-Za-z_][A-Za-z0-9_]*)*)\\.(' +
+          methodAlternation +
+          ')\\s*\\(([\\s\\S]*)\\)$',
+      ),
+    );
     if (!match) return null;
     return { object: match[1], method: match[2], args: match[3].trim() };
   }
@@ -1259,7 +1748,9 @@
   function _methodCallFromParts(objectName, methodName, args) {
     var objectText = String(objectName || '').trim();
     if (!objectText || !_isALFieldMethodType(methodName)) return '';
-    return objectText + '.' + methodName + '(' + String(args || '').trim() + ')';
+    return (
+      objectText + '.' + methodName + '(' + String(args || '').trim() + ')'
+    );
   }
 
   function _keywordArgumentValues(args) {
@@ -1272,21 +1763,62 @@
   }
 
   var FIELD_TYPE_DOC_ANCHORS = {
-    text: 'plain-text', textC: 'plain-text', area: 'plain-text', areaC: 'plain-text', raw: 'raw-data',
-    password: 'passwords', date: 'dates', time: 'times', datetime: 'combined-dates-and-times', email: 'e-mail-addresses',
-    number: 'numbers', integer: 'numbers', currency: 'currency', range: 'sliders',
-    file: 'file-uploads', files: 'file-uploads', camera: 'file-uploads', user: 'file-uploads', environment: 'file-uploads', microphone: 'file-uploads', camcorder: 'file-uploads',
-    yesno: 'yesno-fields', yesnowide: 'yesno-fields', yesnoradio: 'yesno-fields', yesnomaybe: 'yesno-fields', noyes: 'yesno-fields', noyeswide: 'yesno-fields', noyesradio: 'yesno-fields', noyesmaybe: 'yesno-fields',
-    checkboxes: 'checkboxes', multiselect: 'multiselect', dropdown: 'multiple-choice-dropdown-1', combobox: 'multiple-choice-combobox-1', radio: 'radio-buttons',
-    object: 'multiple-choice-with-objects', object_radio: 'multiple-choice-with-objects', object_checkboxes: 'multiple-choice-with-objects', object_multiselect: 'multiple-choice-with-objects',
-    ml: 'machine-learning', mlarea: 'machine-learning', hidden: 'hidden-field', note: 'note', html: 'html', 'raw html': 'raw-html', code: 'code'
+    text: 'plain-text',
+    textC: 'plain-text',
+    area: 'plain-text',
+    areaC: 'plain-text',
+    raw: 'raw-data',
+    password: 'passwords',
+    date: 'dates',
+    time: 'times',
+    datetime: 'combined-dates-and-times',
+    email: 'e-mail-addresses',
+    number: 'numbers',
+    integer: 'numbers',
+    currency: 'currency',
+    range: 'sliders',
+    file: 'file-uploads',
+    files: 'file-uploads',
+    camera: 'file-uploads',
+    user: 'file-uploads',
+    environment: 'file-uploads',
+    microphone: 'file-uploads',
+    camcorder: 'file-uploads',
+    yesno: 'yesno-fields',
+    yesnowide: 'yesno-fields',
+    yesnoradio: 'yesno-fields',
+    yesnomaybe: 'yesno-fields',
+    noyes: 'yesno-fields',
+    noyeswide: 'yesno-fields',
+    noyesradio: 'yesno-fields',
+    noyesmaybe: 'yesno-fields',
+    checkboxes: 'checkboxes',
+    multiselect: 'multiselect',
+    dropdown: 'multiple-choice-dropdown-1',
+    combobox: 'multiple-choice-combobox-1',
+    radio: 'radio-buttons',
+    object: 'multiple-choice-with-objects',
+    object_radio: 'multiple-choice-with-objects',
+    object_checkboxes: 'multiple-choice-with-objects',
+    object_multiselect: 'multiple-choice-with-objects',
+    ml: 'machine-learning',
+    mlarea: 'machine-learning',
+    hidden: 'hidden-field',
+    note: 'note',
+    html: 'html',
+    'raw html': 'raw-html',
+    code: 'code',
   };
 
   function _fieldTypeHelp(type) {
     var config = AL_FIELD_METHODS[type];
-    if (config && config.docsUrl) return { label: config.label, url: config.docsUrl };
+    if (config && config.docsUrl)
+      return { label: config.label, url: config.docsUrl };
     var anchor = FIELD_TYPE_DOC_ANCHORS[type] || 'data-types-and-input-types';
-    return { label: _fieldTypeLabel(type), url: DOCASSEMBLE_FIELDS_DOCS_URL + '#' + anchor };
+    return {
+      label: _fieldTypeLabel(type),
+      url: DOCASSEMBLE_FIELDS_DOCS_URL + '#' + anchor,
+    };
   }
 
   function _renderQuestionFieldHelp(types) {
@@ -1298,10 +1830,17 @@
       links.push(_fieldTypeHelp(type));
     });
     if (!links.length) return '';
-    var html = '<div class="editor-question-context-help" aria-label="Field documentation">';
-    html += '<span class="editor-question-context-help-label"><i class="fa-regular fa-circle-question" aria-hidden="true"></i> Field help</span>';
+    var html =
+      '<div class="editor-question-context-help" aria-label="Field documentation">';
+    html +=
+      '<span class="editor-question-context-help-label"><i class="fa-regular fa-circle-question" aria-hidden="true"></i> Field help</span>';
     links.forEach(function (link) {
-      html += '<a href="' + esc(link.url) + '" target="_blank" rel="noopener noreferrer">' + esc(link.label) + '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>';
+      html +=
+        '<a href="' +
+        esc(link.url) +
+        '" target="_blank" rel="noopener noreferrer">' +
+        esc(link.label) +
+        '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>';
     });
     html += '</div>';
     return html;
@@ -1314,31 +1853,55 @@
     var suffixes = config.sets.slice();
     var values = _keywordArgumentValues(args);
     if (methodName === 'name_fields') {
-      var businessNameOnly = /^["']business["']$/.test(values.person_or_business || '');
+      var businessNameOnly = /^["']business["']$/.test(
+        values.person_or_business || '',
+      );
       if (businessNameOnly) suffixes = ['name.first'];
-      if (values.show_suffix === 'False') suffixes = suffixes.filter(function (suffix) { return suffix !== 'name.suffix'; });
-      if (values.show_title === 'True' && !businessNameOnly) suffixes.push('name.title');
-      if (values.person_or_business && !/^["'](?:person|business)["']$/.test(values.person_or_business)) suffixes.push('person_type');
+      if (values.show_suffix === 'False')
+        suffixes = suffixes.filter(function (suffix) {
+          return suffix !== 'name.suffix';
+        });
+      if (values.show_title === 'True' && !businessNameOnly)
+        suffixes.push('name.title');
+      if (
+        values.person_or_business &&
+        !/^["'](?:person|business)["']$/.test(values.person_or_business)
+      )
+        suffixes.push('person_type');
     } else if (methodName === 'address_fields') {
       if (values.show_county === 'True') suffixes.push('address.county');
-      if (values.allow_no_address === 'True') suffixes = suffixes.concat(['address.has_no_address', 'address.has_no_address_explanation']);
-      if (values.ask_if_impounded === 'True') suffixes.push('address.impounded');
+      if (values.allow_no_address === 'True')
+        suffixes = suffixes.concat([
+          'address.has_no_address',
+          'address.has_no_address_explanation',
+        ]);
+      if (values.ask_if_impounded === 'True')
+        suffixes.push('address.impounded');
     }
-    return uniqueList(suffixes).map(function (suffix) { return receiver + '.' + suffix; });
+    return uniqueList(suffixes).map(function (suffix) {
+      return receiver + '.' + suffix;
+    });
   }
 
   function _suggestALIndividualReceiver(currentValue) {
     var current = String(currentValue || '').trim();
-    var candidates = getSymbolMatches('', 'al-individual', 120).map(function (entry) { return entry.name; });
+    var candidates = getSymbolMatches('', 'al-individual', 120).map(
+      function (entry) {
+        return entry.name;
+      },
+    );
     if (current && candidates.indexOf(current) !== -1) return current;
-    var preferred = candidates.filter(function (name) { return /^users(?:\[i\]|\[0\])$/.test(name); });
+    var preferred = candidates.filter(function (name) {
+      return /^users(?:\[i\]|\[0\])$/.test(name);
+    });
     return preferred[0] || candidates[0] || current || 'users[i]';
   }
 
   function _fieldMethodCallsFromData(fields) {
     var calls = [];
     (fields || []).forEach(function (field) {
-      if (!field || typeof field !== 'object' || typeof field.code !== 'string') return;
+      if (!field || typeof field !== 'object' || typeof field.code !== 'string')
+        return;
       var parsed = _parseALFieldMethodCall(field.code);
       if (parsed) calls.push(parsed);
     });
@@ -1348,30 +1911,48 @@
   function _generatedALFieldSets(fields) {
     var values = [];
     _fieldMethodCallsFromData(fields).forEach(function (call) {
-      values = values.concat(_setsForALFieldMethod(call.object, call.method, call.args));
+      values = values.concat(
+        _setsForALFieldMethod(call.object, call.method, call.args),
+      );
     });
     return uniqueList(values);
   }
 
   function _setList(value) {
-    if (Array.isArray(value)) return value.map(function (item) { return String(item || '').trim(); }).filter(Boolean);
+    if (Array.isArray(value))
+      return value
+        .map(function (item) {
+          return String(item || '').trim();
+        })
+        .filter(Boolean);
     if (value === undefined || value === null) return [];
-    return String(value).split(',').map(function (item) { return item.trim(); }).filter(Boolean);
+    return String(value)
+      .split(',')
+      .map(function (item) {
+        return item.trim();
+      })
+      .filter(Boolean);
   }
 
   function _syncGeneratedALFieldSets(block, previousGenerated) {
     if (!block || !block.data) return;
     var nextGenerated = _generatedALFieldSets(block.data.fields || []);
-    var oldGenerated = previousGenerated || block.data._editor_al_generated_sets || [];
+    var oldGenerated =
+      previousGenerated || block.data._editor_al_generated_sets || [];
     var oldMap = {};
-    oldGenerated.forEach(function (name) { oldMap[name] = true; });
+    oldGenerated.forEach(function (name) {
+      oldMap[name] = true;
+    });
     var existing = _setList(block.data.sets || block.data['only sets']);
-    var merged = existing.filter(function (name) { return !oldMap[name]; });
+    var merged = existing.filter(function (name) {
+      return !oldMap[name];
+    });
     nextGenerated.forEach(function (name) {
       if (merged.indexOf(name) === -1) merged.push(name);
     });
     delete block.data['only sets'];
-    if (merged.length) block.data.sets = merged.length === 1 ? merged[0] : merged;
+    if (merged.length)
+      block.data.sets = merged.length === 1 ? merged[0] : merged;
     else delete block.data.sets;
     block.data._editor_al_generated_sets = nextGenerated;
     var setsInput = document.getElementById('adv-sets');
@@ -1384,12 +1965,16 @@
   function _openALFieldMethodModal(fieldIndex, methodName) {
     var config = AL_FIELD_METHODS[methodName];
     if (!config) return;
-    var argsInput = document.querySelector('[data-field-method-args][data-field-idx="' + fieldIndex + '"]');
+    var argsInput = document.querySelector(
+      '[data-field-method-args][data-field-idx="' + fieldIndex + '"]',
+    );
     var argsText = argsInput ? argsInput.value : '';
     var known = {};
     var extras = [];
     var allowed = {};
-    config.parameters.forEach(function (param) { allowed[param.name] = true; });
+    config.parameters.forEach(function (param) {
+      allowed[param.name] = true;
+    });
     _splitPythonArguments(argsText).forEach(function (part) {
       var keyword = _splitKeywordArgument(part);
       if (keyword && allowed[keyword.name]) known[keyword.name] = keyword.value;
@@ -1398,7 +1983,7 @@
     _alFieldMethodContext = {
       fieldIndex: fieldIndex,
       methodName: methodName,
-      extras: extras
+      extras: extras,
     };
     var title = document.getElementById('al-field-method-title');
     if (title) title.textContent = config.label + ' options';
@@ -1406,7 +1991,8 @@
     if (!body) return;
     var html = '';
     if (!config.parameters.length) {
-      html += '<div class="editor-info-box">This method has no supported parameters.</div>';
+      html +=
+        '<div class="editor-info-box">This method has no supported parameters.</div>';
     }
     config.parameters.forEach(function (param) {
       var value = known[param.name] || '';
@@ -1415,37 +2001,96 @@
         if (param.defaultLiteral === literalValue) {
           value = '';
         } else {
-          var equivalentOption = (param.options || []).filter(function (option) {
-            return _pythonStringLiteralValue(option.value) === literalValue;
-          })[0];
+          var equivalentOption = (param.options || []).filter(
+            function (option) {
+              return _pythonStringLiteralValue(option.value) === literalValue;
+            },
+          )[0];
           if (equivalentOption) value = equivalentOption.value;
         }
       }
       var inputId = 'al-method-param-' + param.name;
       html += '<div class="editor-form-group">';
-      html += '<label class="editor-tiny" for="' + esc(inputId) + '">' + esc(param.label) + ' <span class="text-muted font-monospace">' + esc(param.name) + '</span></label>';
+      html +=
+        '<label class="editor-tiny" for="' +
+        esc(inputId) +
+        '">' +
+        esc(param.label) +
+        ' <span class="text-muted font-monospace">' +
+        esc(param.name) +
+        '</span></label>';
       if (param.kind === 'boolean') {
-        html += '<select class="form-select editor-form-control" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '">';
-        [['', '(method default)'], ['True', 'Yes'], ['False', 'No']].forEach(function (option) {
-          html += '<option value="' + option[0] + '"' + (value === option[0] ? ' selected' : '') + '>' + option[1] + '</option>';
+        html +=
+          '<select class="form-select editor-form-control" id="' +
+          esc(inputId) +
+          '" data-al-param="' +
+          esc(param.name) +
+          '">';
+        [
+          ['', '(method default)'],
+          ['True', 'Yes'],
+          ['False', 'No'],
+        ].forEach(function (option) {
+          html +=
+            '<option value="' +
+            option[0] +
+            '"' +
+            (value === option[0] ? ' selected' : '') +
+            '>' +
+            option[1] +
+            '</option>';
         });
         html += '</select>';
       } else if (param.kind === 'select') {
-        html += '<select class="form-select editor-form-control" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '">';
+        html +=
+          '<select class="form-select editor-form-control" id="' +
+          esc(inputId) +
+          '" data-al-param="' +
+          esc(param.name) +
+          '">';
         (param.options || []).forEach(function (option) {
-          html += '<option value="' + esc(option.value) + '"' + (value === option.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
+          html +=
+            '<option value="' +
+            esc(option.value) +
+            '"' +
+            (value === option.value ? ' selected' : '') +
+            '>' +
+            esc(option.label) +
+            '</option>';
         });
-        if (value && !(param.options || []).some(function (option) { return option.value === value; })) {
-          html += '<option value="' + esc(value) + '" selected>Existing: ' + esc(value) + '</option>';
+        if (
+          value &&
+          !(param.options || []).some(function (option) {
+            return option.value === value;
+          })
+        ) {
+          html +=
+            '<option value="' +
+            esc(value) +
+            '" selected>Existing: ' +
+            esc(value) +
+            '</option>';
         }
         html += '</select>';
       } else {
-        html += '<input class="form-control editor-form-control font-monospace" id="' + esc(inputId) + '" data-al-param="' + esc(param.name) + '" value="' + esc(value) + '" placeholder="' + esc(param.placeholder || 'Python expression') + '">';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="' +
+          esc(inputId) +
+          '" data-al-param="' +
+          esc(param.name) +
+          '" value="' +
+          esc(value) +
+          '" placeholder="' +
+          esc(param.placeholder || 'Python expression') +
+          '">';
       }
       html += '</div>';
     });
     if (extras.length) {
-      html += '<div class="editor-info-box mt-2"><strong>Preserved arguments:</strong> <code>' + esc(extras.join(', ')) + '</code><div class="small text-muted mt-1">These arguments are kept unchanged because this version of the editor does not recognize them.</div></div>';
+      html +=
+        '<div class="editor-info-box mt-2"><strong>Preserved arguments:</strong> <code>' +
+        esc(extras.join(', ')) +
+        '</code><div class="small text-muted mt-1">These arguments are kept unchanged because this version of the editor does not recognize them.</div></div>';
     }
     body.innerHTML = html;
     var modal = getOrCreateBootstrapModal('al-field-method-modal');
@@ -1456,12 +2101,17 @@
     if (!_alFieldMethodContext) return;
     var context = _alFieldMethodContext;
     var parts = [];
-    document.querySelectorAll('#al-field-method-body [data-al-param]').forEach(function (input) {
-      var value = String(input.value || '').trim();
-      if (value) parts.push(input.getAttribute('data-al-param') + '=' + value);
-    });
+    document
+      .querySelectorAll('#al-field-method-body [data-al-param]')
+      .forEach(function (input) {
+        var value = String(input.value || '').trim();
+        if (value)
+          parts.push(input.getAttribute('data-al-param') + '=' + value);
+      });
     parts = parts.concat(context.extras || []);
-    var argsInput = document.querySelector('[data-field-method-args][data-field-idx="' + context.fieldIndex + '"]');
+    var argsInput = document.querySelector(
+      '[data-field-method-args][data-field-idx="' + context.fieldIndex + '"]',
+    );
     if (argsInput) argsInput.value = parts.join(', ');
     var block = getSelectedBlock();
     if (block && block.type === 'question') {
@@ -1475,31 +2125,111 @@
 
   // All known field modifier keys
   var FIELD_MODIFIER_KEYS = [
-    'datatype', 'input type', 'required', 'disabled', 'under text', 'hint',
-    'help', 'default', 'choices', 'code', 'exclude', 'none of the above',
-    'all of the above', 'shuffle', 'show if', 'hide if', 'enable if',
-    'disable if', 'js show if', 'js hide if', 'js enable if', 'js disable if',
-    'disable others', 'note', 'html', 'raw html', 'no label', 'css class',
-    'label above field', 'floating label', 'grid', 'item grid', 'label', 'field',
-    'field metadata', 'min', 'max', 'minlength', 'maxlength', 'step', 'rows',
-    'validate', 'validation code', 'validation messages', 'accept',
-    'maximum image size', 'image upload type', 'persistent', 'private',
-    'allow users', 'allow privileges', 'file css class', 'inline width',
-    'address autocomplete', 'uncheck others', 'check others', 'object labeler',
+    'datatype',
+    'input type',
+    'required',
+    'disabled',
+    'under text',
+    'hint',
+    'help',
+    'default',
+    'choices',
+    'code',
+    'exclude',
+    'none of the above',
+    'all of the above',
+    'shuffle',
+    'show if',
+    'hide if',
+    'enable if',
+    'disable if',
+    'js show if',
+    'js hide if',
+    'js enable if',
+    'js disable if',
+    'disable others',
+    'note',
+    'html',
+    'raw html',
+    'no label',
+    'css class',
+    'label above field',
+    'floating label',
+    'grid',
+    'item grid',
+    'label',
+    'field',
+    'field metadata',
+    'min',
+    'max',
+    'minlength',
+    'maxlength',
+    'step',
+    'rows',
+    'validate',
+    'validation code',
+    'validation messages',
+    'accept',
+    'maximum image size',
+    'image upload type',
+    'persistent',
+    'private',
+    'allow users',
+    'allow privileges',
+    'file css class',
+    'inline width',
+    'address autocomplete',
+    'uncheck others',
+    'check others',
+    'object labeler',
   ];
 
   // Question-level modifier keys (from modifiers.html)
   var QUESTION_MODIFIER_KEYS = [
-    'id', 'if', 'mandatory', 'sets', 'only sets', 'need', 'event',
-    'generic object', 'continue button field', 'continue button label',
-    'continue button color', 'audio', 'video', 'help', 'decoration',
-    'script', 'css', 'progress', 'section', 'prevent going back',
-    'back button', 'back button label', 'corner back button label',
-    'terms', 'auto terms', 'language', 'role', 'reload',
-    'ga id', 'segment id', 'segment', 'breadcrumb', 'supersedes',
-    'allowed to set', 'hide continue button', 'disable continue button',
-    'scan for variables', 'depends on', 'undefine', 'reconsider',
-    'action buttons', 'comment', 'tabular', 'resume button label',
+    'id',
+    'if',
+    'mandatory',
+    'sets',
+    'only sets',
+    'need',
+    'event',
+    'generic object',
+    'continue button field',
+    'continue button label',
+    'continue button color',
+    'audio',
+    'video',
+    'help',
+    'decoration',
+    'script',
+    'css',
+    'progress',
+    'section',
+    'prevent going back',
+    'back button',
+    'back button label',
+    'corner back button label',
+    'terms',
+    'auto terms',
+    'language',
+    'role',
+    'reload',
+    'ga id',
+    'segment id',
+    'segment',
+    'breadcrumb',
+    'supersedes',
+    'allowed to set',
+    'hide continue button',
+    'disable continue button',
+    'scan for variables',
+    'depends on',
+    'undefine',
+    'reconsider',
+    'action buttons',
+    'comment',
+    'tabular',
+    'resume button label',
     'validation code',
   ];
 
@@ -1514,7 +2244,8 @@
       banner.className = 'alert alert-danger alert-dismissible position-fixed';
       banner.setAttribute('role', 'alert');
       banner.setAttribute('aria-live', 'assertive');
-      banner.style.cssText = 'top:1rem;left:50%;transform:translateX(-50%);z-index:10000;min-width:300px;max-width:600px;';
+      banner.style.cssText =
+        'top:1rem;left:50%;transform:translateX(-50%);z-index:10000;min-width:300px;max-width:600px;';
       var message = document.createElement('span');
       message.setAttribute('data-api-error-message', '');
       banner.appendChild(message);
@@ -1522,12 +2253,16 @@
       closeButton.type = 'button';
       closeButton.className = 'btn-close';
       closeButton.setAttribute('aria-label', 'Dismiss error');
-      closeButton.addEventListener('click', function () { banner.remove(); });
+      closeButton.addEventListener('click', function () {
+        banner.remove();
+      });
       banner.appendChild(closeButton);
       document.body.appendChild(banner);
     }
     var messageNode = banner.querySelector('[data-api-error-message]');
-    if (messageNode) messageNode.textContent = error && error.message ? error.message : 'The editor request failed.';
+    if (messageNode)
+      messageNode.textContent =
+        error && error.message ? error.message : 'The editor request failed.';
   }
 
   function renderSystemChecks() {
@@ -1539,10 +2274,90 @@
       return;
     }
     var message = warning.querySelector('[data-celery-warning-message]');
-    var docs = warning.querySelector('[data-celery-warning-docs]');
-    if (message) message.textContent = ' ' + (check.message || 'Uploaded-document project generation is unavailable.');
-    if (docs) docs.href = check.docs_url || 'https://github.com/SuffolkLITLab/docassemble-ALWeaver#celery-worker-configuration';
+    if (message)
+      message.textContent =
+        ' ' +
+        (check.message ||
+          'Uploaded-document project generation is unavailable.');
     warning.classList.remove('d-none');
+  }
+
+  function openCelerySetupModal() {
+    var modal = document.getElementById('celery-setup-modal');
+    if (!modal) return;
+    var check = (BOOT.systemChecks && BOOT.systemChecks.celery) || {};
+    var setup = check.setup || {};
+    var docs = document.getElementById('celery-setup-docs');
+    var configPage = document.getElementById('celery-setup-config-page');
+    var help = document.getElementById('celery-setup-help');
+    var save = document.getElementById('celery-setup-save');
+    var error = document.getElementById('celery-setup-error');
+    if (docs)
+      docs.href =
+        check.docs_url ||
+        'https://github.com/SuffolkLITLab/docassemble-ALWeaver#celery-worker-configuration';
+    if (error) {
+      error.textContent = '';
+      error.classList.add('d-none');
+    }
+    if (configPage) {
+      configPage.classList.toggle('d-none', !setup.config_url);
+      if (setup.config_url) configPage.href = setup.config_url;
+    }
+    if (save) save.classList.toggle('d-none', !setup.can_save);
+    if (help) {
+      if (setup.can_save) {
+        help.textContent =
+          'This will add only the missing module to config.yml and restart Docassemble so the web and Celery workers load it.';
+      } else if (setup.is_admin) {
+        help.textContent =
+          setup.blocked_reason ||
+          'Use the server configuration page to add this setting, then restart the web and Celery services.';
+      } else {
+        help.textContent =
+          'Ask an administrator to add this setting and restart the web and Celery services.';
+      }
+    }
+    if (window.bootstrap && window.bootstrap.Modal) {
+      window.bootstrap.Modal.getOrCreateInstance(modal).show();
+    }
+  }
+
+  function saveCeleryConfiguration() {
+    var save = document.getElementById('celery-setup-save');
+    var error = document.getElementById('celery-setup-error');
+    if (save) {
+      save.disabled = true;
+      save.textContent = 'Saving and restarting…';
+    }
+    if (error) error.classList.add('d-none');
+    apiPost('/api/server/celery-config', {})
+      .then(function (res) {
+        if (!res.success) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to update the Celery configuration.',
+          );
+        }
+        if (save) save.textContent = 'Restarting…';
+        // The current web process is deliberately about to exit. Reloading lets
+        // the browser reconnect to the new process and refresh the preflight.
+        window.setTimeout(function () {
+          window.location.reload();
+        }, 4000);
+      })
+      .catch(function (err) {
+        if (error) {
+          error.textContent =
+            (err && err.message) ||
+            'Unable to update the Celery configuration.';
+          error.classList.remove('d-none');
+        }
+        if (save) {
+          save.disabled = false;
+          save.textContent = 'Add module and restart';
+        }
+      });
   }
 
   var apiClient = window.ALWeaverApiClient.createClient({
@@ -1606,14 +2421,22 @@
           .then(function (response) {
             var payload = response.body || {};
             var jobData = payload.data || {};
-            var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
-            if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
-              reject(new Error(
-                (jobData.error && jobData.error.message) ||
-                (payload.error && payload.error.message) ||
-                jobData.message ||
-                'Publishing to GitHub failed.'
-              ));
+            var jobStatus = String(
+              payload.status || jobData.status || '',
+            ).toLowerCase();
+            if (
+              jobStatus === 'failed' ||
+              jobStatus === 'cancelled' ||
+              jobStatus === 'expired'
+            ) {
+              reject(
+                new Error(
+                  (jobData.error && jobData.error.message) ||
+                    (payload.error && payload.error.message) ||
+                    jobData.message ||
+                    'Publishing to GitHub failed.',
+                ),
+              );
               return;
             }
             if (jobStatus === 'succeeded') {
@@ -1625,10 +2448,14 @@
               : '';
             setGithubPublishStatus(
               progressPrefix + (jobData.message || 'Publishing to GitHub…'),
-              'info'
+              'info',
             );
             if (attempts >= GITHUB_PUBLISH_JOB_MAX_ATTEMPTS) {
-              reject(new Error('Timed out waiting for the GitHub publish to finish.'));
+              reject(
+                new Error(
+                  'Timed out waiting for the GitHub publish to finish.',
+                ),
+              );
               return;
             }
             setTimeout(tick, GITHUB_PUBLISH_JOB_POLL_INTERVAL_MS);
@@ -1655,20 +2482,26 @@
       if (data && data.configure_url) configure.href = data.configure_url;
     }
     if (!data || !data.enabled) {
-      setGithubPublishStatus("Docassemble's GitHub integration is not enabled on this server.", 'warning');
+      setGithubPublishStatus(
+        "Docassemble's GitHub integration is not enabled on this server.",
+        'warning',
+      );
       if (submit) submit.disabled = true;
       return;
     }
     if (!data.connected) {
-      setGithubPublishStatus('Connect your GitHub account in Docassemble before publishing.', 'warning');
+      setGithubPublishStatus(
+        'Connect your GitHub account in Docassemble before publishing.',
+        'warning',
+      );
       if (submit) submit.disabled = true;
       return;
     }
     if (data.async_configured === false) {
       setGithubPublishStatus(
         (data.celery && data.celery.message) ||
-        'Publishing runs in the Celery worker, which is not configured on this server.',
-        'warning'
+          'Publishing runs in the Celery worker, which is not configured on this server.',
+        'warning',
       );
       if (submit) submit.disabled = true;
       return;
@@ -1678,21 +2511,36 @@
       (data.owners || []).forEach(function (owner) {
         var option = document.createElement('option');
         option.value = owner.login;
-        option.textContent = owner.login + (owner.type === 'organization' ? ' (organization)' : ' (personal)');
+        option.textContent =
+          owner.login +
+          (owner.type === 'organization' ? ' (organization)' : ' (personal)');
         option.disabled = owner.available === false;
         ownerSelect.appendChild(option);
       });
       ownerSelect.disabled = !(data.owners && data.owners.length);
     }
     if (!data.owners || !data.owners.length) {
-      setGithubPublishStatus('GitHub did not return an account or organization that can own the repository.', 'warning');
+      setGithubPublishStatus(
+        'GitHub did not return an account or organization that can own the repository.',
+        'warning',
+      );
       if (submit) submit.disabled = true;
       return;
     }
-    if (data.owners.some(function (owner) { return owner.type === 'organization' && owner.available === false; })) {
-      setGithubPublishStatus('Connected. Enable organization repositories in Configure GitHub to use the disabled organizations below.', 'warning');
+    if (
+      data.owners.some(function (owner) {
+        return owner.type === 'organization' && owner.available === false;
+      })
+    ) {
+      setGithubPublishStatus(
+        'Connected. Enable organization repositories in Configure GitHub to use the disabled organizations below.',
+        'warning',
+      );
     } else {
-      setGithubPublishStatus('Connected. Choose where this repository should live.', 'success');
+      setGithubPublishStatus(
+        'Connected. Choose where this repository should live.',
+        'success',
+      );
     }
     if (submit) submit.disabled = false;
   }
@@ -1703,9 +2551,15 @@
     item.classList.add('d-none');
     if (!state.project || state.canvasMode === 'project-selector') return;
     var checkedProject = state.project;
-    apiGet('/api/github/status?sync_only=1&project=' + encodeURIComponent(checkedProject))
+    apiGet(
+      '/api/github/status?sync_only=1&project=' +
+        encodeURIComponent(checkedProject),
+    )
       .then(function (res) {
-        if (state.project !== checkedProject || state.canvasMode === 'project-selector') {
+        if (
+          state.project !== checkedProject ||
+          state.canvasMode === 'project-selector'
+        ) {
           item.classList.add('d-none');
           return;
         }
@@ -1713,42 +2567,70 @@
           state.projectSyncs[checkedProject] = res.data.sync;
           item.classList.remove('d-none');
           var button = item.querySelector('[data-action="pull-github"]');
-          if (button) button.title = 'Merge ' + res.data.sync.branch + ' from ' + res.data.sync.repository_url;
+          if (button)
+            button.title =
+              'Merge ' +
+              res.data.sync.branch +
+              ' from ' +
+              res.data.sync.repository_url;
         } else {
           delete state.projectSyncs[checkedProject];
           item.classList.add('d-none');
         }
       })
-      .catch(function () { item.classList.add('d-none'); });
+      .catch(function () {
+        item.classList.add('d-none');
+      });
   }
 
   function pullGithubProject(projectName) {
     if (!projectName || !state.projectSyncs[projectName]) return;
-    if (!window.confirm('Merge GitHub changes into "' + projectName + '"? Local changes will be preserved when they do not conflict.')) return;
+    if (
+      !window.confirm(
+        'Merge GitHub changes into "' +
+          projectName +
+          '"? Local changes will be preserved when they do not conflict.',
+      )
+    )
+      return;
     apiPost('/api/github/pull', { project: projectName })
       .then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to pull changes from GitHub.');
+          window.alert(
+            (res.error && res.error.message) ||
+              'Unable to pull changes from GitHub.',
+          );
           return;
         }
-        _showSuccessBanner('Merged GitHub changes into "' + esc(projectName) + '".');
-        if (state.project === projectName && state.canvasMode !== 'project-selector') {
+        _showSuccessBanner(
+          'Merged GitHub changes into "' + esc(projectName) + '".',
+        );
+        if (
+          state.project === projectName &&
+          state.canvasMode !== 'project-selector'
+        ) {
           loadFiles();
         } else {
           reloadProjectList().then(renderCanvas);
         }
       })
       .catch(function (error) {
-        window.alert(error && error.message ? error.message : 'Unable to pull changes from GitHub.');
+        window.alert(
+          error && error.message
+            ? error.message
+            : 'Unable to pull changes from GitHub.',
+        );
       });
   }
 
   function pullGithubChanges() {
     if (!state.project) return;
     var projectName = state.project;
-    promptAndSaveUnsavedChanges('pull changes from GitHub').then(function (canContinue) {
-      if (canContinue) pullGithubProject(projectName);
-    });
+    promptAndSaveUnsavedChanges('pull changes from GitHub').then(
+      function (canContinue) {
+        if (canContinue) pullGithubProject(projectName);
+      },
+    );
   }
 
   function openGithubPublishModal() {
@@ -1756,37 +2638,55 @@
       window.alert('Choose a project before publishing to GitHub.');
       return;
     }
-    promptAndSaveUnsavedChanges('publish to GitHub').then(function (canContinue) {
-      if (!canContinue) return;
-      var modal = getOrCreateBootstrapModal('github-publish-modal');
-      var submit = document.getElementById('github-publish-submit');
-      var configure = document.getElementById('github-configure-link');
-      var repositoryLink = document.getElementById('github-repository-link');
-      var commitLink = document.getElementById('github-commit-link');
-      var ownerSelect = document.getElementById('github-owner');
-      if (submit) submit.disabled = true;
-      if (configure) configure.classList.add('d-none');
-      if (repositoryLink) repositoryLink.classList.add('d-none');
-      if (commitLink) commitLink.classList.add('d-none');
-      if (ownerSelect) {
-        ownerSelect.disabled = true;
-        ownerSelect.replaceChildren();
-        var loadingOption = document.createElement('option');
-        loadingOption.textContent = 'Loading GitHub accounts…';
-        ownerSelect.appendChild(loadingOption);
-      }
-      setGithubPublishStatus("Checking Docassemble's GitHub integration…", 'secondary');
-      if (modal) modal.show();
-      apiGet('/api/github/status?project=' + encodeURIComponent(state.project)).then(function (res) {
-        if (!res.success || !res.data) {
-          setGithubPublishStatus((res.error && res.error.message) || 'Unable to check GitHub integration.', 'danger');
-          return;
+    promptAndSaveUnsavedChanges('publish to GitHub').then(
+      function (canContinue) {
+        if (!canContinue) return;
+        var modal = getOrCreateBootstrapModal('github-publish-modal');
+        var submit = document.getElementById('github-publish-submit');
+        var configure = document.getElementById('github-configure-link');
+        var repositoryLink = document.getElementById('github-repository-link');
+        var commitLink = document.getElementById('github-commit-link');
+        var ownerSelect = document.getElementById('github-owner');
+        if (submit) submit.disabled = true;
+        if (configure) configure.classList.add('d-none');
+        if (repositoryLink) repositoryLink.classList.add('d-none');
+        if (commitLink) commitLink.classList.add('d-none');
+        if (ownerSelect) {
+          ownerSelect.disabled = true;
+          ownerSelect.replaceChildren();
+          var loadingOption = document.createElement('option');
+          loadingOption.textContent = 'Loading GitHub accounts…';
+          ownerSelect.appendChild(loadingOption);
         }
-        applyGithubIntegrationStatus(res.data);
-      }).catch(function (error) {
-        setGithubPublishStatus(error && error.message ? error.message : 'Unable to check GitHub integration.', 'danger');
-      });
-    });
+        setGithubPublishStatus(
+          "Checking Docassemble's GitHub integration…",
+          'secondary',
+        );
+        if (modal) modal.show();
+        apiGet(
+          '/api/github/status?project=' + encodeURIComponent(state.project),
+        )
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              setGithubPublishStatus(
+                (res.error && res.error.message) ||
+                  'Unable to check GitHub integration.',
+                'danger',
+              );
+              return;
+            }
+            applyGithubIntegrationStatus(res.data);
+          })
+          .catch(function (error) {
+            setGithubPublishStatus(
+              error && error.message
+                ? error.message
+                : 'Unable to check GitHub integration.',
+              'danger',
+            );
+          });
+      },
+    );
   }
 
   function initGithubPublishing() {
@@ -1811,36 +2711,54 @@
         package: packageInput ? packageInput.value : '',
         branch: branchInput ? branchInput.value : '',
         commit_message: messageInput ? messageInput.value : '',
-      }).then(function (res) {
-        if (!res.success || !res.data || !res.data.job_url) {
-          setGithubPublishStatus((res.error && res.error.message) || 'Unable to start GitHub publishing.', 'danger');
-          if (submit) submit.disabled = false;
-          return;
-        }
-        setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
-        return _pollGithubPublishJob(res.data.job_url).then(function (result) {
-          if (repositoryLink && result.repository_url) {
-            repositoryLink.href = result.repository_url;
-            repositoryLink.classList.remove('d-none');
+      })
+        .then(function (res) {
+          if (!res.success || !res.data || !res.data.job_url) {
+            setGithubPublishStatus(
+              (res.error && res.error.message) ||
+                'Unable to start GitHub publishing.',
+              'danger',
+            );
+            if (submit) submit.disabled = false;
+            return;
           }
-          if (commitLink && result.commit_url) {
-            commitLink.href = result.commit_url;
-            commitLink.classList.remove('d-none');
-          }
-          var fileCount = result.files_committed;
-          var published = typeof fileCount === 'number'
-            ? fileCount + (fileCount === 1 ? ' file' : ' files')
-            : 'the project files';
+          setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
+          return _pollGithubPublishJob(res.data.job_url).then(
+            function (result) {
+              if (repositoryLink && result.repository_url) {
+                repositoryLink.href = result.repository_url;
+                repositoryLink.classList.remove('d-none');
+              }
+              if (commitLink && result.commit_url) {
+                commitLink.href = result.commit_url;
+                commitLink.classList.remove('d-none');
+              }
+              var fileCount = result.files_committed;
+              var published =
+                typeof fileCount === 'number'
+                  ? fileCount + (fileCount === 1 ? ' file' : ' files')
+                  : 'the project files';
+              setGithubPublishStatus(
+                'Published ' +
+                  published +
+                  ' to ' +
+                  (result.branch || 'GitHub') +
+                  '.',
+                'success',
+              );
+              if (submit) submit.disabled = false;
+            },
+          );
+        })
+        .catch(function (error) {
           setGithubPublishStatus(
-            'Published ' + published + ' to ' + (result.branch || 'GitHub') + '.',
-            'success'
+            error && error.message
+              ? error.message
+              : 'Unable to start GitHub publishing.',
+            'danger',
           );
           if (submit) submit.disabled = false;
         });
-      }).catch(function (error) {
-        setGithubPublishStatus(error && error.message ? error.message : 'Unable to start GitHub publishing.', 'danger');
-        if (submit) submit.disabled = false;
-      });
     });
   }
 
@@ -1878,7 +2796,10 @@
         ? 'Renames recognized variable references in every interview YAML file. Display text is left alone; ambiguous references stop the whole refactor.'
         : 'Searches interview YAML, templates, modules, static text, and sources. Binary files are skipped.';
     }
-    if (replaceButton) replaceButton.textContent = variableMode ? 'Rename safely' : 'Replace selected';
+    if (replaceButton)
+      replaceButton.textContent = variableMode
+        ? 'Rename safely'
+        : 'Replace selected';
     _projectSearchData = null;
     var results = projectSearchElement('project-search-results');
     if (results) results.innerHTML = '';
@@ -1890,7 +2811,10 @@
     _projectSearchData = null;
     var results = projectSearchElement('project-search-results');
     if (results) results.innerHTML = '';
-    setProjectSearchStatus('Search options changed. Run Find to refresh the preview.', 'secondary');
+    setProjectSearchStatus(
+      'Search options changed. Run Find to refresh the preview.',
+      'secondary',
+    );
     updateProjectSearchSelection();
   }
 
@@ -1899,7 +2823,8 @@
     if (match.reason === 'display_text') return 'Display text — unchanged';
     if (match.reason === 'quoted_string') return 'String/dynamic reference';
     if (match.reason === 'call_expression') return 'Call expression';
-    if (match.reason === 'partial_path_reference') return 'Part of a longer path';
+    if (match.reason === 'partial_path_reference')
+      return 'Part of a longer path';
     if (match.reason === 'object_declaration') return 'Object declaration';
     return 'Needs manual review';
   }
@@ -1909,7 +2834,8 @@
     if (!host) return;
     var files = (data && data.files) || [];
     if (!files.length) {
-      host.innerHTML = '<div class="text-muted text-center py-4">No matches found.</div>';
+      host.innerHTML =
+        '<div class="text-muted text-center py-4">No matches found.</div>';
       return;
     }
     var grouped = {};
@@ -1927,31 +2853,87 @@
     var html = '';
     groupOrder.forEach(function (groupKey) {
       var group = grouped[groupKey];
-      var groupCount = group.files.reduce(function (sum, entry) { return sum + entry.file.matches.length; }, 0);
+      var groupCount = group.files.reduce(function (sum, entry) {
+        return sum + entry.file.matches.length;
+      }, 0);
       html += '<section class="editor-project-search-group">';
-      html += '<h6 class="editor-project-search-group-title">' + esc(group.label) + ' <span class="text-muted fw-normal">(' + groupCount + ')</span></h6>';
+      html +=
+        '<h6 class="editor-project-search-group-title">' +
+        esc(group.label) +
+        ' <span class="text-muted fw-normal">(' +
+        groupCount +
+        ')</span></h6>';
       group.files.forEach(function (entry) {
         var file = entry.file;
         html += '<div class="editor-project-search-file">';
         html += '<div class="editor-project-search-file-header">';
         if (!variableMode) {
-          html += '<input class="form-check-input mt-0" type="checkbox" checked data-project-search-file-select="' + entry.index + '" aria-label="Select all matches in ' + esc(file.filename) + '">';
+          html +=
+            '<input class="form-check-input mt-0" type="checkbox" checked data-project-search-file-select="' +
+            entry.index +
+            '" aria-label="Select all matches in ' +
+            esc(file.filename) +
+            '">';
         }
-        html += '<button type="button" class="editor-project-search-file-link" data-project-search-open="' + entry.index + '">' + esc(file.filename) + '</button>';
-        html += '<span class="editor-project-search-file-count">' + file.matches.length + (file.matches.length === 1 ? ' match' : ' matches') + '</span>';
+        html +=
+          '<button type="button" class="editor-project-search-file-link" data-project-search-open="' +
+          entry.index +
+          '">' +
+          esc(file.filename) +
+          '</button>';
+        html +=
+          '<span class="editor-project-search-file-count">' +
+          file.matches.length +
+          (file.matches.length === 1 ? ' match' : ' matches') +
+          '</span>';
         html += '</div>';
         file.matches.forEach(function (match, matchIndex) {
-          var classificationClass = match.replaceable ? 'text-bg-success' : (match.reason === 'display_text' ? 'text-bg-secondary' : 'text-bg-warning');
+          var classificationClass = match.replaceable
+            ? 'text-bg-success'
+            : match.reason === 'display_text'
+              ? 'text-bg-secondary'
+              : 'text-bg-warning';
           html += '<div class="editor-project-search-match">';
           if (variableMode) {
-            html += '<i class="fa-solid ' + (match.replaceable ? 'fa-check text-success' : (match.reason === 'display_text' ? 'fa-minus text-muted' : 'fa-triangle-exclamation text-warning')) + ' mt-1" aria-hidden="true"></i>';
+            html +=
+              '<i class="fa-solid ' +
+              (match.replaceable
+                ? 'fa-check text-success'
+                : match.reason === 'display_text'
+                  ? 'fa-minus text-muted'
+                  : 'fa-triangle-exclamation text-warning') +
+              ' mt-1" aria-hidden="true"></i>';
           } else {
-            html += '<input class="form-check-input mt-1" type="checkbox" checked data-project-search-match data-file-index="' + entry.index + '" data-match-index="' + matchIndex + '" aria-label="Select match on line ' + match.line + '">';
+            html +=
+              '<input class="form-check-input mt-1" type="checkbox" checked data-project-search-match data-file-index="' +
+              entry.index +
+              '" data-match-index="' +
+              matchIndex +
+              '" aria-label="Select match on line ' +
+              match.line +
+              '">';
           }
-          html += '<div><div class="editor-project-search-line">Line ' + match.line + ', column ' + match.column;
-          if (variableMode) html += '<span class="badge ' + classificationClass + ' editor-project-search-classification">' + esc(projectSearchReasonLabel(match)) + '</span>';
+          html +=
+            '<div><div class="editor-project-search-line">Line ' +
+            match.line +
+            ', column ' +
+            match.column;
+          if (variableMode)
+            html +=
+              '<span class="badge ' +
+              classificationClass +
+              ' editor-project-search-classification">' +
+              esc(projectSearchReasonLabel(match)) +
+              '</span>';
           html += '</div><div class="editor-project-search-context">';
-          html += (match.before_truncated ? '&hellip;' : '') + esc(match.before) + '<mark>' + esc(match.match) + '</mark>' + esc(match.after) + (match.after_truncated ? '&hellip;' : '');
+          html +=
+            (match.before_truncated ? '&hellip;' : '') +
+            esc(match.before) +
+            '<mark>' +
+            esc(match.match) +
+            '</mark>' +
+            esc(match.after) +
+            (match.after_truncated ? '&hellip;' : '');
           html += '</div></div></div>';
         });
         html += '</div>';
@@ -1980,16 +2962,42 @@
           else if (match.reason !== 'display_text') blocking += 1;
         });
       });
-      var replacementControl = projectSearchElement('project-search-replacement');
-      var replacementChanged = !replacementControl || replacementControl.value !== _projectSearchData.replacement;
+      var replacementControl = projectSearchElement(
+        'project-search-replacement',
+      );
+      var replacementChanged =
+        !replacementControl ||
+        replacementControl.value !== _projectSearchData.replacement;
       var skipped = (_projectSearchData.skipped || []).length;
-      summary.textContent = safe + ' reference' + (safe === 1 ? '' : 's') + ' will change' + (blocking ? '; ' + blocking + ' need manual review' : '') + (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') + (dirty ? '; save editor changes first' : '') + (replacementChanged ? '; run Find again for the new name' : '');
-      replaceButton.disabled = safe === 0 || blocking > 0 || skipped > 0 || dirty || replacementChanged || Boolean(_projectSearchData.truncated);
+      summary.textContent =
+        safe +
+        ' reference' +
+        (safe === 1 ? '' : 's') +
+        ' will change' +
+        (blocking ? '; ' + blocking + ' need manual review' : '') +
+        (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') +
+        (dirty ? '; save editor changes first' : '') +
+        (replacementChanged ? '; run Find again for the new name' : '');
+      replaceButton.disabled =
+        safe === 0 ||
+        blocking > 0 ||
+        skipped > 0 ||
+        dirty ||
+        replacementChanged ||
+        Boolean(_projectSearchData.truncated);
       return;
     }
-    var checked = document.querySelectorAll('#project-search-results [data-project-search-match]:checked').length;
-    summary.textContent = checked + ' match' + (checked === 1 ? '' : 'es') + ' selected' + (dirty ? '; save editor changes first' : '');
-    replaceButton.disabled = checked === 0 || dirty || Boolean(_projectSearchData.truncated);
+    var checked = document.querySelectorAll(
+      '#project-search-results [data-project-search-match]:checked',
+    ).length;
+    summary.textContent =
+      checked +
+      ' match' +
+      (checked === 1 ? '' : 'es') +
+      ' selected' +
+      (dirty ? '; save editor changes first' : '');
+    replaceButton.disabled =
+      checked === 0 || dirty || Boolean(_projectSearchData.truncated);
   }
 
   function runProjectSearch() {
@@ -2001,8 +3009,14 @@
       setProjectSearchStatus('Select a project before searching.', 'warning');
       return Promise.resolve();
     }
-    if (projectSearchIsVariableMode() && !(replacementControl && replacementControl.value.trim())) {
-      setProjectSearchStatus('Enter the new variable name to preview a safe refactor.', 'warning');
+    if (
+      projectSearchIsVariableMode() &&
+      !(replacementControl && replacementControl.value.trim())
+    ) {
+      setProjectSearchStatus(
+        'Enter the new variable name to preview a safe refactor.',
+        'warning',
+      );
       if (replacementControl) replacementControl.focus();
       return Promise.resolve();
     }
@@ -2018,38 +3032,80 @@
       query: query,
       replacement: replacementControl ? replacementControl.value : '',
       mode: projectSearchIsVariableMode() ? 'variable' : 'text',
-      case_sensitive: Boolean(projectSearchElement('project-search-case') && projectSearchElement('project-search-case').checked),
-      whole_word: Boolean(projectSearchElement('project-search-word') && projectSearchElement('project-search-word').checked),
-    }).then(function (res) {
-      _projectSearchData = res.data;
-      renderProjectSearchResults(_projectSearchData);
-      var message = _projectSearchData.match_count + (_projectSearchData.match_count === 1 ? ' match' : ' matches') + ' in ' + _projectSearchData.file_count + (_projectSearchData.file_count === 1 ? ' file' : ' files') + '.';
-      if (_projectSearchData.truncated) message += ' Results were capped; narrow the search before replacing.';
-      if ((_projectSearchData.skipped || []).length) message += ' ' + _projectSearchData.skipped.length + ' oversized text file(s) were skipped.';
-      setProjectSearchStatus(message, _projectSearchData.truncated ? 'warning' : 'secondary');
-      updateProjectSearchSelection();
-    }).catch(function (error) {
-      _projectSearchData = null;
-      renderProjectSearchResults(null);
-      setProjectSearchStatus((error && error.message) || 'Search failed.', 'danger');
-      updateProjectSearchSelection();
-    }).finally(function () {
-      if (submitButton) submitButton.disabled = false;
-    });
+      case_sensitive: Boolean(
+        projectSearchElement('project-search-case') &&
+        projectSearchElement('project-search-case').checked,
+      ),
+      whole_word: Boolean(
+        projectSearchElement('project-search-word') &&
+        projectSearchElement('project-search-word').checked,
+      ),
+    })
+      .then(function (res) {
+        _projectSearchData = res.data;
+        renderProjectSearchResults(_projectSearchData);
+        var message =
+          _projectSearchData.match_count +
+          (_projectSearchData.match_count === 1 ? ' match' : ' matches') +
+          ' in ' +
+          _projectSearchData.file_count +
+          (_projectSearchData.file_count === 1 ? ' file' : ' files') +
+          '.';
+        if (_projectSearchData.truncated)
+          message +=
+            ' Results were capped; narrow the search before replacing.';
+        if ((_projectSearchData.skipped || []).length)
+          message +=
+            ' ' +
+            _projectSearchData.skipped.length +
+            ' oversized text file(s) were skipped.';
+        setProjectSearchStatus(
+          message,
+          _projectSearchData.truncated ? 'warning' : 'secondary',
+        );
+        updateProjectSearchSelection();
+      })
+      .catch(function (error) {
+        _projectSearchData = null;
+        renderProjectSearchResults(null);
+        setProjectSearchStatus(
+          (error && error.message) || 'Search failed.',
+          'danger',
+        );
+        updateProjectSearchSelection();
+      })
+      .finally(function () {
+        if (submitButton) submitButton.disabled = false;
+      });
   }
 
   function selectedProjectSearchFiles() {
     var selections = [];
-    if (!_projectSearchData || _projectSearchData.mode !== 'text') return selections;
+    if (!_projectSearchData || _projectSearchData.mode !== 'text')
+      return selections;
     (_projectSearchData.files || []).forEach(function (file, fileIndex) {
       var matches = [];
-      document.querySelectorAll('#project-search-results [data-project-search-match][data-file-index="' + fileIndex + '"]:checked').forEach(function (control) {
-        var matchIndex = parseInt(control.getAttribute('data-match-index'), 10);
-        var match = file.matches[matchIndex];
-        if (match) matches.push({ start: match.start, end: match.end });
-      });
+      document
+        .querySelectorAll(
+          '#project-search-results [data-project-search-match][data-file-index="' +
+            fileIndex +
+            '"]:checked',
+        )
+        .forEach(function (control) {
+          var matchIndex = parseInt(
+            control.getAttribute('data-match-index'),
+            10,
+          );
+          var match = file.matches[matchIndex];
+          if (match) matches.push({ start: match.start, end: match.end });
+        });
       if (matches.length) {
-        selections.push({ section: file.section, filename: file.filename, revision: file.revision, matches: matches });
+        selections.push({
+          section: file.section,
+          filename: file.filename,
+          revision: file.revision,
+          matches: matches,
+        });
       }
     });
     return selections;
@@ -2070,17 +3126,42 @@
       return;
     }
     if (variableMode && replacement !== _projectSearchData.replacement) {
-      setProjectSearchStatus('The new variable name changed. Run Find again to preview this refactor.', 'warning');
+      setProjectSearchStatus(
+        'The new variable name changed. Run Find again to preview this refactor.',
+        'warning',
+      );
       return;
     }
     var files = variableMode ? [] : selectedProjectSearchFiles();
     var selectedCount = variableMode
-      ? (_projectSearchData.files || []).reduce(function (sum, file) { return sum + file.matches.filter(function (match) { return match.replaceable; }).length; }, 0)
-      : files.reduce(function (sum, file) { return sum + file.matches.length; }, 0);
+      ? (_projectSearchData.files || []).reduce(function (sum, file) {
+          return (
+            sum +
+            file.matches.filter(function (match) {
+              return match.replaceable;
+            }).length
+          );
+        }, 0)
+      : files.reduce(function (sum, file) {
+          return sum + file.matches.length;
+        }, 0);
     if (!selectedCount) return;
-    if (!window.confirm((variableMode ? 'Rename ' : 'Replace ') + selectedCount + (selectedCount === 1 ? ' match' : ' matches') + ' across this project?')) return;
+    if (
+      !window.confirm(
+        (variableMode ? 'Rename ' : 'Replace ') +
+          selectedCount +
+          (selectedCount === 1 ? ' match' : ' matches') +
+          ' across this project?',
+      )
+    )
+      return;
     if (replaceButton) replaceButton.disabled = true;
-    setProjectSearchStatus(variableMode ? 'Checking and applying the variable refactor…' : 'Applying replacements…', 'secondary');
+    setProjectSearchStatus(
+      variableMode
+        ? 'Checking and applying the variable refactor…'
+        : 'Applying replacements…',
+      'secondary',
+    );
     apiPost('/api/project/replace', {
       project: state.project,
       query: _projectSearchData.query,
@@ -2090,18 +3171,31 @@
       whole_word: _projectSearchData.whole_word,
       project_revision: _projectSearchData.project_revision,
       files: files,
-    }).then(function (res) {
-      var data = res.data || {};
-      setProjectSearchStatus('Changed ' + data.replacement_count + (data.replacement_count === 1 ? ' match' : ' matches') + ' in ' + data.file_count + (data.file_count === 1 ? ' file.' : ' files.'), 'success');
-      _projectSearchData = null;
-      var results = projectSearchElement('project-search-results');
-      if (results) results.innerHTML = '';
-      updateProjectSearchSelection();
-      loadFiles();
-    }).catch(function (error) {
-      setProjectSearchStatus((error && error.message) || 'Replacement failed.', 'danger');
-      updateProjectSearchSelection();
-    });
+    })
+      .then(function (res) {
+        var data = res.data || {};
+        setProjectSearchStatus(
+          'Changed ' +
+            data.replacement_count +
+            (data.replacement_count === 1 ? ' match' : ' matches') +
+            ' in ' +
+            data.file_count +
+            (data.file_count === 1 ? ' file.' : ' files.'),
+          'success',
+        );
+        _projectSearchData = null;
+        var results = projectSearchElement('project-search-results');
+        if (results) results.innerHTML = '';
+        updateProjectSearchSelection();
+        loadFiles();
+      })
+      .catch(function (error) {
+        setProjectSearchStatus(
+          (error && error.message) || 'Replacement failed.',
+          'danger',
+        );
+        updateProjectSearchSelection();
+      });
   }
 
   function openProjectSearchResult(fileIndex) {
@@ -2114,21 +3208,26 @@
         state.filename = file.filename;
         state.canvasMode = 'full-yaml';
         populateFiles();
-        var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+        var interviewTab = document.querySelector(
+          '.editor-top-tab[data-view="interview"]',
+        );
         if (interviewTab) setActiveTopTab(interviewTab);
         loadFile();
         return;
       }
       state.currentView = file.section;
       state.sectionSelectedFile[file.section] = file.filename;
-      var sectionTab = document.querySelector('.editor-top-tab[data-view="' + file.section + '"]');
+      var sectionTab = document.querySelector(
+        '.editor-top-tab[data-view="' + file.section + '"]',
+      );
       if (sectionTab) setActiveTopTab(sectionTab);
       loadSectionFiles(file.section).then(function () {
         renderOutline();
         renderCanvas();
       });
     }
-    if (deferNavigationForUnsavedChanges('open a search result', navigate)) return;
+    if (deferNavigationForUnsavedChanges('open a search result', navigate))
+      return;
     navigate();
   }
 
@@ -2142,60 +3241,101 @@
     var wordControl = projectSearchElement('project-search-word');
     var results = projectSearchElement('project-search-results');
     var replaceButton = projectSearchElement('project-search-replace');
-    if (openButton) openButton.addEventListener('click', function () {
-      if (!state.project) {
-        window.alert('Select a project before searching.');
-        return;
-      }
-      if (_projectSearchData && _projectSearchData.project !== state.project) {
-        _projectSearchData = null;
-        if (results) results.innerHTML = '';
-        setProjectSearchStatus('Enter text to search the current project.', 'secondary');
-      }
-      var title = projectSearchElement('project-search-title');
-      if (title) title.textContent = 'Find and replace — ' + state.project;
-      var modal = getOrCreateBootstrapModal('project-search-modal');
-      if (modal) modal.show();
-      setTimeout(function () {
-        var query = projectSearchElement('project-search-query');
-        if (query) query.focus();
-      }, 150);
-      updateProjectSearchSelection();
-    });
-    if (form) form.addEventListener('submit', function (event) {
-      event.preventDefault();
-      runProjectSearch();
-    });
-    if (variableControl) variableControl.addEventListener('change', updateProjectSearchMode);
-    if (queryControl) queryControl.addEventListener('input', invalidateProjectSearchPreview);
-    if (caseControl) caseControl.addEventListener('change', invalidateProjectSearchPreview);
-    if (wordControl) wordControl.addEventListener('change', invalidateProjectSearchPreview);
-    if (replacementControl) replacementControl.addEventListener('input', function () {
-      if (projectSearchIsVariableMode()) updateProjectSearchSelection();
-    });
-    if (replaceButton) replaceButton.addEventListener('click', applyProjectReplacement);
+    if (openButton)
+      openButton.addEventListener('click', function () {
+        if (!state.project) {
+          window.alert('Select a project before searching.');
+          return;
+        }
+        if (
+          _projectSearchData &&
+          _projectSearchData.project !== state.project
+        ) {
+          _projectSearchData = null;
+          if (results) results.innerHTML = '';
+          setProjectSearchStatus(
+            'Enter text to search the current project.',
+            'secondary',
+          );
+        }
+        var title = projectSearchElement('project-search-title');
+        if (title) title.textContent = 'Find and replace — ' + state.project;
+        var modal = getOrCreateBootstrapModal('project-search-modal');
+        if (modal) modal.show();
+        setTimeout(function () {
+          var query = projectSearchElement('project-search-query');
+          if (query) query.focus();
+        }, 150);
+        updateProjectSearchSelection();
+      });
+    if (form)
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        runProjectSearch();
+      });
+    if (variableControl)
+      variableControl.addEventListener('change', updateProjectSearchMode);
+    if (queryControl)
+      queryControl.addEventListener('input', invalidateProjectSearchPreview);
+    if (caseControl)
+      caseControl.addEventListener('change', invalidateProjectSearchPreview);
+    if (wordControl)
+      wordControl.addEventListener('change', invalidateProjectSearchPreview);
+    if (replacementControl)
+      replacementControl.addEventListener('input', function () {
+        if (projectSearchIsVariableMode()) updateProjectSearchSelection();
+      });
+    if (replaceButton)
+      replaceButton.addEventListener('click', applyProjectReplacement);
     if (results) {
       results.addEventListener('change', function (event) {
-        var fileToggle = event.target.closest('[data-project-search-file-select]');
+        var fileToggle = event.target.closest(
+          '[data-project-search-file-select]',
+        );
         if (fileToggle) {
-          var fileIndex = fileToggle.getAttribute('data-project-search-file-select');
-          results.querySelectorAll('[data-project-search-match][data-file-index="' + fileIndex + '"]').forEach(function (control) {
-            control.checked = fileToggle.checked;
-          });
+          var fileIndex = fileToggle.getAttribute(
+            'data-project-search-file-select',
+          );
+          results
+            .querySelectorAll(
+              '[data-project-search-match][data-file-index="' +
+                fileIndex +
+                '"]',
+            )
+            .forEach(function (control) {
+              control.checked = fileToggle.checked;
+            });
         } else if (event.target.matches('[data-project-search-match]')) {
           var changedFile = event.target.getAttribute('data-file-index');
-          var children = Array.from(results.querySelectorAll('[data-project-search-match][data-file-index="' + changedFile + '"]'));
-          var parent = results.querySelector('[data-project-search-file-select="' + changedFile + '"]');
+          var children = Array.from(
+            results.querySelectorAll(
+              '[data-project-search-match][data-file-index="' +
+                changedFile +
+                '"]',
+            ),
+          );
+          var parent = results.querySelector(
+            '[data-project-search-file-select="' + changedFile + '"]',
+          );
           if (parent) {
-            parent.checked = children.every(function (control) { return control.checked; });
-            parent.indeterminate = !parent.checked && children.some(function (control) { return control.checked; });
+            parent.checked = children.every(function (control) {
+              return control.checked;
+            });
+            parent.indeterminate =
+              !parent.checked &&
+              children.some(function (control) {
+                return control.checked;
+              });
           }
         }
         updateProjectSearchSelection();
       });
       results.addEventListener('click', function (event) {
         var openControl = event.target.closest('[data-project-search-open]');
-        if (openControl) openProjectSearchResult(parseInt(openControl.getAttribute('data-project-search-open'), 10));
+        if (openControl)
+          openProjectSearchResult(
+            parseInt(openControl.getAttribute('data-project-search-open'), 10),
+          );
       });
     }
     updateProjectSearchMode();
@@ -2206,11 +3346,13 @@
   // the restart at the moment the developer runs the interview.
   var moduleRestart = window.ALWeaverModuleRestart
     ? window.ALWeaverModuleRestart.createModuleRestartController({
-      api: { get: apiGet, post: apiPost },
-      document: document,
-      window: window,
-      getProject: function () { return state.project; },
-    })
+        api: { get: apiGet, post: apiPost },
+        document: document,
+        window: window,
+        getProject: function () {
+          return state.project;
+        },
+      })
     : null;
 
   function noteModuleSaveResult(data) {
@@ -2225,7 +3367,13 @@
       return entry && entry.status === 'not_published';
     });
     if (!problems.length) return;
-    window.alert(problems.map(function (entry) { return entry.message; }).join('\n\n'));
+    window.alert(
+      problems
+        .map(function (entry) {
+          return entry.message;
+        })
+        .join('\n\n'),
+    );
   }
 
   /* Resolves true when the caller should go ahead. */
@@ -2234,72 +3382,98 @@
     return moduleRestart.ensureModulesLoaded(actionLabel);
   }
 
-  var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector({
-    api: {
-      get: runtimeApiClient.get,
-      post: runtimeApiClient.post,
-      delete: runtimeApiClient.delete,
+  var runtimeInspector = window.ALWeaverRuntimeInspector.createRuntimeInspector(
+    {
+      api: {
+        get: runtimeApiClient.get,
+        post: runtimeApiClient.post,
+        delete: runtimeApiClient.delete,
+      },
+      getContext: function () {
+        return { project: state.project, filename: state.filename };
+      },
+      getBlocks: function () {
+        return state.blocks || [];
+      },
+      beforeStart: function () {
+        return ensureModulesLoaded('start a test session');
+      },
+      onSessionChange: function (session) {
+        state.runtimeTargetSession = session;
+      },
+      onOpenSource: function (blockId) {
+        var block = getBlockById(blockId);
+        if (!block) return;
+        state.currentView = 'interview';
+        state.canvasMode = 'question';
+        state.selectedBlockId = blockId;
+        state.questionEditMode = 'preview';
+        // A runtime question may live outside the developer's current outline
+        // filter. Widen it before selecting so the source link cannot land on a
+        // block that the outline immediately replaces.
+        state.jumpTarget = 'all';
+        syncJumpSelect();
+        renderCanvas();
+        renderOutline();
+      },
+      onClose: function () {
+        state.canvasMode = 'question';
+        renderCanvas();
+        renderOutline();
+      },
     },
-    getContext: function () {
-      return { project: state.project, filename: state.filename };
-    },
-    getBlocks: function () { return state.blocks || []; },
-    beforeStart: function () { return ensureModulesLoaded('start a test session'); },
-    onSessionChange: function (session) {
-      state.runtimeTargetSession = session;
-    },
-    onOpenSource: function (blockId) {
-      var block = getBlockById(blockId);
-      if (!block) return;
-      state.currentView = 'interview';
-      state.canvasMode = 'question';
-      state.selectedBlockId = blockId;
-      state.questionEditMode = 'preview';
-      // A runtime question may live outside the developer's current outline
-      // filter. Widen it before selecting so the source link cannot land on a
-      // block that the outline immediately replaces.
-      state.jumpTarget = 'all';
-      syncJumpSelect();
-      renderCanvas();
-      renderOutline();
-    },
-    onClose: function () {
-      state.canvasMode = 'question';
-      renderCanvas();
-      renderOutline();
-    },
-  });
+  );
 
-  var agentChat = window.ALWeaverAgentChat ? window.ALWeaverAgentChat.createAgentChat({
-    api: {
-      get: apiGet,
-      post: apiPost,
-      delete: apiDelete,
-    },
-    getContext: function () {
-      return {
-        project: state.project,
-        filename: state.filename,
-        selectedBlockId: state.selectedBlockId,
-      };
-    },
-    getWorkingSource: function () { return getWorkingSourceSnapshot(); },
-    getAvailability: function () {
-      return (BOOT.features && BOOT.features.assistant_status) ||
-        { available: true, code: 'ready', message: '' };
-    },
-    onApply: function (data) { applyAgentCandidate(data); },
-    onStateChange: function (chatState) {
-      updateTopbarSaveState();
-      // The drawer may be closed while a turn runs, so the toolbar button
-      // carries the same signal.
-      var working = ['starting', 'thinking', 'inspecting', 'editing', 'validating', 'testing']
-        .indexOf(chatState) !== -1;
-      document.querySelectorAll('.js-assistant-toggle').forEach(function (control) {
-        control.classList.toggle('editor-assistant-working', working);
-      });
-    },
-  }) : null;
+  var agentChat = window.ALWeaverAgentChat
+    ? window.ALWeaverAgentChat.createAgentChat({
+        api: {
+          get: apiGet,
+          post: apiPost,
+          delete: apiDelete,
+        },
+        getContext: function () {
+          return {
+            project: state.project,
+            filename: state.filename,
+            selectedBlockId: state.selectedBlockId,
+          };
+        },
+        getWorkingSource: function () {
+          return getWorkingSourceSnapshot();
+        },
+        getAvailability: function () {
+          return (
+            (BOOT.features && BOOT.features.assistant_status) || {
+              available: true,
+              code: 'ready',
+              message: '',
+            }
+          );
+        },
+        onApply: function (data) {
+          applyAgentCandidate(data);
+        },
+        onStateChange: function (chatState) {
+          updateTopbarSaveState();
+          // The drawer may be closed while a turn runs, so the toolbar button
+          // carries the same signal.
+          var working =
+            [
+              'starting',
+              'thinking',
+              'inspecting',
+              'editing',
+              'validating',
+              'testing',
+            ].indexOf(chatState) !== -1;
+          document
+            .querySelectorAll('.js-assistant-toggle')
+            .forEach(function (control) {
+              control.classList.toggle('editor-assistant-working', working);
+            });
+        },
+      })
+    : null;
 
   function agentEditorEnabled() {
     return Boolean(agentChat && BOOT.features && BOOT.features.agent_editor);
@@ -2312,8 +3486,16 @@
     var layout = document.getElementById('editor-layout');
     var toggle = document.getElementById('btn-toggle-assistant');
     if (panel) panel.classList.toggle('d-none', !state.assistantOpen);
-    if (layout) layout.classList.toggle('editor-layout-assistant-open', state.assistantOpen);
-    if (toggle) toggle.setAttribute('aria-expanded', state.assistantOpen ? 'true' : 'false');
+    if (layout)
+      layout.classList.toggle(
+        'editor-layout-assistant-open',
+        state.assistantOpen,
+      );
+    if (toggle)
+      toggle.setAttribute(
+        'aria-expanded',
+        state.assistantOpen ? 'true' : 'false',
+      );
     if (!state.assistantOpen) return;
     agentChat.render(document.getElementById('editor-assistant-body'));
     var input = document.getElementById('editor-agent-input');
@@ -2331,9 +3513,10 @@
   }
 
   function isSupersededRequest(error) {
-    return Boolean(error && (
-      error.code === 'stale_response' || error.code === 'request_cancelled'
-    ));
+    return Boolean(
+      error &&
+      (error.code === 'stale_response' || error.code === 'request_cancelled'),
+    );
   }
 
   // Navigation-driven loads are aborted by design when the user clicks through
@@ -2378,10 +3561,12 @@
   }
 
   function generateBlockId(questionText, blocks, currentId) {
-    var base = String(questionText || '').toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 40) || 'question';
+    var base =
+      String(questionText || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 40) || 'question';
     var existing = {};
     (blocks || []).forEach(function (b) {
       if (b.id && b.id !== currentId) existing[b.id] = true;
@@ -2403,7 +3588,9 @@
   }
 
   function fuzzyMatch(query, text) {
-    var q = String(query || '').toLowerCase().trim();
+    var q = String(query || '')
+      .toLowerCase()
+      .trim();
     var t = String(text || '').toLowerCase();
     if (!q) return true;
     if (t.indexOf(q) !== -1) return true;
@@ -2416,14 +3603,26 @@
 
   function normalizeSymbolRole(role) {
     role = String(role || 'all').trim() || 'all';
-    if (role === 'variable' || role === 'top-level' || role === 'al-individual' || role === 'object-class' || role === 'section' || role === 'static-image' || role === 'static-file' || role === 'function-call' || role === 'template-file') {
+    if (
+      role === 'variable' ||
+      role === 'top-level' ||
+      role === 'al-individual' ||
+      role === 'object-class' ||
+      role === 'section' ||
+      role === 'static-image' ||
+      role === 'static-file' ||
+      role === 'function-call' ||
+      role === 'template-file'
+    ) {
       return role;
     }
     return 'all';
   }
 
   function _looksLikeImageFile(name) {
-    return /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i.test(String(name || '').trim());
+    return /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i.test(
+      String(name || '').trim(),
+    );
   }
 
   function _flattenSymbolGroups(groups) {
@@ -2440,7 +3639,9 @@
 
   function _groupEntries(groups, keyNames) {
     var out = [];
-    var normalized = (keyNames || []).map(function (name) { return String(name || '').toLowerCase(); });
+    var normalized = (keyNames || []).map(function (name) {
+      return String(name || '').toLowerCase();
+    });
     Object.keys(groups || {}).forEach(function (key) {
       if (normalized.indexOf(String(key || '').toLowerCase()) === -1) return;
       var vals = groups[key];
@@ -2460,15 +3661,22 @@
     var all = state.symbolCatalog.all || [];
 
     if (role === 'variable') {
-      return all.map(function (name) { return { name: name, group: 'variables' }; });
+      return all.map(function (name) {
+        return { name: name, group: 'variables' };
+      });
     }
     if (role === 'top-level') {
-      return topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; });
+      return topLevel.map(function (name) {
+        return { name: name, group: 'top_level_names' };
+      });
     }
     if (role === 'al-individual') {
       var individualLike = _groupEntries(groups, ['al_individual_primitives']);
       if (!individualLike.length) {
-        individualLike = _groupEntries(groups, ['al_people_lists', 'al_individual_objects']);
+        individualLike = _groupEntries(groups, [
+          'al_people_lists',
+          'al_individual_objects',
+        ]);
       }
       return individualLike;
     }
@@ -2476,15 +3684,21 @@
       var classLike = _groupEntries(groups, ['classes']);
       if (classLike.length === 0) {
         var classGroupKeys = Object.keys(groups).filter(function (key) {
-          return key.toLowerCase().indexOf('class') !== -1 || key.toLowerCase().indexOf('object') !== -1;
+          return (
+            key.toLowerCase().indexOf('class') !== -1 ||
+            key.toLowerCase().indexOf('object') !== -1
+          );
         });
         classGroupKeys.forEach(function (key) {
-          (groups[key] || []).forEach(function (name) { classLike.push({ name: name, group: key }); });
+          (groups[key] || []).forEach(function (name) {
+            classLike.push({ name: name, group: key });
+          });
         });
       }
       if (classLike.length === 0) {
         all.forEach(function (name) {
-          if (/^[A-Z]/.test(name)) classLike.push({ name: name, group: 'all_names' });
+          if (/^[A-Z]/.test(name))
+            classLike.push({ name: name, group: 'all_names' });
         });
       }
       return classLike;
@@ -2514,10 +3728,14 @@
       return templateLike;
     }
     if (role === 'static-file') {
-      var staticFiles = _groupEntries(groups, ['static_files', 'static_images']);
+      var staticFiles = _groupEntries(groups, [
+        'static_files',
+        'static_images',
+      ]);
       if (!staticFiles.length) {
         all.forEach(function (name) {
-          if (name.indexOf('.') !== -1) staticFiles.push({ name: name, group: 'all_names' });
+          if (name.indexOf('.') !== -1)
+            staticFiles.push({ name: name, group: 'all_names' });
         });
       }
       return staticFiles;
@@ -2526,28 +3744,43 @@
       var sections = [];
       state.orderSteps.forEach(function collect(step) {
         if (!step) return;
-        if (step.kind === 'section' && step.value) sections.push({ name: String(step.value), group: 'section' });
+        if (step.kind === 'section' && step.value)
+          sections.push({ name: String(step.value), group: 'section' });
         if (Array.isArray(step.children)) step.children.forEach(collect);
       });
-      return sections.concat(topLevel.map(function (name) { return { name: name, group: 'top_level_names' }; }));
+      return sections.concat(
+        topLevel.map(function (name) {
+          return { name: name, group: 'top_level_names' };
+        }),
+      );
     }
     if (role === 'static-image') {
       var staticLike = _groupEntries(groups, ['static_images']);
       Object.keys(groups).forEach(function (key) {
         var keyLower = key.toLowerCase();
-        if (keyLower.indexOf('static') === -1 && keyLower.indexOf('image') === -1) return;
+        if (
+          keyLower.indexOf('static') === -1 &&
+          keyLower.indexOf('image') === -1
+        )
+          return;
         (groups[key] || []).forEach(function (name) {
-          if (_looksLikeImageFile(name)) staticLike.push({ name: name, group: key });
+          if (_looksLikeImageFile(name))
+            staticLike.push({ name: name, group: key });
         });
       });
       if (!staticLike.length) {
         all.forEach(function (name) {
-          if (_looksLikeImageFile(name)) staticLike.push({ name: name, group: 'all_names' });
+          if (_looksLikeImageFile(name))
+            staticLike.push({ name: name, group: 'all_names' });
         });
       }
       return staticLike;
     }
-    return _flattenSymbolGroups(groups).concat(all.map(function (name) { return { name: name, group: 'all_names' }; }));
+    return _flattenSymbolGroups(groups).concat(
+      all.map(function (name) {
+        return { name: name, group: 'all_names' };
+      }),
+    );
   }
 
   function getSymbolMatchResult(query, role, limit) {
@@ -2609,7 +3842,11 @@
       refreshSymbolInsertModalList(search ? search.value || '' : '');
     }
     var activeEl = document.activeElement;
-    if (activeEl && activeEl.matches && activeEl.matches('[data-symbol-role]')) {
+    if (
+      activeEl &&
+      activeEl.matches &&
+      activeEl.matches('[data-symbol-role]')
+    ) {
       showTypeaheadForInput(activeEl);
     }
   }
@@ -2620,10 +3857,19 @@
       return Promise.resolve();
     }
     var key = state.project + '::' + state.filename;
-    if (!forceRefresh && state.symbolCatalog.loadedFor === key && state.symbolCatalog.all.length) {
+    if (
+      !forceRefresh &&
+      state.symbolCatalog.loadedFor === key &&
+      state.symbolCatalog.all.length
+    ) {
       return Promise.resolve();
     }
-    return apiGet('/api/variables?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    return apiGet(
+      '/api/variables?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
       .then(function (res) {
         if (!res.success || !res.data) return;
         if (key !== state.project + '::' + state.filename) return;
@@ -2653,7 +3899,10 @@
     var after = value.slice(end);
     var replacement = insertText;
     if (opts.wrapSelectionPrefix || opts.wrapSelectionSuffix) {
-      replacement = String(opts.wrapSelectionPrefix || '') + (selected || opts.defaultSelection || '') + String(opts.wrapSelectionSuffix || '');
+      replacement =
+        String(opts.wrapSelectionPrefix || '') +
+        (selected || opts.defaultSelection || '') +
+        String(opts.wrapSelectionSuffix || '');
     }
     el.value = before + replacement + after;
     var cursor = (before + replacement).length;
@@ -2682,20 +3931,31 @@
     // If cursor is inside ${ ... }, use the inner token region.
     var leftBrace = text.lastIndexOf('${', cursor);
     var rightBrace = text.indexOf('}', cursor);
-    if (leftBrace !== -1 && rightBrace !== -1 && leftBrace < cursor && rightBrace >= cursor) {
+    if (
+      leftBrace !== -1 &&
+      rightBrace !== -1 &&
+      leftBrace < cursor &&
+      rightBrace >= cursor
+    ) {
       var innerStart = leftBrace + 2;
-      while (innerStart < rightBrace && /\s/.test(text.charAt(innerStart))) innerStart += 1;
+      while (innerStart < rightBrace && /\s/.test(text.charAt(innerStart)))
+        innerStart += 1;
       var innerEnd = rightBrace;
-      while (innerEnd > innerStart && /\s/.test(text.charAt(innerEnd - 1))) innerEnd -= 1;
+      while (innerEnd > innerStart && /\s/.test(text.charAt(innerEnd - 1)))
+        innerEnd -= 1;
       var relCursor = Math.max(innerStart, Math.min(cursor, innerEnd));
       start = relCursor;
-      while (start > innerStart && isTokenChar.test(text.charAt(start - 1))) start -= 1;
+      while (start > innerStart && isTokenChar.test(text.charAt(start - 1)))
+        start -= 1;
       end = relCursor;
       while (end < innerEnd && isTokenChar.test(text.charAt(end))) end += 1;
       token = text.slice(start, end);
     }
 
-    var query = String(token || '').replace(/^\$?\{?\s*/, '').replace(/\s*\}?$/, '').trim();
+    var query = String(token || '')
+      .replace(/^\$?\{?\s*/, '')
+      .replace(/\s*\}?$/, '')
+      .trim();
     return { start: start, end: end, query: query };
   }
 
@@ -2715,48 +3975,128 @@
 
   function renderMarkdownToolbar(targetId, compact) {
     var cls = compact ? ' editor-md-toolbar-compact' : '';
-    var html = '<div class="editor-md-toolbar' + cls + '" data-md-toolbar-for="' + esc(targetId) + '">';
+    var html =
+      '<div class="editor-md-toolbar' +
+      cls +
+      '" data-md-toolbar-for="' +
+      esc(targetId) +
+      '">';
     // Primary actions — always visible, light ghost style
-    html += '<button type="button" class="editor-md-btn" data-md-insert="bold" data-target-id="' + esc(targetId) + '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="editor-md-btn" data-md-insert="italic" data-target-id="' + esc(targetId) + '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="editor-md-btn" data-md-insert="link" data-target-id="' + esc(targetId) + '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
-    html += '<button type="button" class="editor-md-btn" data-md-insert="mako" data-target-id="' + esc(targetId) + '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn" data-md-insert="bold" data-target-id="' +
+      esc(targetId) +
+      '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn" data-md-insert="italic" data-target-id="' +
+      esc(targetId) +
+      '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn" data-md-insert="link" data-target-id="' +
+      esc(targetId) +
+      '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn" data-md-insert="mako" data-target-id="' +
+      esc(targetId) +
+      '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
     // Heading dropdown
     html += '<div class="dropdown d-inline-block">';
-    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' + esc(targetId) + '">Heading 1</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading2" data-target-id="' + esc(targetId) + '">Heading 2</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading3" data-target-id="' + esc(targetId) + '">Heading 3</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="heading4" data-target-id="' + esc(targetId) + '">Heading 4</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' +
+      esc(targetId) +
+      '">Heading 1</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="heading2" data-target-id="' +
+      esc(targetId) +
+      '">Heading 2</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="heading3" data-target-id="' +
+      esc(targetId) +
+      '">Heading 3</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="heading4" data-target-id="' +
+      esc(targetId) +
+      '">Heading 4</button></li>';
     html += '</ul></div>';
     // List dropdown
     html += '<div class="dropdown d-inline-block">';
-    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List"><i class="fa-solid fa-list" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List"><i class="fa-solid fa-list" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="list-bullet" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-list-ul me-2" aria-hidden="true"></i>Bulleted list</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="list-numbered" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-list-ol me-2" aria-hidden="true"></i>Numbered list</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="list-bullet" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-list-ul me-2" aria-hidden="true"></i>Bulleted list</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="list-numbered" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-list-ol me-2" aria-hidden="true"></i>Numbered list</button></li>';
     html += '</ul></div>';
     // Kebab overflow menu — mako items first, then media/layout
     html += '<div class="dropdown d-inline-block">';
-    html += '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html +=
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-at me-2" aria-hidden="true"></i>Insert variable name</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-if" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Mako conditional</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-for" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-repeat me-2" aria-hidden="true"></i>Mako loop</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-at me-2" aria-hidden="true"></i>Insert variable name</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="mako-if" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Mako conditional</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="mako-for" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-repeat me-2" aria-hidden="true"></i>Mako loop</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
     html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="image" data-target-id="' + esc(targetId) + '"><i class="fa-regular fa-image me-2" aria-hidden="true"></i>Image</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="table" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table me-2" aria-hidden="true"></i>Table</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="file" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-file-lines me-2" aria-hidden="true"></i>FILE markup</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="qr" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-qrcode me-2" aria-hidden="true"></i>QR code</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="youtube" data-target-id="' + esc(targetId) + '"><i class="fa-brands fa-youtube me-2" aria-hidden="true"></i>YouTube</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="field" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-i-cursor me-2" aria-hidden="true"></i>Embed field</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="target" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-bullseye me-2" aria-hidden="true"></i>Embed target</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="twocol" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-table-columns me-2" aria-hidden="true"></i>Two-column layout</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="image" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-regular fa-image me-2" aria-hidden="true"></i>Image</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="table" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-table me-2" aria-hidden="true"></i>Table</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="file" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-file-lines me-2" aria-hidden="true"></i>FILE markup</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="qr" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-qrcode me-2" aria-hidden="true"></i>QR code</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="youtube" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-brands fa-youtube me-2" aria-hidden="true"></i>YouTube</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="field" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-i-cursor me-2" aria-hidden="true"></i>Embed field</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="target" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-bullseye me-2" aria-hidden="true"></i>Embed target</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="twocol" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-table-columns me-2" aria-hidden="true"></i>Two-column layout</button></li>';
     html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-markup" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book me-2" aria-hidden="true"></i>Markup docs</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-md-insert="docs-mako" data-target-id="' + esc(targetId) + '"><i class="fa-solid fa-book-open me-2" aria-hidden="true"></i>Mako docs</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="docs-markup" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-book me-2" aria-hidden="true"></i>Markup docs</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-md-insert="docs-mako" data-target-id="' +
+      esc(targetId) +
+      '"><i class="fa-solid fa-book-open me-2" aria-hidden="true"></i>Mako docs</button></li>';
     html += '</ul></div>';
     html += '</div>';
     return html;
@@ -2790,64 +4130,109 @@
     if (listWrap) listWrap.classList.add('d-none');
     formWrap.classList.remove('d-none');
     applyBtn.classList.remove('d-none');
-    applyBtn.setAttribute('data-insert-form-action', String(context.action || ''));
+    applyBtn.setAttribute(
+      'data-insert-form-action',
+      String(context.action || ''),
+    );
 
     var action = String(context.action || '');
     var html = '';
     if (action === 'link') {
-      html += '<label class="editor-tiny" for="insert-link-text">Visible text</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-link-text" value="link text">';
-      html += '<label class="editor-tiny mt-2" for="insert-link-url">URL</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-link-url" value="https://">';
+      html +=
+        '<label class="editor-tiny" for="insert-link-text">Visible text</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-link-text" value="link text">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-link-url">URL</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-link-url" value="https://">';
     } else if (action === 'image') {
-      html += '<label class="editor-tiny" for="insert-image-kind">Image source</label>';
-      html += '<select class="form-select form-select-sm mt-1" id="insert-image-kind">';
+      html +=
+        '<label class="editor-tiny" for="insert-image-kind">Image source</label>';
+      html +=
+        '<select class="form-select form-select-sm mt-1" id="insert-image-kind">';
       html += '<option value="static">From project static folder</option>';
       html += '<option value="url">External URL</option>';
       html += '</select>';
-      html += '<label class="editor-tiny mt-2" for="insert-image-ref">File name or URL</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-image-ref" data-symbol-role="static-image" placeholder="example.png or https://...">';
-      html += '<div class="editor-tiny mt-1">Type to filter available static images, or paste a full URL.</div>';
-      html += '<label class="editor-tiny mt-2" for="insert-image-width">Width (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-image-width" placeholder="100% or 250px">';
-      html += '<label class="editor-tiny mt-2" for="insert-image-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-image-alt">';
-      html += '<div class="editor-tiny mt-1">Describe the image for someone who cannot see it. Leave blank only if the image is decorative.</div>';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-image-ref">File name or URL</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-image-ref" data-symbol-role="static-image" placeholder="example.png or https://...">';
+      html +=
+        '<div class="editor-tiny mt-1">Type to filter available static images, or paste a full URL.</div>';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-image-width">Width (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-image-width" placeholder="100% or 250px">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-image-alt">Alt text (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-image-alt">';
+      html +=
+        '<div class="editor-tiny mt-1">Describe the image for someone who cannot see it. Leave blank only if the image is decorative.</div>';
     } else if (action === 'table') {
-      html += '<label class="editor-tiny" for="insert-table-cols">Columns</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-table-cols" type="number" min="2" max="8" value="2">';
-      html += '<label class="editor-tiny mt-2" for="insert-table-rows">Data rows</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-table-rows" type="number" min="1" max="20" value="3">';
+      html +=
+        '<label class="editor-tiny" for="insert-table-cols">Columns</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-table-cols" type="number" min="2" max="8" value="2">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-table-rows">Data rows</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-table-rows" type="number" min="1" max="20" value="3">';
     } else if (action === 'file') {
-      html += '<label class="editor-tiny" for="insert-file-ref">File reference</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-file-ref" placeholder="filename.ext or package:file.ext">';
-      html += '<label class="editor-tiny mt-2" for="insert-file-width">Width (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-file-width" placeholder="100% or 250px">';
-      html += '<label class="editor-tiny mt-2" for="insert-file-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-file-alt">';
-      html += '<div class="editor-tiny mt-1">Describe the file for someone using a screen reader.</div>';
+      html +=
+        '<label class="editor-tiny" for="insert-file-ref">File reference</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-file-ref" placeholder="filename.ext or package:file.ext">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-file-width">Width (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-file-width" placeholder="100% or 250px">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-file-alt">Alt text (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-file-alt">';
+      html +=
+        '<div class="editor-tiny mt-1">Describe the file for someone using a screen reader.</div>';
     } else if (action === 'qr') {
-      html += '<label class="editor-tiny" for="insert-qr-text">QR text or URL</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-qr-text" value="https://">';
-      html += '<label class="editor-tiny mt-2" for="insert-qr-width">Width (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-qr-width" placeholder="200px">';
-      html += '<label class="editor-tiny mt-2" for="insert-qr-alt">Alt text (optional)</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-qr-alt">';
-      html += '<div class="editor-tiny mt-1">Say where the QR code leads, for people who cannot scan it.</div>';
+      html +=
+        '<label class="editor-tiny" for="insert-qr-text">QR text or URL</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-qr-text" value="https://">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-qr-width">Width (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-qr-width" placeholder="200px">';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-qr-alt">Alt text (optional)</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-qr-alt">';
+      html +=
+        '<div class="editor-tiny mt-1">Say where the QR code leads, for people who cannot scan it.</div>';
     } else if (action === 'youtube') {
-      html += '<label class="editor-tiny" for="insert-youtube-id">YouTube video ID</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-youtube-id" placeholder="RpgYyuLt7Dx">';
+      html +=
+        '<label class="editor-tiny" for="insert-youtube-id">YouTube video ID</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-youtube-id" placeholder="RpgYyuLt7Dx">';
     } else if (action === 'field') {
-      html += '<label class="editor-tiny" for="insert-field-name">Field variable</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-field-name" data-symbol-role="variable" placeholder="user.name.first">';
+      html +=
+        '<label class="editor-tiny" for="insert-field-name">Field variable</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-field-name" data-symbol-role="variable" placeholder="user.name.first">';
     } else if (action === 'target') {
-      html += '<label class="editor-tiny" for="insert-target-name">Target name</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="insert-target-name" data-symbol-role="variable" placeholder="interim_status">';
+      html +=
+        '<label class="editor-tiny" for="insert-target-name">Target name</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="insert-target-name" data-symbol-role="variable" placeholder="interim_status">';
     } else if (action === 'twocol') {
-      html += '<label class="editor-tiny" for="insert-twocol-left">Left column text</label>';
-      html += '<textarea class="form-control form-control-sm mt-1" id="insert-twocol-left" rows="2"></textarea>';
-      html += '<label class="editor-tiny mt-2" for="insert-twocol-right">Right column text</label>';
-      html += '<textarea class="form-control form-control-sm mt-1" id="insert-twocol-right" rows="2"></textarea>';
+      html +=
+        '<label class="editor-tiny" for="insert-twocol-left">Left column text</label>';
+      html +=
+        '<textarea class="form-control form-control-sm mt-1" id="insert-twocol-left" rows="2"></textarea>';
+      html +=
+        '<label class="editor-tiny mt-2" for="insert-twocol-right">Right column text</label>';
+      html +=
+        '<textarea class="form-control form-control-sm mt-1" id="insert-twocol-right" rows="2"></textarea>';
     }
     formBody.innerHTML = html;
 
@@ -2858,15 +4243,27 @@
   function buildInsertionFromForm(action) {
     action = String(action || '');
     if (action === 'link') {
-      var linkText = (document.getElementById('insert-link-text') || {}).value || 'link text';
-      var linkUrl = (document.getElementById('insert-link-url') || {}).value || 'https://';
-      return '[' + String(linkText).trim() + '](' + String(linkUrl).trim() + ')';
+      var linkText =
+        (document.getElementById('insert-link-text') || {}).value ||
+        'link text';
+      var linkUrl =
+        (document.getElementById('insert-link-url') || {}).value || 'https://';
+      return (
+        '[' + String(linkText).trim() + '](' + String(linkUrl).trim() + ')'
+      );
     }
     if (action === 'image') {
-      var kind = (document.getElementById('insert-image-kind') || {}).value || 'static';
-      var imageRefRaw = ((document.getElementById('insert-image-ref') || {}).value || '').trim();
-      var imageWidth = ((document.getElementById('insert-image-width') || {}).value || '').trim();
-      var imageAlt = ((document.getElementById('insert-image-alt') || {}).value || '').trim();
+      var kind =
+        (document.getElementById('insert-image-kind') || {}).value || 'static';
+      var imageRefRaw = (
+        (document.getElementById('insert-image-ref') || {}).value || ''
+      ).trim();
+      var imageWidth = (
+        (document.getElementById('insert-image-width') || {}).value || ''
+      ).trim();
+      var imageAlt = (
+        (document.getElementById('insert-image-alt') || {}).value || ''
+      ).trim();
       if (!imageRefRaw) return '';
       if (kind === 'url' || /^https?:\/\//i.test(imageRefRaw)) {
         var altText = imageAlt || 'Image';
@@ -2875,8 +4272,14 @@
       return _buildDocassembleImageToken(imageRefRaw, imageWidth, imageAlt);
     }
     if (action === 'table') {
-      var colCount = parseInt(((document.getElementById('insert-table-cols') || {}).value || '2'), 10);
-      var rowCount = parseInt(((document.getElementById('insert-table-rows') || {}).value || '3'), 10);
+      var colCount = parseInt(
+        (document.getElementById('insert-table-cols') || {}).value || '2',
+        10,
+      );
+      var rowCount = parseInt(
+        (document.getElementById('insert-table-rows') || {}).value || '3',
+        10,
+      );
       if (!Number.isFinite(colCount) || colCount < 2) colCount = 2;
       if (!Number.isFinite(rowCount) || rowCount < 1) rowCount = 3;
       var headerCells = [];
@@ -2896,16 +4299,28 @@
       return lines.join('\n');
     }
     if (action === 'file') {
-      var fileRef = ((document.getElementById('insert-file-ref') || {}).value || '').trim();
-      var fileWidth = ((document.getElementById('insert-file-width') || {}).value || '').trim();
-      var fileAlt = ((document.getElementById('insert-file-alt') || {}).value || '').trim();
+      var fileRef = (
+        (document.getElementById('insert-file-ref') || {}).value || ''
+      ).trim();
+      var fileWidth = (
+        (document.getElementById('insert-file-width') || {}).value || ''
+      ).trim();
+      var fileAlt = (
+        (document.getElementById('insert-file-alt') || {}).value || ''
+      ).trim();
       if (!fileRef) return '';
       return _buildDocassembleImageToken(fileRef, fileWidth, fileAlt);
     }
     if (action === 'qr') {
-      var qrText = ((document.getElementById('insert-qr-text') || {}).value || '').trim();
-      var qrWidth = ((document.getElementById('insert-qr-width') || {}).value || '').trim();
-      var qrAlt = ((document.getElementById('insert-qr-alt') || {}).value || '').trim();
+      var qrText = (
+        (document.getElementById('insert-qr-text') || {}).value || ''
+      ).trim();
+      var qrWidth = (
+        (document.getElementById('insert-qr-width') || {}).value || ''
+      ).trim();
+      var qrAlt = (
+        (document.getElementById('insert-qr-alt') || {}).value || ''
+      ).trim();
       if (!qrText) return '';
       var qrParts = [qrText];
       if (qrWidth || qrAlt) qrParts.push(qrWidth || 'None');
@@ -2913,22 +4328,34 @@
       return '[QR ' + qrParts.join(', ') + ']';
     }
     if (action === 'youtube') {
-      var ytId = ((document.getElementById('insert-youtube-id') || {}).value || '').trim();
+      var ytId = (
+        (document.getElementById('insert-youtube-id') || {}).value || ''
+      ).trim();
       if (!ytId) return '';
       return '[YOUTUBE ' + ytId + ']';
     }
     if (action === 'field') {
-      var fieldName = ((document.getElementById('insert-field-name') || {}).value || '').trim();
+      var fieldName = (
+        (document.getElementById('insert-field-name') || {}).value || ''
+      ).trim();
       return fieldName ? '[FIELD ' + fieldName + ']' : '';
     }
     if (action === 'target') {
-      var targetName = ((document.getElementById('insert-target-name') || {}).value || '').trim();
+      var targetName = (
+        (document.getElementById('insert-target-name') || {}).value || ''
+      ).trim();
       return targetName ? '[TARGET ' + targetName + ']' : '';
     }
     if (action === 'twocol') {
-      var left = ((document.getElementById('insert-twocol-left') || {}).value || '').trim();
-      var right = ((document.getElementById('insert-twocol-right') || {}).value || '').trim();
-      return '[BEGIN_TWOCOL]\n' + left + '\n[BREAK]\n' + right + '\n[END_TWOCOL]';
+      var left = (
+        (document.getElementById('insert-twocol-left') || {}).value || ''
+      ).trim();
+      var right = (
+        (document.getElementById('insert-twocol-right') || {}).value || ''
+      ).trim();
+      return (
+        '[BEGIN_TWOCOL]\n' + left + '\n[BREAK]\n' + right + '\n[END_TWOCOL]'
+      );
     }
     return '';
   }
@@ -2959,13 +4386,23 @@
       item.type = 'button';
       item.className = 'editor-symbol-item';
       item.setAttribute('data-symbol-name', entry.name);
-      item.innerHTML = '<span class="editor-symbol-item-name">' + esc(entry.name) + '</span>' +
-        '<span class="editor-symbol-item-group">' + esc(entry.group || '') + '</span>';
+      item.innerHTML =
+        '<span class="editor-symbol-item-name">' +
+        esc(entry.name) +
+        '</span>' +
+        '<span class="editor-symbol-item-group">' +
+        esc(entry.group || '') +
+        '</span>';
       list.appendChild(item);
     });
     if (summary) {
       if (result.total > matches.length) {
-        summary.textContent = 'Showing ' + matches.length + ' of ' + result.total + ' names. Keep typing to filter more.';
+        summary.textContent =
+          'Showing ' +
+          matches.length +
+          ' of ' +
+          result.total +
+          ' names. Keep typing to filter more.';
       } else if (matches.length) {
         summary.textContent = 'Showing ' + matches.length + ' available names.';
       } else {
@@ -2975,7 +4412,9 @@
 
     var modal = getOrCreateBootstrapModal('symbol-insert-modal');
     if (modal) modal.show();
-    window.setTimeout(function () { search.focus(); }, 50);
+    window.setTimeout(function () {
+      search.focus();
+    }, 50);
   }
 
   function refreshSymbolInsertModalList(query) {
@@ -2983,7 +4422,11 @@
     var list = document.getElementById('symbol-insert-list');
     var summary = document.getElementById('symbol-insert-summary');
     if (!list) return;
-    var result = getSymbolMatchResult(query || '', _symbolInsertContext.role, 80);
+    var result = getSymbolMatchResult(
+      query || '',
+      _symbolInsertContext.role,
+      80,
+    );
     var matches = result.matches;
     list.innerHTML = '';
     matches.forEach(function (entry) {
@@ -2991,13 +4434,23 @@
       item.type = 'button';
       item.className = 'editor-symbol-item';
       item.setAttribute('data-symbol-name', entry.name);
-      item.innerHTML = '<span class="editor-symbol-item-name">' + esc(entry.name) + '</span>' +
-        '<span class="editor-symbol-item-group">' + esc(entry.group || '') + '</span>';
+      item.innerHTML =
+        '<span class="editor-symbol-item-name">' +
+        esc(entry.name) +
+        '</span>' +
+        '<span class="editor-symbol-item-group">' +
+        esc(entry.group || '') +
+        '</span>';
       list.appendChild(item);
     });
     if (summary) {
       if (result.total > matches.length) {
-        summary.textContent = 'Showing ' + matches.length + ' of ' + result.total + ' names. Keep typing to filter more.';
+        summary.textContent =
+          'Showing ' +
+          matches.length +
+          ' of ' +
+          result.total +
+          ' names. Keep typing to filter more.';
       } else if (matches.length) {
         summary.textContent = 'Showing ' + matches.length + ' available names.';
       } else {
@@ -3009,9 +4462,17 @@
   function applyMarkdownInsert(targetEl, action) {
     if (!targetEl) return;
     if (action === 'bold') {
-      insertTextAtCursor(targetEl, '', { wrapSelectionPrefix: '**', wrapSelectionSuffix: '**', defaultSelection: 'bold text' });
+      insertTextAtCursor(targetEl, '', {
+        wrapSelectionPrefix: '**',
+        wrapSelectionSuffix: '**',
+        defaultSelection: 'bold text',
+      });
     } else if (action === 'italic') {
-      insertTextAtCursor(targetEl, '', { wrapSelectionPrefix: '*', wrapSelectionSuffix: '*', defaultSelection: 'italic text' });
+      insertTextAtCursor(targetEl, '', {
+        wrapSelectionPrefix: '*',
+        wrapSelectionSuffix: '*',
+        defaultSelection: 'italic text',
+      });
     } else if (action === 'heading' || action === 'heading2') {
       insertTextAtCursor(targetEl, '## ');
     } else if (action === 'heading1') {
@@ -3025,36 +4486,110 @@
     } else if (action === 'list-numbered') {
       insertTextAtCursor(targetEl, '1. Item 1\n2. Item 2\n3. Item 3');
     } else if (action === 'link') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'link' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'link',
+      });
     } else if (action === 'image') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'static-image', insertMode: 'markup-form', action: 'image' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'static-image',
+        insertMode: 'markup-form',
+        action: 'image',
+      });
     } else if (action === 'table') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'table' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'table',
+      });
     } else if (action === 'file') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'file' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'file',
+      });
     } else if (action === 'qr') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'qr' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'qr',
+      });
     } else if (action === 'youtube') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'youtube' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'youtube',
+      });
     } else if (action === 'field') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'field' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'field',
+      });
     } else if (action === 'target') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'target' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'target',
+      });
     } else if (action === 'twocol') {
-      openMarkupInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'markup-form', action: 'twocol' });
+      openMarkupInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'markup-form',
+        action: 'twocol',
+      });
     } else if (action === 'mako') {
       var cursorPos = Number(targetEl.selectionStart || 0);
       var text = String(targetEl.value || '');
       var leftBrace = text.lastIndexOf('${', cursorPos);
       var rightBrace = text.indexOf('}', cursorPos);
-      var insideMako = leftBrace !== -1 && rightBrace !== -1 && leftBrace < cursorPos && rightBrace >= cursorPos;
-      openSymbolInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: insideMako ? 'raw' : 'mako' });
+      var insideMako =
+        leftBrace !== -1 &&
+        rightBrace !== -1 &&
+        leftBrace < cursorPos &&
+        rightBrace >= cursorPos;
+      openSymbolInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: insideMako ? 'raw' : 'mako',
+      });
     } else if (action === 'symbol-raw') {
-      openSymbolInsertModal({ targetId: targetEl.id || null, targetEl: targetEl, role: 'all', insertMode: 'raw' });
+      openSymbolInsertModal({
+        targetId: targetEl.id || null,
+        targetEl: targetEl,
+        role: 'all',
+        insertMode: 'raw',
+      });
     } else if (action === 'mako-if') {
-      insertTextAtCursor(targetEl, '% if condition_here:\nText when true\n% endif');
+      insertTextAtCursor(
+        targetEl,
+        '% if condition_here:\nText when true\n% endif',
+      );
     } else if (action === 'mako-for') {
-      insertTextAtCursor(targetEl, '% for item in items:\n- ${ item }\n% endfor');
+      insertTextAtCursor(
+        targetEl,
+        '% for item in items:\n- ${ item }\n% endfor',
+      );
     } else if (action === 'mako-python') {
       insertTextAtCursor(targetEl, '<%\n  # python statements\n%>\n${ value }');
     } else if (action === 'docs-markup') {
@@ -3089,7 +4624,8 @@
     menu = document.createElement('div');
     menu.id = 'editor-symbol-typeahead';
     menu.className = 'editor-symbol-typeahead d-none';
-    menu.innerHTML = '<div class="editor-symbol-typeahead-list" id="editor-symbol-typeahead-list"></div>';
+    menu.innerHTML =
+      '<div class="editor-symbol-typeahead-list" id="editor-symbol-typeahead-list"></div>';
     document.body.appendChild(menu);
     return menu;
   }
@@ -3105,7 +4641,10 @@
     if (!inputEl) return;
     var role = inputEl.getAttribute('data-symbol-role');
     if (!role) return;
-    var token = getSymbolTokenRange(inputEl.value || '', inputEl.selectionStart || 0);
+    var token = getSymbolTokenRange(
+      inputEl.value || '',
+      inputEl.selectionStart || 0,
+    );
     var result = getSymbolMatchResult(token.query || '', role, 16);
     var matches = result.matches;
     if (matches.length === 0) {
@@ -3115,24 +4654,41 @@
     var menu = getOrCreateTypeaheadMenu();
     var list = document.getElementById('editor-symbol-typeahead-list');
     if (!list) return;
-    var targetId = inputEl.id || ('symbol-input-' + Date.now());
+    var targetId = inputEl.id || 'symbol-input-' + Date.now();
     if (!inputEl.id) inputEl.id = targetId;
 
     var html = '';
     matches.forEach(function (entry) {
-      html += '<button type="button" class="editor-symbol-typeahead-item" data-typeahead-name="' + esc(entry.name) + '" data-target-id="' + esc(targetId) + '" data-typeahead-start="' + token.start + '" data-typeahead-end="' + token.end + '">';
+      html +=
+        '<button type="button" class="editor-symbol-typeahead-item" data-typeahead-name="' +
+        esc(entry.name) +
+        '" data-target-id="' +
+        esc(targetId) +
+        '" data-typeahead-start="' +
+        token.start +
+        '" data-typeahead-end="' +
+        token.end +
+        '">';
       html += '<span>' + esc(entry.name) + '</span>';
-      html += '<span class="editor-symbol-typeahead-group">' + esc(entry.group || '') + '</span>';
+      html +=
+        '<span class="editor-symbol-typeahead-group">' +
+        esc(entry.group || '') +
+        '</span>';
       html += '</button>';
     });
     if (result.total > matches.length) {
-      html += '<div class="editor-symbol-typeahead-more">Showing ' + matches.length + ' of ' + result.total + ' names. Type to narrow.</div>';
+      html +=
+        '<div class="editor-symbol-typeahead-more">Showing ' +
+        matches.length +
+        ' of ' +
+        result.total +
+        ' names. Type to narrow.</div>';
     }
     list.innerHTML = html;
 
     var rect = inputEl.getBoundingClientRect();
-    menu.style.left = (window.scrollX + rect.left) + 'px';
-    menu.style.top = (window.scrollY + rect.bottom + 4) + 'px';
+    menu.style.left = window.scrollX + rect.left + 'px';
+    menu.style.top = window.scrollY + rect.bottom + 4 + 'px';
     menu.style.width = Math.max(rect.width, 260) + 'px';
     menu.classList.remove('d-none');
     menu.setAttribute('data-target-id', targetId);
@@ -3147,13 +4703,19 @@
   }
 
   function getOrderBlocks() {
-    return state.orderIndices.map(function (idx) { return state.blocks[idx]; }).filter(Boolean);
+    return state.orderIndices
+      .map(function (idx) {
+        return state.blocks[idx];
+      })
+      .filter(Boolean);
   }
 
   function getOrderTargets() {
     var blocks = getOrderBlocks().slice();
     var seen = {};
-    blocks.forEach(function (block) { seen[block.id] = true; });
+    blocks.forEach(function (block) {
+      seen[block.id] = true;
+    });
     var activeBlock = getBlockById(state.activeOrderBlockId);
     if (activeBlock && activeBlock.type === 'code' && !seen[activeBlock.id]) {
       blocks.push(activeBlock);
@@ -3172,12 +4734,17 @@
   }
 
   function getDefaultOrderBlockId() {
-    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId) && isOrderBlockId(state.activeOrderBlockId)) {
+    if (
+      state.activeOrderBlockId &&
+      getBlockById(state.activeOrderBlockId) &&
+      isOrderBlockId(state.activeOrderBlockId)
+    ) {
       return state.activeOrderBlockId;
     }
     var orderBlocks = getOrderBlocks();
     if (orderBlocks.length > 0) return orderBlocks[0].id;
-    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId)) return state.activeOrderBlockId;
+    if (state.activeOrderBlockId && getBlockById(state.activeOrderBlockId))
+      return state.activeOrderBlockId;
     var selected = getSelectedBlock();
     if (selected && selected.type === 'code') return selected.id;
     return null;
@@ -3185,14 +4752,17 @@
 
   function setActiveOrderBlock(blockId, steps) {
     state.activeOrderBlockId = blockId || null;
-    state.orderSteps = cloneData(steps || (blockId ? state.orderStepMap[blockId] : []) || []) || [];
+    state.orderSteps =
+      cloneData(steps || (blockId ? state.orderStepMap[blockId] : []) || []) ||
+      [];
     state.selectedOrderStepIds = {};
     state.orderBuilderLoading = false;
   }
 
   function syncActiveOrderStepMap() {
     if (!state.activeOrderBlockId) return;
-    state.orderStepMap[state.activeOrderBlockId] = cloneData(state.orderSteps) || [];
+    state.orderStepMap[state.activeOrderBlockId] =
+      cloneData(state.orderSteps) || [];
   }
 
   function syncInlineOrderEdit() {
@@ -3200,7 +4770,9 @@
     var stepRecord = findStepRecord(state.orderSteps, _inlineEditStepId, null);
     if (!stepRecord) return false;
     var inlineInvoke = document.getElementById('order-inline-edit-invoke');
-    var inlineCondition = document.getElementById('order-inline-edit-condition');
+    var inlineCondition = document.getElementById(
+      'order-inline-edit-condition',
+    );
     var inlineValue = document.getElementById('order-inline-edit-value');
     if (inlineInvoke) {
       stepRecord.step.invoke = inlineInvoke.value;
@@ -3212,8 +4784,10 @@
     }
     if (inlineValue) {
       stepRecord.step.value = inlineValue.value;
-      if (stepRecord.step.kind === 'section') stepRecord.step.summary = 'Section: ' + inlineValue.value;
-      if (stepRecord.step.kind === 'progress') stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
+      if (stepRecord.step.kind === 'section')
+        stepRecord.step.summary = 'Section: ' + inlineValue.value;
+      if (stepRecord.step.kind === 'progress')
+        stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
     }
     return Boolean(inlineInvoke || inlineCondition || inlineValue);
   }
@@ -3224,10 +4798,11 @@
       dirtyState.markSourceDirty(commandId);
     } else {
       dirtyState.markBlockDirty(
-        (state.canvasMode === 'order-builder' || (state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order'))
+        state.canvasMode === 'order-builder' ||
+          (state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order')
           ? state.activeOrderBlockId
           : state.selectedBlockId,
-        commandId
+        commandId,
       );
     }
     updateTopbarSaveState();
@@ -3260,13 +4835,18 @@
       setActiveOrderBlock(blockId, state.orderStepMap[blockId]);
       return Promise.resolve(state.orderSteps);
     }
-    var code = (block.data && block.data.code) ? String(block.data.code) : '';
-    return apiGet('/api/parse-order?code=' + encodeURIComponent(code)).then(function (res) {
-      var steps = (res.success && res.data && Array.isArray(res.data.steps)) ? res.data.steps : [];
-      state.orderStepMap[blockId] = steps;
-      setActiveOrderBlock(blockId, steps);
-      return steps;
-    });
+    var code = block.data && block.data.code ? String(block.data.code) : '';
+    return apiGet('/api/parse-order?code=' + encodeURIComponent(code)).then(
+      function (res) {
+        var steps =
+          res.success && res.data && Array.isArray(res.data.steps)
+            ? res.data.steps
+            : [];
+        state.orderStepMap[blockId] = steps;
+        setActiveOrderBlock(blockId, steps);
+        return steps;
+      },
+    );
   }
 
   function enterOrderBuilder(requestedBlockId, source) {
@@ -3278,14 +4858,17 @@
     state.currentView = 'interview';
     state.canvasMode = 'order-builder';
     state.orderBuilderLoading = Boolean(nextOrderBlockId);
-    state.orderSteps = nextOrderBlockId && state.orderStepMap[nextOrderBlockId]
-      ? cloneData(state.orderStepMap[nextOrderBlockId]) || []
-      : [];
+    state.orderSteps =
+      nextOrderBlockId && state.orderStepMap[nextOrderBlockId]
+        ? cloneData(state.orderStepMap[nextOrderBlockId]) || []
+        : [];
     state.selectedOrderStepIds = {};
 
     var loadSeq = ++_orderBuilderLoadSeq;
 
-    var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+    var interviewTab = document.querySelector(
+      '.editor-top-tab[data-view="interview"]',
+    );
     if (interviewTab) setActiveTopTab(interviewTab);
     renderOutline();
     renderCanvas();
@@ -3296,22 +4879,28 @@
       return Promise.resolve([]);
     }
 
-    return loadOrderStepsForBlock(nextOrderBlockId).then(function (steps) {
-      if (loadSeq !== _orderBuilderLoadSeq) return steps;
-      state.orderBuilderLoading = false;
-      renderOutline();
-      renderCanvas();
-      scrollOrderBuilderIntoView();
-      return steps;
-    }).catch(function (err) {
-      if (loadSeq !== _orderBuilderLoadSeq || isSupersededRequest(err)) return [];
-      state.orderBuilderLoading = false;
-      console.warn('[Order] Failed to load interview order steps: ' + String((err && err.message) || err || 'Unknown error'));
-      renderOutline();
-      renderCanvas();
-      scrollOrderBuilderIntoView();
-      return [];
-    });
+    return loadOrderStepsForBlock(nextOrderBlockId)
+      .then(function (steps) {
+        if (loadSeq !== _orderBuilderLoadSeq) return steps;
+        state.orderBuilderLoading = false;
+        renderOutline();
+        renderCanvas();
+        scrollOrderBuilderIntoView();
+        return steps;
+      })
+      .catch(function (err) {
+        if (loadSeq !== _orderBuilderLoadSeq || isSupersededRequest(err))
+          return [];
+        state.orderBuilderLoading = false;
+        console.warn(
+          '[Order] Failed to load interview order steps: ' +
+            String((err && err.message) || err || 'Unknown error'),
+        );
+        renderOutline();
+        renderCanvas();
+        scrollOrderBuilderIntoView();
+        return [];
+      });
   }
 
   function scrollOrderBuilderIntoView() {
@@ -3324,13 +4913,18 @@
       mainCanvas.scrollTop = 0;
       mainCanvas.scrollLeft = 0;
     }
-    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.scrollTo === 'function'
+    ) {
       window.scrollTo(0, 0);
     }
   }
 
   function cleanOrderText(text) {
-    return String(text || '').replace(/^Ask\s+/i, '').trim();
+    return String(text || '')
+      .replace(/^Ask\s+/i, '')
+      .trim();
   }
 
   function getOrderStepTypeLabel(step) {
@@ -3354,7 +4948,7 @@
       // Variable is always primary; question title is secondary preview
       if (variable) {
         heading = variable;
-        detail = (title && title !== variable) ? title : '';
+        detail = title && title !== variable ? title : '';
       } else if (title) {
         heading = title;
         detail = '';
@@ -3366,19 +4960,20 @@
       heading = firstLine || step.label || 'Python';
       detail = '';
     } else if (step && step.kind === 'condition') {
-      heading = 'if ' + cleanOrderText(step.condition || step.summary || 'condition');
+      heading =
+        'if ' + cleanOrderText(step.condition || step.summary || 'condition');
       detail = '';
     } else if (step && step.kind === 'section') {
       heading = step.value || step.summary || 'Section';
       detail = '';
     } else if (step && step.kind === 'progress') {
-      heading = step.value ? step.value + '%' : (step.summary || 'Progress');
+      heading = step.value ? step.value + '%' : step.summary || 'Progress';
       detail = '';
     }
     return {
       heading: heading,
       detail: detail,
-      tooltip: tooltip
+      tooltip: tooltip,
     };
   }
 
@@ -3402,12 +4997,24 @@
 
   // The logic itself lives in editor_serializers.js so the node suite can
   // exercise it directly; these are the names the builder reads it through.
-  function getConditionChain(step) { return window.ALWeaverSerializers.getConditionChain(step); }
-  function getChainTail(step) { return window.ALWeaverSerializers.getChainTail(step); }
-  function chainHasFinalElse(step) { return window.ALWeaverSerializers.chainHasFinalElse(step); }
-  function isChainLink(step, parentStep) { return window.ALWeaverSerializers.isChainLink(step, parentStep); }
-  function appendChainElif(step, newLink) { return window.ALWeaverSerializers.appendChainElif(step, newLink); }
-  function removeChainLink(parentStep, link) { return window.ALWeaverSerializers.removeChainLink(parentStep, link); }
+  function getConditionChain(step) {
+    return window.ALWeaverSerializers.getConditionChain(step);
+  }
+  function getChainTail(step) {
+    return window.ALWeaverSerializers.getChainTail(step);
+  }
+  function chainHasFinalElse(step) {
+    return window.ALWeaverSerializers.chainHasFinalElse(step);
+  }
+  function isChainLink(step, parentStep) {
+    return window.ALWeaverSerializers.isChainLink(step, parentStep);
+  }
+  function appendChainElif(step, newLink) {
+    return window.ALWeaverSerializers.appendChainElif(step, newLink);
+  }
+  function removeChainLink(parentStep, link) {
+    return window.ALWeaverSerializers.removeChainLink(parentStep, link);
+  }
 
   function findBlockByInvoke(step) {
     if (!step) return null;
@@ -3426,13 +5033,24 @@
     if (!step) return '';
     if (step.kind === 'screen') {
       var screenBlock = findBlockByInvoke(step);
-      return screenBlock ? screenBlock.title : cleanOrderText(step.summary || step.invoke || 'Screen');
+      return screenBlock
+        ? screenBlock.title
+        : cleanOrderText(step.summary || step.invoke || 'Screen');
     }
-    if (step.kind === 'gather') return cleanOrderText(step.summary || step.invoke || 'Gather');
-    if (step.kind === 'condition') return cleanOrderText(step.condition || step.summary || 'condition');
-    if (step.kind === 'section') return cleanOrderText(step.summary || step.value || 'Section');
-    if (step.kind === 'progress') return cleanOrderText(step.summary || (step.value ? 'Progress ' + step.value + '%' : 'Progress'));
-    return cleanOrderText(step.summary || step.invoke || step.code || step.label || step.kind);
+    if (step.kind === 'gather')
+      return cleanOrderText(step.summary || step.invoke || 'Gather');
+    if (step.kind === 'condition')
+      return cleanOrderText(step.condition || step.summary || 'condition');
+    if (step.kind === 'section')
+      return cleanOrderText(step.summary || step.value || 'Section');
+    if (step.kind === 'progress')
+      return cleanOrderText(
+        step.summary ||
+          (step.value ? 'Progress ' + step.value + '%' : 'Progress'),
+      );
+    return cleanOrderText(
+      step.summary || step.invoke || step.code || step.label || step.kind,
+    );
   }
 
   function getOrderStepDetail(step) {
@@ -3443,9 +5061,12 @@
       var conditionTail = conditionChain[conditionChain.length - 1];
       var childCount = Array.isArray(step.children) ? step.children.length : 0;
       var parts = [childCount + ' then'];
-      if (conditionChain.length > 1) parts.push((conditionChain.length - 1) + ' else if');
+      if (conditionChain.length > 1)
+        parts.push(conditionChain.length - 1 + ' else if');
       if (conditionTail.has_else) {
-        var elseCount = Array.isArray(conditionTail.else_children) ? conditionTail.else_children.length : 0;
+        var elseCount = Array.isArray(conditionTail.else_children)
+          ? conditionTail.else_children.length
+          : 0;
         parts.push(elseCount + ' else');
       }
       return parts.join(' · ');
@@ -3453,19 +5074,72 @@
     if (step.kind === 'section') return step.value || '';
     if (step.kind === 'progress') return step.value ? step.value + '%' : '';
     if (step.kind === 'function') return step.invoke || '';
-    if (step.kind === 'raw') return cleanOrderText((step.code || '').split('\n')[0]);
+    if (step.kind === 'raw')
+      return cleanOrderText((step.code || '').split('\n')[0]);
     return '';
   }
 
   function createOrderStep(kind) {
-    var uniqueId = 'step-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-    if (kind === 'screen') return { id: uniqueId, kind: kind, label: 'Screen', summary: 'Select a screen', invoke: '' };
-    if (kind === 'gather') return { id: uniqueId, kind: kind, label: 'List gather', summary: 'Gather a list', invoke: '' };
-    if (kind === 'section') return { id: uniqueId, kind: kind, label: 'Start section', summary: 'Section: New section', value: 'New section' };
-    if (kind === 'progress') return { id: uniqueId, kind: kind, label: 'Progress', summary: 'Progress: 50%', value: '50' };
-    if (kind === 'condition') return { id: uniqueId, kind: kind, label: 'Condition', summary: 'condition_here', condition: 'condition_here', children: [], has_else: false, else_children: [] };
-    if (kind === 'function') return { id: uniqueId, kind: kind, label: 'Function', summary: 'function_call()', invoke: 'function_call()' };
-    return { id: uniqueId, kind: 'raw', label: 'Raw Python', summary: 'pass', code: 'pass' };
+    var uniqueId =
+      'step-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    if (kind === 'screen')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Screen',
+        summary: 'Select a screen',
+        invoke: '',
+      };
+    if (kind === 'gather')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'List gather',
+        summary: 'Gather a list',
+        invoke: '',
+      };
+    if (kind === 'section')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Start section',
+        summary: 'Section: New section',
+        value: 'New section',
+      };
+    if (kind === 'progress')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Progress',
+        summary: 'Progress: 50%',
+        value: '50',
+      };
+    if (kind === 'condition')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Condition',
+        summary: 'condition_here',
+        condition: 'condition_here',
+        children: [],
+        has_else: false,
+        else_children: [],
+      };
+    if (kind === 'function')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Function',
+        summary: 'function_call()',
+        invoke: 'function_call()',
+      };
+    return {
+      id: uniqueId,
+      kind: 'raw',
+      label: 'Raw Python',
+      summary: 'pass',
+      code: 'pass',
+    };
   }
 
   function _normalizeObjectClassName(classText) {
@@ -3486,7 +5160,13 @@
     var seen = {};
 
     state.blocks.forEach(function (block) {
-      if (!block || block.type !== 'objects' || !block.data || !Array.isArray(block.data.objects)) return;
+      if (
+        !block ||
+        block.type !== 'objects' ||
+        !block.data ||
+        !Array.isArray(block.data.objects)
+      )
+        return;
       block.data.objects.forEach(function (entry) {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
         Object.keys(entry).forEach(function (varName) {
@@ -3503,13 +5183,21 @@
       });
     });
 
-    var listLikeGroupKeys = Object.keys(state.symbolCatalog.groups || {}).filter(function (key) {
+    var listLikeGroupKeys = Object.keys(
+      state.symbolCatalog.groups || {},
+    ).filter(function (key) {
       return key.toLowerCase().indexOf('list') !== -1;
     });
     listLikeGroupKeys.forEach(function (key) {
       (state.symbolCatalog.groups[key] || []).forEach(function (name) {
         var cleanName = String(name || '').trim();
-        if (!cleanName || cleanName.indexOf('.') !== -1 || cleanName.indexOf('[') !== -1 || seen[cleanName]) return;
+        if (
+          !cleanName ||
+          cleanName.indexOf('.') !== -1 ||
+          cleanName.indexOf('[') !== -1 ||
+          seen[cleanName]
+        )
+          return;
         seen[cleanName] = true;
         out.push({
           variable: cleanName,
@@ -3518,7 +5206,9 @@
       });
     });
 
-    return out.sort(function (a, b) { return a.variable.localeCompare(b.variable); });
+    return out.sort(function (a, b) {
+      return a.variable.localeCompare(b.variable);
+    });
   }
 
   function renderOrderAddBody(kind) {
@@ -3528,39 +5218,59 @@
 
     var html = '';
     if (kind === 'screen') {
-      html += '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="variable" value="" placeholder="users[0].name.first"></div>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="variable" value="" placeholder="users[0].name.first"></div>';
     } else if (kind === 'gather') {
       var gatherChoices = getGatherListCandidates();
-      html += '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
       if (gatherChoices.length) {
-        html += '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
+        html +=
+          '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
         gatherChoices.forEach(function (entry) {
-          html += '<option value="' + esc(entry.variable) + '">' + esc(entry.variable + ' (' + entry.className + ')') + '</option>';
+          html +=
+            '<option value="' +
+            esc(entry.variable) +
+            '">' +
+            esc(entry.variable + ' (' + entry.className + ')') +
+            '</option>';
         });
         html += '</select>';
-        html += '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
+        html +=
+          '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
       } else {
-        html += '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
+        html +=
+          '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
       }
       html += '</div>';
       if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
     } else if (kind === 'condition') {
-      html += '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
       html += renderSymbolDatalist('order-add-condition-list', 'variable', 120);
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="variable" list="order-add-condition-list" value="condition_here"></div>';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-condition" data-symbol-role="variable" list="order-add-condition-list" value="condition_here"></div>';
     } else if (kind === 'section') {
-      html += '<div class="mb-2"><label class="editor-tiny">Section to activate</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="order-add-value" data-symbol-role="section" value="New section"></div>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">Section to activate</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="order-add-value" data-symbol-role="section" value="New section"></div>';
     } else if (kind === 'progress') {
-      html += '<div class="mb-2"><label class="editor-tiny">Progress percent</label>';
-      html += '<input type="number" min="0" max="100" step="1" class="form-control form-control-sm mt-1" id="order-add-value" value="50"></div>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">Progress percent</label>';
+      html +=
+        '<input type="number" min="0" max="100" step="1" class="form-control form-control-sm mt-1" id="order-add-value" value="50"></div>';
     } else if (kind === 'function') {
-      html += '<div class="mb-2"><label class="editor-tiny">Function call</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="function-call" value="function_call()"></div>';
+      html +=
+        '<div class="mb-2"><label class="editor-tiny">Function call</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="function-call" value="function_call()"></div>';
     } else {
       html += '<div class="mb-2"><label class="editor-tiny">Raw Python</label>';
-      html += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-add-code" rows="4">pass</textarea></div>';
+      html +=
+        '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-add-code" rows="4">pass</textarea></div>';
     }
 
     bodyEl.innerHTML = html;
@@ -3589,12 +5299,22 @@
       if (parentRecord) {
         var targetList = getOrderBranchSteps(parentRecord.step, branch);
         if (branch === 'else') parentRecord.step.has_else = true;
-        if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > targetList.length) insertIndex = targetList.length;
+        if (
+          !Number.isFinite(insertIndex) ||
+          insertIndex < 0 ||
+          insertIndex > targetList.length
+        )
+          insertIndex = targetList.length;
         targetList.splice(insertIndex, 0, step);
         state.orderCollapsed[parentStepId] = false;
       }
     } else {
-      if (!Number.isFinite(insertIndex) || insertIndex < 0 || insertIndex > state.orderSteps.length) insertIndex = state.orderSteps.length;
+      if (
+        !Number.isFinite(insertIndex) ||
+        insertIndex < 0 ||
+        insertIndex > state.orderSteps.length
+      )
+        insertIndex = state.orderSteps.length;
       state.orderSteps.splice(insertIndex, 0, step);
     }
   }
@@ -3605,7 +5325,9 @@
       _lastInsertedOrderStepTimer = null;
     }
     _lastInsertedOrderStepTimer = window.setTimeout(function () {
-      var stepEl = document.querySelector('.editor-order-step[data-step-id="' + stepId + '"]');
+      var stepEl = document.querySelector(
+        '.editor-order-step[data-step-id="' + stepId + '"]',
+      );
       if (stepEl) stepEl.classList.remove('editor-order-step-new');
       if (_lastInsertedOrderStepId === stepId) _lastInsertedOrderStepId = null;
     }, 950);
@@ -3615,7 +5337,12 @@
     for (var i = 0; i < stepList.length; i++) {
       var step = stepList[i];
       if (step.id === stepId) {
-        return { step: step, index: i, list: stepList, parent: parentStep || null };
+        return {
+          step: step,
+          index: i,
+          list: stepList,
+          parent: parentStep || null,
+        };
       }
       if (Array.isArray(step.children) && step.children.length) {
         var nested = findStepRecord(step.children, stepId, step);
@@ -3634,16 +5361,30 @@
     var lines = [];
     stepList.forEach(function (step, index) {
       var prefix = new Array(indent + 1).join(' ');
-      if (step.kind === 'section') lines.push(prefix + "nav.set_section('" + String(step.value || '') + "')");
-      else if (step.kind === 'progress') lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
-      else if (step.kind === 'gather' || step.kind === 'screen' || step.kind === 'function') lines.push(prefix + String(step.invoke || ''));
+      if (step.kind === 'section')
+        lines.push(
+          prefix + "nav.set_section('" + String(step.value || '') + "')",
+        );
+      else if (step.kind === 'progress')
+        lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
+      else if (
+        step.kind === 'gather' ||
+        step.kind === 'screen' ||
+        step.kind === 'function'
+      )
+        lines.push(prefix + String(step.invoke || ''));
       else if (step.kind === 'condition') {
         // Walk the chain so the preview shows the `elif` the server will
         // actually write, rather than a ladder of nested `if`.
         var chainLinks = getConditionChain(step);
         chainLinks.forEach(function (link, linkIndex) {
           var keyword = linkIndex === 0 ? 'if ' : 'elif ';
-          lines.push(prefix + keyword + String(link.condition || link.summary || 'True') + ':');
+          lines.push(
+            prefix +
+              keyword +
+              String(link.condition || link.summary || 'True') +
+              ':',
+          );
           if (Array.isArray(link.children) && link.children.length) {
             lines.push(renderOrderCodePreview(link.children, indent + 2));
           } else {
@@ -3653,23 +5394,34 @@
         var previewTail = chainLinks[chainLinks.length - 1];
         if (previewTail.has_else) {
           lines.push(prefix + 'else:');
-          if (Array.isArray(previewTail.else_children) && previewTail.else_children.length) {
-            lines.push(renderOrderCodePreview(previewTail.else_children, indent + 2));
+          if (
+            Array.isArray(previewTail.else_children) &&
+            previewTail.else_children.length
+          ) {
+            lines.push(
+              renderOrderCodePreview(previewTail.else_children, indent + 2),
+            );
           } else {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
         }
       } else {
-        String(step.code || '').split('\n').forEach(function (line) {
-          lines.push(prefix + line);
-        });
+        String(step.code || '')
+          .split('\n')
+          .forEach(function (line) {
+            lines.push(prefix + line);
+          });
       }
     });
     return lines.join('\n');
   }
 
   function wrapSelectedOrderSteps() {
-    var selectedIds = Object.keys(state.selectedOrderStepIds).filter(function (stepId) { return state.selectedOrderStepIds[stepId]; });
+    var selectedIds = Object.keys(state.selectedOrderStepIds).filter(
+      function (stepId) {
+        return state.selectedOrderStepIds[stepId];
+      },
+    );
     if (selectedIds.length === 0) return false;
 
     function attemptWrap(stepList) {
@@ -3682,7 +5434,10 @@
           if (indices[j] !== indices[j - 1] + 1) return false;
         }
         var firstIndex = indices[0];
-        var wrappedChildren = stepList.slice(firstIndex, indices[indices.length - 1] + 1);
+        var wrappedChildren = stepList.slice(
+          firstIndex,
+          indices[indices.length - 1] + 1,
+        );
         var conditionStep = createOrderStep('condition');
         conditionStep.children = cloneData(wrappedChildren);
         stepList.splice(firstIndex, wrappedChildren.length, conditionStep);
@@ -3691,10 +5446,18 @@
         return true;
       }
       for (var k = 0; k < stepList.length; k++) {
-        if (Array.isArray(stepList[k].children) && stepList[k].children.length && attemptWrap(stepList[k].children)) {
+        if (
+          Array.isArray(stepList[k].children) &&
+          stepList[k].children.length &&
+          attemptWrap(stepList[k].children)
+        ) {
           return true;
         }
-        if (Array.isArray(stepList[k].else_children) && stepList[k].else_children.length && attemptWrap(stepList[k].else_children)) {
+        if (
+          Array.isArray(stepList[k].else_children) &&
+          stepList[k].else_children.length &&
+          attemptWrap(stepList[k].else_children)
+        ) {
           return true;
         }
       }
@@ -3707,8 +5470,17 @@
   }
 
   // Datatypes that accept a choices list
-  var CHOICE_TYPES = ['radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',
-                      'object', 'object_radio', 'object_checkboxes', 'object_multiselect'];
+  var CHOICE_TYPES = [
+    'radio',
+    'checkboxes',
+    'combobox',
+    'multiselect',
+    'dropdown',
+    'object',
+    'object_radio',
+    'object_checkboxes',
+    'object_multiselect',
+  ];
 
   var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
 
@@ -3723,7 +5495,12 @@
     if (value === undefined || value === null) return yaml;
     var text = String(value).trim();
     if (!text) return yaml;
-    var parts = text.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+    var parts = text
+      .split(',')
+      .map(function (p) {
+        return p.trim();
+      })
+      .filter(Boolean);
     if (parts.length <= 1) {
       return appendYamlValue(yaml, key, text);
     }
@@ -3772,7 +5549,9 @@
               lines.push(pad + '- ' + first + ': ' + _yamlScalar(firstVal));
             }
             keys.slice(1).forEach(function (key) {
-              lines = lines.concat(_yamlKeyValueLines(key, item[key], indent + 2));
+              lines = lines.concat(
+                _yamlKeyValueLines(key, item[key], indent + 2),
+              );
             });
           }
         } else {
@@ -3793,13 +5572,18 @@
   function _yamlKeyValueLines(key, value, indent) {
     var pad = ' '.repeat(indent || 0);
     if (Array.isArray(value) || (value && typeof value === 'object')) {
-      return [pad + key + ':'].concat(_yamlValueLines(value, (indent || 0) + 2));
+      return [pad + key + ':'].concat(
+        _yamlValueLines(value, (indent || 0) + 2),
+      );
     }
     if (typeof value === 'string' && value.indexOf('\n') !== -1) {
       var out = [pad + key + ': |'];
-      value.replace(/\n$/, '').split('\n').forEach(function (line) {
-        out.push(pad + '  ' + line);
-      });
+      value
+        .replace(/\n$/, '')
+        .split('\n')
+        .forEach(function (line) {
+          out.push(pad + '  ' + line);
+        });
       return out;
     }
     return [pad + key + ': ' + _yamlScalar(value)];
@@ -3817,14 +5601,23 @@
     var first = keys[0];
     var lines = [];
     var firstValue = item[first];
-    if (Array.isArray(firstValue) || (firstValue && typeof firstValue === 'object')) {
+    if (
+      Array.isArray(firstValue) ||
+      (firstValue && typeof firstValue === 'object')
+    ) {
       lines.push('- ' + first + ':');
       lines = lines.concat(_yamlValueLines(firstValue, 2));
-    } else if (typeof firstValue === 'string' && firstValue.indexOf('\n') !== -1) {
+    } else if (
+      typeof firstValue === 'string' &&
+      firstValue.indexOf('\n') !== -1
+    ) {
       lines.push('- ' + first + ': |');
-      firstValue.replace(/\n$/, '').split('\n').forEach(function (line) {
-        lines.push('  ' + line);
-      });
+      firstValue
+        .replace(/\n$/, '')
+        .split('\n')
+        .forEach(function (line) {
+          lines.push('  ' + line);
+        });
     } else {
       lines.push('- ' + first + ': ' + _yamlScalar(firstValue));
     }
@@ -3843,10 +5636,14 @@
 
   function stashReviewItemSnippets(block) {
     if (!block || !block.data) return;
-    var controls = document.querySelectorAll('.editor-review-item[data-review-item-idx]');
+    var controls = document.querySelectorAll(
+      '.editor-review-item[data-review-item-idx]',
+    );
     if (!controls.length) return;
     block.data.review = Array.prototype.map.call(controls, function (el) {
-      return _serializeReviewItemFromControls(el.getAttribute('data-review-item-idx')).trim();
+      return _serializeReviewItemFromControls(
+        el.getAttribute('data-review-item-idx'),
+      ).trim();
     });
   }
 
@@ -3871,11 +5668,15 @@
 
   function _reviewFieldsValueToText(value) {
     if (Array.isArray(value)) {
-      return value.map(function (item) {
-        if (typeof item === 'string') return item;
-        if (item && typeof item === 'object') return Object.keys(item)[0] || '';
-        return String(item || '');
-      }).filter(Boolean).join('\n');
+      return value
+        .map(function (item) {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object')
+            return Object.keys(item)[0] || '';
+          return String(item || '');
+        })
+        .filter(Boolean)
+        .join('\n');
     }
     if (value === undefined || value === null) return '';
     if (typeof value === 'object') return JSON.stringify(value, null, 2);
@@ -3883,9 +5684,12 @@
   }
 
   function _reviewFieldsTextToValue(text) {
-    var parts = String(text || '').split(/[\n,]/).map(function (part) {
-      return part.trim();
-    }).filter(Boolean);
+    var parts = String(text || '')
+      .split(/[\n,]/)
+      .map(function (part) {
+        return part.trim();
+      })
+      .filter(Boolean);
     if (parts.length > 1) return parts;
     return parts[0] || '';
   }
@@ -3906,12 +5710,16 @@
       var labelEl = document.getElementById('review-item-label-' + idx);
       var fieldsEl = document.getElementById('review-item-fields-' + idx);
       var buttonEl = document.getElementById('review-item-button-' + idx);
-      var actionKey = labelEl && labelEl.value.trim() ? labelEl.value.trim() : 'Edit';
-      item[actionKey] = _reviewFieldsTextToValue(fieldsEl ? fieldsEl.value : '');
+      var actionKey =
+        labelEl && labelEl.value.trim() ? labelEl.value.trim() : 'Edit';
+      item[actionKey] = _reviewFieldsTextToValue(
+        fieldsEl ? fieldsEl.value : '',
+      );
       if (buttonEl && buttonEl.value.trim()) item.button = buttonEl.value;
     }
     var showIfEl = document.getElementById('review-item-show-if-' + idx);
-    if (showIfEl && showIfEl.value.trim()) item['show if'] = showIfEl.value.trim();
+    if (showIfEl && showIfEl.value.trim())
+      item['show if'] = showIfEl.value.trim();
     var helpEl = document.getElementById('review-item-help-' + idx);
     if (helpEl && helpEl.value.trim()) item.help = helpEl.value;
     return serializeReviewItemData(item);
@@ -3963,8 +5771,11 @@
     }
 
     var setsKey = document.getElementById('adv-sets')
-      ? (document.getElementById('adv-sets').getAttribute('data-sets-key') || 'sets')
-      : (Object.prototype.hasOwnProperty.call(data, 'only sets') ? 'only sets' : 'sets');
+      ? document.getElementById('adv-sets').getAttribute('data-sets-key') ||
+        'sets'
+      : Object.prototype.hasOwnProperty.call(data, 'only sets')
+        ? 'only sets'
+        : 'sets';
     var setsValue = _textValue('adv-sets', setsKey);
     if (setsValue.trim()) {
       yaml = appendYamlListValue(yaml, setsKey, setsValue);
@@ -3985,34 +5796,71 @@
       yaml = appendYamlValue(yaml, 'generic object', genericObjectValue.trim());
     }
 
-    var continueFieldValue = _textValue('adv-continue-field', 'continue button field');
+    var continueFieldValue = _textValue(
+      'adv-continue-field',
+      'continue button field',
+    );
     if (continueFieldValue.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button field', continueFieldValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'continue button field',
+        continueFieldValue.trim(),
+      );
     }
 
-    var continueLabelValue = _textValue('adv-continue-label', 'continue button label');
+    var continueLabelValue = _textValue(
+      'adv-continue-label',
+      'continue button label',
+    );
     if (continueLabelValue.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button label', continueLabelValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'continue button label',
+        continueLabelValue.trim(),
+      );
     }
 
-    var continueColorValue = _textValue('adv-continue-color', 'continue button color');
+    var continueColorValue = _textValue(
+      'adv-continue-color',
+      'continue button color',
+    );
     if (continueColorValue.trim()) {
-      yaml = appendYamlValue(yaml, 'continue button color', continueColorValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'continue button color',
+        continueColorValue.trim(),
+      );
     }
 
-    var hideContinueValue = _textValue('adv-hide-continue', 'hide continue button');
-    if (hideContinueValue.trim() && hideContinueValue.toLowerCase() === 'true') {
+    var hideContinueValue = _textValue(
+      'adv-hide-continue',
+      'hide continue button',
+    );
+    if (
+      hideContinueValue.trim() &&
+      hideContinueValue.toLowerCase() === 'true'
+    ) {
       yaml = appendYamlValue(yaml, 'hide continue button', 'True');
     }
 
-    var disableContinueValue = _textValue('adv-disable-continue', 'disable continue button');
-    if (disableContinueValue.trim() && disableContinueValue.toLowerCase() === 'true') {
+    var disableContinueValue = _textValue(
+      'adv-disable-continue',
+      'disable continue button',
+    );
+    if (
+      disableContinueValue.trim() &&
+      disableContinueValue.toLowerCase() === 'true'
+    ) {
       yaml = appendYamlValue(yaml, 'disable continue button', 'True');
     }
 
     var preventBackValue = _textValue('adv-prevent-back', 'prevent going back');
     if (preventBackValue.trim()) {
-      yaml = appendYamlValue(yaml, 'prevent going back', preventBackValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'prevent going back',
+        preventBackValue.trim(),
+      );
     }
 
     var backButtonValue = _textValue('adv-back-button', 'back button');
@@ -4020,9 +5868,16 @@
       yaml = appendYamlValue(yaml, 'back button', backButtonValue.trim());
     }
 
-    var backButtonLabelValue = _textValue('adv-back-button-label', 'back button label');
+    var backButtonLabelValue = _textValue(
+      'adv-back-button-label',
+      'back button label',
+    );
     if (backButtonLabelValue.trim()) {
-      yaml = appendYamlValue(yaml, 'back button label', backButtonLabelValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'back button label',
+        backButtonLabelValue.trim(),
+      );
     }
 
     var progressValue = _textValue('adv-progress', 'progress');
@@ -4095,9 +5950,16 @@
       yaml = appendYamlValue(yaml, 'scan for variables', scanVarsValue.trim());
     }
 
-    var resumeLabelValue = _textValue('adv-resume-button-label', 'resume button label');
+    var resumeLabelValue = _textValue(
+      'adv-resume-button-label',
+      'resume button label',
+    );
     if (resumeLabelValue.trim()) {
-      yaml = appendYamlValue(yaml, 'resume button label', resumeLabelValue.trim());
+      yaml = appendYamlValue(
+        yaml,
+        'resume button label',
+        resumeLabelValue.trim(),
+      );
     }
 
     var allowedToSetValue = _textValue('adv-allowed-to-set', 'allowed to set');
@@ -4120,7 +5982,10 @@
       yaml = appendYamlListValue(yaml, 'reconsider', reconsiderValue);
     }
 
-    var validationCodeValue = _textValue('adv-validation-code', 'validation code');
+    var validationCodeValue = _textValue(
+      'adv-validation-code',
+      'validation code',
+    );
     if (validationCodeValue.trim()) {
       yaml = appendYamlValue(yaml, 'validation code', validationCodeValue);
     }
@@ -4154,37 +6019,64 @@
     var data = (block && block.data) || {};
     var yaml = '';
     var blockIdEl = document.getElementById('review-block-id');
-    var blockId = blockIdEl ? blockIdEl.value.trim() : String(data.id || (block && block.id) || 'review_screen');
+    var blockId = blockIdEl
+      ? blockIdEl.value.trim()
+      : String(data.id || (block && block.id) || 'review_screen');
     yaml = appendYamlValue(yaml, 'id', blockId || 'review_screen');
 
     var eventEl = document.getElementById('review-event');
-    var eventText = eventEl ? eventEl.value.trim() : String(data.event || '').trim();
+    var eventText = eventEl
+      ? eventEl.value.trim()
+      : String(data.event || '').trim();
     if (eventText) yaml = appendYamlValue(yaml, 'event', eventText);
 
     var questionEl = document.getElementById('review-question');
-    var questionText = questionEl ? questionEl.value : String(data.question || 'Review your answers');
-    yaml = appendYamlValue(yaml, 'question', questionText || 'Review your answers');
+    var questionText = questionEl
+      ? questionEl.value
+      : String(data.question || 'Review your answers');
+    yaml = appendYamlValue(
+      yaml,
+      'question',
+      questionText || 'Review your answers',
+    );
 
     var subEl = document.getElementById('review-subquestion');
     var subText = subEl ? subEl.value : String(data.subquestion || '');
     if (subText.trim()) yaml = appendYamlValue(yaml, 'subquestion', subText);
 
     var continueEl = document.getElementById('review-continue-field');
-    var continueText = continueEl ? continueEl.value.trim() : String(data['continue button field'] || data.field || '').trim();
-    var continueKey = continueEl ? (continueEl.getAttribute('data-continue-key') || 'continue button field') : (data.field && !data['continue button field'] ? 'field' : 'continue button field');
+    var continueText = continueEl
+      ? continueEl.value.trim()
+      : String(data['continue button field'] || data.field || '').trim();
+    var continueKey = continueEl
+      ? continueEl.getAttribute('data-continue-key') || 'continue button field'
+      : data.field && !data['continue button field']
+        ? 'field'
+        : 'continue button field';
     if (continueText) yaml = appendYamlValue(yaml, continueKey, continueText);
 
     var needEl = document.getElementById('review-need');
-    var needText = needEl ? needEl.value.trim() : (Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '').trim());
+    var needText = needEl
+      ? needEl.value.trim()
+      : Array.isArray(data.need)
+        ? data.need.join(', ')
+        : String(data.need || '').trim();
     if (needText) yaml = appendYamlListValue(yaml, 'need', needText);
 
     var tabularEl = document.getElementById('review-tabular');
-    var tabularText = tabularEl ? tabularEl.value.trim() : String(data.tabular || '').trim();
+    var tabularText = tabularEl
+      ? tabularEl.value.trim()
+      : String(data.tabular || '').trim();
     if (tabularText) yaml = appendYamlValue(yaml, 'tabular', tabularText);
 
     var skipUndefinedEl = document.getElementById('review-skip-undefined');
-    var skipUndefinedText = skipUndefinedEl ? skipUndefinedEl.value.trim() : (data['skip undefined'] === false ? 'False' : '');
-    if (skipUndefinedText) yaml = appendYamlValue(yaml, 'skip undefined', skipUndefinedText);
+    var skipUndefinedText = skipUndefinedEl
+      ? skipUndefinedEl.value.trim()
+      : data['skip undefined'] === false
+        ? 'False'
+        : '';
+    if (skipUndefinedText)
+      yaml = appendYamlValue(yaml, 'skip undefined', skipUndefinedText);
 
     var managedReviewKeys = {
       id: true,
@@ -4206,19 +6098,25 @@
     });
 
     yaml += 'review:\n';
-    var itemControls = document.querySelectorAll('.editor-review-item[data-review-item-idx]');
+    var itemControls = document.querySelectorAll(
+      '.editor-review-item[data-review-item-idx]',
+    );
     if (itemControls.length) {
       itemControls.forEach(function (el) {
         var idx = el.getAttribute('data-review-item-idx');
-        _serializeReviewItemFromControls(idx).split('\n').forEach(function (line) {
-          if (line.trim()) yaml += '  ' + line + '\n';
-        });
+        _serializeReviewItemFromControls(idx)
+          .split('\n')
+          .forEach(function (line) {
+            if (line.trim()) yaml += '  ' + line + '\n';
+          });
       });
     } else if (Array.isArray(data.review)) {
       data.review.forEach(function (item) {
-        serializeReviewItemData(item).split('\n').forEach(function (line) {
-          if (line.trim()) yaml += '  ' + line + '\n';
-        });
+        serializeReviewItemData(item)
+          .split('\n')
+          .forEach(function (line) {
+            if (line.trim()) yaml += '  ' + line + '\n';
+          });
       });
     } else {
       yaml += '  - note: Add review items here.\n';
@@ -4229,14 +6127,27 @@
   function _serializeQuestionFieldFromData(field) {
     var yaml = '';
     if (field === null || field === undefined) return yaml;
-    if (typeof field === 'string' || typeof field === 'number' || typeof field === 'boolean') {
+    if (
+      typeof field === 'string' ||
+      typeof field === 'number' ||
+      typeof field === 'boolean'
+    ) {
       return '  - ' + escapeYamlStr(String(field)) + '\n';
     }
     if (typeof field !== 'object') return yaml;
 
-    if (typeof field.code === 'string' && Object.keys(field).every(function (key) { return key === 'code'; })) {
+    if (
+      typeof field.code === 'string' &&
+      Object.keys(field).every(function (key) {
+        return key === 'code';
+      })
+    ) {
       yaml += '  - code: |\n';
-      String(field.code).split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+      String(field.code)
+        .split('\n')
+        .forEach(function (line) {
+          yaml += '      ' + line + '\n';
+        });
       return yaml;
     }
 
@@ -4265,7 +6176,12 @@
     }
 
     if (standaloneType) {
-      yaml += '  - ' + standaloneType + ': ' + escapeYamlStr(String(field[standaloneType] || '')) + '\n';
+      yaml +=
+        '  - ' +
+        standaloneType +
+        ': ' +
+        escapeYamlStr(String(field[standaloneType] || '')) +
+        '\n';
       if (Array.isArray(field.choices) && field.choices.length) {
         yaml += '    choices:\n';
         field.choices.forEach(function (choice) {
@@ -4277,36 +6193,63 @@
         var standaloneCode = String(field.code);
         if (standaloneCode.indexOf('\n') !== -1) {
           yaml += '    code: |\n';
-          standaloneCode.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+          standaloneCode.split('\n').forEach(function (line) {
+            yaml += '      ' + line + '\n';
+          });
         } else {
           yaml += '    code: ' + standaloneCode + '\n';
         }
       }
-      if (field.required === false || field.required === 'False') yaml += '    required: False\n';
+      if (field.required === false || field.required === 'False')
+        yaml += '    required: False\n';
       keys.forEach(function (key) {
         if (reserved[key] || key === standaloneType) return;
         var value = field[key];
-        if (value === undefined || value === null || String(value).trim() === '') return;
+        if (
+          value === undefined ||
+          value === null ||
+          String(value).trim() === ''
+        )
+          return;
         yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
       });
       return yaml;
     }
 
-    var label = String(field.label || field.question || 'Field').trim() || 'Field';
+    var label =
+      String(field.label || field.question || 'Field').trim() || 'Field';
     var variable = String(field.field || field.variable || '').trim();
-    var datatype = String(field.datatype || field.type || 'text').trim() || 'text';
+    var datatype =
+      String(field.datatype || field.type || 'text').trim() || 'text';
     var hasChoices = Array.isArray(field.choices) && field.choices.length > 0;
     var hasCode = Boolean(field.code && String(field.code).trim());
     var isRequired = !(field.required === false || field.required === 'False');
     var extraMods = [];
     keys.forEach(function (key) {
-      if (reserved[key] || key === 'label' || key === 'question' || key === 'field' || key === 'variable' || key === 'datatype' || key === 'type') return;
+      if (
+        reserved[key] ||
+        key === 'label' ||
+        key === 'question' ||
+        key === 'field' ||
+        key === 'variable' ||
+        key === 'datatype' ||
+        key === 'type'
+      )
+        return;
       var value = field[key];
-      if (value === undefined || value === null || String(value).trim() === '') return;
+      if (value === undefined || value === null || String(value).trim() === '')
+        return;
       extraMods.push(key);
     });
 
-    if (label.indexOf('\n') !== -1 || datatype !== 'text' || hasChoices || hasCode || !isRequired || extraMods.length > 0) {
+    if (
+      label.indexOf('\n') !== -1 ||
+      datatype !== 'text' ||
+      hasChoices ||
+      hasCode ||
+      !isRequired ||
+      extraMods.length > 0
+    ) {
       yaml += '  - label: ' + escapeYamlStr(label) + '\n';
       if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
     } else {
@@ -4315,7 +6258,8 @@
       else yaml += '\n';
     }
 
-    if (datatype && datatype !== 'text') yaml += '    datatype: ' + datatype + '\n';
+    if (datatype && datatype !== 'text')
+      yaml += '    datatype: ' + datatype + '\n';
     if (hasChoices) {
       yaml += '    choices:\n';
       field.choices.forEach(function (choice) {
@@ -4327,7 +6271,9 @@
       var codeText = String(field.code);
       if (codeText.indexOf('\n') !== -1) {
         yaml += '    code: |\n';
-        codeText.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
+        codeText.split('\n').forEach(function (line) {
+          yaml += '      ' + line + '\n';
+        });
       } else {
         yaml += '    code: ' + codeText + '\n';
       }
@@ -4336,7 +6282,8 @@
 
     extraMods.forEach(function (key) {
       var value = field[key];
-      if (value === undefined || value === null || String(value).trim() === '') return;
+      if (value === undefined || value === null || String(value).trim() === '')
+        return;
       yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
     });
 
@@ -4347,7 +6294,12 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'code_block');
+    var blockId =
+      idInput && idInput.value
+        ? idInput.value
+        : block && block.id
+          ? block.id
+          : 'code_block';
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var codeText = getSourceEditorValue('code-source-editor');
@@ -4355,16 +6307,20 @@
       codeText = String(block.data.code);
     }
     yaml += 'code: |\n';
-    String(codeText || '').split('\n').forEach(function (line) {
-      yaml += '  ' + line + '\n';
-    });
+    String(codeText || '')
+      .split('\n')
+      .forEach(function (line) {
+        yaml += '  ' + line + '\n';
+      });
 
     return _appendQuestionAdvancedYaml(yaml, block);
   }
 
   function _parseObjectEditorExpression(expression) {
     var text = String(expression || '').trim();
-    var usingMatch = text.match(/^([A-Za-z_][A-Za-z0-9_.]*)\.using\(([\s\S]*)\)$/);
+    var usingMatch = text.match(
+      /^([A-Za-z_][A-Za-z0-9_.]*)\.using\(([\s\S]*)\)$/,
+    );
     if (usingMatch) {
       return {
         mode: 'using',
@@ -4396,8 +6352,14 @@
   }
 
   function _getObjectEditorRows(block) {
-    var objects = (block && block.data && Array.isArray(block.data.objects)) ? block.data.objects : [];
-    if (Array.isArray(block && block.editor_objects) && block.editor_objects.length === objects.length) {
+    var objects =
+      block && block.data && Array.isArray(block.data.objects)
+        ? block.data.objects
+        : [];
+    if (
+      Array.isArray(block && block.editor_objects) &&
+      block.editor_objects.length === objects.length
+    ) {
       return block.editor_objects;
     }
     return objects.map(function (obj) {
@@ -4435,27 +6397,62 @@
      what the author wrote. */
   function _peopleListQuantity(className, usingArgs) {
     if (!_isPeopleListClass(className)) return null;
-    if (!window.ALWeaverSerializers || !window.ALWeaverSerializers.readPeopleListQuantity) return null;
+    if (
+      !window.ALWeaverSerializers ||
+      !window.ALWeaverSerializers.readPeopleListQuantity
+    )
+      return null;
     var quantity = window.ALWeaverSerializers.readPeopleListQuantity(usingArgs);
     return quantity && quantity.editable ? quantity : null;
   }
 
   function _renderPeopleListQuantity(oi, quantity) {
-    var modes = (window.ALWeaverSerializers && window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) || [];
+    var modes =
+      (window.ALWeaverSerializers &&
+        window.ALWeaverSerializers.PEOPLE_LIST_QUANTITY_MODES) ||
+      [];
     var groupName = 'editor-obj-quantity-' + oi;
-    var html = '<fieldset class="editor-form-group editor-form-group-compact editor-obj-quantity" data-obj-quantity="1">';
+    var html =
+      '<fieldset class="editor-form-group editor-form-group-compact editor-obj-quantity" data-obj-quantity="1">';
     html += '<legend class="editor-tiny">How many people?</legend>';
     modes.forEach(function (modeOption, mi) {
       var inputId = groupName + '-' + mi;
       var checked = quantity.mode === modeOption.value ? ' checked' : '';
       html += '<div class="form-check">';
-      html += '<input class="form-check-input" type="radio" name="' + groupName + '" id="' + inputId + '" value="' + esc(modeOption.value) + '" data-obj-quantity-mode="1"' + checked + '>';
-      html += '<label class="form-check-label" for="' + inputId + '">' + esc(modeOption.label);
-      html += '<span class="editor-obj-hint">' + esc(modeOption.hint) + '</span></label>';
+      html +=
+        '<input class="form-check-input" type="radio" name="' +
+        groupName +
+        '" id="' +
+        inputId +
+        '" value="' +
+        esc(modeOption.value) +
+        '" data-obj-quantity-mode="1"' +
+        checked +
+        '>';
+      html +=
+        '<label class="form-check-label" for="' +
+        inputId +
+        '">' +
+        esc(modeOption.label);
+      html +=
+        '<span class="editor-obj-hint">' +
+        esc(modeOption.hint) +
+        '</span></label>';
       if (modeOption.value === 'exactly') {
-        html += '<div class="editor-obj-quantity-number' + (quantity.mode === 'exactly' ? '' : ' d-none') + '">';
-        html += '<label class="editor-tiny" for="' + groupName + '-number">Number of people</label>';
-        html += '<input class="form-control editor-form-control editor-obj-input" id="' + groupName + '-number" type="number" min="0" step="1" value="' + esc(String(quantity.number)) + '" data-obj-quantity-number="1">';
+        html +=
+          '<div class="editor-obj-quantity-number' +
+          (quantity.mode === 'exactly' ? '' : ' d-none') +
+          '">';
+        html +=
+          '<label class="editor-tiny" for="' +
+          groupName +
+          '-number">Number of people</label>';
+        html +=
+          '<input class="form-control editor-form-control editor-obj-input" id="' +
+          groupName +
+          '-number" type="number" min="0" step="1" value="' +
+          esc(String(quantity.number)) +
+          '" data-obj-quantity-number="1">';
         html += '</div>';
       }
       html += '</div>';
@@ -4481,13 +6478,17 @@
       var className = classEl ? String(classEl.value || '').trim() : '';
       var usingArgs = usingArgsEl ? String(usingArgsEl.value || '').trim() : '';
       var quantityEl = row.querySelector('[data-obj-quantity]');
-      if (quantityEl && window.ALWeaverSerializers && window.ALWeaverSerializers.composePeopleListUsingArgs) {
+      if (
+        quantityEl &&
+        window.ALWeaverSerializers &&
+        window.ALWeaverSerializers.composePeopleListUsingArgs
+      ) {
         var checkedMode = row.querySelector('[data-obj-quantity-mode]:checked');
         var numberEl = row.querySelector('[data-obj-quantity-number]');
         usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
           checkedMode ? String(checkedMode.value || 'ask') : 'ask',
           numberEl ? numberEl.value : 1,
-          usingArgs
+          usingArgs,
         );
       }
       var rawExpression = rawExprEl ? String(rawExprEl.value || '').trim() : '';
@@ -4496,8 +6497,14 @@
         mode: mode,
         class_name: className,
         using_args: usingArgs,
-        raw_expression: mode === 'using' ? _composeObjectExpression(className || 'DAObject', usingArgs) : rawExpression,
-        expression: mode === 'using' ? _composeObjectExpression(className || 'DAObject', usingArgs) : rawExpression,
+        raw_expression:
+          mode === 'using'
+            ? _composeObjectExpression(className || 'DAObject', usingArgs)
+            : rawExpression,
+        expression:
+          mode === 'using'
+            ? _composeObjectExpression(className || 'DAObject', usingArgs)
+            : rawExpression,
         is_document_bundle: className === 'ALDocumentBundle',
       };
     });
@@ -4508,17 +6515,28 @@
     var cleanArgs = String(usingArgs || '').trim();
     if (!cleanClass) return '';
     if (!cleanArgs) return cleanClass;
-    if (cleanArgs.indexOf('\n') === -1) return cleanClass + '.using(' + cleanArgs + ')';
+    if (cleanArgs.indexOf('\n') === -1)
+      return cleanClass + '.using(' + cleanArgs + ')';
     // A multi-argument call is shown one argument per line with the commas
     // stripped, and that is the form that comes back here on save. Put the
     // commas back, or what gets written is not valid Python.
     var argList = window.ALWeaverSerializers.splitUsingArgs(cleanArgs);
     if (argList === null || !argList.length) {
-      argList = cleanArgs.split('\n').map(function (line) { return line.trim(); })
-        .filter(function (line) { return line !== ''; });
+      argList = cleanArgs
+        .split('\n')
+        .map(function (line) {
+          return line.trim();
+        })
+        .filter(function (line) {
+          return line !== '';
+        });
     }
     if (!argList.length) return cleanClass;
-    var indentedArgs = argList.map(function (arg) { return '  ' + arg; }).join(',\n');
+    var indentedArgs = argList
+      .map(function (arg) {
+        return '  ' + arg;
+      })
+      .join(',\n');
     return cleanClass + '.using(\n' + indentedArgs + '\n)';
   }
 
@@ -4527,7 +6545,14 @@
     var cleanExpression = String(expression || '').trim();
     if (!cleanName) return yaml;
     if (cleanExpression.indexOf('\n') === -1) {
-      return yaml + '  - ' + escapeYamlStr(cleanName) + ': ' + escapeYamlStr(cleanExpression || 'DAObject') + '\n';
+      return (
+        yaml +
+        '  - ' +
+        escapeYamlStr(cleanName) +
+        ': ' +
+        escapeYamlStr(cleanExpression || 'DAObject') +
+        '\n'
+      );
     }
     var exprLines = cleanExpression.split('\n');
     yaml += '  - ' + escapeYamlStr(cleanName) + ': ' + exprLines[0] + '\n';
@@ -4541,7 +6566,12 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'objects_block');
+    var blockId =
+      idInput && idInput.value
+        ? idInput.value
+        : block && block.id
+          ? block.id
+          : 'objects_block';
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     yaml += 'objects:\n';
@@ -4559,18 +6589,29 @@
         if (!name) return;
         if (mode === 'using') {
           var className = classEl ? String(classEl.value || '').trim() : '';
-          var usingArgs = usingArgsEl ? String(usingArgsEl.value || '').trim() : '';
+          var usingArgs = usingArgsEl
+            ? String(usingArgsEl.value || '').trim()
+            : '';
           var quantityEl = row.querySelector('[data-obj-quantity]');
-          if (quantityEl && window.ALWeaverSerializers && window.ALWeaverSerializers.composePeopleListUsingArgs) {
-            var checkedMode = row.querySelector('[data-obj-quantity-mode]:checked');
+          if (
+            quantityEl &&
+            window.ALWeaverSerializers &&
+            window.ALWeaverSerializers.composePeopleListUsingArgs
+          ) {
+            var checkedMode = row.querySelector(
+              '[data-obj-quantity-mode]:checked',
+            );
             var numberEl = row.querySelector('[data-obj-quantity-number]');
             usingArgs = window.ALWeaverSerializers.composePeopleListUsingArgs(
               checkedMode ? String(checkedMode.value || 'ask') : 'ask',
               numberEl ? numberEl.value : 1,
-              usingArgs
+              usingArgs,
             );
           }
-          expression = _composeObjectExpression(className || 'DAObject', usingArgs);
+          expression = _composeObjectExpression(
+            className || 'DAObject',
+            usingArgs,
+          );
         } else {
           expression = rawExprEl ? String(rawExprEl.value || '').trim() : '';
         }
@@ -4617,7 +6658,12 @@
 
     var condToggle = document.getElementById('adv-enable-if');
     var condInput = document.getElementById('adv-if');
-    if (condToggle && condToggle.checked && condInput && condInput.value.trim()) {
+    if (
+      condToggle &&
+      condToggle.checked &&
+      condInput &&
+      condInput.value.trim()
+    ) {
       blk.data['if'] = condInput.value.trim();
       blk.data._editor_if_enabled = true;
     } else if (condToggle && condToggle.checked) {
@@ -4631,7 +6677,11 @@
     var mandatorySwitch = document.getElementById('adv-mandatory-switch');
     var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
     if (mandatorySwitch || mandatoryBtn) {
-      if ((mandatorySwitch && mandatorySwitch.checked) || (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')) blk.data.mandatory = true;
+      if (
+        (mandatorySwitch && mandatorySwitch.checked) ||
+        (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
+      )
+        blk.data.mandatory = true;
       else delete blk.data.mandatory;
     }
 
@@ -4642,8 +6692,14 @@
       delete blk.data.sets;
       delete blk.data['only sets'];
       if (setsValue) {
-        var setParts = setsValue.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
-        blk.data[setsKey] = setParts.length > 1 ? setParts : setParts[0] || setsValue;
+        var setParts = setsValue
+          .split(',')
+          .map(function (p) {
+            return p.trim();
+          })
+          .filter(Boolean);
+        blk.data[setsKey] =
+          setParts.length > 1 ? setParts : setParts[0] || setsValue;
       }
     }
 
@@ -4651,8 +6707,14 @@
     if (needInput) {
       var needValue = needInput.value.trim();
       if (needValue) {
-        var needParts = needValue.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
-        blk.data.need = needParts.length > 1 ? needParts : needParts[0] || needValue;
+        var needParts = needValue
+          .split(',')
+          .map(function (p) {
+            return p.trim();
+          })
+          .filter(Boolean);
+        blk.data.need =
+          needParts.length > 1 ? needParts : needParts[0] || needValue;
       } else {
         delete blk.data.need;
       }
@@ -4666,7 +6728,8 @@
 
     var genericObjectInput = document.getElementById('adv-generic-object');
     if (genericObjectInput) {
-      if (genericObjectInput.value.trim()) blk.data['generic object'] = genericObjectInput.value.trim();
+      if (genericObjectInput.value.trim())
+        blk.data['generic object'] = genericObjectInput.value.trim();
       else delete blk.data['generic object'];
     }
 
@@ -4675,15 +6738,21 @@
       var el = document.getElementById(id);
       if (!el) return;
       var v = String(el.value || '').trim();
-      if (v) blk.data[key] = v; else delete blk.data[key];
+      if (v) blk.data[key] = v;
+      else delete blk.data[key];
     }
     function _syncList(id, key) {
       var el = document.getElementById(id);
       if (!el) return;
       var v = String(el.value || '').trim();
       if (v) {
-        var parts = v.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
-        blk.data[key] = parts.length > 1 ? parts : (parts[0] || v);
+        var parts = v
+          .split(',')
+          .map(function (p) {
+            return p.trim();
+          })
+          .filter(Boolean);
+        blk.data[key] = parts.length > 1 ? parts : parts[0] || v;
       } else delete blk.data[key];
     }
     _syncSimple('adv-continue-color', 'continue button color');
@@ -4718,8 +6787,9 @@
   function syncFieldsToData(blk) {
     if (!blk || blk.type !== 'question') return;
     var rows = document.querySelectorAll('.editor-field-row');
-    var previousGeneratedSets = (blk.data && blk.data._editor_al_generated_sets)
-      || _generatedALFieldSets((blk.data && blk.data.fields) || []);
+    var previousGeneratedSets =
+      (blk.data && blk.data._editor_al_generated_sets) ||
+      _generatedALFieldSets((blk.data && blk.data.fields) || []);
     syncQuestionMetaToData(blk);
     if (rows.length === 0) {
       if (state.questionBlockTab === 'screen') {
@@ -4731,7 +6801,10 @@
     blk.data.fields = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
+      var rowIdx =
+        row.getAttribute('data-field-idx') !== null
+          ? row.getAttribute('data-field-idx')
+          : String(i);
       var type = row.querySelector('[data-field-prop="type"]').value;
       var isStandaloneType = _fieldTypeSupportsStandaloneContent(type);
       var isALMethodType = _isALFieldMethodType(type);
@@ -4742,28 +6815,53 @@
       var choicesEl = document.getElementById('field-choices-' + rowIdx);
       var codeEl = document.getElementById('field-code-' + rowIdx);
       var showIfEl = document.getElementById('field-showif-' + rowIdx);
-      var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
-      var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
-      var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
-      var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
+      var showIfKeyEl = document.querySelector(
+        '.editor-field-showif-key[data-field-idx="' + rowIdx + '"]',
+      );
+      var requiredSwitch = document.querySelector(
+        '.editor-field-required-switch[data-field-idx="' + rowIdx + '"]',
+      );
+      var fieldModsPanel = document.querySelector(
+        '.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]',
+      );
+      var fmodInputs = fieldModsPanel
+        ? fieldModsPanel.querySelectorAll('[data-fmod]')
+        : [];
       var syncFmods = {};
-      fmodInputs.forEach(function (el) { var k = el.getAttribute('data-fmod'); var v = el.value.trim(); if (v) syncFmods[k] = v; });
+      fmodInputs.forEach(function (el) {
+        var k = el.getAttribute('data-fmod');
+        var v = el.value.trim();
+        if (v) syncFmods[k] = v;
+      });
       var hasCodeExpr = codeEl && codeEl.value.trim();
-      var hasChoices = choicesEl && choicesEl.value.trim() && CHOICE_TYPES.indexOf(type) !== -1;
+      var hasChoices =
+        choicesEl &&
+        choicesEl.value.trim() &&
+        CHOICE_TYPES.indexOf(type) !== -1;
       var showIfVal = showIfEl ? showIfEl.value.trim() : '';
       var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
       var isRequired = requiredSwitch ? requiredSwitch.checked : true;
-      var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(syncFmods).length > 0;
+      var hasMods =
+        hasCodeExpr ||
+        showIfVal ||
+        !isRequired ||
+        Object.keys(syncFmods).length > 0;
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
-        var methodCall = _methodCallFromParts(variable, type, methodArgsEl ? methodArgsEl.value : '');
+        var methodCall = _methodCallFromParts(
+          variable,
+          type,
+          methodArgsEl ? methodArgsEl.value : '',
+        );
         if (methodCall) blk.data.fields.push({ code: methodCall });
         continue;
       }
       if (isStandaloneType) {
         var standaloneObj = {};
         standaloneObj[type] = label;
-        Object.keys(syncFmods).forEach(function (k) { standaloneObj[k] = syncFmods[k]; });
+        Object.keys(syncFmods).forEach(function (k) {
+          standaloneObj[k] = syncFmods[k];
+        });
         blk.data.fields.push(standaloneObj);
         continue;
       }
@@ -4776,12 +6874,19 @@
       if (variable) fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
-        fieldObj.choices = choicesEl.value.split('\n').map(function (c) { return c.trim(); }).filter(Boolean);
+        fieldObj.choices = choicesEl.value
+          .split('\n')
+          .map(function (c) {
+            return c.trim();
+          })
+          .filter(Boolean);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
       if (!isRequired) fieldObj.required = false;
       if (showIfVal) fieldObj[showIfKey] = showIfVal;
-      Object.keys(syncFmods).forEach(function (k) { fieldObj[k] = syncFmods[k]; });
+      Object.keys(syncFmods).forEach(function (k) {
+        fieldObj[k] = syncFmods[k];
+      });
       blk.data.fields.push(fieldObj);
     }
     _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -4808,16 +6913,20 @@
     var out = [];
     (fields || []).forEach(function (field) {
       if (!field || typeof field !== 'object') return;
-      var label = String(field.label || field.question || 'Field').trim() || 'Field';
+      var label =
+        String(field.label || field.question || 'Field').trim() || 'Field';
       var variable = String(field.field || field.variable || '').trim();
-      var datatype = String(field.datatype || field.type || 'text').trim() || 'text';
+      var datatype =
+        String(field.datatype || field.type || 'text').trim() || 'text';
       var row = {
         label: label,
         field: variable,
         datatype: datatype,
       };
       if (Array.isArray(field.choices) && field.choices.length) {
-        row.choices = field.choices.map(function (choice) { return String(choice); });
+        row.choices = field.choices.map(function (choice) {
+          return String(choice);
+        });
       }
       out.push(row);
     });
@@ -4825,7 +6934,13 @@
   }
 
   function applyAIGeneratedScreenToBlock(block, screen) {
-    if (!block || block.type !== 'question' || !screen || typeof screen !== 'object') return;
+    if (
+      !block ||
+      block.type !== 'question' ||
+      !screen ||
+      typeof screen !== 'object'
+    )
+      return;
     if (!block.data || typeof block.data !== 'object') block.data = {};
     if (screen.question) {
       block.data.question = String(screen.question);
@@ -4835,7 +6950,10 @@
     else delete block.data.subquestion;
     var fields = _fieldsToExpandedRows(screen.fields || []);
     block.data.fields = fields;
-    if (screen.continue_button_field) block.data['continue button field'] = String(screen.continue_button_field);
+    if (screen.continue_button_field)
+      block.data['continue button field'] = String(
+        screen.continue_button_field,
+      );
   }
 
   // -------------------------------------------------------------------------
@@ -4859,7 +6977,9 @@
       if (!raw) return [];
       var parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter(function (p) { return typeof p === 'string' && p.trim(); });
+      return parsed.filter(function (p) {
+        return typeof p === 'string' && p.trim();
+      });
     } catch (_err) {
       return [];
     }
@@ -4867,7 +6987,10 @@
 
   function writeRecentProjects(projects) {
     try {
-      window.localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(projects.slice(0, MAX_RECENT_PROJECTS)));
+      window.localStorage.setItem(
+        RECENT_PROJECTS_STORAGE_KEY,
+        JSON.stringify(projects.slice(0, MAX_RECENT_PROJECTS)),
+      );
     } catch (_err) {
       // Ignore storage failures (private mode, quota, etc.)
     }
@@ -4875,7 +6998,9 @@
 
   function rememberRecentProject(projectName) {
     if (!projectName) return;
-    var next = readRecentProjects().filter(function (name) { return name !== projectName; });
+    var next = readRecentProjects().filter(function (name) {
+      return name !== projectName;
+    });
     next.unshift(projectName);
     writeRecentProjects(next);
   }
@@ -4883,9 +7008,16 @@
   function getRecentProjectsInWorkspace() {
     var known = {};
     var workspaceProjects = state.projects || [];
-    workspaceProjects.forEach(function (p) { known[p] = true; });
+    workspaceProjects.forEach(function (p) {
+      known[p] = true;
+    });
 
-    var candidateCookieKeys = ['playgroundproject', 'playground_project', 'current_project', 'project'];
+    var candidateCookieKeys = [
+      'playgroundproject',
+      'playground_project',
+      'current_project',
+      'project',
+    ];
     var merged = [];
     candidateCookieKeys.forEach(function (key) {
       var value = getCookieValue(key);
@@ -4976,7 +7108,12 @@
       renderCanvas();
       return Promise.resolve();
     }
-    return apiGet('/api/section-files?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section))
+    return apiGet(
+      '/api/section-files?project=' +
+        encodeURIComponent(state.project) +
+        '&section=' +
+        encodeURIComponent(section),
+    )
       .then(function (res) {
         if (!res.success || !res.data) return;
         var files = Array.isArray(res.data.files) ? res.data.files : [];
@@ -4990,7 +7127,9 @@
           }
         }
         if (!stillExists) {
-          state.sectionSelectedFile[view] = files.length ? files[0].filename : null;
+          state.sectionSelectedFile[view] = files.length
+            ? files[0].filename
+            : null;
         }
         if (!isInterviewView()) {
           renderOutline();
@@ -5017,7 +7156,11 @@
         if (!res.success) return;
         rememberRecentProject(state.project);
         state.files = res.data.files || [];
-        var currentStillExists = state.filename && state.files.some(function (f) { return f.filename === state.filename; });
+        var currentStillExists =
+          state.filename &&
+          state.files.some(function (f) {
+            return f.filename === state.filename;
+          });
         if (!currentStillExists) {
           state.filename = state.files.length ? state.files[0].filename : null;
         }
@@ -5045,52 +7188,62 @@
   function loadFile() {
     if (!state.filename) return Promise.resolve();
     var runtimeSession = runtimeInspector.getSession();
-    if (runtimeSession && (
-      runtimeSession.project !== state.project || runtimeSession.filename !== state.filename
-    )) {
+    if (
+      runtimeSession &&
+      (runtimeSession.project !== state.project ||
+        runtimeSession.filename !== state.filename)
+    ) {
       runtimeInspector.releaseSession();
     }
     endAssistantSessionForFileChange();
     return apiGet(
-      '/api/file?project=' + encodeURIComponent(state.project) +
-      '&filename=' + encodeURIComponent(state.filename)
-    ).then(function (res) {
-      if (!res.success) {
+      '/api/file?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
+      .then(function (res) {
+        if (!res.success) {
+          state.blocks = [];
+          state.rawYaml = '';
+          renderOutline();
+          renderCanvas();
+          return;
+        }
+        var d = res.data;
+        state.blocks = d.blocks || [];
+        state.metadataIndices = d.metadata_blocks || [];
+        state.includeIndices = d.include_blocks || [];
+        state.defaultSpIndices = d.default_screen_parts_blocks || [];
+        state.orderIndices = d.order_blocks || [];
+        state.orderStepMap = d.order_step_map || {};
+        state.rawYaml = d.raw_yaml || '';
+        state.revision = d.revision || null;
+        state.metadataRawYaml = d.metadata_raw_yaml || '';
+        state.fullYamlStash = {};
+        state.selectedBlockId = getDefaultVisibleBlockId();
+        setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
+        dirtyState.setFileSaved(
+          state.filename,
+          state.revision,
+          captureInterviewModel(),
+        );
+        dirtyState.activate(state.filename, state.selectedBlockId);
+        loadAvailableSymbols(true);
+        // Which documents exist, and which templates are still orphans, are
+        // facts about *this* file. Reading it is the one moment both can change.
+        loadDocuments();
+        renderOutline();
+        renderCanvas();
+        runValidation();
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
         state.blocks = [];
         state.rawYaml = '';
         renderOutline();
         renderCanvas();
-        return;
-      }
-      var d = res.data;
-      state.blocks = d.blocks || [];
-      state.metadataIndices = d.metadata_blocks || [];
-      state.includeIndices = d.include_blocks || [];
-      state.defaultSpIndices = d.default_screen_parts_blocks || [];
-      state.orderIndices = d.order_blocks || [];
-      state.orderStepMap = d.order_step_map || {};
-      state.rawYaml = d.raw_yaml || '';
-      state.revision = d.revision || null;
-      state.metadataRawYaml = d.metadata_raw_yaml || '';
-      state.fullYamlStash = {};
-      state.selectedBlockId = getDefaultVisibleBlockId();
-      setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
-      dirtyState.setFileSaved(state.filename, state.revision, captureInterviewModel());
-      dirtyState.activate(state.filename, state.selectedBlockId);
-      loadAvailableSymbols(true);
-      // Which documents exist, and which templates are still orphans, are
-      // facts about *this* file. Reading it is the one moment both can change.
-      loadDocuments();
-      renderOutline();
-      renderCanvas();
-      runValidation();
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return;
-      state.blocks = [];
-      state.rawYaml = '';
-      renderOutline();
-      renderCanvas();
-    });
+      });
   }
 
   function openProject(projectName) {
@@ -5103,11 +7256,19 @@
   }
 
   function getOutlineBlockIds() {
-    return state.blocks.map(function (block) { return block.id; }).filter(Boolean);
+    return state.blocks
+      .map(function (block) {
+        return block.id;
+      })
+      .filter(Boolean);
   }
 
   function getVisibleOutlineBlockIds() {
-    return filteredBlocks().map(function (block) { return block.id; }).filter(Boolean);
+    return filteredBlocks()
+      .map(function (block) {
+        return block.id;
+      })
+      .filter(Boolean);
   }
 
   function getBlockIndexById(blockId) {
@@ -5118,14 +7279,17 @@
   }
 
   function reorderOutlineBlocks(blockIds, selectedBlockId) {
-    if (!state.project || !state.filename || !Array.isArray(blockIds)) return Promise.resolve();
+    if (!state.project || !state.filename || !Array.isArray(blockIds))
+      return Promise.resolve();
     return apiPost('/api/block/reorder', {
       project: state.project,
       filename: state.filename,
       block_ids: blockIds,
     }).then(function (res) {
       if (!res.success || !res.data) {
-        window.alert((res.error && res.error.message) || 'Unable to move block.');
+        window.alert(
+          (res.error && res.error.message) || 'Unable to move block.',
+        );
         return;
       }
       refreshFromFileResponse(res.data);
@@ -5169,7 +7333,12 @@
       if (id) visibleSet[id] = true;
     });
     return state.blocks.map(function (block) {
-      if (block && block.id && visibleSet[block.id] && nextVisibleIndex < orderedVisibleIds.length) {
+      if (
+        block &&
+        block.id &&
+        visibleSet[block.id] &&
+        nextVisibleIndex < orderedVisibleIds.length
+      ) {
         return orderedVisibleIds[nextVisibleIndex++];
       }
       return block.id;
@@ -5177,15 +7346,20 @@
   }
 
   function reorderVisibleOutlineBlocks(visibleIds, selectedBlockId) {
-    return reorderOutlineBlocks(buildFullOutlineOrderFromVisibleIds(visibleIds), selectedBlockId);
+    return reorderOutlineBlocks(
+      buildFullOutlineOrderFromVisibleIds(visibleIds),
+      selectedBlockId,
+    );
   }
 
   function persistOutlineDragOrder() {
     if (!outlineList) return;
     var ids = [];
-    outlineList.querySelectorAll('.editor-outline-item[data-block-id]').forEach(function (item) {
-      ids.push(item.getAttribute('data-block-id'));
-    });
+    outlineList
+      .querySelectorAll('.editor-outline-item[data-block-id]')
+      .forEach(function (item) {
+        ids.push(item.getAttribute('data-block-id'));
+      });
     reorderVisibleOutlineBlocks(ids, state.selectedBlockId);
   }
 
@@ -5194,7 +7368,12 @@
       _outlineSortable.destroy();
       _outlineSortable = null;
     }
-    if (!outlineList || !isOutlineDragEnabled() || typeof Sortable === 'undefined') return;
+    if (
+      !outlineList ||
+      !isOutlineDragEnabled() ||
+      typeof Sortable === 'undefined'
+    )
+      return;
     _outlineSortable = Sortable.create(outlineList, {
       animation: 150,
       handle: '.editor-outline-drag-handle',
@@ -5203,7 +7382,7 @@
       preventOnFilter: false,
       onEnd: function () {
         persistOutlineDragOrder();
-      }
+      },
     });
   }
 
@@ -5211,19 +7390,54 @@
     var blockId = esc(block.id);
     var moveUpDisabled = index <= 0;
     var moveDownDisabled = index >= totalCount - 1;
-    var enableLabel = block.type === 'commented' ? 'Re-enable block' : 'Disable (comment out)';
+    var enableLabel =
+      block.type === 'commented' ? 'Re-enable block' : 'Disable (comment out)';
     var enableAction = block.type === 'commented' ? 'enable' : 'comment';
     var html = '';
     html += '<div class="dropdown editor-outline-item-actions">';
-    html += '<button type="button" class="editor-outline-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Block actions" title="Block actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
-    html += '<ul class="dropdown-menu dropdown-menu-end editor-outline-item-action-menu">';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-top" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '><i class="fa-solid fa-angles-up me-2" aria-hidden="true"></i>Move to top</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-up" data-block-id="' + blockId + '"' + (moveUpDisabled ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up me-2" aria-hidden="true"></i>Move up</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-down" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down me-2" aria-hidden="true"></i>Move down</button></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="move-bottom" data-block-id="' + blockId + '"' + (moveDownDisabled ? ' disabled' : '') + '><i class="fa-solid fa-angles-down me-2" aria-hidden="true"></i>Move to bottom</button></li>';
+    html +=
+      '<button type="button" class="editor-outline-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Block actions" title="Block actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html +=
+      '<ul class="dropdown-menu dropdown-menu-end editor-outline-item-action-menu">';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-block-action="move-top" data-block-id="' +
+      blockId +
+      '"' +
+      (moveUpDisabled ? ' disabled' : '') +
+      '><i class="fa-solid fa-angles-up me-2" aria-hidden="true"></i>Move to top</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-block-action="move-up" data-block-id="' +
+      blockId +
+      '"' +
+      (moveUpDisabled ? ' disabled' : '') +
+      '><i class="fa-solid fa-arrow-up me-2" aria-hidden="true"></i>Move up</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-block-action="move-down" data-block-id="' +
+      blockId +
+      '"' +
+      (moveDownDisabled ? ' disabled' : '') +
+      '><i class="fa-solid fa-arrow-down me-2" aria-hidden="true"></i>Move down</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-block-action="move-bottom" data-block-id="' +
+      blockId +
+      '"' +
+      (moveDownDisabled ? ' disabled' : '') +
+      '><i class="fa-solid fa-angles-down me-2" aria-hidden="true"></i>Move to bottom</button></li>';
     html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button type="button" class="dropdown-item" data-block-action="' + enableAction + '" data-block-id="' + blockId + '"><i class="fa-solid ' + (block.type === 'commented' ? 'fa-toggle-on' : 'fa-toggle-off') + ' me-2" aria-hidden="true"></i>' + enableLabel + '</button></li>';
-    html += '<li><button type="button" class="dropdown-item text-danger" data-block-action="delete" data-block-id="' + blockId + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete block</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-block-action="' +
+      enableAction +
+      '" data-block-id="' +
+      blockId +
+      '"><i class="fa-solid ' +
+      (block.type === 'commented' ? 'fa-toggle-on' : 'fa-toggle-off') +
+      ' me-2" aria-hidden="true"></i>' +
+      enableLabel +
+      '</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item text-danger" data-block-action="delete" data-block-id="' +
+      blockId +
+      '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete block</button></li>';
     html += '</ul></div>';
     return html;
   }
@@ -5232,14 +7446,25 @@
     var projectId = esc(projectName);
     var html = '';
     html += '<div class="dropdown editor-project-card-actions">';
-    html += '<button type="button" class="editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
-    html += '<ul class="dropdown-menu dropdown-menu-end editor-project-card-action-menu">';
+    html +=
+      '<button type="button" class="editor-project-card-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Project actions" title="Project actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+    html +=
+      '<ul class="dropdown-menu dropdown-menu-end editor-project-card-action-menu">';
     if (state.projectSyncs[projectName]) {
-      html += '<li><button type="button" class="dropdown-item" data-project-action="pull-github" data-project-name="' + projectId + '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
+      html +=
+        '<li><button type="button" class="dropdown-item" data-project-action="pull-github" data-project-name="' +
+        projectId +
+        '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
       html += '<li><hr class="dropdown-divider"></li>';
     }
-    html += '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' + projectId + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
-    html += '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' + projectId + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' +
+      projectId +
+      '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
+    html +=
+      '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' +
+      projectId +
+      '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
     html += '</ul></div>';
     return html;
   }
@@ -5277,16 +7502,26 @@
     return function blockMatchesJumpTarget(b) {
       var blockType = getBlockDisplayType(b);
       if (state.jumpTarget === 'all') return true;
-      if (state.jumpTarget === 'questions') return blockType === 'question' || blockType === 'review';
+      if (state.jumpTarget === 'questions')
+        return blockType === 'question' || blockType === 'review';
       if (state.jumpTarget === 'reviews') return blockType === 'review';
       if (state.jumpTarget === 'order') return Boolean(orderById[b.id]);
       if (state.jumpTarget === 'code') return blockType === 'code';
       if (state.jumpTarget === 'objects') return blockType === 'objects';
       if (state.jumpTarget === 'attachments') {
-        return Boolean((b.tags || []).indexOf('attachment') !== -1 || (b.data && (b.data.attachment || b.data.attachments)));
+        return Boolean(
+          (b.tags || []).indexOf('attachment') !== -1 ||
+          (b.data && (b.data.attachment || b.data.attachments)),
+        );
       }
       if (state.jumpTarget === 'meta') {
-        return blockType === 'metadata' || blockType === 'includes' || blockType === 'default_screen_parts' || blockType === 'features' || blockType === 'other';
+        return (
+          blockType === 'metadata' ||
+          blockType === 'includes' ||
+          blockType === 'default_screen_parts' ||
+          blockType === 'features' ||
+          blockType === 'other'
+        );
       }
       if (state.jumpTarget === 'templates') {
         return blockType === 'template';
@@ -5295,7 +7530,9 @@
         return blockType === 'table';
       }
       if (state.jumpTarget === 'events') {
-        return Boolean((b.tags || []).indexOf('event') !== -1 || (b.data && b.data.event));
+        return Boolean(
+          (b.tags || []).indexOf('event') !== -1 || (b.data && b.data.event),
+        );
       }
       if (state.jumpTarget === 'modules') {
         return blockType === 'modules' || blockType === 'imports';
@@ -5315,8 +7552,19 @@
     var filtered = state.blocks.filter(jumpTargetMatcher());
     if (!q) return filtered;
     return filtered.filter(function (b) {
-      return [b.title, b.id, b.variable || '', b.yaml, (b.tags || []).join(' '), b.type]
-        .join(' ').toLowerCase().indexOf(q) !== -1;
+      return (
+        [
+          b.title,
+          b.id,
+          b.variable || '',
+          b.yaml,
+          (b.tags || []).join(' '),
+          b.type,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .indexOf(q) !== -1
+      );
     });
   }
 
@@ -5329,7 +7577,7 @@
       visible: visibleMatches,
       kindVisible: kindMatches,
       total: state.blocks.length,
-      hasSearch: Boolean(state.searchQuery.trim())
+      hasSearch: Boolean(state.searchQuery.trim()),
     };
   }
 
@@ -5341,12 +7589,28 @@
     var showAllBtn = document.getElementById('btn-show-all-blocks');
     if (!summary || !countEl || !showAllBtn) return;
     var counts = outlineFilterCounts();
-    summary.classList.toggle('d-none', !isInterviewView() || counts.total === 0);
+    summary.classList.toggle(
+      'd-none',
+      !isInterviewView() || counts.total === 0,
+    );
     if (counts.hasSearch && counts.kindVisible < counts.total) {
-      countEl.textContent = 'Showing ' + counts.visible + ' of ' + counts.kindVisible + ' block' + (counts.kindVisible === 1 ? '' : 's') + ' (' + counts.total + ' total)';
+      countEl.textContent =
+        'Showing ' +
+        counts.visible +
+        ' of ' +
+        counts.kindVisible +
+        ' block' +
+        (counts.kindVisible === 1 ? '' : 's') +
+        ' (' + counts.total + ' total)';
     } else {
       var visible = counts.hasSearch ? counts.visible : counts.kindVisible;
-      countEl.textContent = 'Showing ' + visible + ' of ' + counts.total + ' block' + (counts.total === 1 ? '' : 's');
+      countEl.textContent =
+        'Showing ' +
+        visible +
+        ' of ' +
+        counts.total +
+        ' block' +
+        (counts.total === 1 ? '' : 's');
     }
     showAllBtn.classList.toggle('d-none', counts.kindVisible >= counts.total);
   }
@@ -5369,10 +7633,13 @@
   function blockQuickView(block, limit) {
     // Hovering an outline row previews the block, so a row whose title is thin
     // (a comment, an unnamed code block) is still recognisable at a glance.
-    var body = String((block && block.yaml) || '').replace(/\r\n/g, '\n').trim();
+    var body = String((block && block.yaml) || '')
+      .replace(/\r\n/g, '\n')
+      .trim();
     if (!body) return String((block && block.title) || '');
     var max = limit || 400;
-    if (body.length > max) body = body.slice(0, max - 1).replace(/\s+\S*$/, '') + '\u2026';
+    if (body.length > max)
+      body = body.slice(0, max - 1).replace(/\s+\S*$/, '') + '\u2026';
     return body;
   }
 
@@ -5402,34 +7669,55 @@
   }
 
   function _lintFindingLevel(finding) {
-    return String((finding && finding.level) || (finding && finding.severity) || 'error').toLowerCase();
+    return String(
+      (finding && finding.level) || (finding && finding.severity) || 'error',
+    ).toLowerCase();
   }
 
   function _findingsMatchBlock(finding, block) {
     if (!finding || !block) return false;
-    var findingBlockId = String((finding && (finding.block_id || finding.screen_id)) || '').trim();
-    if (findingBlockId && findingBlockId === String(block.id || '').trim()) return true;
+    var findingBlockId = String(
+      (finding && (finding.block_id || finding.screen_id)) || '',
+    ).trim();
+    if (findingBlockId && findingBlockId === String(block.id || '').trim())
+      return true;
     if (finding && finding.screen_link) {
-      var linkId = String(finding.screen_link || '').replace(/^#screen-/, '').trim();
+      var linkId = String(finding.screen_link || '')
+        .replace(/^#screen-/, '')
+        .trim();
       if (linkId && linkId === String(block.id || '').trim()) return true;
     }
     var lineNumber = Number((finding && finding.line_number) || 0);
     if (lineNumber > 0) {
       var startLine = Number(block.line_start || 0);
       var endLine = Number(block.line_end || 0);
-      if (startLine > 0 && endLine >= startLine && lineNumber >= startLine && lineNumber <= endLine) {
+      if (
+        startLine > 0 &&
+        endLine >= startLine &&
+        lineNumber >= startLine &&
+        lineNumber <= endLine
+      ) {
         return true;
       }
     }
     var ruleId = String((finding && finding.rule_id) || '').trim();
-    if ((ruleId === 'missing-metadata-fields' || ruleId === 'missing-custom-theme') && block.type === 'metadata') {
+    if (
+      (ruleId === 'missing-metadata-fields' ||
+        ruleId === 'missing-custom-theme') &&
+      block.type === 'metadata'
+    ) {
       return true;
     }
-    var problematicText = String((finding && finding.problematic_text) || '').trim();
+    var problematicText = String(
+      (finding && finding.problematic_text) || '',
+    ).trim();
     if (problematicText) {
       var yamlText = String(block.yaml || '');
       var title = String(block.title || '');
-      if (yamlText.indexOf(problematicText) !== -1 || title.indexOf(problematicText) !== -1) {
+      if (
+        yamlText.indexOf(problematicText) !== -1 ||
+        title.indexOf(problematicText) !== -1
+      ) {
         return true;
       }
     }
@@ -5448,7 +7736,8 @@
     var summary = { error: 0, warning: 0, info: 0 };
     (findings || []).forEach(function (finding) {
       var level = _lintFindingLevel(finding);
-      if (level !== 'error' && level !== 'warning' && level !== 'info') level = 'error';
+      if (level !== 'error' && level !== 'warning' && level !== 'info')
+        level = 'error';
       summary[level] += 1;
     });
     return summary;
@@ -5482,25 +7771,45 @@
     }
     var blocks = filteredBlocks();
     var html = '';
-    html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
+    html +=
+      '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
     blocks.forEach(function (block) {
       var active = state.selectedBlockId === block.id;
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
       var tc = typeClass(displayType);
       var lintFindings = getBlockLintFindings(block.id);
-      var lintClass = lintFindings.length ? (' ' + getBlockLintFeedbackClass(lintFindings)) : '';
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + (block.type === 'commented' ? ' editor-outline-item-commented' : '') + lintClass + '" data-block-id="' + esc(block.id) + '" title="' + esc(blockQuickView(block)) + '">';
+      var lintClass = lintFindings.length
+        ? ' ' + getBlockLintFeedbackClass(lintFindings)
+        : '';
+      html +=
+        '<div class="editor-outline-item' +
+        (active ? ' active' : '') +
+        (block.type === 'commented' ? ' editor-outline-item-commented' : '') +
+        lintClass +
+        '" data-block-id="' +
+        esc(block.id) +
+        '" title="' +
+        esc(blockQuickView(block)) +
+        '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
       if (isOutlineDragEnabled()) {
-        html += '<button type="button" class="editor-outline-drag-handle btn btn-sm btn-link" title="Drag to reorder" aria-label="Drag to reorder"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></button>';
+        html +=
+          '<button type="button" class="editor-outline-drag-handle btn btn-sm btn-link" title="Drag to reorder" aria-label="Drag to reorder"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></button>';
       } else {
-        html += '<span class="editor-outline-drag-spacer" aria-hidden="true"></span>';
+        html +=
+          '<span class="editor-outline-drag-spacer" aria-hidden="true"></span>';
       }
-      html += '<div class="editor-outline-item-main"><div class="editor-outline-title">' + esc(block.title) + '</div>';
+      html +=
+        '<div class="editor-outline-item-main"><div class="editor-outline-title">' +
+        esc(block.title) +
+        '</div>';
       if (block.variable) {
-        html += '<div class="editor-outline-meta"><span>' + esc(block.variable) + '</span></div>';
+        html +=
+          '<div class="editor-outline-meta"><span>' +
+          esc(block.variable) +
+          '</span></div>';
       }
       if (lintFindings.length) {
         var lintLevel = getBlockLintHighestLevel(lintFindings) || 'info';
@@ -5508,18 +7817,33 @@
         if (lintLevel === 'warning') lintIcon = 'fa-triangle-exclamation';
         if (lintLevel === 'error') lintIcon = 'fa-circle-xmark';
         html += '<div class="editor-outline-lint ' + esc(lintLevel) + '">';
-        html += '<i class="fa-solid ' + lintIcon + ' editor-outline-lint-icon" aria-hidden="true"></i>';
-        html += '<span class="editor-outline-lint-text">' + esc(getBlockLintLeadMessage(lintFindings) || 'Lint finding') + '</span>';
+        html +=
+          '<i class="fa-solid ' +
+          lintIcon +
+          ' editor-outline-lint-icon" aria-hidden="true"></i>';
+        html +=
+          '<span class="editor-outline-lint-text">' +
+          esc(getBlockLintLeadMessage(lintFindings) || 'Lint finding') +
+          '</span>';
         if (lintFindings.length > 1) {
-          html += '<span class="editor-outline-lint-count">+' + esc(String(lintFindings.length - 1)) + '</span>';
+          html +=
+            '<span class="editor-outline-lint-count">+' +
+            esc(String(lintFindings.length - 1)) +
+            '</span>';
         }
         html += '</div>';
       }
       html += '</div>';
-      html += '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
+      html +=
+        '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
       html += getBlockMenuHtml(block, blocks.indexOf(block), blocks.length);
       html += '</div></div>';
-      html += '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' + esc(block.id) + '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' + esc(block.title) + '</span></button></div>';
+      html +=
+        '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' +
+        esc(block.id) +
+        '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' +
+        esc(block.title) +
+        '</span></button></div>';
     });
     outlineList.innerHTML = html;
     initOutlineSortable();
@@ -5531,12 +7855,17 @@
     var q = state.searchQuery.toLowerCase().trim();
     // Nothing in the file list is open while the project-wide setup pane is,
     // so nothing in it should look selected.
-    var selected = (view === 'templates' && state.templatesMode === 'documents')
-      ? null
-      : state.sectionSelectedFile[view];
+    var selected =
+      view === 'templates' && state.templatesMode === 'documents'
+        ? null
+        : state.sectionSelectedFile[view];
     var filtered = files.filter(function (f) {
       if (!q) return true;
-      return String(f.filename || '').toLowerCase().indexOf(q) !== -1;
+      return (
+        String(f.filename || '')
+          .toLowerCase()
+          .indexOf(q) !== -1
+      );
     });
     var html = '';
     if (!filtered.length) {
@@ -5548,44 +7877,86 @@
     filtered.forEach(function (file) {
       var active = selected === file.filename;
       var tag = sectionTypeTag(file);
-      var rawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(view)) + '&filename=' + encodeURIComponent(file.filename);
-      html += '<div class="editor-outline-item' + (active ? ' active' : '') + '" data-section-filename="' + esc(file.filename) + '">';
+      var rawUrl =
+        API +
+        '/api/section-file/raw?project=' +
+        encodeURIComponent(state.project) +
+        '&section=' +
+        encodeURIComponent(getSectionFromView(view)) +
+        '&filename=' +
+        encodeURIComponent(file.filename);
+      html +=
+        '<div class="editor-outline-item' +
+        (active ? ' active' : '') +
+        '" data-section-filename="' +
+        esc(file.filename) +
+        '">';
       html += '<div class="editor-outline-item-row">';
       if (active) html += '<div class="editor-outline-active-bar"></div>';
-      html += '<div style="min-width:0;flex:1"><div class="editor-outline-title">' + esc(file.filename) + '</div></div>';
+      html +=
+        '<div style="min-width:0;flex:1"><div class="editor-outline-title">' +
+        esc(file.filename) +
+        '</div></div>';
       // A template sitting in the folder is not yet part of anything, and that
       // is the single most useful thing to know when looking at this list.
       if (view === 'templates') {
         var fileStatus = templateStatus(file.filename);
         if (fileStatus && fileStatus.status === 'not_imported') {
-          html += '<div class="editor-outline-status" title="Nothing in this interview uses this file yet">Not imported</div>';
+          html +=
+            '<div class="editor-outline-status" title="Nothing in this interview uses this file yet">Not imported</div>';
         }
       }
       if (tag) {
-        html += '<div class="editor-outline-type editor-outline-type-oth">' + esc(tag) + '</div>';
+        html +=
+          '<div class="editor-outline-type editor-outline-type-oth">' +
+          esc(tag) +
+          '</div>';
       }
-      html += '<div class="dropdown editor-section-file-kebab" data-stop-propagation>';
-      html += '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+      html +=
+        '<div class="dropdown editor-section-file-kebab" data-stop-propagation>';
+      html +=
+        '<button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
       html += '<ul class="dropdown-menu dropdown-menu-end">';
-      html += '<li><button type="button" class="dropdown-item js-section-file-rename" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename</button></li>';
-      html += '<li><a class="dropdown-item" href="' + esc(rawUrl) + '" download="' + esc(file.filename) + '"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download</a></li>';
+      html +=
+        '<li><button type="button" class="dropdown-item js-section-file-rename" data-filename="' +
+        esc(file.filename) +
+        '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename</button></li>';
+      html +=
+        '<li><a class="dropdown-item" href="' +
+        esc(rawUrl) +
+        '" download="' +
+        esc(file.filename) +
+        '"><i class="fa-solid fa-download me-2" aria-hidden="true"></i>Download</a></li>';
       if (supportsDashboardEditor(file)) {
-        html += '<li><button type="button" class="dropdown-item js-section-file-dashboard" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Open in Dashboard editor</button></li>';
+        html +=
+          '<li><button type="button" class="dropdown-item js-section-file-dashboard" data-filename="' +
+          esc(file.filename) +
+          '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Open in Dashboard editor</button></li>';
       }
       html += '<li><hr class="dropdown-divider"></li>';
-      html += '<li><button type="button" class="dropdown-item text-danger js-section-file-delete" data-filename="' + esc(file.filename) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete</button></li>';
+      html +=
+        '<li><button type="button" class="dropdown-item text-danger js-section-file-delete" data-filename="' +
+        esc(file.filename) +
+        '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete</button></li>';
       html += '</ul></div>';
       html += '</div></div>';
     });
     // Bottom action buttons
     html += '<div class="editor-section-file-actions">';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
     html += '</div>';
     if (view === 'templates') {
       var setupOpen = state.templatesMode === 'documents';
       html += '<div class="editor-section-file-actions">';
-      html += '<button type="button" class="btn btn-sm w-100 ' + (setupOpen ? 'btn-secondary' : 'btn-outline-secondary') + '" data-templates-mode="documents"' + (setupOpen ? ' aria-current="page"' : '') + '><i class="fa-solid fa-layer-group me-1" aria-hidden="true"></i>Document setup</button>';
+      html +=
+        '<button type="button" class="btn btn-sm w-100 ' +
+        (setupOpen ? 'btn-secondary' : 'btn-outline-secondary') +
+        '" data-templates-mode="documents"' +
+        (setupOpen ? ' aria-current="page"' : '') +
+        '><i class="fa-solid fa-layer-group me-1" aria-hidden="true"></i>Document setup</button>';
       html += '</div>';
     }
     outlineList.innerHTML = html;
@@ -5633,41 +8004,59 @@
   }
 
   function saveCurrentBlockIfDirty() {
-    if (!dirtyState.hasDirty(state.filename) || !state.filename) return Promise.resolve(true);
+    if (!dirtyState.hasDirty(state.filename) || !state.filename)
+      return Promise.resolve(true);
     var fileDirtyState = dirtyState.getFileState(state.filename);
     if (fileDirtyState && fileDirtyState.sourceDirty) {
       _stashFullYamlContent();
       var sourceTab = state.fullYamlTab || 'full';
-      var hasStashedSource = Object.prototype.hasOwnProperty.call(state.fullYamlStash, sourceTab);
-      var sourceContent = hasStashedSource ? state.fullYamlStash[sourceTab] : state.rawYaml;
+      var hasStashedSource = Object.prototype.hasOwnProperty.call(
+        state.fullYamlStash,
+        sourceTab,
+      );
+      var sourceContent = hasStashedSource
+        ? state.fullYamlStash[sourceTab]
+        : state.rawYaml;
       if (sourceTab === 'metadata') {
         return apiPost('/api/file/metadata', {
           project: state.project,
           filename: state.filename,
           raw_yaml: sourceContent,
           expected_revision: state.revision,
-        }).then(function (res) {
-          if (!res.success || !res.data) return false;
-          refreshFromFileResponse(res.data);
-          return true;
-        }).catch(function (error) {
-          if (isSupersededRequest(error)) return false;
-          window.alert('Unable to save metadata safely: ' + String((error && error.message) || error || 'Unknown error'));
-          return false;
-        });
+        })
+          .then(function (res) {
+            if (!res.success || !res.data) return false;
+            refreshFromFileResponse(res.data);
+            return true;
+          })
+          .catch(function (error) {
+            if (isSupersededRequest(error)) return false;
+            window.alert(
+              'Unable to save metadata safely: ' +
+                String((error && error.message) || error || 'Unknown error'),
+            );
+            return false;
+          });
       }
       return apiPost('/api/file', {
         project: state.project,
         filename: state.filename,
         content: sourceContent,
-      }).then(function (res) {
-        if (!res.success) return false;
-        return loadFile().then(function () { return true; });
-      }).catch(function (error) {
-        if (isSupersededRequest(error)) return false;
-        window.alert('Unable to save YAML: ' + String((error && error.message) || error || 'Unknown error'));
-        return false;
-      });
+      })
+        .then(function (res) {
+          if (!res.success) return false;
+          return loadFile().then(function () {
+            return true;
+          });
+        })
+        .catch(function (error) {
+          if (isSupersededRequest(error)) return false;
+          window.alert(
+            'Unable to save YAML: ' +
+              String((error && error.message) || error || 'Unknown error'),
+          );
+          return false;
+        });
     }
     if (state.orderDirty) {
       syncActiveOrderStepMap();
@@ -5676,21 +8065,34 @@
         filename: state.filename,
         order_block_id: state.activeOrderBlockId,
         steps: state.orderSteps,
-      }).then(function (res) {
-        if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to save interview order.');
+      })
+        .then(function (res) {
+          if (!res.success) {
+            window.alert(
+              (res.error && res.error.message) ||
+                'Unable to save interview order.',
+            );
+            return false;
+          }
+          state.orderDirty = false;
+          return loadFile().then(function () {
+            return true;
+          });
+        })
+        .catch(function (error) {
+          if (isSupersededRequest(error)) return false;
+          window.alert(
+            'Unable to save interview order: ' +
+              String((error && error.message) || error || 'Unknown error'),
+          );
           return false;
-        }
-        state.orderDirty = false;
-        return loadFile().then(function () { return true; });
-      }).catch(function (error) {
-        if (isSupersededRequest(error)) return false;
-        window.alert('Unable to save interview order: ' + String((error && error.message) || error || 'Unknown error'));
-        return false;
-      });
+        });
     }
-    var editingRawOrder = state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
-    var block = editingRawOrder ? getBlockById(state.activeOrderBlockId) : getSelectedBlock();
+    var editingRawOrder =
+      state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
+    var block = editingRawOrder
+      ? getBlockById(state.activeOrderBlockId)
+      : getSelectedBlock();
     if (!block) return Promise.resolve(true);
     var originalBlockId = block.id;
     if (editingRawOrder) _stashFullYamlContent();
@@ -5703,53 +8105,71 @@
       filename: state.filename,
       block_id: originalBlockId,
       block_yaml: yamlVal,
-      edit_mode: editingRawOrder || state.questionEditMode !== 'preview' ? 'source' : 'graphical',
-    }).then(function (res) {
-      if (!res.success || !res.data) {
-        window.alert((res.error && res.error.message) || 'Unable to save block.');
+      edit_mode:
+        editingRawOrder || state.questionEditMode !== 'preview'
+          ? 'source'
+          : 'graphical',
+    })
+      .then(function (res) {
+        if (!res.success || !res.data) {
+          window.alert(
+            (res.error && res.error.message) || 'Unable to save block.',
+          );
+          return false;
+        }
+        var keepBlockId = res.data.saved_block_id || originalBlockId;
+        refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
+        state.selectedBlockId = keepBlockId;
+        renderOutline();
+        renderCanvas();
+        return !dirtyState.hasDirty(state.filename);
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return false;
+        window.alert(
+          'Unable to save block: ' +
+            String((error && error.message) || error || 'Unknown error'),
+        );
         return false;
-      }
-      var keepBlockId = res.data.saved_block_id || originalBlockId;
-      refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-      state.selectedBlockId = keepBlockId;
-      renderOutline();
-      renderCanvas();
-      return !dirtyState.hasDirty(state.filename);
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return false;
-      window.alert('Unable to save block: ' + String((error && error.message) || error || 'Unknown error'));
-      return false;
-    });
+      });
   }
 
   function saveCurrentSectionFileIfDirty() {
     if (!state.sectionDirty) return Promise.resolve(true);
     var sectionForSave = getSectionFromView(state.currentView);
     var sectionFileMeta = getSelectedSectionFileMeta(state.currentView);
-    if (!state.project || !sectionForSave || !sectionFileMeta) return Promise.resolve(false);
+    if (!state.project || !sectionForSave || !sectionFileMeta)
+      return Promise.resolve(false);
     var contentVal = getSourceEditorValue('section-file-source-editor');
     return apiPost('/api/section-file', {
       project: state.project,
       section: sectionForSave,
       filename: sectionFileMeta.filename,
       content: contentVal,
-    }).then(function (res) {
-      if (!res.success) {
-        window.alert((res.error && res.error.message) || 'Unable to save file.');
+    })
+      .then(function (res) {
+        if (!res.success) {
+          window.alert(
+            (res.error && res.error.message) || 'Unable to save file.',
+          );
+          return false;
+        }
+        state.sectionDirty = false;
+        noteModuleSaveResult(res.data);
+        state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
+        updateTopbarSaveState();
+        var saveSectionBtn = document.getElementById('save-section-file');
+        if (saveSectionBtn) saveSectionBtn.disabled = true;
+        return true;
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return false;
+        window.alert(
+          'Unable to save file: ' +
+            String((error && error.message) || error || 'Unknown error'),
+        );
         return false;
-      }
-      state.sectionDirty = false;
-      noteModuleSaveResult(res.data);
-      state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
-      updateTopbarSaveState();
-      var saveSectionBtn = document.getElementById('save-section-file');
-      if (saveSectionBtn) saveSectionBtn.disabled = true;
-      return true;
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return false;
-      window.alert('Unable to save file: ' + String((error && error.message) || error || 'Unknown error'));
-      return false;
-    });
+      });
   }
 
   // The unsaved-changes modal is `data-bs-backdrop="static"` with no close
@@ -5787,8 +8207,10 @@
     var message = modalElement.querySelector('#unsaved-changes-message');
     var errorBox = modalElement.querySelector('#unsaved-changes-error');
     if (message) {
-      message.textContent = 'You have unsaved changes. Save or discard them before you ' +
-        (actionLabel || 'continue') + '.';
+      message.textContent =
+        'You have unsaved changes. Save or discard them before you ' +
+        (actionLabel || 'continue') +
+        '.';
     }
     if (errorBox) {
       errorBox.textContent = '';
@@ -5800,19 +8222,27 @@
       var finished = false;
 
       function setButtonsDisabled(disabled) {
-        buttons.forEach(function (button) { button.disabled = disabled; });
+        buttons.forEach(function (button) {
+          button.disabled = disabled;
+        });
       }
 
       function finish(result) {
         if (finished) return;
         finished = true;
         _unsavedPromptPending = null;
-        modalElement.removeEventListener('hidden.bs.modal', onHiddenWithoutChoice);
-        buttons.forEach(function (button) { button.onclick = null; });
+        modalElement.removeEventListener(
+          'hidden.bs.modal',
+          onHiddenWithoutChoice,
+        );
+        buttons.forEach(function (button) {
+          button.onclick = null;
+        });
         setButtonsDisabled(false);
         hideModalWhenSettled(modal, modalElement);
         window.setTimeout(function () {
-          if (priorFocus && typeof priorFocus.focus === 'function') priorFocus.focus();
+          if (priorFocus && typeof priorFocus.focus === 'function')
+            priorFocus.focus();
         }, 0);
         resolve(result);
       }
@@ -5825,14 +8255,21 @@
             return;
           }
           if (choice === 'discard') {
-            var interviewDiscarded = !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
+            var interviewDiscarded =
+              !dirtyState.hasDirty(state.filename) || discardInterviewChanges();
             var sectionDiscarded = discardSectionChanges();
             var settingsDiscarded = discardAssemblyLineSettingsChanges();
             var documentsDiscarded = discardDocumentChanges();
-            if (interviewDiscarded && sectionDiscarded && settingsDiscarded && documentsDiscarded) {
+            if (
+              interviewDiscarded &&
+              sectionDiscarded &&
+              settingsDiscarded &&
+              documentsDiscarded
+            ) {
               finish(true);
             } else if (errorBox) {
-              errorBox.textContent = 'The last saved version could not be restored. Your changes were kept.';
+              errorBox.textContent =
+                'The last saved version could not be restored. Your changes were kept.';
               errorBox.classList.remove('d-none');
             }
             return;
@@ -5842,7 +8279,8 @@
           saveCurrentSectionFileIfDirty()
             .then(function (sectionSaved) {
               if (!sectionSaved) return false;
-              if (state.assemblyLineSettingsDirty) return saveAssemblyLineSettings();
+              if (state.assemblyLineSettingsDirty)
+                return saveAssemblyLineSettings();
               if (state.documentsDirty) return saveDocumentChanges();
               return saveCurrentBlockIfDirty();
             })
@@ -5853,14 +8291,18 @@
               }
               setButtonsDisabled(false);
               if (errorBox) {
-                errorBox.textContent = 'The changes could not be saved. Correct the error or choose Stay.';
+                errorBox.textContent =
+                  'The changes could not be saved. Correct the error or choose Stay.';
                 errorBox.classList.remove('d-none');
               }
             })
             .catch(function (error) {
               setButtonsDisabled(false);
               if (errorBox) {
-                errorBox.textContent = error && error.message ? error.message : 'The changes could not be saved.';
+                errorBox.textContent =
+                  error && error.message
+                    ? error.message
+                    : 'The changes could not be saved.';
                 errorBox.classList.remove('d-none');
               }
             });
@@ -5870,7 +8312,9 @@
       // A dismissal that never went through a choice button still has to
       // settle the prompt, or the pending guard above would block every later
       // navigation for the rest of the session. Treat it as "Stay".
-      function onHiddenWithoutChoice() { finish(false); }
+      function onHiddenWithoutChoice() {
+        finish(false);
+      }
       modalElement.addEventListener('hidden.bs.modal', onHiddenWithoutChoice);
 
       modal.show();
@@ -5904,7 +8348,9 @@
   var _validationInFlight = false;
 
   function getValidationDrawerTitle() {
-    return state.validationMode === 'style' ? 'Style suggestions' : 'Errors & Warnings';
+    return state.validationMode === 'style'
+      ? 'Style suggestions'
+      : 'Errors & Warnings';
   }
 
   function runCurrentValidationCheck() {
@@ -5923,7 +8369,9 @@
     stashCurrentEditorState();
     var fileState = dirtyState.getFileState(state.filename);
     var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
-    var hasDirtyBlocks = Boolean(fileState && fileState.dirtyBlockIds && fileState.dirtyBlockIds.length);
+    var hasDirtyBlocks = Boolean(
+      fileState && fileState.dirtyBlockIds && fileState.dirtyBlockIds.length,
+    );
     var options = {
       rawYaml: state.rawYaml,
       blocks: state.blocks,
@@ -5936,12 +8384,18 @@
 
     if (hasDirtySource && state.fullYamlTab === 'full') {
       if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'full')) {
-        throw new Error('The unsaved full source buffer is not available. Reopen source mode and try again.');
+        throw new Error(
+          'The unsaved full source buffer is not available. Reopen source mode and try again.',
+        );
       }
       options.fullSource = state.fullYamlStash.full;
     } else if (hasDirtySource && state.fullYamlTab === 'metadata') {
-      if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'metadata')) {
-        throw new Error('The unsaved metadata buffer is not available. Reopen source mode and try again.');
+      if (
+        !Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'metadata')
+      ) {
+        throw new Error(
+          'The unsaved metadata buffer is not available. Reopen source mode and try again.',
+        );
       }
       options.metadataSource = state.fullYamlStash.metadata;
     }
@@ -5949,9 +8403,12 @@
     if (!hasDirtySource && hasDirtyBlocks) {
       fileState.dirtyBlockIds.forEach(function (blockId) {
         var block = getBlockById(blockId);
-        if (!block) throw new Error('Cannot find unsaved block ' + blockId + '.');
-        var isActiveBlock = blockId === state.selectedBlockId ||
-          (state.fullYamlTab === 'order' && blockId === state.activeOrderBlockId);
+        if (!block)
+          throw new Error('Cannot find unsaved block ' + blockId + '.');
+        var isActiveBlock =
+          blockId === state.selectedBlockId ||
+          (state.fullYamlTab === 'order' &&
+            blockId === state.activeOrderBlockId);
         options.blockReplacements[blockId] = isActiveBlock
           ? getBlockYamlForSave(block)
           : block.yaml;
@@ -5963,15 +8420,15 @@
 
   function getWorkingSourceSnapshot() {
     return window.ALWeaverValidationSource.buildWorkingSourceSnapshot(
-      describeWorkingSource()
+      describeWorkingSource(),
     );
   }
 
   function getValidationSourceSnapshot() {
     var snapshot = window.ALWeaverValidationSource.buildWorkingSourceSnapshot(
       describeWorkingSource(
-        'Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.'
-      )
+        'Unsaved order-builder changes cannot yet be mapped safely. Save them or validate the raw order source.',
+      ),
     );
     return {
       rawYaml: snapshot.raw_yaml,
@@ -5988,11 +8445,16 @@
       validationSnapshot = getValidationSourceSnapshot();
     } catch (error) {
       state.validationSourceScope = 'unsaved_source';
-      state.validationErrors = [{
-        level: 'error',
-        message: error && error.message ? error.message : 'Could not prepare the unsaved source for validation.',
-        filename: state.filename,
-      }];
+      state.validationErrors = [
+        {
+          level: 'error',
+          message:
+            error && error.message
+              ? error.message
+              : 'Could not prepare the unsaved source for validation.',
+          filename: state.filename,
+        },
+      ];
       renderValidationDrawer();
       renderOutline();
       return;
@@ -6009,7 +8471,8 @@
       .then(function (res) {
         _validationInFlight = false;
         if (res.success && res.data) {
-          state.validationErrors = res.data.diagnostics || res.data.errors || [];
+          state.validationErrors =
+            res.data.diagnostics || res.data.errors || [];
           state.validationBaseRevisionMatches = res.data.base_revision_matches;
         } else {
           state.validationErrors = [];
@@ -6020,7 +8483,9 @@
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
         _validationInFlight = false;
-        state.validationErrors = [{ level: 'error', message: 'Could not run validation right now.' }];
+        state.validationErrors = [
+          { level: 'error', message: 'Could not run validation right now.' },
+        ];
         renderValidationDrawer();
         renderOutline();
       });
@@ -6032,7 +8497,13 @@
     state.validationSourceScope = 'saved_source';
     state.validationBaseRevisionMatches = null;
     _validationInFlight = true;
-    apiGet('/api/weaver/style-check?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename) + '&include_llm=1')
+    apiGet(
+      '/api/weaver/style-check?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename) +
+        '&include_llm=1',
+    )
       .then(function (res) {
         _validationInFlight = false;
         if (res.success && res.data) {
@@ -6046,7 +8517,9 @@
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
         _validationInFlight = false;
-        state.validationErrors = [{ level: 'error', message: 'Could not run style check right now.' }];
+        state.validationErrors = [
+          { level: 'error', message: 'Could not run style check right now.' },
+        ];
         renderValidationDrawer();
         renderOutline();
       });
@@ -6062,7 +8535,8 @@
     var counts = { error: 0, warning: 0, info: 0 };
     (errors || []).forEach(function (err) {
       var level = String((err && err.level) || 'error').toLowerCase();
-      if (level !== 'error' && level !== 'warning' && level !== 'info') level = 'error';
+      if (level !== 'error' && level !== 'warning' && level !== 'info')
+        level = 'error';
       counts[level] += 1;
     });
     return counts;
@@ -6078,30 +8552,61 @@
     var isStyleMode = state.validationMode === 'style';
     // The style check reports house style, not validity. Nothing it finds stops
     // a save, so it must not dress the topbar up the way a broken file does.
-    var hasProblems = !isStyleMode && (summary.error + summary.warning) > 0;
-    var levelClass = summary.error > 0 ? 'validation-error' : (summary.warning > 0 ? 'validation-warning' : 'validation-info');
+    var hasProblems = !isStyleMode && summary.error + summary.warning > 0;
+    var levelClass =
+      summary.error > 0
+        ? 'validation-error'
+        : summary.warning > 0
+          ? 'validation-warning'
+          : 'validation-info';
     if (isStyleMode) levelClass = 'validation-info';
 
-    Array.prototype.forEach.call(document.querySelectorAll('[data-validation-badge]'), function (badge) {
-      badge.textContent = count > 0 ? String(count) : '';
-      badge.classList.toggle('d-none', count === 0);
-      badge.classList.toggle('validation-error', !isStyleMode && summary.error > 0);
-      badge.classList.toggle('validation-warning', !isStyleMode && summary.error === 0 && summary.warning > 0);
-      badge.classList.toggle('validation-info', isStyleMode || (summary.error === 0 && summary.warning === 0 && summary.info > 0));
-    });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-validation-badge]'),
+      function (badge) {
+        badge.textContent = count > 0 ? String(count) : '';
+        badge.classList.toggle('d-none', count === 0);
+        badge.classList.toggle(
+          'validation-error',
+          !isStyleMode && summary.error > 0,
+        );
+        badge.classList.toggle(
+          'validation-warning',
+          !isStyleMode && summary.error === 0 && summary.warning > 0,
+        );
+        badge.classList.toggle(
+          'validation-info',
+          isStyleMode ||
+            (summary.error === 0 && summary.warning === 0 && summary.info > 0),
+        );
+      },
+    );
 
-    Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-btn'), function (btn) {
-      btn.classList.toggle('editor-validation-has-issues', hasProblems);
-      btn.classList.toggle('editor-validation-has-info', !hasProblems && summary.info > 0);
-    });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.js-check-errors-btn'),
+      function (btn) {
+        btn.classList.toggle('editor-validation-has-issues', hasProblems);
+        btn.classList.toggle(
+          'editor-validation-has-info',
+          !hasProblems && summary.info > 0,
+        );
+      },
+    );
 
     // Show/hide the alert icon — only visible when there are actual errors
-    Array.prototype.forEach.call(document.querySelectorAll('.js-check-errors-icon'), function (icon) {
-      icon.classList.toggle('d-none', isStyleMode || count === 0);
-    });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.js-check-errors-icon'),
+      function (icon) {
+        icon.classList.toggle('d-none', isStyleMode || count === 0);
+      },
+    );
 
     drawer.classList.toggle('editor-validation-has-issues', hasProblems);
-    drawer.classList.remove('validation-error', 'validation-warning', 'validation-info');
+    drawer.classList.remove(
+      'validation-error',
+      'validation-warning',
+      'validation-info',
+    );
     if (count > 0) drawer.classList.add(levelClass);
 
     var body = document.getElementById('validation-drawer-body');
@@ -6114,45 +8619,86 @@
     drawer.classList.add('open');
     var scopeText = isStyleMode
       ? 'Suggestions from the shared house-style checker, against the saved source. None of these stop the interview from running or from being saved.'
-      : (state.validationSourceScope === 'unsaved_source'
+      : state.validationSourceScope === 'unsaved_source'
         ? 'This validation covers the unsaved source currently in the editor.'
-        : 'This validation covers the saved source.');
-    var scopeHtml = '<div class="editor-validation-scope small text-muted mb-2">' + esc(scopeText) + '</div>';
+        : 'This validation covers the saved source.';
+    var scopeHtml =
+      '<div class="editor-validation-scope small text-muted mb-2">' +
+      esc(scopeText) +
+      '</div>';
     if (state.validationBaseRevisionMatches === false) {
-      scopeHtml += '<div class="alert alert-warning py-1 px-2 small mb-2">The saved file changed after this editor buffer was loaded. These results still cover the local buffer; reload or merge before saving.</div>';
+      scopeHtml +=
+        '<div class="alert alert-warning py-1 px-2 small mb-2">The saved file changed after this editor buffer was loaded. These results still cover the local buffer; reload or merge before saving.</div>';
     }
     if (count === 0) {
-      body.innerHTML = scopeHtml + '<div class="text-muted small p-2">'
-        + (isStyleMode ? 'No style suggestions.' : 'No errors or warnings found.') + '</div>';
+      body.innerHTML =
+        scopeHtml +
+        '<div class="text-muted small p-2">' +
+        (isStyleMode
+          ? 'No style suggestions.'
+          : 'No errors or warnings found.') +
+        '</div>';
       return;
     }
-    var sortedErrors = (state.validationErrors || []).slice().sort(function (a, b) {
-      var levelA = String((a && a.level) || 'error').toLowerCase();
-      var levelB = String((b && b.level) || 'error').toLowerCase();
-      var rankDiff = _validationLevelRank(levelB) - _validationLevelRank(levelA);
-      if (rankDiff !== 0) return rankDiff;
-      return Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0);
-    });
-    var html = scopeHtml + '<div class="editor-validation-summary small text-muted mb-2">'
-      + (isStyleMode
-        ? (summary.warning + ' suggestions, ' + summary.info + ' notes')
-        : (summary.error + ' errors, ' + summary.warning + ' warnings, ' + summary.info + ' infos'))
-      + '</div>';
+    var sortedErrors = (state.validationErrors || [])
+      .slice()
+      .sort(function (a, b) {
+        var levelA = String((a && a.level) || 'error').toLowerCase();
+        var levelB = String((b && b.level) || 'error').toLowerCase();
+        var rankDiff =
+          _validationLevelRank(levelB) - _validationLevelRank(levelA);
+        if (rankDiff !== 0) return rankDiff;
+        return (
+          Number((a && a.line_number) || 0) - Number((b && b.line_number) || 0)
+        );
+      });
+    var html =
+      scopeHtml +
+      '<div class="editor-validation-summary small text-muted mb-2">' +
+      (isStyleMode
+        ? summary.warning + ' suggestions, ' + summary.info + ' notes'
+        : summary.error +
+          ' errors, ' +
+          summary.warning +
+          ' warnings, ' +
+          summary.info +
+          ' infos') +
+      '</div>';
     html += '<ul class="editor-validation-list">';
     sortedErrors.forEach(function (err) {
       var level = String((err && err.level) || 'error').toLowerCase();
       var icon = 'fa-circle-info';
       if (level === 'warning') icon = 'fa-triangle-exclamation';
       if (level === 'error') icon = 'fa-circle-xmark';
-      var lineText = err.line_number ? ('Line ' + Number(err.line_number)) : '';
+      var lineText = err.line_number ? 'Line ' + Number(err.line_number) : '';
       if (lineText && err.filename) lineText += ' - ';
       if (err.filename) lineText += String(err.filename).split('/').pop();
-      html += '<li class="editor-validation-item' + (err.block_id ? ' editor-validation-item-linked' : '') + '"' + (err.block_id ? ' data-block-id="' + esc(String(err.block_id)) + '"' : '') + '>';
-      html += '<i class="fa-solid ' + icon + ' editor-validation-item-icon ' + esc(level) + '" aria-hidden="true"></i>';
+      html +=
+        '<li class="editor-validation-item' +
+        (err.block_id ? ' editor-validation-item-linked' : '') +
+        '"' +
+        (err.block_id
+          ? ' data-block-id="' + esc(String(err.block_id)) + '"'
+          : '') +
+        '>';
+      html +=
+        '<i class="fa-solid ' +
+        icon +
+        ' editor-validation-item-icon ' +
+        esc(level) +
+        '" aria-hidden="true"></i>';
       html += '<div class="editor-validation-item-msg">';
       html += '<div>' + esc(err.message || 'Unknown issue') + '</div>';
-      if (lineText) html += '<div class="editor-validation-item-meta">' + esc(lineText) + '</div>';
-      if (err.variable) html += '<span class="editor-validation-item-var">' + esc(err.variable) + '</span>';
+      if (lineText)
+        html +=
+          '<div class="editor-validation-item-meta">' +
+          esc(lineText) +
+          '</div>';
+      if (err.variable)
+        html +=
+          '<span class="editor-validation-item-var">' +
+          esc(err.variable) +
+          '</span>';
       html += '</div>';
       html += '</li>';
     });
@@ -6165,9 +8711,17 @@
     state.assemblyLineSettings = null;
     state.assemblyLineSettingsDirty = false;
     renderAssemblyLineSettings();
-    return apiGet('/api/assemblyline-settings?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    return apiGet(
+      '/api/assemblyline-settings?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
       .then(function (res) {
-        if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to load settings.');
+        if (!res.success || !res.data)
+          throw new Error(
+            (res.error && res.error.message) || 'Unable to load settings.',
+          );
         state.assemblyLineSettings = res.data;
         state.revision = res.data.revision || state.revision;
         renderAssemblyLineSettings();
@@ -6175,7 +8729,10 @@
         return true;
       })
       .catch(function (error) {
-        canvasContent.innerHTML = '<div class="alert alert-danger">' + esc(error.message || 'Unable to load AssemblyLine settings.') + '</div>';
+        canvasContent.innerHTML =
+          '<div class="alert alert-danger">' +
+          esc(error.message || 'Unable to load AssemblyLine settings.') +
+          '</div>';
         return false;
       });
   }
@@ -6188,14 +8745,22 @@
     var entry = (settings.server_defaults || {})[field.key];
     if (!entry) return '';
     var serverValue = String(entry.value || '');
-    var origin = entry.source === 'config'
-      ? ('the server configuration' + (entry.config_key ? ' (' + entry.config_key + ')' : ''))
-      : 'AssemblyLine';
-    var current = (value === null || value === undefined) ? '' : String(value);
+    var origin =
+      entry.source === 'config'
+        ? 'the server configuration' +
+          (entry.config_key ? ' (' + entry.config_key + ')' : '')
+        : 'AssemblyLine';
+    var current = value === null || value === undefined ? '' : String(value);
     var overriding = current !== '' && current !== serverValue;
-    var html = '<div class="form-text editor-al-setting-server-default' + (overriding ? ' is-overriding' : '') + '">';
+    var html =
+      '<div class="form-text editor-al-setting-server-default' +
+      (overriding ? ' is-overriding' : '') +
+      '">';
     if (overriding) {
-      html += '<i class="fa-solid fa-circle-arrow-up me-1" aria-hidden="true"></i>Overrides ' + esc(origin) + ' for this interview only';
+      html +=
+        '<i class="fa-solid fa-circle-arrow-up me-1" aria-hidden="true"></i>Overrides ' +
+        esc(origin) +
+        ' for this interview only';
     } else {
       html += 'Comes from ' + esc(origin) + ' unless you set it here';
     }
@@ -6207,7 +8772,8 @@
   function _settingsExplainerHtml(data) {
     var explainer = (data && data.explainer) || '';
     var html = '<p>' + esc(explainer) + '</p>';
-    html += '<p class="mb-0">Each section names the YAML block it writes to, and each control shows the exact metadata key or variable name, so you can always go and read or edit the YAML directly.</p>';
+    html +=
+      '<p class="mb-0">Each section names the YAML block it writes to, and each control shows the exact metadata key or variable name, so you can always go and read or edit the YAML directly.</p>';
     return html;
   }
 
@@ -6221,8 +8787,16 @@
     html += '<span class="editor-tiny">Saved to</span> ';
     documents.forEach(function (document_, index) {
       if (index) html += ' <span class="editor-tiny">and</span> ';
-      html += '<code class="editor-al-settings-document" title="' + esc(document_.description) + '">' + esc(document_.id) + '</code>';
-      html += '<span class="editor-tiny"> ' + (document_.kind === 'metadata' ? 'block' : 'code block') + '</span>';
+      html +=
+        '<code class="editor-al-settings-document" title="' +
+        esc(document_.description) +
+        '">' +
+        esc(document_.id) +
+        '</code>';
+      html +=
+        '<span class="editor-tiny"> ' +
+        (document_.kind === 'metadata' ? 'block' : 'code block') +
+        '</span>';
     });
     html += '</div>';
     return html;
@@ -6240,8 +8814,12 @@
     if (!blockId) return '';
     var html = '<div class="form-text editor-al-setting-computed">';
     html += '<i class="fa-solid fa-lock me-1" aria-hidden="true"></i>';
-    html += 'Your interview works this out while it runs, so there is no stored value for this panel to edit. ';
-    html += 'The expression above lives in the <code>' + esc(blockId) + '</code> block: open that block in the outline, or use YAML source, and edit it there. ';
+    html +=
+      'Your interview works this out while it runs, so there is no stored value for this panel to edit. ';
+    html +=
+      'The expression above lives in the <code>' +
+      esc(blockId) +
+      '</code> block: open that block in the outline, or use YAML source, and edit it there. ';
     html += 'Saving here leaves it exactly as it is.';
     html += '</div>';
     return html;
@@ -6251,13 +8829,18 @@
     // This value lives in a block the author wrote, so say so: saving edits it
     // there rather than adding a second assignment of the same name.
     var settings = state.assemblyLineSettings || {};
-    var managedId = settings.managed_block_id || 'alweaver assemblyline settings';
+    var managedId =
+      settings.managed_block_id || 'alweaver assemblyline settings';
     var source = (settings.sources || {})[field.key];
     if (!source || source === managedId) return '';
-    return '<div class="form-text editor-al-setting-external">'
-      + '<i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>'
-      + 'Kept in your own <code>' + esc(source) + '</code>. Changing it here edits that block; Weaver does not add a second copy.'
-      + '</div>';
+    return (
+      '<div class="form-text editor-al-setting-external">' +
+      '<i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>' +
+      'Kept in your own <code>' +
+      esc(source) +
+      '</code>. Changing it here edits that block; Weaver does not add a second copy.' +
+      '</div>'
+    );
   }
 
   function _settingsInput(field, value) {
@@ -6266,100 +8849,250 @@
     var inputId = 'al-setting-' + rawKey.replace(/[^a-zA-Z0-9_-]/g, '-');
     var kind = field.kind || 'text';
     var common = ' data-al-setting="' + key + '" id="' + inputId + '"';
-    var helpText = field && field.help ? '<div class="form-text editor-al-setting-help">' + esc(field.help) + '</div>' : '';
+    var helpText =
+      field && field.help
+        ? '<div class="form-text editor-al-setting-help">' +
+          esc(field.help) +
+          '</div>'
+        : '';
     var computedBlock = _settingComputedBlock(field);
-    var variableHint = helpText
-      + (computedBlock
+    var variableHint =
+      helpText +
+      (computedBlock
         ? _settingComputedHtml(field)
-        : _settingServerDefaultHtml(field, value) + _settingSourceHtml(field))
-      + '<div class="form-text editor-al-setting-key"><code>' + key + '</code></div>';
+        : _settingServerDefaultHtml(field, value) + _settingSourceHtml(field)) +
+      '<div class="form-text editor-al-setting-key"><code>' +
+      key +
+      '</code></div>';
     if (computedBlock) {
       // Whatever the field's normal control is, a computed setting holds an
       // expression rather than a value. A checkbox or a dropdown would have to
       // pick some position to sit in and would misreport the interview, so the
       // expression is shown as read-only text instead.
-      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label>'
-        + '<input class="form-control form-control-sm mt-1 font-monospace"' + common + ' value="'
-        + esc(value === null || value === undefined ? '' : value) + '" readonly disabled aria-disabled="true">'
-        + variableHint;
+      return (
+        '<label class="editor-tiny" for="' +
+        inputId +
+        '">' +
+        esc(field.label) +
+        '</label>' +
+        '<input class="form-control form-control-sm mt-1 font-monospace"' +
+        common +
+        ' value="' +
+        esc(value === null || value === undefined ? '' : value) +
+        '" readonly disabled aria-disabled="true">' +
+        variableHint
+      );
     }
     if (kind === 'boolean') {
-      return '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' + common + (value ? ' checked' : '') + '><label class="form-check-label" for="' + inputId + '">' + esc(field.label) + '</label>' + variableHint + '</div>';
+      return (
+        '<div class="form-check form-switch"><input class="form-check-input" type="checkbox"' +
+        common +
+        (value ? ' checked' : '') +
+        '><label class="form-check-label" for="' +
+        inputId +
+        '">' +
+        esc(field.label) +
+        '</label>' +
+        variableHint +
+        '</div>'
+      );
     }
     if (kind === 'choice') {
-      var select = '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><select class="form-select form-select-sm mt-1"' + common + '>';
-      (field.choices || []).forEach(function (choice) { select += '<option value="' + esc(choice) + '"' + (String(value) === String(choice) ? ' selected' : '') + '>' + esc(String(choice).replace(/_/g, ' ')) + '</option>'; });
+      var select =
+        '<label class="editor-tiny" for="' +
+        inputId +
+        '">' +
+        esc(field.label) +
+        '</label><select class="form-select form-select-sm mt-1"' +
+        common +
+        '>';
+      (field.choices || []).forEach(function (choice) {
+        select +=
+          '<option value="' +
+          esc(choice) +
+          '"' +
+          (String(value) === String(choice) ? ' selected' : '') +
+          '>' +
+          esc(String(choice).replace(/_/g, ' ')) +
+          '</option>';
+      });
       return select + '</select>' + variableHint;
     }
-    var rendered = kind === 'list' ? (Array.isArray(value) ? value.join('\n') : '') : String(value === null || value === undefined ? '' : value);
+    var rendered =
+      kind === 'list'
+        ? Array.isArray(value)
+          ? value.join('\n')
+          : ''
+        : String(value === null || value === undefined ? '' : value);
     if (field.key === 'LIST_topics') {
       var topicsId = inputId;
-      return '<label class="editor-tiny" for="' + topicsId + '">' + esc(field.label) + '</label>'
-        + '<textarea class="form-control form-control-sm mt-1" rows="3"' + common + '>' + esc(rendered) + '</textarea>'
-        + '<div class="mt-1"><button class="btn btn-sm btn-outline-secondary" type="button" data-open-list-topics="' + topicsId + '" data-topic-separator="newline"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
-        + '<div class="form-text">One code per line.</div>'
-        + variableHint;
+      return (
+        '<label class="editor-tiny" for="' +
+        topicsId +
+        '">' +
+        esc(field.label) +
+        '</label>' +
+        '<textarea class="form-control form-control-sm mt-1" rows="3"' +
+        common +
+        '>' +
+        esc(rendered) +
+        '</textarea>' +
+        '<div class="mt-1"><button class="btn btn-sm btn-outline-secondary" type="button" data-open-list-topics="' +
+        topicsId +
+        '" data-topic-separator="newline"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>' +
+        '<div class="form-text">One code per line.</div>' +
+        variableHint
+      );
     }
     if (kind === 'area' || kind === 'list' || kind === 'python') {
-      return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><textarea class="form-control form-control-sm mt-1' + (kind === 'python' ? ' font-monospace' : '') + '" rows="' + (kind === 'area' ? '4' : '3') + '"' + common + '>' + esc(rendered) + '</textarea>' + (kind === 'list' ? '<div class="form-text">One value per line.</div>' : '') + variableHint;
+      return (
+        '<label class="editor-tiny" for="' +
+        inputId +
+        '">' +
+        esc(field.label) +
+        '</label><textarea class="form-control form-control-sm mt-1' +
+        (kind === 'python' ? ' font-monospace' : '') +
+        '" rows="' +
+        (kind === 'area' ? '4' : '3') +
+        '"' +
+        common +
+        '>' +
+        esc(rendered) +
+        '</textarea>' +
+        (kind === 'list'
+          ? '<div class="form-text">One value per line.</div>'
+          : '') +
+        variableHint
+      );
     }
-    return '<label class="editor-tiny" for="' + inputId + '">' + esc(field.label) + '</label><input class="form-control form-control-sm mt-1" type="' + (kind === 'integer' ? 'number' : (kind === 'url' ? 'url' : 'text')) + '"' + common + ' value="' + esc(rendered) + '">' + variableHint;
+    return (
+      '<label class="editor-tiny" for="' +
+      inputId +
+      '">' +
+      esc(field.label) +
+      '</label><input class="form-control form-control-sm mt-1" type="' +
+      (kind === 'integer' ? 'number' : kind === 'url' ? 'url' : 'text') +
+      '"' +
+      common +
+      ' value="' +
+      esc(rendered) +
+      '">' +
+      variableHint
+    );
   }
 
   function applyAssemblyLineSettingsFilter() {
-    var query = String(state.assemblyLineSettingsFilter || '').trim().toLowerCase();
+    var query = String(state.assemblyLineSettingsFilter || '')
+      .trim()
+      .toLowerCase();
     var visibleSections = 0;
-    document.querySelectorAll('[data-al-settings-section]').forEach(function (section) {
-      var sectionMatch = !query || String(section.getAttribute('data-search') || '').indexOf(query) !== -1;
-      var visibleItems = 0;
-      section.querySelectorAll('[data-al-settings-item]').forEach(function (item) {
-        var visible = sectionMatch || String(item.getAttribute('data-search') || '').indexOf(query) !== -1;
-        item.classList.toggle('d-none', !visible);
-        if (visible) visibleItems += 1;
+    document
+      .querySelectorAll('[data-al-settings-section]')
+      .forEach(function (section) {
+        var sectionMatch =
+          !query ||
+          String(section.getAttribute('data-search') || '').indexOf(query) !==
+            -1;
+        var visibleItems = 0;
+        section
+          .querySelectorAll('[data-al-settings-item]')
+          .forEach(function (item) {
+            var visible =
+              sectionMatch ||
+              String(item.getAttribute('data-search') || '').indexOf(query) !==
+                -1;
+            item.classList.toggle('d-none', !visible);
+            if (visible) visibleItems += 1;
+          });
+        var visible = sectionMatch || visibleItems > 0;
+        section.classList.toggle('d-none', !visible);
+        if (visible) visibleSections += 1;
       });
-      var visible = sectionMatch || visibleItems > 0;
-      section.classList.toggle('d-none', !visible);
-      if (visible) visibleSections += 1;
-    });
     var empty = document.getElementById('assemblyline-settings-filter-empty');
     if (empty) empty.classList.toggle('d-none', visibleSections > 0);
   }
 
   function renderAssemblyLineSettings() {
     if (!state.assemblyLineSettings) {
-      canvasContent.innerHTML = '<div class="text-center py-5"><div class="spinner-border" role="status"></div><p class="text-muted mt-3">Loading AssemblyLine settings…</p></div>';
+      canvasContent.innerHTML =
+        '<div class="text-center py-5"><div class="spinner-border" role="status"></div><p class="text-muted mt-3">Loading AssemblyLine settings…</p></div>';
       return;
     }
     var data = state.assemblyLineSettings;
-    var html = '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings ';
-    html += '<button type="button" class="btn btn-sm btn-link p-0 align-baseline editor-al-settings-explainer" data-al-settings-explainer data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true" data-bs-title="What is this page?" data-bs-content="' + esc(_settingsExplainerHtml(data)) + '">What is this?</button>';
-    html += '</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
-    html += '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' + (state.assemblyLineSettingsDirty ? '' : ' disabled') + '>Save settings</button></div></div></div>';
-    html += '<div class="editor-card"><div class="editor-card-body"><label class="editor-tiny" for="assemblyline-settings-filter">Filter settings</label><div class="input-group input-group-sm mt-1"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><input class="form-control" id="assemblyline-settings-filter" type="search" value="' + esc(state.assemblyLineSettingsFilter) + '" placeholder="Search by label or magic variable name" autocomplete="off"></div></div></div>';
+    var html =
+      '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings ';
+    html +=
+      '<button type="button" class="btn btn-sm btn-link p-0 align-baseline editor-al-settings-explainer" data-al-settings-explainer data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true" data-bs-title="What is this page?" data-bs-content="' +
+      esc(_settingsExplainerHtml(data)) +
+      '">What is this?</button>';
+    html +=
+      '</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
+    html +=
+      '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' +
+      (state.assemblyLineSettingsDirty ? '' : ' disabled') +
+      '>Save settings</button></div></div></div>';
+    html +=
+      '<div class="editor-card"><div class="editor-card-body"><label class="editor-tiny" for="assemblyline-settings-filter">Filter settings</label><div class="input-group input-group-sm mt-1"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><input class="form-control" id="assemblyline-settings-filter" type="search" value="' +
+      esc(state.assemblyLineSettingsFilter) +
+      '" placeholder="Search by label or magic variable name" autocomplete="off"></div></div></div>';
     (data.schema || []).forEach(function (section) {
-      var sectionSearch = [section.id, section.label].concat(section.notes || []).join(' ').toLowerCase();
-      html += '<div class="editor-card" data-al-settings-section data-search="' + esc(sectionSearch) + '"><div class="editor-card-header">' + esc(section.label) + '</div><div class="editor-card-body">';
+      var sectionSearch = [section.id, section.label]
+        .concat(section.notes || [])
+        .join(' ')
+        .toLowerCase();
+      html +=
+        '<div class="editor-card" data-al-settings-section data-search="' +
+        esc(sectionSearch) +
+        '"><div class="editor-card-header">' +
+        esc(section.label) +
+        '</div><div class="editor-card-body">';
       html += _settingsSectionDocumentsHtml(section);
       if (section.readonly) {
-        html += '<div data-al-settings-item data-search="' + esc(sectionSearch) + '"><p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
-        (section.notes || []).forEach(function (note) { html += '<li class="mb-1">' + esc(note) + '</li>'; });
+        html +=
+          '<div data-al-settings-item data-search="' +
+          esc(sectionSearch) +
+          '"><p class="small text-muted">These values are structural, derived, dynamic, or server-wide and are not rewritten as metadata.</p><ul class="small mb-0">';
+        (section.notes || []).forEach(function (note) {
+          html += '<li class="mb-1">' + esc(note) + '</li>';
+        });
         html += '</ul></div>';
       } else {
         html += '<div class="row g-3">';
         (section.fields || []).forEach(function (field) {
-          var fieldSearch = [field.key, field.label, field.help || '', section.id, section.label].join(' ').toLowerCase();
-          html += '<div class="' + (field.pair ? 'col-12 col-md-6' : 'col-12') + '" data-al-settings-item data-search="' + esc(fieldSearch) + '">' + _settingsInput(field, data.values[field.key]) + '</div>';
+          var fieldSearch = [
+            field.key,
+            field.label,
+            field.help || '',
+            section.id,
+            section.label,
+          ]
+            .join(' ')
+            .toLowerCase();
+          html +=
+            '<div class="' +
+            (field.pair ? 'col-12 col-md-6' : 'col-12') +
+            '" data-al-settings-item data-search="' +
+            esc(fieldSearch) +
+            '">' +
+            _settingsInput(field, data.values[field.key]) +
+            '</div>';
         });
         html += '</div>';
         if (section.id === 'next_steps') {
-          html += '<div class="alert alert-warning small mt-3 mb-0"><strong>Word document safety:</strong> changing these values updates YAML only and does not overwrite the DOCX shell. If you changed the form type and want the matching standard shell, use the explicit replacement below; Weaver first saves a backup.<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" id="reset-next-steps-template">Back up and replace with standard shell</button></div></div>';
+          html +=
+            '<div class="alert alert-warning small mt-3 mb-0"><strong>Word document safety:</strong> changing these values updates YAML only and does not overwrite the DOCX shell. If you changed the form type and want the matching standard shell, use the explicit replacement below; Weaver first saves a backup.<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-danger" id="reset-next-steps-template">Back up and replace with standard shell</button></div></div>';
         }
       }
       html += '</div></div>';
     });
-    html += '<div class="alert alert-light border d-none" id="assemblyline-settings-filter-empty">No settings match that filter.</div>';
-    html += '<p class="small text-muted">See the <a href="' + esc(data.docs_url) + '" target="_blank" rel="noopener">AssemblyLine special-variable documentation</a>.</p></div>';
+    html +=
+      '<div class="alert alert-light border d-none" id="assemblyline-settings-filter-empty">No settings match that filter.</div>';
+    html +=
+      '<p class="small text-muted">See the <a href="' +
+      esc(data.docs_url) +
+      '" target="_blank" rel="noopener">AssemblyLine special-variable documentation</a>.</p></div>';
     canvasContent.innerHTML = html;
     applyAssemblyLineSettingsFilter();
     _initSettingsPopovers();
@@ -6367,11 +9100,13 @@
 
   function _initSettingsPopovers() {
     if (typeof bootstrap === 'undefined' || !bootstrap.Popover) return;
-    document.querySelectorAll('[data-al-settings-explainer]').forEach(function (trigger) {
-      var existing = bootstrap.Popover.getInstance(trigger);
-      if (existing) existing.dispose();
-      bootstrap.Popover.getOrCreateInstance(trigger);
-    });
+    document
+      .querySelectorAll('[data-al-settings-explainer]')
+      .forEach(function (trigger) {
+        var existing = bootstrap.Popover.getInstance(trigger);
+        if (existing) existing.dispose();
+        bootstrap.Popover.getOrCreateInstance(trigger);
+      });
   }
 
   function collectAssemblyLineSettings() {
@@ -6383,37 +9118,61 @@
       // the author's expression as text, which is not a value.
       if (computed[key]) return;
       var field = null;
-      (state.assemblyLineSettings.schema || []).some(function (section) { return (section.fields || []).some(function (candidate) { if (candidate.key === key) { field = candidate; return true; } return false; }); });
+      (state.assemblyLineSettings.schema || []).some(function (section) {
+        return (section.fields || []).some(function (candidate) {
+          if (candidate.key === key) {
+            field = candidate;
+            return true;
+          }
+          return false;
+        });
+      });
       if (!field) return;
       if (field.kind === 'boolean') values[key] = input.checked;
-      else if (field.kind === 'integer') values[key] = input.value === '' ? '' : Number(input.value);
-      else if (field.kind === 'list') values[key] = input.value.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+      else if (field.kind === 'integer')
+        values[key] = input.value === '' ? '' : Number(input.value);
+      else if (field.kind === 'list')
+        values[key] = input.value
+          .split(/\r?\n/)
+          .map(function (line) {
+            return line.trim();
+          })
+          .filter(Boolean);
       else values[key] = input.value;
     });
     return values;
   }
 
   function saveAssemblyLineSettings() {
-    if (!state.assemblyLineSettings || !state.assemblyLineSettingsDirty) return Promise.resolve(true);
+    if (!state.assemblyLineSettings || !state.assemblyLineSettingsDirty)
+      return Promise.resolve(true);
     return apiPost('/api/assemblyline-settings', {
       project: state.project,
       filename: state.filename,
       expected_revision: state.assemblyLineSettings.revision || state.revision,
       settings: collectAssemblyLineSettings(),
-    }).then(function (res) {
-      if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to save settings.');
-      state.assemblyLineSettings = res.data;
-      state.assemblyLineSettingsDirty = false;
-      refreshFromFileResponse(res.data);
-      state.canvasMode = 'assemblyline-settings';
-      renderAssemblyLineSettings();
-      updateTopbarSaveState();
-      _showSuccessBanner('AssemblyLine settings saved.');
-      return true;
-    }).catch(function (error) {
-      if (!isSupersededRequest(error)) window.alert(error.message || 'Unable to save AssemblyLine settings.');
-      return false;
-    });
+    })
+      .then(function (res) {
+        if (!res.success || !res.data)
+          throw new Error(
+            (res.error && res.error.message) || 'Unable to save settings.',
+          );
+        state.assemblyLineSettings = res.data;
+        state.assemblyLineSettingsDirty = false;
+        refreshFromFileResponse(res.data);
+        state.canvasMode = 'assemblyline-settings';
+        renderAssemblyLineSettings();
+        updateTopbarSaveState();
+        _showSuccessBanner('AssemblyLine settings saved.');
+        return true;
+      })
+      .catch(function (error) {
+        if (!isSupersededRequest(error))
+          window.alert(
+            error.message || 'Unable to save AssemblyLine settings.',
+          );
+        return false;
+      });
   }
 
   function renderCanvas() {
@@ -6422,7 +9181,8 @@
     if (editorLayout) {
       editorLayout.classList.toggle(
         'editor-layout-runtime',
-        state.currentView === 'interview' && state.canvasMode === 'runtime-inspector'
+        state.currentView === 'interview' &&
+          state.canvasMode === 'runtime-inspector',
       );
     }
     updateLeftRailMode();
@@ -6463,18 +9223,28 @@
       return '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
     }
     if (counts.hasSearch) {
-      return '<div class="text-center py-5 text-muted">' +
-        '<p>No blocks match &ldquo;' + esc(state.searchQuery.trim()) + '&rdquo; in the current outline view.</p>' +
+      return (
+        '<div class="text-center py-5 text-muted">' +
+        '<p>No blocks match &ldquo;' +
+        esc(state.searchQuery.trim()) +
+        '&rdquo; in the current outline view.</p>' +
         '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="clear-block-search">Clear search</button>' +
-        '</div>';
+        '</div>'
+      );
     }
     var hidden = counts.total - counts.kindVisible;
     if (counts.kindVisible === 0) {
-      return '<div class="text-center py-5 text-muted">' +
+      return (
+        '<div class="text-center py-5 text-muted">' +
         '<p>No blocks match the current outline view.</p>' +
-        '<p class="mb-3">' + esc(String(hidden)) + ' block' + (hidden === 1 ? ' is' : 's are') + ' hidden by the <strong>Show</strong> filter.</p>' +
+        '<p class="mb-3">' +
+        esc(String(hidden)) +
+        ' block' +
+        (hidden === 1 ? ' is' : 's are') +
+        ' hidden by the <strong>Show</strong> filter.</p>' +
         '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="show-all-blocks">Show all blocks</button>' +
-        '</div>';
+        '</div>'
+      );
     }
     // Blocks are visible but none is selected — a stale selection, not a filter.
     return '<div class="text-center py-5 text-muted"><p>Select a block in the outline to edit it.</p></div>';
@@ -6516,20 +9286,32 @@
     if (!nav) return;
     if (!(authState.authenticated || BOOT.authenticated)) {
       nav.innerHTML =
-        '<li class="nav-item"><a class="nav-link" href="' + esc(LOGIN_URL) + '">Sign in</a></li>';
+        '<li class="nav-item"><a class="nav-link" href="' +
+        esc(LOGIN_URL) +
+        '">Sign in</a></li>';
       return;
     }
     var designator = authState.designator || authState.email || 'Account';
-    var items = Array.isArray(authState.menuItems) && authState.menuItems.length
-      ? authState.menuItems
-      : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
+    var items =
+      Array.isArray(authState.menuItems) && authState.menuItems.length
+        ? authState.menuItems
+        : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
     var html = '<li class="nav-item dropdown">';
-    html += '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' + esc(designator) + '</a>';
+    html +=
+      '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' +
+      esc(designator) +
+      '</a>';
     // The navbar is dark, but its menus should read like every other menu in
     // the editor (and like docassemble's own), so pin them to the light theme.
-    html += '<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="editor-account-menu">';
+    html +=
+      '<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="light" aria-labelledby="editor-account-menu">';
     items.forEach(function (item) {
-      html += '<li><a class="dropdown-item" href="' + esc(item.url || '#') + '">' + esc(item.label || '') + '</a></li>';
+      html +=
+        '<li><a class="dropdown-item" href="' +
+        esc(item.url || '#') +
+        '">' +
+        esc(item.label || '') +
+        '</a></li>';
     });
     html += '</ul></li>';
     nav.innerHTML = html;
@@ -6539,10 +9321,15 @@
     var html = '';
     html += '<div class="editor-login-shell">';
     html += '<div class="editor-login-card">';
-    html += '<div class="editor-login-icon"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i></div>';
+    html +=
+      '<div class="editor-login-icon"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i></div>';
     html += '<h2>Sign in to use the Interview Editor</h2>';
-    html += '<p>Use your docassemble account to open projects, edit YAML, and preview interviews.</p>';
-    html += '<a class="btn btn-primary btn-lg" href="' + esc(LOGIN_URL) + '">Go to docassemble sign in</a>';
+    html +=
+      '<p>Use your docassemble account to open projects, edit YAML, and preview interviews.</p>';
+    html +=
+      '<a class="btn btn-primary btn-lg" href="' +
+      esc(LOGIN_URL) +
+      '">Go to docassemble sign in</a>';
     html += '</div></div>';
     canvasContent.innerHTML = html;
   }
@@ -6562,21 +9349,33 @@
     html += '<div class="editor-project-selector-header">';
     html += '<div>';
     html += '<h2>Choose a project</h2>';
-    html += '<p>Jump back into a recent project, search all projects, or start a new one.</p>';
+    html +=
+      '<p>Jump back into a recent project, search all projects, or start a new one.</p>';
     html += '</div>';
-    html += '<button type="button" class="btn btn-primary" id="open-new-project-card">Create new project</button>';
+    html +=
+      '<button type="button" class="btn btn-primary" id="open-new-project-card">Create new project</button>';
     html += '</div>';
     html += '<div class="editor-card"><div class="editor-card-body">';
-    html += '<label class="editor-tiny" for="project-search-input">Search projects</label>';
-    html += '<input class="form-control mt-1" id="project-search-input" placeholder="Type a project name" value="' + esc(state.projectSearchQuery) + '">';
+    html +=
+      '<label class="editor-tiny" for="project-search-input">Search projects</label>';
+    html +=
+      '<input class="form-control mt-1" id="project-search-input" placeholder="Type a project name" value="' +
+      esc(state.projectSearchQuery) +
+      '">';
     html += '</div></div>';
-    html += '<div class="editor-card"><div class="editor-card-header">Create from GitHub</div><div class="editor-card-body">';
-    html += '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
+    html +=
+      '<div class="editor-card"><div class="editor-card-header">Create from GitHub</div><div class="editor-card-body">';
+    html +=
+      '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
     html += '<div class="row g-2 align-items-end">';
-    html += '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
-    html += '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name"><div class="text-muted small mt-1">Leave blank to name the project after the repository.</div></div>';
-    html += '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
-    html += '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
+    html +=
+      '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
+    html +=
+      '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name"><div class="text-muted small mt-1">Leave blank to name the project after the repository.</div></div>';
+    html +=
+      '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
+    html +=
+      '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
 
     if (recent.length > 0) {
@@ -6584,10 +9383,15 @@
       html += '<div class="editor-project-section-title">Recent projects</div>';
       html += '<div class="editor-project-cards">';
       recent.forEach(function (name) {
-        html += '<div class="editor-project-card-shell editor-project-card-shell-recent">';
-        html += '<button type="button" class="editor-project-card editor-project-card-recent" data-project-card="' + esc(name) + '">';
+        html +=
+          '<div class="editor-project-card-shell editor-project-card-shell-recent">';
+        html +=
+          '<button type="button" class="editor-project-card editor-project-card-recent" data-project-card="' +
+          esc(name) +
+          '">';
         html += '<span class="editor-project-card-badge">Recent</span>';
-        html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
+        html +=
+          '<span class="editor-project-card-title">' + esc(name) + '</span>';
         html += '<span class="editor-project-card-meta">Open project</span>';
         html += '</button>';
         html += getProjectCardMenuHtml(name);
@@ -6599,13 +9403,18 @@
     html += '<div class="editor-project-section">';
     html += '<div class="editor-project-section-title">All projects</div>';
     if (filteredProjects.length === 0) {
-      html += '<div class="editor-card"><div class="editor-card-body text-muted">No projects matched your search.</div></div>';
+      html +=
+        '<div class="editor-card"><div class="editor-card-body text-muted">No projects matched your search.</div></div>';
     } else {
       html += '<div class="editor-project-cards">';
       filteredProjects.forEach(function (name) {
         html += '<div class="editor-project-card-shell">';
-        html += '<button type="button" class="editor-project-card" data-project-card="' + esc(name) + '">';
-        html += '<span class="editor-project-card-title">' + esc(name) + '</span>';
+        html +=
+          '<button type="button" class="editor-project-card" data-project-card="' +
+          esc(name) +
+          '">';
+        html +=
+          '<span class="editor-project-card-title">' + esc(name) + '</span>';
         html += '<span class="editor-project-card-meta">Open project</span>';
         html += '</button>';
         html += getProjectCardMenuHtml(name);
@@ -6663,13 +9472,16 @@
       if (d.include) {
         var refs = Array.isArray(d.include) ? d.include : [d.include];
         refs.forEach(function (ref) {
-          if (typeof ref === 'string' && ref.indexOf('AssemblyLine') !== -1) includesAssemblyLine = true;
+          if (typeof ref === 'string' && ref.indexOf('AssemblyLine') !== -1)
+            includesAssemblyLine = true;
         });
       }
       var parts = d['default screen parts'];
       if (parts && typeof parts === 'object') {
-        if (parts['back button label']) backLabel = String(parts['back button label']).trim();
-        if (parts['continue button label']) continueLabel = String(parts['continue button label']).trim();
+        if (parts['back button label'])
+          backLabel = String(parts['back button label']).trim();
+        if (parts['continue button label'])
+          continueLabel = String(parts['continue button label']).trim();
       }
       var features = d.features;
       if (!features || typeof features !== 'object') return;
@@ -6680,7 +9492,9 @@
         if (themeUrl) assets.bootstrapCss = themeUrl;
       }
       if (features.css) {
-        var cssRefs = Array.isArray(features.css) ? features.css : [features.css];
+        var cssRefs = Array.isArray(features.css)
+          ? features.css
+          : [features.css];
         cssRefs.forEach(function (ref) {
           var url = _packageStaticUrl(ref);
           if (url) extraCss.push(url);
@@ -6696,7 +9510,7 @@
     // needs them, and a link to a package that is not installed just 404s.
     extraCss.unshift(
       '/packagestatic/docassemble.AssemblyLine/aldocument.css',
-      '/packagestatic/docassemble.ALToolbox/collapse_template.css'
+      '/packagestatic/docassemble.ALToolbox/collapse_template.css',
     );
 
     if (includesAssemblyLine) {
@@ -6724,7 +9538,13 @@
       var isDeclared = declared
         ? option.value === declared
         : option.value === ALWeaverScreenPreview.DEFAULT_LABEL_LAYOUT;
-      option.textContent = base + (isDeclared ? (declared ? ' (this interview)' : ' (Docassemble default)') : '');
+      option.textContent =
+        base +
+        (isDeclared
+          ? declared
+            ? ' (this interview)'
+            : ' (Docassemble default)'
+          : '');
     });
     select.value = active;
   }
@@ -6757,7 +9577,9 @@
     }
     if (block.type === 'review') {
       var data = {};
-      Object.keys(block.data || {}).forEach(function (key) { data[key] = block.data[key]; });
+      Object.keys(block.data || {}).forEach(function (key) {
+        data[key] = block.data[key];
+      });
       // The review editor writes straight to YAML on save rather than back into
       // block.data, so read the live headline fields out of the form.
       var questionEl = document.getElementById('review-question');
@@ -6765,9 +9587,12 @@
       var subEl = document.getElementById('review-subquestion');
       if (subEl) data.subquestion = subEl.value;
       var tabularEl = document.getElementById('review-tabular');
-      if (tabularEl && tabularEl.value.trim()) data.tabular = tabularEl.value.trim();
+      if (tabularEl && tabularEl.value.trim())
+        data.tabular = tabularEl.value.trim();
       if (hasUnsavedChanges()) {
-        notes.push('Unsaved edits to individual review items appear here after you save.');
+        notes.push(
+          'Unsaved edits to individual review items appear here after you save.',
+        );
       }
       return data;
     }
@@ -6786,18 +9611,22 @@
     if (state.questionEditMode === 'yaml') {
       // The YAML buffer is only re-parsed into block.data on save, so say so
       // rather than showing a stale screen as if it were current.
-      notes.push('You are editing the YAML source. This preview shows the last parsed version of the block; save to see YAML edits here.');
+      notes.push(
+        'You are editing the YAML source. This preview shows the last parsed version of the block; save to see YAML edits here.',
+      );
     }
     var previewData = _screenPreviewData(block, notes);
 
     var resolved = _screenPreviewContext();
     // Docassemble puts labels to the left of fields unless the interview's
     // features: block says otherwise, so follow the file rather than assume.
-    var declaredLayout = resolved.declaredLayout || ALWeaverScreenPreview.DEFAULT_LABEL_LAYOUT;
+    var declaredLayout =
+      resolved.declaredLayout || ALWeaverScreenPreview.DEFAULT_LABEL_LAYOUT;
     var labelLayout = _screenPreviewLabelLayout || declaredLayout;
     _syncScreenPreviewLayoutControl(labelLayout, resolved.declaredLayout);
 
-    var declaredBackLabel = resolved.backLabel || ALWeaverScreenPreview.DEFAULT_BACK_BUTTON_LABEL;
+    var declaredBackLabel =
+      resolved.backLabel || ALWeaverScreenPreview.DEFAULT_BACK_BUTTON_LABEL;
     var backLabel = _screenPreviewBackLabel || declaredBackLabel;
     _syncScreenPreviewBackControl(backLabel);
 
@@ -6837,15 +9666,19 @@
     var project = [];
     var packages = [];
     (blocks || []).forEach(function (block) {
-      var included = (block && block.data) ? block.data.include : null;
+      var included = block && block.data ? block.data.include : null;
       if (typeof included === 'string') included = [included];
       if (!Array.isArray(included)) return;
       included.forEach(function (entry) {
         var name = String(entry || '').trim();
         if (!name || !/\.ya?ml$/i.test(name)) return;
         if (name.indexOf(':') !== -1) {
-          if (/^docassemble\.[A-Za-z0-9_.]+:[A-Za-z0-9_\/-]+\.ya?ml$/.test(name) &&
-              packages.indexOf(name) === -1) {
+          if (
+            /^docassemble\.[A-Za-z0-9_.]+:[A-Za-z0-9_\/-]+\.ya?ml$/.test(
+              name,
+            ) &&
+            packages.indexOf(name) === -1
+          ) {
             packages.push(name);
           }
           return;
@@ -6901,23 +9734,31 @@
       seen[reference] = true;
       fileCount += 1;
       var packageName = reference.split(':')[0];
-      return apiGet('/api/package-file?reference=' + encodeURIComponent(reference))
-        .then(function (res) {
-          var blocks = (res && res.success && res.data) ? (res.data.blocks || []) : [];
-          blocks.forEach(function (block) {
-            block.sourceFile = reference;
-            // "AssemblyLine" reads better on a screen than the whole path.
-            block.sourceLabel = packageName.replace(/^docassemble\./, '');
-            packageBlocks.push(block);
-          });
-          _includeTargets(blocks, packageName).packages.forEach(function (name) {
-            if (!seen[name] && packageQueue.indexOf(name) === -1) packageQueue.push(name);
-          });
-        })
-        // A package that is not installed on this server is simply not part of
-        // the report; the rest of the interview still is.
-        .catch(function () { return null; })
-        .then(readPackages);
+      return (
+        apiGet('/api/package-file?reference=' + encodeURIComponent(reference))
+          .then(function (res) {
+            var blocks =
+              res && res.success && res.data ? res.data.blocks || [] : [];
+            blocks.forEach(function (block) {
+              block.sourceFile = reference;
+              // "AssemblyLine" reads better on a screen than the whole path.
+              block.sourceLabel = packageName.replace(/^docassemble\./, '');
+              packageBlocks.push(block);
+            });
+            _includeTargets(blocks, packageName).packages.forEach(
+              function (name) {
+                if (!seen[name] && packageQueue.indexOf(name) === -1)
+                  packageQueue.push(name);
+              },
+            );
+          })
+          // A package that is not installed on this server is simply not part of
+          // the report; the rest of the interview still is.
+          .catch(function () {
+            return null;
+          })
+          .then(readPackages)
+      );
     }
 
     function readProjectFiles() {
@@ -6928,10 +9769,15 @@
       if (seen[filename]) return readProjectFiles();
       seen[filename] = true;
       fileCount += 1;
-      return apiGet('/api/file?project=' + encodeURIComponent(state.project) +
-                    '&filename=' + encodeURIComponent(filename))
+      return apiGet(
+        '/api/file?project=' +
+          encodeURIComponent(state.project) +
+          '&filename=' +
+          encodeURIComponent(filename),
+      )
         .then(function (res) {
-          var blocks = (res && res.success && res.data) ? (res.data.blocks || []) : [];
+          var blocks =
+            res && res.success && res.data ? res.data.blocks || [] : [];
           blocks.forEach(function (block) {
             block.sourceFile = filename;
             block.sourceLabel = filename;
@@ -6939,13 +9785,17 @@
           });
           var found = _includeTargets(blocks, null);
           found.project.forEach(function (name) {
-            if (!seen[name] && projectQueue.indexOf(name) === -1) projectQueue.push(name);
+            if (!seen[name] && projectQueue.indexOf(name) === -1)
+              projectQueue.push(name);
           });
           found.packages.forEach(function (name) {
-            if (!seen[name] && packageQueue.indexOf(name) === -1) packageQueue.push(name);
+            if (!seen[name] && packageQueue.indexOf(name) === -1)
+              packageQueue.push(name);
           });
         })
-        .catch(function () { return null; })
+        .catch(function () {
+          return null;
+        })
         .then(readProjectFiles);
     }
 
@@ -6960,7 +9810,9 @@
    */
   function openInterviewFlowReport() {
     if (typeof ALWeaverInterviewReport === 'undefined') {
-      window.alert('Flow report module not loaded. Please refresh the editor and try again.');
+      window.alert(
+        'Flow report module not loaded. Please refresh the editor and try again.',
+      );
       return;
     }
 
@@ -6969,46 +9821,67 @@
     // opened after them is a pop-up the browser blocks.
     var win = window.open('', '_blank');
     if (!win) {
-      window.alert('Could not open the flow report. Please allow pop-ups for this site and try again.');
+      window.alert(
+        'Could not open the flow report. Please allow pop-ups for this site and try again.',
+      );
       return;
     }
     win.document.write(
       '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Interview flow report</title></head>' +
-      '<body style="font-family:system-ui,sans-serif;color:#636c76;padding:2rem">' +
-      'Reading the interview\u2026</body></html>');
+        '<body style="font-family:system-ui,sans-serif;color:#636c76;padding:2rem">' +
+        'Reading the interview\u2026</body></html>',
+    );
     win.document.close();
 
-    _collectInterviewBlocks().then(function (blocks) {
-      var resolved = _screenPreviewContext();
-      var interviewName = state.filename ? state.filename.replace(/\.ya?ml$/, '') : '';
-      var html = ALWeaverInterviewReport.buildReport(state.orderSteps || [], blocks, {
-        assets:          resolved.assets,
-        extraCss:        resolved.extraCss,
-        theme:           _screenPreviewDark ? 'dark' : 'light',
-        // Draw the screens the way the preview modal is currently drawing
-        // them, falling back to whatever the interview itself declares.
-        labelLayout:     _screenPreviewLabelLayout || resolved.declaredLayout,
-        continueLabel:   resolved.continueLabel,
-        backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
-        interview:       (typeof ALWeaverScreenPreview !== 'undefined')
-                           ? ALWeaverScreenPreview.buildInterviewContext(blocks)
-                           : null,
-        title:           (interviewName ? interviewName + ' \u2014 ' : '') + 'Interview flow report',
-        subtitle:        state.filename || '',
-        // The report is served from a blob: URL, which cannot resolve a
-        // root-relative stylesheet path on its own.
-        origin:          window.location.origin,
-      });
+    _collectInterviewBlocks()
+      .then(function (blocks) {
+        var resolved = _screenPreviewContext();
+        var interviewName = state.filename
+          ? state.filename.replace(/\.ya?ml$/, '')
+          : '';
+        var html = ALWeaverInterviewReport.buildReport(
+          state.orderSteps || [],
+          blocks,
+          {
+            assets: resolved.assets,
+            extraCss: resolved.extraCss,
+            theme: _screenPreviewDark ? 'dark' : 'light',
+            // Draw the screens the way the preview modal is currently drawing
+            // them, falling back to whatever the interview itself declares.
+            labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
+            continueLabel: resolved.continueLabel,
+            backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
+            interview:
+              typeof ALWeaverScreenPreview !== 'undefined'
+                ? ALWeaverScreenPreview.buildInterviewContext(blocks)
+                : null,
+            title:
+              (interviewName ? interviewName + ' \u2014 ' : '') +
+              'Interview flow report',
+            subtitle: state.filename || '',
+            // The report is served from a blob: URL, which cannot resolve a
+            // root-relative stylesheet path on its own.
+            origin: window.location.origin,
+          },
+        );
 
-      if (win.closed) return;
-      var url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-      win.location.replace(url);
-      // Long enough for the tab to load it, and for a reload soon after.
-      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-    }).catch(function (error) {
-      if (!win.closed) win.close();
-      window.alert('Could not build the flow report: ' + (error && error.message ? error.message : error));
-    });
+        if (win.closed) return;
+        var url = URL.createObjectURL(
+          new Blob([html], { type: 'text/html;charset=utf-8' }),
+        );
+        win.location.replace(url);
+        // Long enough for the tab to load it, and for a reload soon after.
+        setTimeout(function () {
+          URL.revokeObjectURL(url);
+        }, 60000);
+      })
+      .catch(function (error) {
+        if (!win.closed) win.close();
+        window.alert(
+          'Could not build the flow report: ' +
+            (error && error.message ? error.message : error),
+        );
+      });
   }
 
   // --- Question block: rich field editor ---
@@ -7024,8 +9897,15 @@
     html += '<div>';
     html += '<span class="editor-pill">Question</span>';
     if (data.mandatory) html += ' <span class="editor-pill">mandatory</span>';
-    if (data.event) html += ' <span class="editor-pill">event: ' + esc(String(data.event)) + '</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    if (data.event)
+      html +=
+        ' <span class="editor-pill">event: ' +
+        esc(String(data.event)) +
+        '</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title) +
+      '</div>';
     html += '</div>';
     html += '</div>';
 
@@ -7034,16 +9914,37 @@
     // Unified tab row: Screen | Question options | Preview | YAML
     html += '<div class="editor-question-tabs-row">';
     html += '<ul class="nav nav-tabs editor-question-tabs" role="tablist">';
-    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') + '" id="question-screen-tab" aria-controls="question-screen-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'screen' ? 'true' : 'false') + '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (isPreview && state.questionBlockTab === 'options' ? 'active' : '') + '" id="question-options-tab" aria-controls="question-options-panel" aria-selected="' + (isPreview && state.questionBlockTab === 'options' ? 'true' : 'false') + '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
-    html += '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' + (state.questionEditMode === 'yaml' ? 'active' : '') + '" id="toggle-edit-mode-tab" aria-controls="question-yaml-panel" aria-selected="' + (state.questionEditMode === 'yaml' ? 'true' : 'false') + '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+    html +=
+      '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' +
+      (isPreview && state.questionBlockTab === 'screen' ? 'active' : '') +
+      '" id="question-screen-tab" aria-controls="question-screen-panel" aria-selected="' +
+      (isPreview && state.questionBlockTab === 'screen' ? 'true' : 'false') +
+      '" data-question-tab="screen" data-question-mode="preview">Screen</button></li>';
+    html +=
+      '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' +
+      (isPreview && state.questionBlockTab === 'options' ? 'active' : '') +
+      '" id="question-options-tab" aria-controls="question-options-panel" aria-selected="' +
+      (isPreview && state.questionBlockTab === 'options' ? 'true' : 'false') +
+      '" data-question-tab="options" data-question-mode="preview">Question options</button></li>';
+    html +=
+      '<li class="nav-item" role="presentation"><button type="button" role="tab" class="nav-link ' +
+      (state.questionEditMode === 'yaml' ? 'active' : '') +
+      '" id="toggle-edit-mode-tab" aria-controls="question-yaml-panel" aria-selected="' +
+      (state.questionEditMode === 'yaml' ? 'true' : 'false') +
+      '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
     html += '<div class="editor-question-tabs-actions">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     if (isPreview) {
-      html += '<div class="form-check form-switch editor-question-mandatory-switch">';
-      html += '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' + (Boolean(data.mandatory) ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
+      html +=
+        '<div class="form-check form-switch editor-question-mandatory-switch">';
+      html +=
+        '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' +
+        (Boolean(data.mandatory) ? ' checked' : '') +
+        '>';
+      html +=
+        '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
       html += '</div>';
     }
     html += '</div>';
@@ -7051,248 +9952,432 @@
 
     if (isPreview) {
       if (state.questionBlockTab === 'screen') {
-      html += '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
+        html +=
+          '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
 
-      // Block ID — always visible at top
-      html += '<div class="editor-block-id-row">';
-      html += '<span class="editor-block-id-label">ID</span>';
-      html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' + esc(block.id) + '" placeholder="block_id" autocomplete="off">';
-      html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
-      html += '</div>';
-      var eventFieldOpen = Boolean(data.event || _questionEventFieldOpen[block.id]);
-      if (eventFieldOpen) {
-        html += '<div class="editor-block-id-row editor-question-event-row">';
-        html += '<span class="editor-block-id-label">Event</span>';
-        html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '" placeholder="event_name" autocomplete="off">';
-        html += '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="remove-question-event" title="Remove event" aria-label="Remove event"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
+        // Block ID — always visible at top
+        html += '<div class="editor-block-id-row">';
+        html += '<span class="editor-block-id-label">ID</span>';
+        html +=
+          '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
+          esc(block.id) +
+          '" placeholder="block_id" autocomplete="off">';
+        html +=
+          '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
         html += '</div>';
-      } else {
-        html += '<button type="button" class="btn btn-sm btn-link editor-add-event-btn" id="add-question-event"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add event</button>';
-      }
-
-      // Question
-      html += '<div class="editor-form-group mt-2">';
-      html += '<label class="editor-tiny" for="q-title">Question</label>';
-      html += renderMarkdownToolbar('q-title', false);
-      html += '<textarea class="form-control editor-form-control" id="q-title" rows="1">' + esc(data.question || '') + '</textarea>';
-      html += '</div>';
-
-      // Subquestion — always shown
-      html += '<div class="editor-form-group">';
-      html += '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
-      html += renderMarkdownToolbar('q-subquestion', false);
-      html += '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' + esc(String(data.subquestion || '')) + '</textarea>';
-      html += '</div>';
-
-      if (data['continue button field'] || data['continue button label']) {
-        html += '<div class="editor-info-box mt-2">';
-        if (data['continue button field']) {
-          html += '<div><strong>Continue button field:</strong> ' + esc(String(data['continue button field'])) + '</div>';
+        var eventFieldOpen = Boolean(
+          data.event || _questionEventFieldOpen[block.id],
+        );
+        if (eventFieldOpen) {
+          html += '<div class="editor-block-id-row editor-question-event-row">';
+          html += '<span class="editor-block-id-label">Event</span>';
+          html +=
+            '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' +
+            esc(String(data.event || '')) +
+            '" placeholder="event_name" autocomplete="off">';
+          html +=
+            '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="remove-question-event" title="Remove event" aria-label="Remove event"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
+          html += '</div>';
+        } else {
+          html +=
+            '<button type="button" class="btn btn-sm btn-link editor-add-event-btn" id="add-question-event"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add event</button>';
         }
-        if (data['continue button label']) {
-          html += '<div><strong>Continue button label:</strong> ' + esc(String(data['continue button label'])) + '</div>';
-        }
-        html += '</div>';
-      }
 
-      // Fields section — merged into same card
-      if (fields.length > 0) {
-        html += '<div class="editor-section-legend mt-3">Fields</div>';
-        html += '<div class="editor-field-grid-header">';
-        html += '<div>Label</div><div>Type</div><div>Variable name</div><div></div>';
+        // Question
+        html += '<div class="editor-form-group mt-2">';
+        html += '<label class="editor-tiny" for="q-title">Question</label>';
+        html += renderMarkdownToolbar('q-title', false);
+        html +=
+          '<textarea class="form-control editor-form-control" id="q-title" rows="1">' +
+          esc(data.question || '') +
+          '</textarea>';
         html += '</div>';
-        fields.forEach(function (f, fi) {
-          var label = '', varName = '', dtype = 'text', choices = '', codeExpr = '';
-          var contentText = '';
-          var methodArgs = '';
-          // Extract all known field modifiers into a bag
-          var fmods = {};
-          var alMethodCall = (typeof f === 'object' && f !== null && typeof f.code === 'string')
-            ? _parseALFieldMethodCall(f.code)
-            : null;
-          if (alMethodCall) {
-            dtype = alMethodCall.method;
-            label = AL_FIELD_METHODS[dtype].label;
-            varName = alMethodCall.object;
-            methodArgs = alMethodCall.args;
-          } else if (typeof f === 'object' && f !== null) {
-            // Detect label:/field: expanded style
-            if (Object.prototype.hasOwnProperty.call(f, 'label') &&
+
+        // Subquestion — always shown
+        html += '<div class="editor-form-group">';
+        html +=
+          '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
+        html += renderMarkdownToolbar('q-subquestion', false);
+        html +=
+          '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' +
+          esc(String(data.subquestion || '')) +
+          '</textarea>';
+        html += '</div>';
+
+        if (data['continue button field'] || data['continue button label']) {
+          html += '<div class="editor-info-box mt-2">';
+          if (data['continue button field']) {
+            html +=
+              '<div><strong>Continue button field:</strong> ' +
+              esc(String(data['continue button field'])) +
+              '</div>';
+          }
+          if (data['continue button label']) {
+            html +=
+              '<div><strong>Continue button label:</strong> ' +
+              esc(String(data['continue button label'])) +
+              '</div>';
+          }
+          html += '</div>';
+        }
+
+        // Fields section — merged into same card
+        if (fields.length > 0) {
+          html += '<div class="editor-section-legend mt-3">Fields</div>';
+          html += '<div class="editor-field-grid-header">';
+          html +=
+            '<div>Label</div><div>Type</div><div>Variable name</div><div></div>';
+          html += '</div>';
+          fields.forEach(function (f, fi) {
+            var label = '',
+              varName = '',
+              dtype = 'text',
+              choices = '',
+              codeExpr = '';
+            var contentText = '';
+            var methodArgs = '';
+            // Extract all known field modifiers into a bag
+            var fmods = {};
+            var alMethodCall =
+              typeof f === 'object' && f !== null && typeof f.code === 'string'
+                ? _parseALFieldMethodCall(f.code)
+                : null;
+            if (alMethodCall) {
+              dtype = alMethodCall.method;
+              label = AL_FIELD_METHODS[dtype].label;
+              varName = alMethodCall.object;
+              methodArgs = alMethodCall.args;
+            } else if (typeof f === 'object' && f !== null) {
+              // Detect label:/field: expanded style
+              if (
+                Object.prototype.hasOwnProperty.call(f, 'label') &&
                 (Object.prototype.hasOwnProperty.call(f, 'field') ||
-                 Object.prototype.hasOwnProperty.call(f, 'datatype') ||
-                 Object.prototype.hasOwnProperty.call(f, 'choices'))) {
-              label = String(f.label || '');
-              varName = String(f.field || '');
-              dtype = f.datatype || f.input_type || 'text';
-              if (f.choices && Array.isArray(f.choices)) {
-                choices = f.choices.map(function (c) {
-                  if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
-                  return String(c);
-                }).join('\n');
-              }
-              if (f.code) codeExpr = typeof f.code === 'string' ? f.code.trim() : String(f.code);
-              // Collect all modifiers
-              FIELD_MODIFIER_KEYS.forEach(function (mk) {
-                if (mk !== 'label' && mk !== 'field' && mk !== 'datatype' && mk !== 'choices' && mk !== 'code' && f[mk] !== undefined) {
-                  fmods[mk] = f[mk];
+                  Object.prototype.hasOwnProperty.call(f, 'datatype') ||
+                  Object.prototype.hasOwnProperty.call(f, 'choices'))
+              ) {
+                label = String(f.label || '');
+                varName = String(f.field || '');
+                dtype = f.datatype || f.input_type || 'text';
+                if (f.choices && Array.isArray(f.choices)) {
+                  choices = f.choices
+                    .map(function (c) {
+                      if (typeof c === 'object') {
+                        var ck = Object.keys(c);
+                        return ck[0] + ': ' + c[ck[0]];
+                      }
+                      return String(c);
+                    })
+                    .join('\n');
                 }
-              });
-            } else {
-              var keys = Object.keys(f);
-              if (keys.length > 0) {
-                var firstKey = keys[0];
-                var _isTypeShorthand = FIELD_TYPES.indexOf(firstKey) !== -1 || firstKey === 'no label';
-                if (_isTypeShorthand) {
-                  dtype = firstKey;
-                  var val = f[firstKey];
-                  if (_isStandaloneFieldType(firstKey)) {
-                    contentText = typeof val === 'string' ? val : '';
-                    label = contentText;
-                    varName = '';
-                  } else if (firstKey === 'no label') {
-                    label = '(no label)';
-                    varName = typeof val === 'string' ? val : '';
-                  } else {
-                    varName = typeof val === 'string' ? val : '';
-                    label = varName ? varName.replace(/_/g, ' ').replace(/\[.*$/, '') : firstKey;
-                  }
-                } else {
-                  label = firstKey;
-                  var val = f[firstKey];
-                  if (typeof val === 'string') {
-                    varName = val;
-                  } else if (typeof val === 'object' && val !== null) {
-                    varName = val.variable || val.name || firstKey;
-                    dtype = val.datatype || val.input_type || 'text';
-                    if (val.choices && Array.isArray(val.choices)) {
-                      choices = val.choices.map(function (c) {
-                        if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
-                        return String(c);
-                      }).join('\n');
-                    }
-                  }
-                }
-                if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
-                if (f.input_type && dtype === 'text') dtype = f.input_type;
-                if (!choices && f.choices && Array.isArray(f.choices)) {
-                  choices = f.choices.map(function (c) {
-                    if (typeof c === 'object') { var ck = Object.keys(c); return ck[0] + ': ' + c[ck[0]]; }
-                    return String(c);
-                  }).join('\n');
-                }
-                var _codeSource = f.code || (typeof val === 'object' && val !== null ? val.code : null);
-                if (_codeSource) codeExpr = typeof _codeSource === 'string' ? _codeSource.trim() : String(_codeSource);
+                if (f.code)
+                  codeExpr =
+                    typeof f.code === 'string' ? f.code.trim() : String(f.code);
+                // Collect all modifiers
                 FIELD_MODIFIER_KEYS.forEach(function (mk) {
-                  if (mk !== 'label' && mk !== 'field' && mk !== 'datatype' && mk !== 'choices' && mk !== 'code' && f[mk] !== undefined) {
+                  if (
+                    mk !== 'label' &&
+                    mk !== 'field' &&
+                    mk !== 'datatype' &&
+                    mk !== 'choices' &&
+                    mk !== 'code' &&
+                    f[mk] !== undefined
+                  ) {
                     fmods[mk] = f[mk];
                   }
                 });
+              } else {
+                var keys = Object.keys(f);
+                if (keys.length > 0) {
+                  var firstKey = keys[0];
+                  var _isTypeShorthand =
+                    FIELD_TYPES.indexOf(firstKey) !== -1 ||
+                    firstKey === 'no label';
+                  if (_isTypeShorthand) {
+                    dtype = firstKey;
+                    var val = f[firstKey];
+                    if (_isStandaloneFieldType(firstKey)) {
+                      contentText = typeof val === 'string' ? val : '';
+                      label = contentText;
+                      varName = '';
+                    } else if (firstKey === 'no label') {
+                      label = '(no label)';
+                      varName = typeof val === 'string' ? val : '';
+                    } else {
+                      varName = typeof val === 'string' ? val : '';
+                      label = varName
+                        ? varName.replace(/_/g, ' ').replace(/\[.*$/, '')
+                        : firstKey;
+                    }
+                  } else {
+                    label = firstKey;
+                    var val = f[firstKey];
+                    if (typeof val === 'string') {
+                      varName = val;
+                    } else if (typeof val === 'object' && val !== null) {
+                      varName = val.variable || val.name || firstKey;
+                      dtype = val.datatype || val.input_type || 'text';
+                      if (val.choices && Array.isArray(val.choices)) {
+                        choices = val.choices
+                          .map(function (c) {
+                            if (typeof c === 'object') {
+                              var ck = Object.keys(c);
+                              return ck[0] + ': ' + c[ck[0]];
+                            }
+                            return String(c);
+                          })
+                          .join('\n');
+                      }
+                    }
+                  }
+                  if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
+                  if (f.input_type && dtype === 'text') dtype = f.input_type;
+                  if (!choices && f.choices && Array.isArray(f.choices)) {
+                    choices = f.choices
+                      .map(function (c) {
+                        if (typeof c === 'object') {
+                          var ck = Object.keys(c);
+                          return ck[0] + ': ' + c[ck[0]];
+                        }
+                        return String(c);
+                      })
+                      .join('\n');
+                  }
+                  var _codeSource =
+                    f.code ||
+                    (typeof val === 'object' && val !== null ? val.code : null);
+                  if (_codeSource)
+                    codeExpr =
+                      typeof _codeSource === 'string'
+                        ? _codeSource.trim()
+                        : String(_codeSource);
+                  FIELD_MODIFIER_KEYS.forEach(function (mk) {
+                    if (
+                      mk !== 'label' &&
+                      mk !== 'field' &&
+                      mk !== 'datatype' &&
+                      mk !== 'choices' &&
+                      mk !== 'code' &&
+                      f[mk] !== undefined
+                    ) {
+                      fmods[mk] = f[mk];
+                    }
+                  });
+                }
+              }
+            } else if (typeof f === 'string') {
+              label = f;
+            }
+
+            var isStandaloneType = _fieldTypeSupportsStandaloneContent(dtype);
+            var isALMethodType = _isALFieldMethodType(dtype);
+            questionHelpTypes.push(dtype);
+            var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
+            var hasCode = Boolean(codeExpr);
+            var requiredVal = fmods.required;
+            var isRequired =
+              requiredVal === undefined ||
+              requiredVal === true ||
+              requiredVal === 'True';
+            var showIfVal = fmods['show if'] || fmods['hide if'] || '';
+            var showIfKey = fmods['hide if'] ? 'hide if' : 'show if';
+            if (typeof showIfVal === 'object')
+              showIfVal = JSON.stringify(showIfVal);
+
+            html +=
+              '<div class="editor-field-row' +
+              (isStandaloneType ? ' editor-field-row-special' : '') +
+              '" data-field-idx="' +
+              fi +
+              '">';
+            if (isALMethodType) {
+              html +=
+                '<input class="form-control editor-form-control" data-field-prop="label" value="' +
+                esc(label) +
+                '" readonly aria-label="Generated field group">';
+            } else if (isStandaloneType) {
+              html +=
+                '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' +
+                esc(_fieldStandalonePlaceholder(dtype)) +
+                '" title="Right-click for insert tools" rows="' +
+                _fieldStandaloneRows(dtype) +
+                '">' +
+                esc(label) +
+                '</textarea>';
+            } else {
+              html +=
+                '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' +
+                esc(label) +
+                '">';
+            }
+            html += _renderFieldTypeDropdown(fi, dtype);
+            if (isALMethodType)
+              html += renderSymbolDatalist(
+                'al-individual-list-' + fi,
+                'al-individual',
+                120,
+              );
+            html +=
+              '<input class="form-control editor-form-control font-monospace' +
+              (isStandaloneType ? ' d-none' : '') +
+              '" data-field-prop="variable" data-symbol-role="' +
+              (isALMethodType ? 'al-individual' : 'variable') +
+              '"' +
+              (isALMethodType ? ' list="al-individual-list-' + fi + '"' : '') +
+              ' value="' +
+              esc(varName) +
+              '" placeholder="' +
+              (isALMethodType ? 'users[i] or person' : 'variable_name') +
+              '">';
+            if (isALMethodType) {
+              html +=
+                '<input type="hidden" data-field-method-args data-field-idx="' +
+                fi +
+                '" value="' +
+                esc(methodArgs) +
+                '">';
+            }
+            html += '<div class="editor-field-actions">';
+            if (!isStandaloneType && !isALMethodType) {
+              html +=
+                '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
+              html +=
+                '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' +
+                fi +
+                '" data-field-idx="' +
+                fi +
+                '"' +
+                (isRequired ? ' checked' : '') +
+                '>';
+              html +=
+                '<label class="form-check-label editor-tiny" for="field-required-' +
+                fi +
+                '">Required</label>';
+              html += '</div>';
+              var activeIndicators = _fieldActiveIndicators(fmods);
+              if (activeIndicators.length > 0) {
+                html +=
+                  '<div class="editor-field-indicators" aria-label="Active options">';
+                activeIndicators.forEach(function (tag) {
+                  html +=
+                    '<span class="badge text-bg-light">' + esc(tag) + '</span>';
+                });
+                html += '</div>';
               }
             }
-          } else if (typeof f === 'string') {
-            label = f;
-          }
-
-          var isStandaloneType = _fieldTypeSupportsStandaloneContent(dtype);
-          var isALMethodType = _isALFieldMethodType(dtype);
-          questionHelpTypes.push(dtype);
-          var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
-          var hasCode = Boolean(codeExpr);
-          var requiredVal = fmods.required;
-          var isRequired = requiredVal === undefined || requiredVal === true || requiredVal === 'True';
-          var showIfVal = fmods['show if'] || fmods['hide if'] || '';
-          var showIfKey = fmods['hide if'] ? 'hide if' : 'show if';
-          if (typeof showIfVal === 'object') showIfVal = JSON.stringify(showIfVal);
-
-          html += '<div class="editor-field-row' + (isStandaloneType ? ' editor-field-row-special' : '') + '" data-field-idx="' + fi + '">';
-          if (isALMethodType) {
-            html += '<input class="form-control editor-form-control" data-field-prop="label" value="' + esc(label) + '" readonly aria-label="Generated field group">';
-          } else if (isStandaloneType) {
-            html += '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' + esc(_fieldStandalonePlaceholder(dtype)) + '" title="Right-click for insert tools" rows="' + _fieldStandaloneRows(dtype) + '">' + esc(label) + '</textarea>';
-          } else {
-            html += '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' + esc(label) + '">';
-          }
-          html += _renderFieldTypeDropdown(fi, dtype);
-          if (isALMethodType) html += renderSymbolDatalist('al-individual-list-' + fi, 'al-individual', 120);
-          html += '<input class="form-control editor-form-control font-monospace' + (isStandaloneType ? ' d-none' : '') + '" data-field-prop="variable" data-symbol-role="' + (isALMethodType ? 'al-individual' : 'variable') + '"' + (isALMethodType ? ' list="al-individual-list-' + fi + '"' : '') + ' value="' + esc(varName) + '" placeholder="' + (isALMethodType ? 'users[i] or person' : 'variable_name') + '">';
-          if (isALMethodType) {
-            html += '<input type="hidden" data-field-method-args data-field-idx="' + fi + '" value="' + esc(methodArgs) + '">';
-          }
-          html += '<div class="editor-field-actions">';
-          if (!isStandaloneType && !isALMethodType) {
-            html += '<div class="form-check form-switch editor-field-switch-wrap" title="Required">';
-            html += '<input class="form-check-input editor-field-required-switch" type="checkbox" role="switch" id="field-required-' + fi + '" data-field-idx="' + fi + '"' + (isRequired ? ' checked' : '') + '>';
-            html += '<label class="form-check-label editor-tiny" for="field-required-' + fi + '">Required</label>';
-            html += '</div>';
-            var activeIndicators = _fieldActiveIndicators(fmods);
-            if (activeIndicators.length > 0) {
-              html += '<div class="editor-field-indicators" aria-label="Active options">';
-              activeIndicators.forEach(function (tag) { html += '<span class="badge text-bg-light">' + esc(tag) + '</span>'; });
+            if (isALMethodType) {
+              html += '<div class="editor-field-kebab-wrapper">';
+              html +=
+                '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-al-field-method-options="' +
+                fi +
+                '" data-method-name="' +
+                esc(dtype) +
+                '" title="Choose parameters for ' +
+                esc(dtype) +
+                '" aria-label="Choose parameters for ' +
+                esc(dtype) +
+                '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+              html += '</div>';
+            } else if (dtype !== 'code') {
+              html += '<div class="editor-field-kebab-wrapper">';
+              html +=
+                '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' +
+                fi +
+                '" aria-haspopup="true" aria-expanded="' +
+                (_openFieldModsPanels[fi] ? 'true' : 'false') +
+                '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
               html += '</div>';
             }
-          }
-          if (isALMethodType) {
-            html += '<div class="editor-field-kebab-wrapper">';
-            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-al-field-method-options="' + fi + '" data-method-name="' + esc(dtype) + '" title="Choose parameters for ' + esc(dtype) + '" aria-label="Choose parameters for ' + esc(dtype) + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html +=
+              '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' +
+              fi +
+              '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
             html += '</div>';
-          } else if (dtype !== 'code') {
-            html += '<div class="editor-field-kebab-wrapper">';
-            html += '<button type="button" class="btn btn-sm btn-ghost-secondary editor-field-kebab-btn" data-field-idx="' + fi + '" aria-haspopup="true" aria-expanded="' + (_openFieldModsPanels[fi] ? 'true' : 'false') + '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
+            html +=
+              '<select class="form-select editor-form-control d-none" data-field-prop="type">';
+            FIELD_TYPES.forEach(function (t) {
+              html +=
+                '<option value="' +
+                t +
+                '"' +
+                (t === dtype ? ' selected' : '') +
+                '>' +
+                t +
+                '</option>';
+            });
+            html += '</select>';
             html += '</div>';
-          }
-          html += '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' + fi + '" title="Remove field"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove field</span></button>';
-          html += '</div>';
-          html += '<select class="form-select editor-form-control d-none" data-field-prop="type">';
-          FIELD_TYPES.forEach(function (t) {
-            html += '<option value="' + t + '"' + (t === dtype ? ' selected' : '') + '>' + t + '</option>';
+            if (hasChoices) {
+              html += '<div class="editor-field-choices-row">';
+              html +=
+                '<label class="editor-tiny" for="field-choices-' +
+                fi +
+                '">Options (one per line)</label>';
+              html +=
+                '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
+                fi +
+                '" rows="3">' +
+                esc(String(choices || '')) +
+                '</textarea>';
+              html += '</div>';
+            }
+            if (!isALMethodType && dtype !== 'code')
+              html += _renderFieldModsPanel(
+                fi,
+                fmods,
+                dtype,
+                choices,
+                codeExpr,
+                showIfKey,
+                showIfVal,
+              );
           });
-          html += '</select>';
+          html +=
+            '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
+          html +=
+            '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+          html +=
+            '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
+          html +=
+            '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
           html += '</div>';
-          if (hasChoices) {
-            html += '<div class="editor-field-choices-row">';
-            html += '<label class="editor-tiny" for="field-choices-' + fi + '">Options (one per line)</label>';
-            html += '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>';
-            html += '</div>';
-          }
-          if (!isALMethodType && dtype !== 'code') html += _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal);
-        });
-        html += '<div class="mt-2 d-flex gap-2 align-items-center flex-wrap">';
-        html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
-        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
-        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
-        html += '</div>';
-        html += _renderQuestionFieldHelp(questionHelpTypes);
-      } else {
-        html += '<div class="editor-section-legend mt-3">Fields</div>';
-        html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
-        html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
-        html += '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
-        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
-        html += '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
-        html += '</div>';
-      }
+          html += _renderQuestionFieldHelp(questionHelpTypes);
+        } else {
+          html += '<div class="editor-section-legend mt-3">Fields</div>';
+          html += '<p class="text-muted small mb-2">No fields defined yet.</p>';
+          html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
+          html +=
+            '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
+          html +=
+            '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
+          html +=
+            '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
+          html += '</div>';
+        }
 
-      html += '</div></div>';
-
-      // Attachment info
-      if (data.attachment || data.attachments) {
-        html += '<div class="editor-card"><div class="editor-card-header">Attachment</div><div class="editor-card-body">';
-        html += '<div class="editor-info-box">This block has an attachment. Edit in YAML mode for full control.</div>';
         html += '</div></div>';
-      }
 
+        // Attachment info
+        if (data.attachment || data.attachments) {
+          html +=
+            '<div class="editor-card"><div class="editor-card-header">Attachment</div><div class="editor-card-body">';
+          html +=
+            '<div class="editor-info-box">This block has an attachment. Edit in YAML mode for full control.</div>';
+          html += '</div></div>';
+        }
       }
 
       if (state.questionBlockTab === 'options') {
-        html += '<div id="question-options-panel" role="tabpanel" aria-labelledby="question-options-tab" tabindex="0">';
+        html +=
+          '<div id="question-options-panel" role="tabpanel" aria-labelledby="question-options-tab" tabindex="0">';
         html += renderAdvancedPanel(block);
         html += '</div>';
       }
-
     } else {
       // YAML source edit mode
-      html += '<div class="editor-card" id="question-yaml-panel" role="tabpanel" aria-labelledby="toggle-edit-mode-tab" tabindex="0"><div class="editor-card-body">';
-      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
+      html +=
+        '<div class="editor-card" id="question-yaml-panel" role="tabpanel" aria-labelledby="toggle-edit-mode-tab" tabindex="0"><div class="editor-card-body">';
+      html +=
+        '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
@@ -7302,7 +10387,9 @@
     if (!isPreview) {
       initSourceEditor(function () {
         createSourceEditor('block-source-editor', block.yaml, 'yaml', {
-          onChange: function () { markInterviewDirty(); }
+          onChange: function () {
+            markInterviewDirty();
+          },
         });
       });
     } else {
@@ -7311,17 +10398,21 @@
       if (qTitle) _initAutoResize(qTitle, 36);
       var qSub = document.getElementById('q-subquestion');
       if (qSub) _initAutoResize(qSub, 120);
-      document.querySelectorAll('[data-field-prop="label"]').forEach(function (ta) {
-        _initAutoResize(ta, 36);
-      });
+      document
+        .querySelectorAll('[data-field-prop="label"]')
+        .forEach(function (ta) {
+          _initAutoResize(ta, 36);
+        });
       // Live uniqueness hint on the block ID field
       var idInput = document.getElementById('adv-id');
       if (idInput) {
         idInput.addEventListener('input', function () {
           var val = idInput.value.trim();
           var unique = !val || isBlockIdUnique(val, state.blocks, block.id);
-          idInput.style.borderColor = (!val || unique) ? '' : '#dc3545';
-          idInput.title = unique ? '' : 'This ID is already used by another block';
+          idInput.style.borderColor = !val || unique ? '' : '#dc3545';
+          idInput.title = unique
+            ? ''
+            : 'This ID is already used by another block';
         });
       }
     }
@@ -7329,21 +10420,44 @@
 
   function _reviewItemSummary(item, index) {
     if (typeof item === 'string') {
-      var firstLine = item.trim().split('\n')[0] || 'Review item ' + (index + 1);
-      return { kind: firstLine.indexOf('html:') !== -1 ? 'HTML' : (firstLine.indexOf('note:') !== -1 ? 'Note' : 'Field'), title: firstLine.replace(/^- /, ''), meta: '' };
+      var firstLine =
+        item.trim().split('\n')[0] || 'Review item ' + (index + 1);
+      return {
+        kind:
+          firstLine.indexOf('html:') !== -1
+            ? 'HTML'
+            : firstLine.indexOf('note:') !== -1
+              ? 'Note'
+              : 'Field',
+        title: firstLine.replace(/^- /, ''),
+        meta: '',
+      };
     }
-    if (!item || typeof item !== 'object') return { kind: 'Item', title: 'Review item ' + (index + 1), meta: '' };
+    if (!item || typeof item !== 'object')
+      return { kind: 'Item', title: 'Review item ' + (index + 1), meta: '' };
     if (Object.prototype.hasOwnProperty.call(item, 'note')) {
-      return { kind: 'Note', title: String(item.note || '').split('\n')[0] || 'Note', meta: item['show if'] ? 'show if' : '' };
+      return {
+        kind: 'Note',
+        title: String(item.note || '').split('\n')[0] || 'Note',
+        meta: item['show if'] ? 'show if' : '',
+      };
     }
     if (Object.prototype.hasOwnProperty.call(item, 'html')) {
-      return { kind: 'HTML', title: String(item.html || '').split('\n')[0] || 'Raw HTML', meta: item['show if'] ? 'show if' : '' };
+      return {
+        kind: 'HTML',
+        title: String(item.html || '').split('\n')[0] || 'Raw HTML',
+        meta: item['show if'] ? 'show if' : '',
+      };
     }
     var label = item.label || '';
     var keys = Object.keys(item);
     var actionKey = '';
     for (var i = 0; i < keys.length; i++) {
-      if (['button', 'help', 'show if', 'css class', 'fields'].indexOf(keys[i]) === -1) {
+      if (
+        ['button', 'help', 'show if', 'css class', 'fields'].indexOf(
+          keys[i],
+        ) === -1
+      ) {
         actionKey = keys[i];
         break;
       }
@@ -7351,12 +10465,21 @@
     if (!label && actionKey) label = actionKey;
     var actionVal = actionKey ? item[actionKey] : item.fields;
     var meta = '';
-    if (Array.isArray(actionVal)) meta = actionVal.map(function (v) {
-      if (typeof v === 'string') return v;
-      if (v && typeof v === 'object') return Object.keys(v)[0];
-      return '';
-    }).filter(Boolean).join(', ');
-    else if (actionVal !== undefined && actionVal !== null && typeof actionVal !== 'object') meta = String(actionVal);
+    if (Array.isArray(actionVal))
+      meta = actionVal
+        .map(function (v) {
+          if (typeof v === 'string') return v;
+          if (v && typeof v === 'object') return Object.keys(v)[0];
+          return '';
+        })
+        .filter(Boolean)
+        .join(', ');
+    else if (
+      actionVal !== undefined &&
+      actionVal !== null &&
+      typeof actionVal !== 'object'
+    )
+      meta = String(actionVal);
     if (item['show if']) meta = meta ? meta + ' - show if' : 'show if';
     return { kind: 'Field', title: String(label || 'Edit'), meta: meta };
   }
@@ -7371,60 +10494,119 @@
     html += '<div>';
     html += '<span class="editor-pill editor-pill-review">Review</span>';
     if (data.event) html += ' <span class="editor-pill">event</span>';
-    if (data['continue button field'] || data.field) html += ' <span class="editor-pill">continue field</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title || 'Review') + '</div>';
+    if (data['continue button field'] || data.field)
+      html += ' <span class="editor-pill">continue field</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title || 'Review') +
+      '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Sync from questions</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (isYaml ? 'Structured view' : 'Edit full YAML') + '</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Sync from questions</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' +
+      (isYaml ? 'Structured view' : 'Edit full YAML') +
+      '</button>';
     html += '</div>';
     html += '</div>';
 
     html += '<div class="editor-shell">';
     if (isYaml) {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
+      html +=
+        '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div></div>';
       canvasContent.innerHTML = html;
       initSourceEditor(function () {
         createSourceEditor('block-source-editor', block.yaml, 'yaml', {
-          onChange: function () { markInterviewDirty(); }
+          onChange: function () {
+            markInterviewDirty();
+          },
         });
       });
       return;
     }
 
-    html += '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
+    html +=
+      '<div class="editor-card editor-question-main-card"><div class="editor-card-body editor-card-body-compact">';
     html += '<div class="editor-block-id-row">';
     html += '<span class="editor-block-id-label">ID</span>';
-    html += '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' + esc(data.id || block.id || '') + '" autocomplete="off">';
+    html +=
+      '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' +
+      esc(data.id || block.id || '') +
+      '" autocomplete="off">';
     html += '</div>';
 
     html += '<div class="editor-review-route-grid mt-2">';
-    html += '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' + esc(String(data.event || '')) + '"></div>';
-    html += '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-symbol-role="variable" data-continue-key="' + (data.field && !data['continue button field'] ? 'field' : 'continue button field') + '" value="' + esc(String(data['continue button field'] || data.field || '')) + '"></div>';
+    html +=
+      '<div><label class="editor-tiny" for="review-event">Event</label><input class="form-control editor-form-control font-monospace" id="review-event" value="' +
+      esc(String(data.event || '')) +
+      '"></div>';
+    html +=
+      '<div><label class="editor-tiny" for="review-continue-field">Continue button field</label><input class="form-control editor-form-control font-monospace" id="review-continue-field" data-symbol-role="variable" data-continue-key="' +
+      (data.field && !data['continue button field']
+        ? 'field'
+        : 'continue button field') +
+      '" value="' +
+      esc(String(data['continue button field'] || data.field || '')) +
+      '"></div>';
     html += '</div>';
 
-    var hasMeta = Boolean(data.need || data.tabular || Object.prototype.hasOwnProperty.call(data, 'skip undefined'));
-    html += '<button type="button" class="editor-advanced-toggle editor-review-meta-toggle mt-2" id="toggle-review-meta"><i class="fa-solid fa-chevron-down editor-collapse-icon' + (state.reviewMetaOpen ? '' : ' collapsed') + '" aria-hidden="true"></i>Review options' + (hasMeta ? ' <span class="editor-active-dot" aria-hidden="true"></span>' : '') + '</button>';
+    var hasMeta = Boolean(
+      data.need ||
+      data.tabular ||
+      Object.prototype.hasOwnProperty.call(data, 'skip undefined'),
+    );
+    html +=
+      '<button type="button" class="editor-advanced-toggle editor-review-meta-toggle mt-2" id="toggle-review-meta"><i class="fa-solid fa-chevron-down editor-collapse-icon' +
+      (state.reviewMetaOpen ? '' : ' collapsed') +
+      '" aria-hidden="true"></i>Review options' +
+      (hasMeta
+        ? ' <span class="editor-active-dot" aria-hidden="true"></span>'
+        : '') +
+      '</button>';
     if (state.reviewMetaOpen) {
-      var needVal = Array.isArray(data.need) ? data.need.join(', ') : String(data.need || '');
+      var needVal = Array.isArray(data.need)
+        ? data.need.join(', ')
+        : String(data.need || '');
       html += '<div class="editor-advanced-body editor-review-meta-body">';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need <span class="text-muted">(comma-separated)</span></label><input class="form-control editor-form-control font-monospace" id="review-need" value="' + esc(needVal) + '"></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-tabular">Tabular</label><input class="form-control editor-form-control" id="review-tabular" value="' + esc(String(data.tabular || '')) + '" placeholder="True or table table-striped"></div>';
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="review-skip-undefined">Skip undefined</label><select class="form-select editor-form-control" id="review-skip-undefined">';
-      html += '<option value=""' + (data['skip undefined'] !== false ? ' selected' : '') + '>(default)</option>';
-      html += '<option value="False"' + (data['skip undefined'] === false ? ' selected' : '') + '>False</option>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="review-need">Need <span class="text-muted">(comma-separated)</span></label><input class="form-control editor-form-control font-monospace" id="review-need" value="' +
+        esc(needVal) +
+        '"></div>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="review-tabular">Tabular</label><input class="form-control editor-form-control" id="review-tabular" value="' +
+        esc(String(data.tabular || '')) +
+        '" placeholder="True or table table-striped"></div>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="review-skip-undefined">Skip undefined</label><select class="form-select editor-form-control" id="review-skip-undefined">';
+      html +=
+        '<option value=""' +
+        (data['skip undefined'] !== false ? ' selected' : '') +
+        '>(default)</option>';
+      html +=
+        '<option value="False"' +
+        (data['skip undefined'] === false ? ' selected' : '') +
+        '>False</option>';
       html += '</select></div>';
       html += '</div>';
     }
 
-    html += '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' + esc(String(data.question || 'Review your answers')) + '"></div>';
-    html += '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' + esc(String(data.subquestion || '')) + '</textarea></div>';
+    html +=
+      '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
+      esc(String(data.question || 'Review your answers')) +
+      '"></div>';
+    html +=
+      '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' +
+      esc(String(data.subquestion || '')) +
+      '</textarea></div>';
     html += '</div></div>';
 
-    html += '<div class="editor-card"><div class="editor-card-header"><span>Review items</span></div><div class="editor-card-body editor-review-list">';
+    html +=
+      '<div class="editor-card"><div class="editor-card-header"><span>Review items</span></div><div class="editor-card-body editor-review-list">';
     if (!reviewItems.length) {
       html += '<div class="text-muted small mb-2">No review items yet.</div>';
     }
@@ -7432,59 +10614,172 @@
       var summary = _reviewItemSummary(item, idx);
       var isOpen = state.openReviewItemIndex === idx;
       var isStringRaw = typeof item === 'string';
-      var isNote = !isStringRaw && item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'note');
-      var isHtml = !isStringRaw && item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'html');
-      var actionKey = isStringRaw || isNote || isHtml ? '' : _reviewItemActionKey(item);
+      var isNote =
+        !isStringRaw &&
+        item &&
+        typeof item === 'object' &&
+        Object.prototype.hasOwnProperty.call(item, 'note');
+      var isHtml =
+        !isStringRaw &&
+        item &&
+        typeof item === 'object' &&
+        Object.prototype.hasOwnProperty.call(item, 'html');
+      var actionKey =
+        isStringRaw || isNote || isHtml ? '' : _reviewItemActionKey(item);
       var supportedReviewItemKeys = {};
       if (actionKey) supportedReviewItemKeys[actionKey] = true;
-      ['button', 'show if', 'help', 'fields', 'note', 'html'].forEach(function (key) { supportedReviewItemKeys[key] = true; });
-      var hasUnsupportedKeys = !isStringRaw && item && typeof item === 'object' && Object.keys(item).some(function (key) { return !supportedReviewItemKeys[key]; });
+      ['button', 'show if', 'help', 'fields', 'note', 'html'].forEach(
+        function (key) {
+          supportedReviewItemKeys[key] = true;
+        },
+      );
+      var hasUnsupportedKeys =
+        !isStringRaw &&
+        item &&
+        typeof item === 'object' &&
+        Object.keys(item).some(function (key) {
+          return !supportedReviewItemKeys[key];
+        });
       var isRaw = isStringRaw || hasUnsupportedKeys;
       var actionValue = actionKey ? item[actionKey] : item.fields;
-      html += '<div class="editor-review-item" data-review-item-idx="' + idx + '">';
-      html += '<input type="hidden" data-review-kind="' + idx + '" value="' + (isRaw ? 'raw' : (isNote ? 'note' : (isHtml ? 'html' : 'edit'))) + '">';
-      html += '<button type="button" class="editor-review-item-summary" data-review-item-toggle="' + idx + '">';
-      html += '<span class="editor-review-kind">' + esc(summary.kind) + '</span>';
-      html += '<span class="editor-review-title">' + esc(summary.title) + '</span>';
-      if (summary.meta) html += '<span class="editor-review-meta">' + esc(summary.meta) + '</span>';
+      html +=
+        '<div class="editor-review-item" data-review-item-idx="' + idx + '">';
+      html +=
+        '<input type="hidden" data-review-kind="' +
+        idx +
+        '" value="' +
+        (isRaw ? 'raw' : isNote ? 'note' : isHtml ? 'html' : 'edit') +
+        '">';
+      html +=
+        '<button type="button" class="editor-review-item-summary" data-review-item-toggle="' +
+        idx +
+        '">';
+      html +=
+        '<span class="editor-review-kind">' + esc(summary.kind) + '</span>';
+      html +=
+        '<span class="editor-review-title">' + esc(summary.title) + '</span>';
+      if (summary.meta)
+        html +=
+          '<span class="editor-review-meta">' + esc(summary.meta) + '</span>';
       html += '</button>';
-      html += '<div class="editor-review-item-editor' + (isOpen ? '' : ' d-none') + '">';
+      html +=
+        '<div class="editor-review-item-editor' +
+        (isOpen ? '' : ' d-none') +
+        '">';
       if (isRaw) {
-        html += '<textarea class="form-control editor-form-control font-monospace editor-review-item-yaml" id="review-item-yaml-' + idx + '" rows="8">' + esc(serializeReviewItemData(item).trim()) + '</textarea>';
+        html +=
+          '<textarea class="form-control editor-form-control font-monospace editor-review-item-yaml" id="review-item-yaml-' +
+          idx +
+          '" rows="8">' +
+          esc(serializeReviewItemData(item).trim()) +
+          '</textarea>';
       } else if (isNote || isHtml) {
-        html += '<label class="editor-tiny" for="review-item-content-' + idx + '">' + (isHtml ? 'HTML' : 'Note') + '</label>';
-        html += '<textarea class="form-control editor-form-control ' + (isHtml ? 'font-monospace' : '') + '" id="review-item-content-' + idx + '" rows="5">' + esc(String(item[isHtml ? 'html' : 'note'] || '')) + '</textarea>';
-        html += '<label class="editor-tiny mt-2" for="review-item-show-if-' + idx + '">Show if</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' + idx + '" value="' + esc(String(item['show if'] || '')) + '">';
+        html +=
+          '<label class="editor-tiny" for="review-item-content-' +
+          idx +
+          '">' +
+          (isHtml ? 'HTML' : 'Note') +
+          '</label>';
+        html +=
+          '<textarea class="form-control editor-form-control ' +
+          (isHtml ? 'font-monospace' : '') +
+          '" id="review-item-content-' +
+          idx +
+          '" rows="5">' +
+          esc(String(item[isHtml ? 'html' : 'note'] || '')) +
+          '</textarea>';
+        html +=
+          '<label class="editor-tiny mt-2" for="review-item-show-if-' +
+          idx +
+          '">Show if</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' +
+          idx +
+          '" value="' +
+          esc(String(item['show if'] || '')) +
+          '">';
         if (item.help) {
-          html += '<label class="editor-tiny mt-2" for="review-item-help-' + idx + '">Help</label>';
-          html += '<textarea class="form-control editor-form-control" id="review-item-help-' + idx + '" rows="2">' + esc(String(item.help || '')) + '</textarea>';
+          html +=
+            '<label class="editor-tiny mt-2" for="review-item-help-' +
+            idx +
+            '">Help</label>';
+          html +=
+            '<textarea class="form-control editor-form-control" id="review-item-help-' +
+            idx +
+            '" rows="2">' +
+            esc(String(item.help || '')) +
+            '</textarea>';
         }
       } else {
         html += '<div class="editor-review-edit-grid">';
-        html += '<div><label class="editor-tiny" for="review-item-label-' + idx + '">Button label</label><input class="form-control editor-form-control" id="review-item-label-' + idx + '" value="' + esc(actionKey || 'Edit') + '"></div>';
-        html += '<div><label class="editor-tiny" for="review-item-fields-' + idx + '">Field</label><textarea class="form-control editor-form-control font-monospace" id="review-item-fields-' + idx + '" data-symbol-role="variable" rows="2">' + esc(_reviewFieldsValueToText(actionValue)) + '</textarea></div>';
+        html +=
+          '<div><label class="editor-tiny" for="review-item-label-' +
+          idx +
+          '">Button label</label><input class="form-control editor-form-control" id="review-item-label-' +
+          idx +
+          '" value="' +
+          esc(actionKey || 'Edit') +
+          '"></div>';
+        html +=
+          '<div><label class="editor-tiny" for="review-item-fields-' +
+          idx +
+          '">Field</label><textarea class="form-control editor-form-control font-monospace" id="review-item-fields-' +
+          idx +
+          '" data-symbol-role="variable" rows="2">' +
+          esc(_reviewFieldsValueToText(actionValue)) +
+          '</textarea></div>';
         html += '</div>';
-        html += '<div class="editor-form-group mt-2"><label class="editor-tiny" for="review-item-button-' + idx + '">Button</label>';
+        html +=
+          '<div class="editor-form-group mt-2"><label class="editor-tiny" for="review-item-button-' +
+          idx +
+          '">Button</label>';
         html += renderMarkdownToolbar('review-item-button-' + idx, false);
-        html += '<textarea class="form-control editor-form-control" id="review-item-button-' + idx + '" rows="5">' + esc(String(item.button || '')) + '</textarea></div>';
-        html += '<label class="editor-tiny" for="review-item-show-if-' + idx + '">Show if</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' + idx + '" value="' + esc(String(item['show if'] || '')) + '">';
+        html +=
+          '<textarea class="form-control editor-form-control" id="review-item-button-' +
+          idx +
+          '" rows="5">' +
+          esc(String(item.button || '')) +
+          '</textarea></div>';
+        html +=
+          '<label class="editor-tiny" for="review-item-show-if-' +
+          idx +
+          '">Show if</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="review-item-show-if-' +
+          idx +
+          '" value="' +
+          esc(String(item['show if'] || '')) +
+          '">';
         if (item.help) {
-          html += '<label class="editor-tiny mt-2" for="review-item-help-' + idx + '">Help</label>';
-          html += '<textarea class="form-control editor-form-control" id="review-item-help-' + idx + '" rows="2">' + esc(String(item.help || '')) + '</textarea>';
+          html +=
+            '<label class="editor-tiny mt-2" for="review-item-help-' +
+            idx +
+            '">Help</label>';
+          html +=
+            '<textarea class="form-control editor-form-control" id="review-item-help-' +
+            idx +
+            '" rows="2">' +
+            esc(String(item.help || '')) +
+            '</textarea>';
         }
       }
-      html += '<div class="d-flex justify-content-end mt-2"><button type="button" class="btn btn-sm btn-ghost-danger" data-remove-review-item="' + idx + '"><i class="fa-solid fa-trash-can me-1" aria-hidden="true"></i>Remove</button></div>';
+      html +=
+        '<div class="d-flex justify-content-end mt-2"><button type="button" class="btn btn-sm btn-ghost-danger" data-remove-review-item="' +
+        idx +
+        '"><i class="fa-solid fa-trash-can me-1" aria-hidden="true"></i>Remove</button></div>';
       html += '</div></div>';
     });
     html += '<div class="editor-review-add-row">';
     html += '<label class="editor-tiny" for="review-new-field">Field</label>';
     html += '<div class="editor-review-add-controls">';
-    html += '<input class="form-control editor-form-control font-monospace" id="review-new-field" data-symbol-role="variable">';
-    html += '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
+    html +=
+      '<input class="form-control editor-form-control font-monospace" id="review-new-field" data-symbol-role="variable">';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-primary" data-add-review-item="edit"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Edit row</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="note">Note</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-add-review-item="html">HTML</button>';
     html += '</div></div>';
     html += '</div></div>';
     html += '</div>';
@@ -7494,9 +10789,13 @@
       var el = document.getElementById(id);
       if (el) _initAutoResize(el, 80);
     });
-    document.querySelectorAll('.editor-review-item-yaml, [id^="review-item-button-"], [id^="review-item-fields-"], #review-new-field').forEach(function (el) {
-      _initAutoResize(el, 120);
-    });
+    document
+      .querySelectorAll(
+        '.editor-review-item-yaml, [id^="review-item-button-"], [id^="review-item-fields-"], #review-new-field',
+      )
+      .forEach(function (el) {
+        _initAutoResize(el, 120);
+      });
   }
 
   // --- Code block: source editor + advanced panel ---
@@ -7508,20 +10807,28 @@
     html += '<div class="editor-center-bar">';
     html += '<div>';
     html += '<span class="editor-pill editor-pill-muted">Code</span>';
-    if (block.tags && block.tags.indexOf('mandatory') !== -1) html += ' <span class="editor-pill">mandatory</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    if (block.tags && block.tags.indexOf('mandatory') !== -1)
+      html += ' <span class="editor-pill">mandatory</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title) +
+      '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit full YAML</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit full YAML</button>';
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
 
     if (state.questionEditMode === 'preview') {
       // Python source editor
-      html += '<div class="editor-card"><div class="editor-card-header">Python code</div><div class="editor-card-body">';
-      html += '<div class="editor-source-container" id="code-source-editor" style="height:400px"></div>';
+      html +=
+        '<div class="editor-card"><div class="editor-card-header">Python code</div><div class="editor-card-body">';
+      html +=
+        '<div class="editor-source-container" id="code-source-editor" style="height:400px"></div>';
       html += '</div></div>';
 
       // Advanced: id, if, sets, only sets, need, etc.
@@ -7529,7 +10836,8 @@
     } else {
       // Full YAML mode
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
+      html +=
+        '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
       html += '</div></div>';
     }
 
@@ -7539,11 +10847,15 @@
     initSourceEditor(function () {
       if (state.questionEditMode === 'preview') {
         createSourceEditor('code-source-editor', codeText, 'python', {
-          onChange: function () { markInterviewDirty(); }
+          onChange: function () {
+            markInterviewDirty();
+          },
         });
       } else {
         createSourceEditor('block-source-editor', block.yaml, 'yaml', {
-          onChange: function () { markInterviewDirty(); }
+          onChange: function () {
+            markInterviewDirty();
+          },
         });
       }
     });
@@ -7557,17 +10869,25 @@
 
     html += '<div class="editor-center-bar">';
     html += '<div>';
-    html += '<span class="editor-pill" style="background:#d1fae5;color:#065f46">Objects</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    html +=
+      '<span class="editor-pill" style="background:#d1fae5;color:#065f46">Objects</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title) +
+      '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' + (state.questionEditMode === 'preview' ? 'Edit YAML' : 'Structured view') + '</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' +
+      (state.questionEditMode === 'preview' ? 'Edit YAML' : 'Structured view') +
+      '</button>';
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
 
     if (state.questionEditMode === 'preview') {
-      html += '<div class="editor-card"><div class="editor-card-header">Object declarations</div><div class="editor-card-body">';
+      html +=
+        '<div class="editor-card"><div class="editor-card-header">Object declarations</div><div class="editor-card-body">';
 
       if (Array.isArray(editorObjects) && editorObjects.length > 0) {
         editorObjects.forEach(function (obj, oi) {
@@ -7575,24 +10895,46 @@
           var mode = obj.mode === 'using' ? 'using' : 'raw';
           var className = String(obj.class_name || '');
           var usingArgs = String(obj.using_args || '');
-          var rawExpression = String(obj.raw_expression || obj.expression || '');
+          var rawExpression = String(
+            obj.raw_expression || obj.expression || '',
+          );
           html += '<div class="editor-obj-row" data-obj-idx="' + oi + '">';
-          html += '<input type="hidden" data-obj-prop="mode" value="' + esc(mode) + '">';
+          html +=
+            '<input type="hidden" data-obj-prop="mode" value="' +
+            esc(mode) +
+            '">';
           html += '<div class="editor-obj-fields">';
           html += '<div class="editor-obj-topline">';
           html += '<div class="editor-form-group editor-form-group-compact">';
-          html += '<label class="editor-tiny" for="editor-obj-name-' + oi + '">Variable name</label>';
-          html += '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-name-' + oi + '" data-obj-prop="name" data-symbol-role="top-level" value="' + esc(name) + '" placeholder="variable_name">';
+          html +=
+            '<label class="editor-tiny" for="editor-obj-name-' +
+            oi +
+            '">Variable name</label>';
+          html +=
+            '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-name-' +
+            oi +
+            '" data-obj-prop="name" data-symbol-role="top-level" value="' +
+            esc(name) +
+            '" placeholder="variable_name">';
           html += '</div>';
           if (mode === 'using') {
             html += '<div class="editor-form-group editor-form-group-compact">';
-            html += '<label class="editor-tiny" for="editor-obj-class-' + oi + '">Class</label>';
-            html += '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-class-' + oi + '" data-obj-prop="class" data-symbol-role="object-class" value="' + esc(className) + '" placeholder="ClassName">';
+            html +=
+              '<label class="editor-tiny" for="editor-obj-class-' +
+              oi +
+              '">Class</label>';
+            html +=
+              '<input class="form-control editor-form-control editor-obj-input font-monospace" id="editor-obj-class-' +
+              oi +
+              '" data-obj-prop="class" data-symbol-role="object-class" value="' +
+              esc(className) +
+              '" placeholder="ClassName">';
             html += '</div>';
           } else {
             html += '<div class="editor-form-group editor-form-group-compact">';
             html += '<label class="editor-tiny">Editor mode</label>';
-            html += '<div class="editor-obj-hint mt-0">Raw expression fallback</div>';
+            html +=
+              '<div class="editor-obj-hint mt-0">Raw expression fallback</div>';
             html += '</div>';
           }
           html += '</div>';
@@ -7603,39 +10945,67 @@
               usingArgs = quantity.otherArgs;
             }
             html += '<div class="editor-form-group editor-form-group-compact">';
-            html += '<label class="editor-tiny" for="editor-obj-using-' + oi + '">' + (quantity ? 'Other .using() parameters' : '.using() parameters') + '</label>';
+            html +=
+              '<label class="editor-tiny" for="editor-obj-using-' +
+              oi +
+              '">' +
+              (quantity ? 'Other .using() parameters' : '.using() parameters') +
+              '</label>';
             // The quantity control owns the parameters a people list is
             // usually configured with, so suggesting bundle parameters next to
             // it would point at the wrong thing.
             var usingPlaceholder = quantity
               ? 'complete_attribute=&quot;name&quot;'
               : 'elements=[...],&#10;filename=&quot;bundle&quot;,&#10;title=&quot;Document set&quot;';
-            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' + oi + '" data-obj-prop="using-args" rows="' + (quantity ? 2 : 4) + '" placeholder="' + usingPlaceholder + '">' + esc(usingArgs) + '</textarea>';
+            html +=
+              '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-using-' +
+              oi +
+              '" data-obj-prop="using-args" rows="' +
+              (quantity ? 2 : 4) +
+              '" placeholder="' +
+              usingPlaceholder +
+              '">' +
+              esc(usingArgs) +
+              '</textarea>';
             if (obj.is_document_bundle) {
-              html += '<div class="editor-obj-hint">Common <code>ALDocumentBundle</code> params: <code>elements=[...]</code>, <code>filename=...</code>, <code>title=...</code>, <code>enabled=True</code>.</div>';
+              html +=
+                '<div class="editor-obj-hint">Common <code>ALDocumentBundle</code> params: <code>elements=[...]</code>, <code>filename=...</code>, <code>title=...</code>, <code>enabled=True</code>.</div>';
             }
             html += '</div>';
           } else {
             html += '<div class="editor-form-group editor-form-group-compact">';
-            html += '<label class="editor-tiny" for="editor-obj-raw-' + oi + '">Raw object expression</label>';
-            html += '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-raw-' + oi + '" data-obj-prop="expression" rows="4" placeholder="ClassName.using(...)">' + esc(rawExpression) + '</textarea>';
+            html +=
+              '<label class="editor-tiny" for="editor-obj-raw-' +
+              oi +
+              '">Raw object expression</label>';
+            html +=
+              '<textarea class="form-control editor-form-control editor-obj-input font-monospace editor-obj-textarea" id="editor-obj-raw-' +
+              oi +
+              '" data-obj-prop="expression" rows="4" placeholder="ClassName.using(...)">' +
+              esc(rawExpression) +
+              '</textarea>';
             html += '</div>';
           }
           html += '</div>';
-          html += '<div><button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-obj="' + oi + '" title="Remove object"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
+          html +=
+            '<div><button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-obj="' +
+            oi +
+            '" title="Remove object"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Remove object</span></button></div>';
           html += '</div>';
         });
       } else {
         html += '<p class="text-muted small mb-0">No objects declared.</p>';
       }
 
-      html += '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-obj-btn">+ Add object</button></div>';
+      html +=
+        '<div class="mt-2"><button class="btn btn-sm btn-outline-primary" id="add-obj-btn">+ Add object</button></div>';
       html += '</div></div>';
 
       html += renderAdvancedPanel(block);
     } else {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="editor-source-container" id="block-source-editor" style="height:400px"></div>';
+      html +=
+        '<div class="editor-source-container" id="block-source-editor" style="height:400px"></div>';
       html += '</div></div>';
     }
 
@@ -7645,7 +11015,9 @@
     if (state.questionEditMode !== 'preview') {
       initSourceEditor(function () {
         createSourceEditor('block-source-editor', block.yaml, 'yaml', {
-          onChange: function () { markInterviewDirty(); }
+          onChange: function () {
+            markInterviewDirty();
+          },
         });
       });
       return;
@@ -7662,19 +11034,27 @@
 
     html += '<div class="editor-center-bar">';
     html += '<div>';
-    html += '<span class="editor-pill editor-pill-muted">' + esc(block.type) + '</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title) + '</div>';
+    html +=
+      '<span class="editor-pill editor-pill-muted">' +
+      esc(block.type) +
+      '</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title) +
+      '</div>';
     html += '</div>';
     if (PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1) {
       html += '<div class="d-flex gap-2 flex-wrap">';
-      html += '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See how this table will be drawn"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
+      html +=
+        '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See how this table will be drawn"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
       html += '</div>';
     }
     html += '</div>';
 
     html += '<div class="editor-shell">';
     html += '<div class="editor-card"><div class="editor-card-body">';
-    html += '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
+    html +=
+      '<div class="editor-source-container" id="block-source-editor" style="height:500px"></div>';
     html += '</div></div>';
     html += '</div>';
 
@@ -7682,7 +11062,9 @@
 
     initSourceEditor(function () {
       createSourceEditor('block-source-editor', block.yaml, 'yaml', {
-        onChange: function () { markInterviewDirty(); }
+        onChange: function () {
+          markInterviewDirty();
+        },
       });
     });
   }
@@ -7692,17 +11074,25 @@
     html += '<div class="editor-center-bar">';
     html += '<div>';
     html += '<span class="editor-pill editor-pill-muted">Disabled</span>';
-    html += '<div style="font-weight:600;font-size:16px;margin-top:6px">' + esc(block.title || block.id) + '</div>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(block.title || block.id) +
+      '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-primary" id="enable-block-btn"><i class="fa-solid fa-circle-play me-1" aria-hidden="true"></i>Re-enable block</button>';
+    html +=
+      '<button class="btn btn-sm btn-primary" id="enable-block-btn"><i class="fa-solid fa-circle-play me-1" aria-hidden="true"></i>Re-enable block</button>';
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
     html += '<div class="editor-card"><div class="editor-card-body">';
     html += '<div class="editor-form-group">';
-    html += '<label class="editor-tiny" for="commented-block-yaml">Commented YAML</label>';
-    html += '<textarea class="form-control editor-form-control font-monospace editor-commented-yaml" id="commented-block-yaml" rows="14" readonly>' + esc(block.yaml || '') + '</textarea>';
+    html +=
+      '<label class="editor-tiny" for="commented-block-yaml">Commented YAML</label>';
+    html +=
+      '<textarea class="form-control editor-form-control font-monospace editor-commented-yaml" id="commented-block-yaml" rows="14" readonly>' +
+      esc(block.yaml || '') +
+      '</textarea>';
     html += '</div>';
     html += '</div></div>';
     html += '</div>';
@@ -7780,8 +11170,15 @@
     // Only flag consequential settings that are otherwise hidden in the
     // settings panel. Choices and code are visible in the field editor, while
     // a generic "display" badge does not tell an author what needs attention.
-    if (fmods['show if'] || fmods['hide if'] || fmods['enable if'] || fmods['disable if']) indicators.push('Conditional');
-    if (fmods.validate || fmods['validation code']) indicators.push('Validation');
+    if (
+      fmods['show if'] ||
+      fmods['hide if'] ||
+      fmods['enable if'] ||
+      fmods['disable if']
+    )
+      indicators.push('Conditional');
+    if (fmods.validate || fmods['validation code'])
+      indicators.push('Validation');
     return indicators;
   }
 
@@ -7811,28 +11208,57 @@
   function _renderFieldTypeDropdown(fi, dtype) {
     var html = '';
     html += '<div class="dropdown editor-field-type-dropdown">';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-field-type-btn" id="field-type-btn-' + fi + '" data-bs-toggle="dropdown" aria-expanded="false" title="Datatype">';
-    html += '<i class="fa-solid ' + _fieldTypeIcon(dtype) + '" aria-hidden="true"></i>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-field-type-btn" id="field-type-btn-' +
+      fi +
+      '" data-bs-toggle="dropdown" aria-expanded="false" title="Datatype">';
+    html +=
+      '<i class="fa-solid ' +
+      _fieldTypeIcon(dtype) +
+      '" aria-hidden="true"></i>';
     html += '<span>' + esc(_fieldTypeLabel(dtype)) + '</span>';
     html += '</button>';
-    html += '<div class="dropdown-menu editor-field-type-menu" aria-labelledby="field-type-btn-' + fi + '">';
+    html +=
+      '<div class="dropdown-menu editor-field-type-menu" aria-labelledby="field-type-btn-' +
+      fi +
+      '">';
     FIELD_TYPE_GROUPS.forEach(function (group, gi) {
       if (gi > 0) html += '<div class="dropdown-divider"></div>';
       html += '<h6 class="dropdown-header">' + esc(group.label) + '</h6>';
       group.items.forEach(function (item) {
-        html += '<button type="button" class="dropdown-item editor-field-type-item' + (item === dtype ? ' active' : '') + '" data-field-datatype="' + item + '" data-field-idx="' + fi + '">';
-        html += '<i class="fa-solid ' + _fieldTypeIcon(item) + ' me-2" aria-hidden="true"></i>' + esc(_fieldTypeLabel(item));
+        html +=
+          '<button type="button" class="dropdown-item editor-field-type-item' +
+          (item === dtype ? ' active' : '') +
+          '" data-field-datatype="' +
+          item +
+          '" data-field-idx="' +
+          fi +
+          '">';
+        html +=
+          '<i class="fa-solid ' +
+          _fieldTypeIcon(item) +
+          ' me-2" aria-hidden="true"></i>' +
+          esc(_fieldTypeLabel(item));
         html += '</button>';
       });
     });
     html += '</div></div>';
     return html;
   }
-  function _renderFieldModsPanel(fi, fmods, dtype, choices, codeExpr, showIfKey, showIfVal) {
+  function _renderFieldModsPanel(
+    fi,
+    fmods,
+    dtype,
+    choices,
+    codeExpr,
+    showIfKey,
+    showIfVal,
+  ) {
     // Always render (with display:none when closed) so DOM elements exist for serialization
     var isOpen = _openFieldModsPanels[fi];
     var isStandalone = _fieldTypeSupportsStandaloneContent(dtype);
-    var activeTab = _fieldSettingsTabs[fi] || (isStandalone ? 'logic' : 'basic');
+    var activeTab =
+      _fieldSettingsTabs[fi] || (isStandalone ? 'logic' : 'basic');
     var tabLabels = {
       basic: 'Basic',
       logic: 'Logic',
@@ -7842,26 +11268,61 @@
       metadata: 'Metadata',
       more: 'More',
     };
-    var availableTabs = isStandalone ? ['logic'] : ['basic', 'logic', 'help', 'validation', 'appearance', 'metadata', 'more'];
+    var availableTabs = isStandalone
+      ? ['logic']
+      : [
+          'basic',
+          'logic',
+          'help',
+          'validation',
+          'appearance',
+          'metadata',
+          'more',
+        ];
     if (availableTabs.indexOf(activeTab) === -1) activeTab = availableTabs[0];
 
     function row(labelFor, labelText, controlHtml, rowClass, hintText) {
       var out = '<div class="' + (rowClass || 'editor-field-mod-row') + '">';
-      if (labelText) out += '<label class="editor-tiny" for="' + esc(labelFor) + '">' + esc(labelText) + '</label>';
+      if (labelText)
+        out +=
+          '<label class="editor-tiny" for="' +
+          esc(labelFor) +
+          '">' +
+          esc(labelText) +
+          '</label>';
       out += controlHtml;
       // A hint that says what the value has to look like stays on screen: a
       // placeholder is gone exactly when the author starts typing.
-      if (hintText) out += '<div class="editor-tiny editor-field-mod-hint">' + esc(hintText) + '</div>';
+      if (hintText)
+        out +=
+          '<div class="editor-tiny editor-field-mod-hint">' +
+          esc(hintText) +
+          '</div>';
       out += '</div>';
       return out;
     }
 
     function pairRow(leftHtml, rightHtml) {
-      return '<div class="editor-field-mod-row editor-field-mod-row-pair">' + leftHtml + rightHtml + '</div>';
+      return (
+        '<div class="editor-field-mod-row editor-field-mod-row-pair">' +
+        leftHtml +
+        rightHtml +
+        '</div>'
+      );
     }
 
     function hiddenField(name) {
-      return '<input type="hidden" id="' + esc(name) + '-' + fi + '" data-fmod="' + esc(name) + '" data-field-idx="' + fi + '" value="">';
+      return (
+        '<input type="hidden" id="' +
+        esc(name) +
+        '-' +
+        fi +
+        '" data-fmod="' +
+        esc(name) +
+        '" data-field-idx="' +
+        fi +
+        '" value="">'
+      );
     }
 
     function renderBasicTab() {
@@ -7869,131 +11330,728 @@
       // Choice datatypes render their options below the field row so they
       // remain available when the rest of field settings is collapsed.
       if (CHOICE_TYPES.indexOf(dtype) === -1) {
-        out += row('field-choices-' + fi, 'choices (one per line)', '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' + fi + '" rows="3">' + esc(String(choices || '')) + '</textarea>');
+        out += row(
+          'field-choices-' + fi,
+          'choices (one per line)',
+          '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
+            fi +
+            '" rows="3">' +
+            esc(String(choices || '')) +
+            '</textarea>',
+        );
       }
-      out += row('field-code-' + fi, 'code (Python expression)', '<textarea class="form-control editor-form-control font-monospace editor-field-code" id="field-code-' + fi + '" rows="3">' + esc(String(codeExpr || '')) + '</textarea>');
-      out += row('fmod-default-' + fi, 'default', '<input class="form-control editor-form-control font-monospace" id="fmod-default-' + fi + '" data-fmod="default" data-field-idx="' + fi + '" value="' + esc(String(fmods['default'] || '')) + '">');
-      out += row('fmod-input-type-' + fi, 'input type', '<select class="form-select editor-form-control" id="fmod-input-type-' + fi + '" data-fmod="input type" data-field-idx="' + fi + '"><option value="">(default)</option>' + ['area', 'radio', 'dropdown', 'combobox', 'ajax', 'datalist'].map(function (t) { return '<option value="' + t + '"' + (fmods['input type'] === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>');
-      out += row('fmod-disabled-' + fi, 'disabled', '<select class="form-select editor-form-control" id="fmod-disabled-' + fi + '" data-fmod="disabled" data-field-idx="' + fi + '"><option value=""' + (!fmods.disabled ? ' selected' : '') + '>No</option><option value="True"' + (fmods.disabled ? ' selected' : '') + '>Yes</option></select>');
+      out += row(
+        'field-code-' + fi,
+        'code (Python expression)',
+        '<textarea class="form-control editor-form-control font-monospace editor-field-code" id="field-code-' +
+          fi +
+          '" rows="3">' +
+          esc(String(codeExpr || '')) +
+          '</textarea>',
+      );
+      out += row(
+        'fmod-default-' + fi,
+        'default',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-default-' +
+          fi +
+          '" data-fmod="default" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['default'] || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-input-type-' + fi,
+        'input type',
+        '<select class="form-select editor-form-control" id="fmod-input-type-' +
+          fi +
+          '" data-fmod="input type" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option>' +
+          ['area', 'radio', 'dropdown', 'combobox', 'ajax', 'datalist']
+            .map(function (t) {
+              return (
+                '<option value="' +
+                t +
+                '"' +
+                (fmods['input type'] === t ? ' selected' : '') +
+                '>' +
+                esc(t) +
+                '</option>'
+              );
+            })
+            .join('') +
+          '</select>',
+      );
+      out += row(
+        'fmod-disabled-' + fi,
+        'disabled',
+        '<select class="form-select editor-form-control" id="fmod-disabled-' +
+          fi +
+          '" data-fmod="disabled" data-field-idx="' +
+          fi +
+          '"><option value=""' +
+          (!fmods.disabled ? ' selected' : '') +
+          '>No</option><option value="True"' +
+          (fmods.disabled ? ' selected' : '') +
+          '>Yes</option></select>',
+      );
       return out;
     }
 
     function renderLogicTab() {
       var out = '';
-      out += '<div class="editor-field-option-row" data-field-idx="' + fi + '">';
-      out += '<label class="editor-tiny" for="field-showif-' + fi + '">condition</label>';
-      out += '<select class="editor-field-showif-key" data-field-idx="' + fi + '" aria-label="Condition type">';
-      out += '<option value="show if"' + (showIfKey === 'show if' ? ' selected' : '') + '>show if</option>';
-      out += '<option value="hide if"' + (showIfKey === 'hide if' ? ' selected' : '') + '>hide if</option>';
+      out +=
+        '<div class="editor-field-option-row" data-field-idx="' + fi + '">';
+      out +=
+        '<label class="editor-tiny" for="field-showif-' +
+        fi +
+        '">condition</label>';
+      out +=
+        '<select class="editor-field-showif-key" data-field-idx="' +
+        fi +
+        '" aria-label="Condition type">';
+      out +=
+        '<option value="show if"' +
+        (showIfKey === 'show if' ? ' selected' : '') +
+        '>show if</option>';
+      out +=
+        '<option value="hide if"' +
+        (showIfKey === 'hide if' ? ' selected' : '') +
+        '>hide if</option>';
       out += '</select>';
       out += renderSymbolDatalist('field-showif-list-' + fi, 'variable', 120);
-      out += '<input class="form-control editor-form-control font-monospace editor-field-showif-input" data-symbol-role="variable" list="field-showif-list-' + fi + '" data-field-prop="showif" data-field-idx="' + fi + '" id="field-showif-' + fi + '" value="' + esc(String(showIfVal || '')) + '" placeholder="variable_name or object condition">';
+      out +=
+        '<input class="form-control editor-form-control font-monospace editor-field-showif-input" data-symbol-role="variable" list="field-showif-list-' +
+        fi +
+        '" data-field-prop="showif" data-field-idx="' +
+        fi +
+        '" id="field-showif-' +
+        fi +
+        '" value="' +
+        esc(String(showIfVal || '')) +
+        '" placeholder="variable_name or object condition">';
       out += '</div>';
-      out += row('fmod-enableif-' + fi, 'enable if', '<input class="form-control editor-form-control font-monospace" id="fmod-enableif-' + fi + '" data-fmod="enable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['enable if'] || '')) + '">');
-      out += row('fmod-disableif-' + fi, 'disable if', '<input class="form-control editor-form-control font-monospace" id="fmod-disableif-' + fi + '" data-fmod="disable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['disable if'] || '')) + '">');
-      out += '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:10px;">JavaScript conditions</div>';
-      out += row('fmod-jsshowif-' + fi, 'js show if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsshowif-' + fi + '" data-fmod="js show if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js show if'] || '')) + '" placeholder="JavaScript expression">');
-      out += row('fmod-jshideif-' + fi, 'js hide if', '<input class="form-control editor-form-control font-monospace" id="fmod-jshideif-' + fi + '" data-fmod="js hide if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js hide if'] || '')) + '" placeholder="JavaScript expression">');
-      out += row('fmod-jsenabledif-' + fi, 'js enable if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsenabledif-' + fi + '" data-fmod="js enable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js enable if'] || '')) + '" placeholder="JavaScript expression">');
-      out += row('fmod-jsdisabledif-' + fi, 'js disable if', '<input class="form-control editor-form-control font-monospace" id="fmod-jsdisabledif-' + fi + '" data-fmod="js disable if" data-field-idx="' + fi + '" value="' + esc(String(fmods['js disable if'] || '')) + '" placeholder="JavaScript expression">');
-      out += row('fmod-exclude-' + fi, 'exclude', '<input class="form-control editor-form-control font-monospace" id="fmod-exclude-' + fi + '" data-fmod="exclude" data-field-idx="' + fi + '" value="' + esc(String(fmods.exclude || '')) + '">');
-      out += pairRow(
-        '<div><label class="editor-tiny" for="fmod-nota-' + fi + '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' + fi + '" data-fmod="none of the above" data-field-idx="' + fi + '" value="' + esc(String(fmods['none of the above'] !== undefined ? fmods['none of the above'] : '')) + '"></div>',
-        '<div><label class="editor-tiny" for="fmod-aota-' + fi + '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' + fi + '" data-fmod="all of the above" data-field-idx="' + fi + '" value="' + esc(String(fmods['all of the above'] !== undefined ? fmods['all of the above'] : '')) + '"></div>'
+      out += row(
+        'fmod-enableif-' + fi,
+        'enable if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-enableif-' +
+          fi +
+          '" data-fmod="enable if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['enable if'] || '')) +
+          '">',
       );
-      out += row('fmod-shuffle-' + fi, 'shuffle', '<select class="form-select editor-form-control" id="fmod-shuffle-' + fi + '" data-fmod="shuffle" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.shuffle ? ' selected' : '') + '>Yes</option></select>');
-      out += row('fmod-disableothers-' + fi, 'disable others', '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' + fi + '" data-fmod="disable others" data-field-idx="' + fi + '" value="' + esc(typeof fmods['disable others'] === 'boolean' ? String(fmods['disable others']) : String(fmods['disable others'] || '')) + '">', null, 'True, or a list of variable names.');
+      out += row(
+        'fmod-disableif-' + fi,
+        'disable if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-disableif-' +
+          fi +
+          '" data-fmod="disable if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['disable if'] || '')) +
+          '">',
+      );
+      out +=
+        '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:10px;">JavaScript conditions</div>';
+      out += row(
+        'fmod-jsshowif-' + fi,
+        'js show if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-jsshowif-' +
+          fi +
+          '" data-fmod="js show if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['js show if'] || '')) +
+          '" placeholder="JavaScript expression">',
+      );
+      out += row(
+        'fmod-jshideif-' + fi,
+        'js hide if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-jshideif-' +
+          fi +
+          '" data-fmod="js hide if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['js hide if'] || '')) +
+          '" placeholder="JavaScript expression">',
+      );
+      out += row(
+        'fmod-jsenabledif-' + fi,
+        'js enable if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-jsenabledif-' +
+          fi +
+          '" data-fmod="js enable if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['js enable if'] || '')) +
+          '" placeholder="JavaScript expression">',
+      );
+      out += row(
+        'fmod-jsdisabledif-' + fi,
+        'js disable if',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-jsdisabledif-' +
+          fi +
+          '" data-fmod="js disable if" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['js disable if'] || '')) +
+          '" placeholder="JavaScript expression">',
+      );
+      out += row(
+        'fmod-exclude-' + fi,
+        'exclude',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-exclude-' +
+          fi +
+          '" data-fmod="exclude" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.exclude || '')) +
+          '">',
+      );
+      out += pairRow(
+        '<div><label class="editor-tiny" for="fmod-nota-' +
+          fi +
+          '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' +
+          fi +
+          '" data-fmod="none of the above" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(
+            String(
+              fmods['none of the above'] !== undefined
+                ? fmods['none of the above']
+                : '',
+            ),
+          ) +
+          '"></div>',
+        '<div><label class="editor-tiny" for="fmod-aota-' +
+          fi +
+          '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' +
+          fi +
+          '" data-fmod="all of the above" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(
+            String(
+              fmods['all of the above'] !== undefined
+                ? fmods['all of the above']
+                : '',
+            ),
+          ) +
+          '"></div>',
+      );
+      out += row(
+        'fmod-shuffle-' + fi,
+        'shuffle',
+        '<select class="form-select editor-form-control" id="fmod-shuffle-' +
+          fi +
+          '" data-fmod="shuffle" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods.shuffle ? ' selected' : '') +
+          '>Yes</option></select>',
+      );
+      out += row(
+        'fmod-disableothers-' + fi,
+        'disable others',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
+          fi +
+          '" data-fmod="disable others" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(
+            typeof fmods['disable others'] === 'boolean'
+              ? String(fmods['disable others'])
+              : String(fmods['disable others'] || ''),
+          ) +
+          '">',
+        null,
+        'True, or a list of variable names.',
+      );
       return out;
     }
 
     function renderHelpTab() {
       var out = '';
-      out += row('fmod-help-' + fi, 'help', '<input class="form-control editor-form-control" id="fmod-help-' + fi + '" data-fmod="help" data-field-idx="' + fi + '" value="' + esc(String(fmods.help || '')) + '">');
-      out += row('fmod-hint-' + fi, 'hint', '<input class="form-control editor-form-control" id="fmod-hint-' + fi + '" data-fmod="hint" data-field-idx="' + fi + '" value="' + esc(String(fmods.hint || '')) + '">');
-      out += row('fmod-under-text-' + fi, 'under text', '<input class="form-control editor-form-control" id="fmod-under-text-' + fi + '" data-fmod="under text" data-field-idx="' + fi + '" value="' + esc(String(fmods["under text"] || '')) + '">');
-      out += row('fmod-note-' + fi, 'note', '<input class="form-control editor-form-control" id="fmod-note-' + fi + '" data-fmod="note" data-field-idx="' + fi + '" value="' + esc(String(fmods.note || '')) + '">');
+      out += row(
+        'fmod-help-' + fi,
+        'help',
+        '<input class="form-control editor-form-control" id="fmod-help-' +
+          fi +
+          '" data-fmod="help" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.help || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-hint-' + fi,
+        'hint',
+        '<input class="form-control editor-form-control" id="fmod-hint-' +
+          fi +
+          '" data-fmod="hint" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.hint || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-under-text-' + fi,
+        'under text',
+        '<input class="form-control editor-form-control" id="fmod-under-text-' +
+          fi +
+          '" data-fmod="under text" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['under text'] || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-note-' + fi,
+        'note',
+        '<input class="form-control editor-form-control" id="fmod-note-' +
+          fi +
+          '" data-fmod="note" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.note || '')) +
+          '">',
+      );
       return out;
     }
 
     function renderValidationTab() {
       var out = '';
-      var isNumericType = ['number', 'integer', 'currency', 'range'].indexOf(dtype) !== -1;
-      var isLengthType = ['text', 'area', 'raw', 'email', 'password', 'url', 'ml', 'mlarea', 'checkboxes', 'multiselect'].indexOf(dtype) !== -1;
+      var isNumericType =
+        ['number', 'integer', 'currency', 'range'].indexOf(dtype) !== -1;
+      var isLengthType =
+        [
+          'text',
+          'area',
+          'raw',
+          'email',
+          'password',
+          'url',
+          'ml',
+          'mlarea',
+          'checkboxes',
+          'multiselect',
+        ].indexOf(dtype) !== -1;
       if (isNumericType || fmods.min !== undefined || fmods.max !== undefined) {
         out += pairRow(
-          '<div><label class="editor-tiny" for="fmod-min-' + fi + '">min</label><input class="form-control editor-form-control font-monospace" id="fmod-min-' + fi + '" data-fmod="min" data-field-idx="' + fi + '" value="' + esc(String(fmods.min !== undefined ? fmods.min : '')) + '"></div>',
-          '<div><label class="editor-tiny" for="fmod-max-' + fi + '">max</label><input class="form-control editor-form-control font-monospace" id="fmod-max-' + fi + '" data-fmod="max" data-field-idx="' + fi + '" value="' + esc(String(fmods.max !== undefined ? fmods.max : '')) + '"></div>'
+          '<div><label class="editor-tiny" for="fmod-min-' +
+            fi +
+            '">min</label><input class="form-control editor-form-control font-monospace" id="fmod-min-' +
+            fi +
+            '" data-fmod="min" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.min !== undefined ? fmods.min : '')) +
+            '"></div>',
+          '<div><label class="editor-tiny" for="fmod-max-' +
+            fi +
+            '">max</label><input class="form-control editor-form-control font-monospace" id="fmod-max-' +
+            fi +
+            '" data-fmod="max" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.max !== undefined ? fmods.max : '')) +
+            '"></div>',
         );
       } else {
         out += hiddenField('fmod-min');
         out += hiddenField('fmod-max');
       }
       if (dtype === 'range' || fmods.step !== undefined) {
-        out += row('fmod-step-' + fi, 'step', '<input class="form-control editor-form-control font-monospace" id="fmod-step-' + fi + '" data-fmod="step" data-field-idx="' + fi + '" value="' + esc(String(fmods.step !== undefined ? fmods.step : '')) + '">');
+        out += row(
+          'fmod-step-' + fi,
+          'step',
+          '<input class="form-control editor-form-control font-monospace" id="fmod-step-' +
+            fi +
+            '" data-fmod="step" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.step !== undefined ? fmods.step : '')) +
+            '">',
+        );
       } else {
         out += hiddenField('fmod-step');
       }
-      if (isLengthType || fmods.minlength !== undefined || fmods.maxlength !== undefined) {
+      if (
+        isLengthType ||
+        fmods.minlength !== undefined ||
+        fmods.maxlength !== undefined
+      ) {
         out += pairRow(
-          '<div><label class="editor-tiny" for="fmod-minlength-' + fi + '">minlength</label><input class="form-control editor-form-control font-monospace" id="fmod-minlength-' + fi + '" data-fmod="minlength" data-field-idx="' + fi + '" value="' + esc(String(fmods.minlength || '')) + '"></div>',
-          '<div><label class="editor-tiny" for="fmod-maxlength-' + fi + '">maxlength</label><input class="form-control editor-form-control font-monospace" id="fmod-maxlength-' + fi + '" data-fmod="maxlength" data-field-idx="' + fi + '" value="' + esc(String(fmods.maxlength || '')) + '"></div>'
+          '<div><label class="editor-tiny" for="fmod-minlength-' +
+            fi +
+            '">minlength</label><input class="form-control editor-form-control font-monospace" id="fmod-minlength-' +
+            fi +
+            '" data-fmod="minlength" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.minlength || '')) +
+            '"></div>',
+          '<div><label class="editor-tiny" for="fmod-maxlength-' +
+            fi +
+            '">maxlength</label><input class="form-control editor-form-control font-monospace" id="fmod-maxlength-' +
+            fi +
+            '" data-fmod="maxlength" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.maxlength || '')) +
+            '"></div>',
         );
       } else {
         out += hiddenField('fmod-minlength');
         out += hiddenField('fmod-maxlength');
       }
-      out += row('fmod-validate-' + fi, 'validate', '<input class="form-control editor-form-control font-monospace" id="fmod-validate-' + fi + '" data-fmod="validate" data-field-idx="' + fi + '" value="' + esc(String(fmods.validate || '')) + '" placeholder="function_name or lambda">');
-      out += row('fmod-validation-code-' + fi, 'validation code', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-code-' + fi + '" data-fmod="validation code" data-field-idx="' + fi + '" rows="2" placeholder="Python to validate">' + esc(String(fmods['validation code'] || '')) + '</textarea>');
-      out += row('fmod-validation-messages-' + fi, 'validation messages', '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-messages-' + fi + '" data-fmod="validation messages" data-field-idx="' + fi + '" rows="2">' + esc(typeof fmods['validation messages'] === 'object' ? JSON.stringify(fmods['validation messages'], null, 2) : String(fmods['validation messages'] || '')) + '</textarea>', null, 'A YAML mapping of rule name to the message shown when it fails.');
-      if (['file', 'files'].indexOf(dtype) !== -1 || fmods.accept !== undefined) {
-        out += row('fmod-accept-' + fi, 'accept', '<input class="form-control editor-form-control" id="fmod-accept-' + fi + '" data-fmod="accept" data-field-idx="' + fi + '" value="' + esc(String(fmods.accept || '')) + '">');
+      out += row(
+        'fmod-validate-' + fi,
+        'validate',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-validate-' +
+          fi +
+          '" data-fmod="validate" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.validate || '')) +
+          '" placeholder="function_name or lambda">',
+      );
+      out += row(
+        'fmod-validation-code-' + fi,
+        'validation code',
+        '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-code-' +
+          fi +
+          '" data-fmod="validation code" data-field-idx="' +
+          fi +
+          '" rows="2" placeholder="Python to validate">' +
+          esc(String(fmods['validation code'] || '')) +
+          '</textarea>',
+      );
+      out += row(
+        'fmod-validation-messages-' + fi,
+        'validation messages',
+        '<textarea class="form-control editor-form-control font-monospace" id="fmod-validation-messages-' +
+          fi +
+          '" data-fmod="validation messages" data-field-idx="' +
+          fi +
+          '" rows="2">' +
+          esc(
+            typeof fmods['validation messages'] === 'object'
+              ? JSON.stringify(fmods['validation messages'], null, 2)
+              : String(fmods['validation messages'] || ''),
+          ) +
+          '</textarea>',
+        null,
+        'A YAML mapping of rule name to the message shown when it fails.',
+      );
+      if (
+        ['file', 'files'].indexOf(dtype) !== -1 ||
+        fmods.accept !== undefined
+      ) {
+        out += row(
+          'fmod-accept-' + fi,
+          'accept',
+          '<input class="form-control editor-form-control" id="fmod-accept-' +
+            fi +
+            '" data-fmod="accept" data-field-idx="' +
+            fi +
+            '" value="' +
+            esc(String(fmods.accept || '')) +
+            '">',
+        );
       }
       return out;
     }
 
     function renderAppearanceTab() {
       var out = '';
-      out += row('fmod-no-label-' + fi, 'no label', '<select class="form-select editor-form-control" id="fmod-no-label-' + fi + '" data-fmod="no label" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['no label'] ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods['no label'] === false || fmods['no label'] === 'False' ? ' selected' : '') + '>No</option></select>');
-      out += row('fmod-css-class-' + fi, 'css class', '<input class="form-control editor-form-control" id="fmod-css-class-' + fi + '" data-fmod="css class" data-field-idx="' + fi + '" value="' + esc(String(fmods['css class'] || '')) + '">');
-      out += row('fmod-label-above-' + fi, 'label above field', '<select class="form-select editor-form-control" id="fmod-label-above-' + fi + '" data-fmod="label above field" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['label above field'] ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods['label above field'] === false || fmods['label above field'] === 'False' ? ' selected' : '') + '>No</option></select>');
-      out += row('fmod-floating-label-' + fi, 'floating label', '<select class="form-select editor-form-control" id="fmod-floating-label-' + fi + '" data-fmod="floating label" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods['floating label'] ? ' selected' : '') + '>Yes</option></select>');
-      out += row('fmod-grid-' + fi, 'grid', '<input class="form-control editor-form-control font-monospace" id="fmod-grid-' + fi + '" data-fmod="grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods.grid === 'object' ? JSON.stringify(fmods.grid) : String(fmods.grid || '')) + '" placeholder="1-12">');
-      out += row('fmod-item-grid-' + fi, 'item grid', '<input class="form-control editor-form-control font-monospace" id="fmod-item-grid-' + fi + '" data-fmod="item grid" data-field-idx="' + fi + '" value="' + esc(typeof fmods['item grid'] === 'object' ? JSON.stringify(fmods['item grid']) : String(fmods['item grid'] || '')) + '" placeholder="1-12">');
-      out += row('fmod-rows-' + fi, 'rows', '<input class="form-control editor-form-control font-monospace" id="fmod-rows-' + fi + '" data-fmod="rows" data-field-idx="' + fi + '" value="' + esc(String(fmods.rows || '')) + '">', null, 'How many rows tall the textarea is.');
-      out += row('fmod-inline-width-' + fi, 'inline width', '<input class="form-control editor-form-control font-monospace" id="fmod-inline-width-' + fi + '" data-fmod="inline width" data-field-idx="' + fi + '" value="' + esc(String(fmods['inline width'] || '')) + '" placeholder="15em">');
+      out += row(
+        'fmod-no-label-' + fi,
+        'no label',
+        '<select class="form-select editor-form-control" id="fmod-no-label-' +
+          fi +
+          '" data-fmod="no label" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods['no label'] ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (fmods['no label'] === false || fmods['no label'] === 'False'
+            ? ' selected'
+            : '') +
+          '>No</option></select>',
+      );
+      out += row(
+        'fmod-css-class-' + fi,
+        'css class',
+        '<input class="form-control editor-form-control" id="fmod-css-class-' +
+          fi +
+          '" data-fmod="css class" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['css class'] || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-label-above-' + fi,
+        'label above field',
+        '<select class="form-select editor-form-control" id="fmod-label-above-' +
+          fi +
+          '" data-fmod="label above field" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods['label above field'] ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (fmods['label above field'] === false ||
+          fmods['label above field'] === 'False'
+            ? ' selected'
+            : '') +
+          '>No</option></select>',
+      );
+      out += row(
+        'fmod-floating-label-' + fi,
+        'floating label',
+        '<select class="form-select editor-form-control" id="fmod-floating-label-' +
+          fi +
+          '" data-fmod="floating label" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods['floating label'] ? ' selected' : '') +
+          '>Yes</option></select>',
+      );
+      out += row(
+        'fmod-grid-' + fi,
+        'grid',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-grid-' +
+          fi +
+          '" data-fmod="grid" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(
+            typeof fmods.grid === 'object'
+              ? JSON.stringify(fmods.grid)
+              : String(fmods.grid || ''),
+          ) +
+          '" placeholder="1-12">',
+      );
+      out += row(
+        'fmod-item-grid-' + fi,
+        'item grid',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-item-grid-' +
+          fi +
+          '" data-fmod="item grid" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(
+            typeof fmods['item grid'] === 'object'
+              ? JSON.stringify(fmods['item grid'])
+              : String(fmods['item grid'] || ''),
+          ) +
+          '" placeholder="1-12">',
+      );
+      out += row(
+        'fmod-rows-' + fi,
+        'rows',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-rows-' +
+          fi +
+          '" data-fmod="rows" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods.rows || '')) +
+          '">',
+        null,
+        'How many rows tall the textarea is.',
+      );
+      out += row(
+        'fmod-inline-width-' + fi,
+        'inline width',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-inline-width-' +
+          fi +
+          '" data-fmod="inline width" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['inline width'] || '')) +
+          '" placeholder="15em">',
+      );
       return out;
     }
 
     function renderMetadataTab() {
       var out = '';
-      out += row('fmod-field-metadata-' + fi, 'field metadata', '<textarea class="form-control editor-form-control font-monospace" id="fmod-field-metadata-' + fi + '" data-fmod="field metadata" data-field-idx="' + fi + '" rows="4" placeholder="YAML">' + esc(typeof fmods['field metadata'] === 'object' ? JSON.stringify(fmods['field metadata'], null, 2) : String(fmods['field metadata'] || '')) + '</textarea>');
+      out += row(
+        'fmod-field-metadata-' + fi,
+        'field metadata',
+        '<textarea class="form-control editor-form-control font-monospace" id="fmod-field-metadata-' +
+          fi +
+          '" data-fmod="field metadata" data-field-idx="' +
+          fi +
+          '" rows="4" placeholder="YAML">' +
+          esc(
+            typeof fmods['field metadata'] === 'object'
+              ? JSON.stringify(fmods['field metadata'], null, 2)
+              : String(fmods['field metadata'] || ''),
+          ) +
+          '</textarea>',
+      );
       return out;
     }
 
     function renderMoreTab() {
       var out = '';
-      out += row('fmod-address-auto-' + fi, 'address autocomplete', '<textarea class="form-control editor-form-control font-monospace" id="fmod-address-auto-' + fi + '" data-fmod="address autocomplete" data-field-idx="' + fi + '" rows="3">' + esc(String(fmods['address autocomplete'] || '')) + '</textarea>', null, 'True, or YAML options for the autocompleter.');
-      out += row('fmod-maximum-image-size-' + fi, 'maximum image size', '<input class="form-control editor-form-control font-monospace" id="fmod-maximum-image-size-' + fi + '" data-fmod="maximum image size" data-field-idx="' + fi + '" value="' + esc(String(fmods['maximum image size'] || '')) + '">');
-      out += row('fmod-image-upload-type-' + fi, 'image upload type', '<input class="form-control editor-form-control" id="fmod-image-upload-type-' + fi + '" data-fmod="image upload type" data-field-idx="' + fi + '" value="' + esc(String(fmods['image upload type'] || '')) + '" placeholder="jpeg">');
-      out += row('fmod-persistent-' + fi, 'persistent', '<select class="form-select editor-form-control" id="fmod-persistent-' + fi + '" data-fmod="persistent" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.persistent ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.persistent === false || fmods.persistent === 'False' ? ' selected' : '') + '>No</option></select>');
-      out += row('fmod-private-' + fi, 'private', '<select class="form-select editor-form-control" id="fmod-private-' + fi + '" data-fmod="private" data-field-idx="' + fi + '"><option value="">(default)</option><option value="True"' + (fmods.private ? ' selected' : '') + '>Yes</option><option value="False"' + (fmods.private === false || fmods.private === 'False' ? ' selected' : '') + '>No</option></select>');
-      out += row('fmod-allow-users-' + fi, 'allow users', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-users-' + fi + '" data-fmod="allow users" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow users'] || '')) + '">', null, 'Email addresses or user IDs, separated by commas.');
-      out += row('fmod-allow-privileges-' + fi, 'allow privileges', '<input class="form-control editor-form-control font-monospace" id="fmod-allow-privileges-' + fi + '" data-fmod="allow privileges" data-field-idx="' + fi + '" value="' + esc(String(fmods['allow privileges'] || '')) + '">', null, 'Privilege names, separated by commas \u2014 for example developer, user.');
-      out += row('fmod-file-css-class-' + fi, 'file css class', '<input class="form-control editor-form-control" id="fmod-file-css-class-' + fi + '" data-fmod="file css class" data-field-idx="' + fi + '" value="' + esc(String(fmods['file css class'] || '')) + '">');
-      out += row('fmod-object-labeler-' + fi, 'object labeler', '<input class="form-control editor-form-control font-monospace" id="fmod-object-labeler-' + fi + '" data-fmod="object labeler" data-field-idx="' + fi + '" value="' + esc(String(fmods['object labeler'] || '')) + '" placeholder="lambda y: y.name">');
+      out += row(
+        'fmod-address-auto-' + fi,
+        'address autocomplete',
+        '<textarea class="form-control editor-form-control font-monospace" id="fmod-address-auto-' +
+          fi +
+          '" data-fmod="address autocomplete" data-field-idx="' +
+          fi +
+          '" rows="3">' +
+          esc(String(fmods['address autocomplete'] || '')) +
+          '</textarea>',
+        null,
+        'True, or YAML options for the autocompleter.',
+      );
+      out += row(
+        'fmod-maximum-image-size-' + fi,
+        'maximum image size',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-maximum-image-size-' +
+          fi +
+          '" data-fmod="maximum image size" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['maximum image size'] || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-image-upload-type-' + fi,
+        'image upload type',
+        '<input class="form-control editor-form-control" id="fmod-image-upload-type-' +
+          fi +
+          '" data-fmod="image upload type" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['image upload type'] || '')) +
+          '" placeholder="jpeg">',
+      );
+      out += row(
+        'fmod-persistent-' + fi,
+        'persistent',
+        '<select class="form-select editor-form-control" id="fmod-persistent-' +
+          fi +
+          '" data-fmod="persistent" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods.persistent ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (fmods.persistent === false || fmods.persistent === 'False'
+            ? ' selected'
+            : '') +
+          '>No</option></select>',
+      );
+      out += row(
+        'fmod-private-' + fi,
+        'private',
+        '<select class="form-select editor-form-control" id="fmod-private-' +
+          fi +
+          '" data-fmod="private" data-field-idx="' +
+          fi +
+          '"><option value="">(default)</option><option value="True"' +
+          (fmods.private ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (fmods.private === false || fmods.private === 'False'
+            ? ' selected'
+            : '') +
+          '>No</option></select>',
+      );
+      out += row(
+        'fmod-allow-users-' + fi,
+        'allow users',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-allow-users-' +
+          fi +
+          '" data-fmod="allow users" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['allow users'] || '')) +
+          '">',
+        null,
+        'Email addresses or user IDs, separated by commas.',
+      );
+      out += row(
+        'fmod-allow-privileges-' + fi,
+        'allow privileges',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-allow-privileges-' +
+          fi +
+          '" data-fmod="allow privileges" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['allow privileges'] || '')) +
+          '">',
+        null,
+        'Privilege names, separated by commas \u2014 for example developer, user.',
+      );
+      out += row(
+        'fmod-file-css-class-' + fi,
+        'file css class',
+        '<input class="form-control editor-form-control" id="fmod-file-css-class-' +
+          fi +
+          '" data-fmod="file css class" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['file css class'] || '')) +
+          '">',
+      );
+      out += row(
+        'fmod-object-labeler-' + fi,
+        'object labeler',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-object-labeler-' +
+          fi +
+          '" data-fmod="object labeler" data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(String(fmods['object labeler'] || '')) +
+          '" placeholder="lambda y: y.name">',
+      );
       return out;
     }
 
-    var html = '<div class="editor-field-mods-panel' + (isStandalone ? ' editor-field-mods-panel-standalone' : '') + '" data-field-idx="' + fi + '"' + (isOpen ? '' : ' hidden') + '>';
-    html += '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist">';
+    var html =
+      '<div class="editor-field-mods-panel' +
+      (isStandalone ? ' editor-field-mods-panel-standalone' : '') +
+      '" data-field-idx="' +
+      fi +
+      '"' +
+      (isOpen ? '' : ' hidden') +
+      '>';
+    html +=
+      '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist">';
     availableTabs.forEach(function (tabKey) {
-      html += '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' + (activeTab === tabKey ? 'active' : '') + '" data-field-settings-tab="' + tabKey + '" data-field-idx="' + fi + '">' + esc(tabLabels[tabKey] || tabKey) + '</button></li>';
+      html +=
+        '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' +
+        (activeTab === tabKey ? 'active' : '') +
+        '" data-field-settings-tab="' +
+        tabKey +
+        '" data-field-idx="' +
+        fi +
+        '">' +
+        esc(tabLabels[tabKey] || tabKey) +
+        '</button></li>';
     });
     html += '</ul>';
     html += '<div class="editor-field-settings-tabcontent">';
 
     function pane(tabKey, bodyHtml) {
-      return '<div class="editor-field-settings-tabpane" data-field-settings-pane="' + tabKey + '"' + (activeTab === tabKey ? '' : ' hidden') + '>' + bodyHtml + '</div>';
+      return (
+        '<div class="editor-field-settings-tabpane" data-field-settings-pane="' +
+        tabKey +
+        '"' +
+        (activeTab === tabKey ? '' : ' hidden') +
+        '>' +
+        bodyHtml +
+        '</div>'
+      );
     }
 
     if (isStandalone) {
@@ -8018,198 +12076,408 @@
     var ifEnabled = Boolean(data['if'] || data._editor_if_enabled);
     var mandatoryEnabled = Boolean(data.mandatory);
     var showMore = state.advancedShowMore;
-    var forceOpen = block && block.type === 'question' && state.questionBlockTab === 'options';
+    var forceOpen =
+      block &&
+      block.type === 'question' &&
+      state.questionBlockTab === 'options';
     var html = '';
     html += '<div class="editor-card" style="margin-top:12px">';
     if (!forceOpen) {
-      html += '<button class="editor-advanced-toggle" id="toggle-advanced"><i class="fa-solid fa-chevron-down editor-collapse-icon' + (state.advancedOpen ? '' : ' collapsed') + '" aria-hidden="true"></i> Advanced options</button>';
+      html +=
+        '<button class="editor-advanced-toggle" id="toggle-advanced"><i class="fa-solid fa-chevron-down editor-collapse-icon' +
+        (state.advancedOpen ? '' : ' collapsed') +
+        '" aria-hidden="true"></i> Advanced options</button>';
     }
     if (forceOpen || state.advancedOpen) {
       html += '<div class="editor-advanced-body">';
 
       // Block ID (editable) — for non-question blocks; question blocks show it in the main card
       if (block.type !== 'question') {
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' + esc(block.id) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' +
+          esc(block.id) +
+          '"></div>';
       }
 
       // If condition
       var ifVal = data['if'] || '';
       html += '<div class="editor-form-group editor-form-group-compact">';
       html += '<div class="form-check form-switch editor-inline-toggle">';
-      html += '<input class="form-check-input" type="checkbox" id="adv-enable-if"' + (ifEnabled ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="adv-enable-if">Condition (if)</label>';
+      html +=
+        '<input class="form-check-input" type="checkbox" id="adv-enable-if"' +
+        (ifEnabled ? ' checked' : '') +
+        '>';
+      html +=
+        '<label class="form-check-label" for="adv-enable-if">Condition (if)</label>';
       html += '</div>';
       if (ifEnabled) {
         html += renderSymbolDatalist('adv-if-variable-list', 'variable', 120);
-        html += '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" data-symbol-role="variable" list="adv-if-variable-list" value="' + esc(String(ifVal)) + '" placeholder="Python expression">';
+        html +=
+          '<input class="form-control editor-form-control font-monospace mt-2" id="adv-if" data-symbol-role="variable" list="adv-if-variable-list" value="' +
+          esc(String(ifVal)) +
+          '" placeholder="Python expression">';
       }
       html += '</div>';
 
       // Continue button field/label — always visible
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-field">Continue button field</label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" data-symbol-role="variable" value="' + esc(String(data['continue button field'] || '')) + '"></div>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-field">Continue button field</label>';
+      html +=
+        '<input class="form-control editor-form-control font-monospace" id="adv-continue-field" data-symbol-role="variable" value="' +
+        esc(String(data['continue button field'] || '')) +
+        '"></div>';
 
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-label">Continue button label</label>';
-      html += '<input class="form-control editor-form-control" id="adv-continue-label" value="' + esc(String(data['continue button label'] || '')) + '"></div>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-label">Continue button label</label>';
+      html +=
+        '<input class="form-control editor-form-control" id="adv-continue-label" value="' +
+        esc(String(data['continue button label'] || '')) +
+        '"></div>';
 
       // Sets/only sets — always visible
       var setsVal = data.sets || data['only sets'] || '';
       if (Array.isArray(setsVal)) setsVal = setsVal.join(', ');
-      html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' + (data['only sets'] ? 'Only sets' : 'Sets') + ' <span class="text-muted">(comma-separated variables)</span></label>';
-      html += '<input class="form-control editor-form-control font-monospace" id="adv-sets" data-sets-key="' + (data['only sets'] ? 'only sets' : 'sets') + '" value="' + esc(String(setsVal)) + '"></div>';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="adv-sets">' +
+        (data['only sets'] ? 'Only sets' : 'Sets') +
+        ' <span class="text-muted">(comma-separated variables)</span></label>';
+      html +=
+        '<input class="form-control editor-form-control font-monospace" id="adv-sets" data-sets-key="' +
+        (data['only sets'] ? 'only sets' : 'sets') +
+        '" value="' +
+        esc(String(setsVal)) +
+        '"></div>';
 
       // Show more toggle
-      html += '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px"><i class="fa-solid ' + (showMore ? 'fa-chevron-up' : 'fa-chevron-down') + ' me-1" aria-hidden="true" style="font-size:10px"></i>' + (showMore ? 'Show fewer options' : 'Show more options') + '</button>';
+      html +=
+        '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px"><i class="fa-solid ' +
+        (showMore ? 'fa-chevron-up' : 'fa-chevron-down') +
+        ' me-1" aria-hidden="true" style="font-size:10px"></i>' +
+        (showMore ? 'Show fewer options' : 'Show more options') +
+        '</button>';
 
       if (showMore) {
         // Need
         var needVal = data.need || '';
         if (Array.isArray(needVal)) needVal = needVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need <span class="text-muted">(blocks)</span></label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' + esc(String(needVal)) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-need">Need <span class="text-muted">(blocks)</span></label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-need" value="' +
+          esc(String(needVal)) +
+          '"></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event <span class="text-muted">(event name)</span></label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' + esc(String(data.event || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-event">Event <span class="text-muted">(event name)</span></label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-event" value="' +
+          esc(String(data.event || '')) +
+          '"></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' + esc(String(data['generic object'] || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-generic-object">Generic object</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-generic-object" value="' +
+          esc(String(data['generic object'] || '')) +
+          '"></div>';
 
         // Continue button color
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-color">Continue button color</label>';
-        html += '<select class="form-select editor-form-control" id="adv-continue-color">';
-        ['', 'primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark'].forEach(function (c) {
-          html += '<option value="' + c + '"' + (data['continue button color'] === c ? ' selected' : '') + '>' + (c || '(default)') + '</option>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-continue-color">Continue button color</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-continue-color">';
+        [
+          '',
+          'primary',
+          'secondary',
+          'success',
+          'danger',
+          'warning',
+          'info',
+          'light',
+          'dark',
+        ].forEach(function (c) {
+          html +=
+            '<option value="' +
+            c +
+            '"' +
+            (data['continue button color'] === c ? ' selected' : '') +
+            '>' +
+            (c || '(default)') +
+            '</option>';
         });
         html += '</select></div>';
 
         // Hide / disable continue button
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-hide-continue">Hide continue button</label>';
-        html += '<select class="form-select editor-form-control" id="adv-hide-continue">';
-        html += '<option value=""' + (!data['hide continue button'] ? ' selected' : '') + '>(default)</option>';
-        html += '<option value="True"' + (data['hide continue button'] ? ' selected' : '') + '>Yes</option>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-hide-continue">Hide continue button</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-hide-continue">';
+        html +=
+          '<option value=""' +
+          (!data['hide continue button'] ? ' selected' : '') +
+          '>(default)</option>';
+        html +=
+          '<option value="True"' +
+          (data['hide continue button'] ? ' selected' : '') +
+          '>Yes</option>';
         html += '</select></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-disable-continue">Disable continue button</label>';
-        html += '<select class="form-select editor-form-control" id="adv-disable-continue">';
-        html += '<option value=""' + (!data['disable continue button'] ? ' selected' : '') + '>(default)</option>';
-        html += '<option value="True"' + (data['disable continue button'] ? ' selected' : '') + '>Yes</option>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-disable-continue">Disable continue button</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-disable-continue">';
+        html +=
+          '<option value=""' +
+          (!data['disable continue button'] ? ' selected' : '') +
+          '>(default)</option>';
+        html +=
+          '<option value="True"' +
+          (data['disable continue button'] ? ' selected' : '') +
+          '>Yes</option>';
         html += '</select></div>';
 
         // Prevent going back / back button
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-prevent-back">Prevent going back</label>';
-        html += '<select class="form-select editor-form-control" id="adv-prevent-back">';
-        html += '<option value=""' + (!data['prevent going back'] ? ' selected' : '') + '>(default)</option>';
-        html += '<option value="True"' + (data['prevent going back'] ? ' selected' : '') + '>Yes</option>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-prevent-back">Prevent going back</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-prevent-back">';
+        html +=
+          '<option value=""' +
+          (!data['prevent going back'] ? ' selected' : '') +
+          '>(default)</option>';
+        html +=
+          '<option value="True"' +
+          (data['prevent going back'] ? ' selected' : '') +
+          '>Yes</option>';
         html += '</select></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button">Back button</label>';
-        html += '<select class="form-select editor-form-control" id="adv-back-button">';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button">Back button</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-back-button">';
         html += '<option value="">(default)</option>';
-        html += '<option value="True"' + (data['back button'] === true || data['back button'] === 'True' ? ' selected' : '') + '>True</option>';
-        html += '<option value="False"' + (data['back button'] === false || data['back button'] === 'False' ? ' selected' : '') + '>False</option>';
+        html +=
+          '<option value="True"' +
+          (data['back button'] === true || data['back button'] === 'True'
+            ? ' selected'
+            : '') +
+          '>True</option>';
+        html +=
+          '<option value="False"' +
+          (data['back button'] === false || data['back button'] === 'False'
+            ? ' selected'
+            : '') +
+          '>False</option>';
         html += '</select></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button-label">Back button label</label>';
-        html += '<input class="form-control editor-form-control" id="adv-back-button-label" value="' + esc(String(data['back button label'] || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-back-button-label">Back button label</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-back-button-label" value="' +
+          esc(String(data['back button label'] || '')) +
+          '"></div>';
 
         // Progress / section
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-progress">Progress <span class="text-muted">(0-100)</span></label>';
-        html += '<input class="form-control editor-form-control" id="adv-progress" value="' + esc(String(data.progress !== undefined ? data.progress : '')) + '" placeholder="e.g. 50"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-progress">Progress <span class="text-muted">(0-100)</span></label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-progress" value="' +
+          esc(String(data.progress !== undefined ? data.progress : '')) +
+          '" placeholder="e.g. 50"></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-section">Section</label>';
-        html += '<input class="form-control editor-form-control" id="adv-section" value="' + esc(String(data.section || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-section">Section</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-section" value="' +
+          esc(String(data.section || '')) +
+          '"></div>';
 
         // Help (question level)
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-help">Help text (question level)</label>';
-        html += '<textarea class="form-control editor-form-control" id="adv-help" rows="2">' + esc(String(data.help || '')) + '</textarea></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-help">Help text (question level)</label>';
+        html +=
+          '<textarea class="form-control editor-form-control" id="adv-help" rows="2">' +
+          esc(String(data.help || '')) +
+          '</textarea></div>';
 
         // Audio / video
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-audio">Audio URL/variable</label>';
-        html += '<input class="form-control editor-form-control" id="adv-audio" value="' + esc(String(data.audio || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-audio">Audio URL/variable</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-audio" value="' +
+          esc(String(data.audio || '')) +
+          '"></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-video">Video URL/variable</label>';
-        html += '<input class="form-control editor-form-control" id="adv-video" value="' + esc(String(data.video || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-video">Video URL/variable</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-video" value="' +
+          esc(String(data.video || '')) +
+          '"></div>';
 
         // Decoration
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-decoration">Decoration</label>';
-        html += '<input class="form-control editor-form-control" id="adv-decoration" value="' + esc(String(data.decoration || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-decoration">Decoration</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-decoration" value="' +
+          esc(String(data.decoration || '')) +
+          '"></div>';
 
         // Script / CSS
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-script">Script (inline JS)</label>';
-        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-script" rows="2">' + esc(String(data.script || '')) + '</textarea></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-script">Script (inline JS)</label>';
+        html +=
+          '<textarea class="form-control editor-form-control font-monospace" id="adv-script" rows="2">' +
+          esc(String(data.script || '')) +
+          '</textarea></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-css">CSS (inline)</label>';
-        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-css" rows="2">' + esc(String(data.css || '')) + '</textarea></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-css">CSS (inline)</label>';
+        html +=
+          '<textarea class="form-control editor-form-control font-monospace" id="adv-css" rows="2">' +
+          esc(String(data.css || '')) +
+          '</textarea></div>';
 
         // Language
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-language">Language</label>';
-        html += '<input class="form-control editor-form-control" id="adv-language" value="' + esc(String(data.language || '')) + '" placeholder="e.g. es"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-language">Language</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-language" value="' +
+          esc(String(data.language || '')) +
+          '" placeholder="e.g. es"></div>';
 
         // Allowed to set
         var allowedToSetVal = data['allowed to set'] || '';
-        if (Array.isArray(allowedToSetVal)) allowedToSetVal = allowedToSetVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-allowed-to-set">Allowed to set</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-allowed-to-set" value="' + esc(String(allowedToSetVal)) + '"></div>';
+        if (Array.isArray(allowedToSetVal))
+          allowedToSetVal = allowedToSetVal.join(', ');
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-allowed-to-set">Allowed to set</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-allowed-to-set" value="' +
+          esc(String(allowedToSetVal)) +
+          '"></div>';
 
         // Depends on / undefine / reconsider
         var dependsOnVal = data['depends on'] || '';
         if (Array.isArray(dependsOnVal)) dependsOnVal = dependsOnVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-depends-on">Depends on</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-depends-on" value="' + esc(String(dependsOnVal)) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-depends-on">Depends on</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-depends-on" value="' +
+          esc(String(dependsOnVal)) +
+          '"></div>';
 
         var undefineVal = data.undefine || '';
         if (Array.isArray(undefineVal)) undefineVal = undefineVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-undefine">Undefine</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-undefine" value="' + esc(String(undefineVal)) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-undefine">Undefine</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-undefine" value="' +
+          esc(String(undefineVal)) +
+          '"></div>';
 
         var reconsiderVal = data.reconsider || '';
-        if (Array.isArray(reconsiderVal)) reconsiderVal = reconsiderVal.join(', ');
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-reconsider">Reconsider</label>';
-        html += '<input class="form-control editor-form-control font-monospace" id="adv-reconsider" value="' + esc(String(reconsiderVal)) + '"></div>';
+        if (Array.isArray(reconsiderVal))
+          reconsiderVal = reconsiderVal.join(', ');
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-reconsider">Reconsider</label>';
+        html +=
+          '<input class="form-control editor-form-control font-monospace" id="adv-reconsider" value="' +
+          esc(String(reconsiderVal)) +
+          '"></div>';
 
         // Scan for variables
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-scan-vars">Scan for variables</label>';
-        html += '<select class="form-select editor-form-control" id="adv-scan-vars">';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-scan-vars">Scan for variables</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-scan-vars">';
         html += '<option value="">(default)</option>';
-        html += '<option value="True"' + (data['scan for variables'] === true || data['scan for variables'] === 'True' ? ' selected' : '') + '>True</option>';
-        html += '<option value="False"' + (data['scan for variables'] === false || data['scan for variables'] === 'False' ? ' selected' : '') + '>False</option>';
+        html +=
+          '<option value="True"' +
+          (data['scan for variables'] === true ||
+          data['scan for variables'] === 'True'
+            ? ' selected'
+            : '') +
+          '>True</option>';
+        html +=
+          '<option value="False"' +
+          (data['scan for variables'] === false ||
+          data['scan for variables'] === 'False'
+            ? ' selected'
+            : '') +
+          '>False</option>';
         html += '</select></div>';
 
         // Validation code
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-validation-code">Validation code (Python)</label>';
-        html += '<textarea class="form-control editor-form-control font-monospace" id="adv-validation-code" rows="2">' + esc(String(data['validation code'] || '')) + '</textarea></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-validation-code">Validation code (Python)</label>';
+        html +=
+          '<textarea class="form-control editor-form-control font-monospace" id="adv-validation-code" rows="2">' +
+          esc(String(data['validation code'] || '')) +
+          '</textarea></div>';
 
         // Resume button label (for tabular)
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-resume-button-label">Resume button label</label>';
-        html += '<input class="form-control editor-form-control" id="adv-resume-button-label" value="' + esc(String(data['resume button label'] || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-resume-button-label">Resume button label</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-resume-button-label" value="' +
+          esc(String(data['resume button label'] || '')) +
+          '"></div>';
 
         // Reload
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-reload">Reload</label>';
-        html += '<select class="form-select editor-form-control" id="adv-reload">';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-reload">Reload</label>';
+        html +=
+          '<select class="form-select editor-form-control" id="adv-reload">';
         html += '<option value="">(default)</option>';
-        html += '<option value="True"' + (data.reload === true || data.reload === 'True' ? ' selected' : '') + '>True</option>';
+        html +=
+          '<option value="True"' +
+          (data.reload === true || data.reload === 'True' ? ' selected' : '') +
+          '>True</option>';
         html += '</select></div>';
 
         // Role
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-role">Role</label>';
-        html += '<input class="form-control editor-form-control" id="adv-role" value="' + esc(String(data.role || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-role">Role</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-role" value="' +
+          esc(String(data.role || '')) +
+          '"></div>';
 
         // GA / Segment IDs
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-ga-id">GA ID</label>';
-        html += '<input class="form-control editor-form-control" id="adv-ga-id" value="' + esc(String(data['ga id'] || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-ga-id">GA ID</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-ga-id" value="' +
+          esc(String(data['ga id'] || '')) +
+          '"></div>';
 
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-segment-id">Segment ID</label>';
-        html += '<input class="form-control editor-form-control" id="adv-segment-id" value="' + esc(String(data['segment id'] || '')) + '"></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-segment-id">Segment ID</label>';
+        html +=
+          '<input class="form-control editor-form-control" id="adv-segment-id" value="' +
+          esc(String(data['segment id'] || '')) +
+          '"></div>';
 
         // Comment
-        html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-comment">Comment</label>';
-        html += '<textarea class="form-control editor-form-control" id="adv-comment" rows="2">' + esc(String(data.comment || '')) + '</textarea></div>';
+        html +=
+          '<div class="editor-form-group"><label class="editor-tiny" for="adv-comment">Comment</label>';
+        html +=
+          '<textarea class="form-control editor-form-control" id="adv-comment" rows="2">' +
+          esc(String(data.comment || '')) +
+          '</textarea></div>';
 
         // Variable (read-only if present)
         if (block.variable) {
-          html += '<div class="editor-form-group"><label class="editor-tiny" for="adv-variable">Variable (read-only)</label>';
-          html += '<input class="form-control editor-form-control font-monospace" id="adv-variable" value="' + esc(block.variable) + '" readonly></div>';
+          html +=
+            '<div class="editor-form-group"><label class="editor-tiny" for="adv-variable">Variable (read-only)</label>';
+          html +=
+            '<input class="form-control editor-form-control font-monospace" id="adv-variable" value="' +
+            esc(block.variable) +
+            '" readonly></div>';
         }
       } // end showMore
 
@@ -8233,16 +12501,36 @@
   function renderFullYaml() {
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Full YAML</h2></div>';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Full YAML</h2></div>';
     html += '<div class="d-flex gap-2">';
-    var backLabel = state._prevCanvasMode === 'order-builder' ? '\u2190 Interview Order' : 'Back to blocks';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="back-to-question">' + backLabel + '</button>';
+    var backLabel =
+      state._prevCanvasMode === 'order-builder'
+        ? '\u2190 Interview Order'
+        : 'Back to blocks';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="back-to-question">' +
+      backLabel +
+      '</button>';
     html += '</div></div>';
 
     html += '<div class="editor-tab-bar">';
-    html += '<button class="btn ' + (state.fullYamlTab === 'full' ? 'btn-primary' : 'btn-outline-secondary') + '" data-yaml-tab="full">Full YAML</button>';
-    html += '<button class="btn ' + (state.fullYamlTab === 'order' ? 'btn-primary' : 'btn-outline-secondary') + '" data-yaml-tab="order">Interview order</button>';
-    html += '<button class="btn ' + (state.fullYamlTab === 'metadata' ? 'btn-primary' : 'btn-outline-secondary') + '" data-yaml-tab="metadata">Metadata</button>';
+    html +=
+      '<button class="btn ' +
+      (state.fullYamlTab === 'full' ? 'btn-primary' : 'btn-outline-secondary') +
+      '" data-yaml-tab="full">Full YAML</button>';
+    html +=
+      '<button class="btn ' +
+      (state.fullYamlTab === 'order'
+        ? 'btn-primary'
+        : 'btn-outline-secondary') +
+      '" data-yaml-tab="order">Interview order</button>';
+    html +=
+      '<button class="btn ' +
+      (state.fullYamlTab === 'metadata'
+        ? 'btn-primary'
+        : 'btn-outline-secondary') +
+      '" data-yaml-tab="metadata">Metadata</button>';
     html += '</div>';
 
     html += '<div class="editor-card"><div class="editor-card-body">';
@@ -8254,18 +12542,28 @@
         html += '<div class="editor-order-block-switcher mb-3">';
         orderTargets.forEach(function (block) {
           var isActive = activeOrderBlock && activeOrderBlock.id === block.id;
-          html += '<button type="button" class="btn btn-sm ' + (isActive ? 'btn-primary' : 'btn-outline-secondary') + '" data-order-block-id="' + esc(block.id) + '">';
+          html +=
+            '<button type="button" class="btn btn-sm ' +
+            (isActive ? 'btn-primary' : 'btn-outline-secondary') +
+            '" data-order-block-id="' +
+            esc(block.id) +
+            '">';
           html += esc(block.title || block.id);
-          if (block.tags && block.tags.indexOf('mandatory') !== -1) html += ' <span class="editor-inline-meta">Order</span>';
+          if (block.tags && block.tags.indexOf('mandatory') !== -1)
+            html += ' <span class="editor-inline-meta">Order</span>';
           html += '</button>';
         });
         html += '</div>';
       }
     }
-    html += '<div class="editor-source-container" id="' + editorId + '" style="height:600px"></div>';
+    html +=
+      '<div class="editor-source-container" id="' +
+      editorId +
+      '" style="height:600px"></div>';
     html += '</div></div>';
 
-    html += '<div class="d-flex justify-content-end"><button class="btn btn-primary" id="save-full-yaml">Save</button></div>';
+    html +=
+      '<div class="d-flex justify-content-end"><button class="btn btn-primary" id="save-full-yaml">Save</button></div>';
     html += '</div>';
     canvasContent.innerHTML = html;
 
@@ -8287,7 +12585,9 @@
 
     initSourceEditor(function () {
       createSourceEditor(editorId, content, 'yaml', {
-        onChange: function () { markInterviewDirty(); }
+        onChange: function () {
+          markInterviewDirty();
+        },
       });
     });
   }
@@ -8296,8 +12596,16 @@
   // Order builder
   // -------------------------------------------------------------------------
   function renderOrderInsertRow(parentStepId, branch, index, depth) {
-    var html = '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
-    html += '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' + esc(parentStepId || '') + '" data-step-branch="' + esc(branch || 'then') + '" data-insert-index="' + index + '" title="Insert here" aria-label="Insert a step here">';
+    var html =
+      '<div class="editor-order-insert" style="--order-depth:' + depth + '">';
+    html +=
+      '<button type="button" class="editor-order-insert-btn" data-open-add-step="true" data-parent-step-id="' +
+      esc(parentStepId || '') +
+      '" data-step-branch="' +
+      esc(branch || 'then') +
+      '" data-insert-index="' +
+      index +
+      '" title="Insert here" aria-label="Insert a step here">';
     html += '<span>Insert here</span>';
     html += '</button>';
     html += '</div>';
@@ -8306,9 +12614,19 @@
 
   function renderOrderBranch(step, depth, branch, label) {
     var branchSteps = getOrderBranchSteps(step, branch);
-    var html = '<div class="editor-order-branch editor-order-branch-' + esc(branch) + ' editor-order-drop-list" data-order-parent-step-id="' + esc(step.id) + '" data-order-branch="' + esc(branch) + '">';
+    var html =
+      '<div class="editor-order-branch editor-order-branch-' +
+      esc(branch) +
+      ' editor-order-drop-list" data-order-parent-step-id="' +
+      esc(step.id) +
+      '" data-order-branch="' +
+      esc(branch) +
+      '">';
     if (branch === 'else') {
-      html += '<div class="editor-order-branch-label"><span>' + esc(label.toLowerCase()) + '</span><i aria-hidden="true"></i></div>';
+      html +=
+        '<div class="editor-order-branch-label"><span>' +
+        esc(label.toLowerCase()) +
+        '</span><i aria-hidden="true"></i></div>';
     }
     html += renderOrderStepTree(branchSteps, depth, step.id, branch);
     html += '</div>';
@@ -8321,28 +12639,50 @@
      belongs to, not a step you can drop somewhere else, and the steps *inside*
      it stay draggable through the drop list renderOrderBranch emits. */
   function renderOrderChainLink(step, depth) {
-    var condition = cleanOrderText(step.condition || step.summary || 'condition');
+    var condition = cleanOrderText(
+      step.condition || step.summary || 'condition',
+    );
     var thenCount = Array.isArray(step.children) ? step.children.length : 0;
-    var html = '<div class="editor-order-step-shell editor-order-chain-link" style="--order-depth:' + depth + '">';
-    html += '<div class="editor-order-step editor-order-step-condition" data-step-id="' + esc(step.id) + '" tabindex="0">';
+    var html =
+      '<div class="editor-order-step-shell editor-order-chain-link" style="--order-depth:' +
+      depth +
+      '">';
+    html +=
+      '<div class="editor-order-step editor-order-step-condition" data-step-id="' +
+      esc(step.id) +
+      '" tabindex="0">';
     html += '<div class="editor-order-step-top">';
     html += '<div class="editor-order-step-main">';
-    html += '<span class="editor-order-chain-keyword" aria-hidden="true">elif</span>';
-    html += '<span class="editor-order-title editor-order-title-meta" data-editable="true" data-step-id="' + esc(step.id) + '">' + esc(condition) + '</span>';
+    html +=
+      '<span class="editor-order-chain-keyword" aria-hidden="true">elif</span>';
+    html +=
+      '<span class="editor-order-title editor-order-title-meta" data-editable="true" data-step-id="' +
+      esc(step.id) +
+      '">' +
+      esc(condition) +
+      '</span>';
     html += '<span class="editor-order-detail">' + thenCount + ' then</span>';
     html += '</div>';
     html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
     html += '<div class="editor-order-step-actions">';
     html += '<div class="dropdown">';
-    html += '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions for this else if branch</span></button>';
+    html +=
+      '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions for this else if branch</span></button>';
     html += '<ul class="dropdown-menu dropdown-menu-end">';
-    html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit condition</button></li>';
+    html +=
+      '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' +
+      esc(step.id) +
+      '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit condition</button></li>';
     html += renderOrderChainBranchMenuItems(step);
     html += '<li><hr class="dropdown-divider"></li>';
-    html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove this else if</button></li>';
+    html +=
+      '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' +
+      esc(step.id) +
+      '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove this else if</button></li>';
     html += '</ul></div>';
     html += '</div>';
-    html += '<span class="editor-order-type editor-order-type-condition">else if</span>';
+    html +=
+      '<span class="editor-order-type editor-order-type-condition">else if</span>';
     html += '</div>';
     html += '</div>';
     if (_inlineEditStepId === step.id) html += renderInlineEditRow(step);
@@ -8357,9 +12697,15 @@
      chain already ends in one. Both act on the end of the chain, so they mean
      the same thing whichever link they were opened from. */
   function renderOrderChainBranchMenuItems(step) {
-    var html = '<li><button class="dropdown-item" type="button" data-step-action="add-elif" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else if branch</button></li>';
+    var html =
+      '<li><button class="dropdown-item" type="button" data-step-action="add-elif" data-step-id="' +
+      esc(step.id) +
+      '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else if branch</button></li>';
     if (!chainHasFinalElse(step)) {
-      html += '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
+      html +=
+        '<li><button class="dropdown-item" type="button" data-step-action="add-else" data-step-id="' +
+        esc(step.id) +
+        '"><i class="fa-solid fa-code-branch me-2" aria-hidden="true"></i>Add else branch</button></li>';
     }
     return html;
   }
@@ -8374,49 +12720,121 @@
       var presentation = getOrderStepPresentation(step);
       var isCollapsed = Boolean(state.orderCollapsed[step.id]);
       var typeLabel = getOrderStepTypeLabel(step);
-      html += '<div class="editor-order-step-shell" style="--order-depth:' + depth + '">';
-      html += '<div class="editor-order-step editor-order-step-' + esc(step.kind) + (step.kind === 'condition' ? ' editor-order-step-condition' : '') + (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') + '" data-step-id="' + esc(step.id) + '" tabindex="0">';
+      html +=
+        '<div class="editor-order-step-shell" style="--order-depth:' +
+        depth +
+        '">';
+      html +=
+        '<div class="editor-order-step editor-order-step-' +
+        esc(step.kind) +
+        (step.kind === 'condition' ? ' editor-order-step-condition' : '') +
+        (_lastInsertedOrderStepId === step.id ? ' editor-order-step-new' : '') +
+        '" data-step-id="' +
+        esc(step.id) +
+        '" tabindex="0">';
       html += '<div class="editor-order-step-top">';
       html += '<div class="editor-order-step-main">';
-      html += '<span class="drag-handle" title="Drag to reorder" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>';
-      html += '<span class="editor-order-title' + (step.kind === 'screen' ? '' : ' editor-order-title-meta') + '" data-editable="true" data-step-id="' + esc(step.id) + '"' + (presentation.tooltip ? ' title="' + esc(presentation.tooltip) + '"' : '') + '>' + esc(presentation.heading) + '</span>';
+      html +=
+        '<span class="drag-handle" title="Drag to reorder" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>';
+      html +=
+        '<span class="editor-order-title' +
+        (step.kind === 'screen' ? '' : ' editor-order-title-meta') +
+        '" data-editable="true" data-step-id="' +
+        esc(step.id) +
+        '"' +
+        (presentation.tooltip
+          ? ' title="' + esc(presentation.tooltip) + '"'
+          : '') +
+        '>' +
+        esc(presentation.heading) +
+        '</span>';
       if (presentation.detail) {
-        html += '<span class="editor-order-detail">' + esc(presentation.detail) + '</span>';
+        html +=
+          '<span class="editor-order-detail">' +
+          esc(presentation.detail) +
+          '</span>';
       }
       if (step.kind === 'progress') {
-        var progressValue = Math.max(0, Math.min(100, parseFloat(step.value) || 0));
-        html += '<span class="editor-order-meter" aria-hidden="true"><i style="width:' + progressValue + '%"></i></span>';
+        var progressValue = Math.max(
+          0,
+          Math.min(100, parseFloat(step.value) || 0),
+        );
+        html +=
+          '<span class="editor-order-meter" aria-hidden="true"><i style="width:' +
+          progressValue +
+          '%"></i></span>';
       }
       html += '</div>';
       html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
       html += '<div class="editor-order-step-actions">';
-      html += '<input type="checkbox" class="form-check-input editor-order-select" data-step-select="' + esc(step.id) + '" aria-label="Select ' + esc(presentation.heading) + '"' + (state.selectedOrderStepIds[step.id] ? ' checked' : '') + '>';
+      html +=
+        '<input type="checkbox" class="form-check-input editor-order-select" data-step-select="' +
+        esc(step.id) +
+        '" aria-label="Select ' +
+        esc(presentation.heading) +
+        '"' +
+        (state.selectedOrderStepIds[step.id] ? ' checked' : '') +
+        '>';
       // Kebab menu consolidating all actions
       html += '<div class="dropdown">';
-      html += '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
+      html +=
+        '<button type="button" class="editor-kebab-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="visually-hidden">Actions</span></button>';
       html += '<ul class="dropdown-menu dropdown-menu-end">';
-      html += '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
+      html +=
+        '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' +
+        esc(step.id) +
+        '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
       if (step.kind === 'condition') {
-        html += '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' + esc(step.id) + '"><i class="fa-solid ' + (isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up') + ' me-2" aria-hidden="true"></i>' + (isCollapsed ? 'Expand branches' : 'Collapse branches') + '</button></li>';
+        html +=
+          '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' +
+          esc(step.id) +
+          '"><i class="fa-solid ' +
+          (isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up') +
+          ' me-2" aria-hidden="true"></i>' +
+          (isCollapsed ? 'Expand branches' : 'Collapse branches') +
+          '</button></li>';
       }
       if (step.kind === 'condition') {
         html += renderOrderChainBranchMenuItems(step);
       }
-      var hasBlockRef = (step.kind === 'screen' || step.kind === 'gather') && !!step.invoke;
+      var hasBlockRef =
+        (step.kind === 'screen' || step.kind === 'gather') && !!step.invoke;
       if (hasBlockRef) {
         var blockRef = findBlockByInvoke(step);
         if (blockRef) {
-          html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block</button></li>';
+          html +=
+            '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' +
+            esc(step.id) +
+            '"><i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block</button></li>';
         } else {
-          var inCatalog = step.invoke && state.symbolCatalog && state.symbolCatalog.all.indexOf(step.invoke) !== -1;
-          html += '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' + esc(step.id) + '">' + (inCatalog ? '<i class="fa-solid fa-file-import me-2"></i>Defined in included file' : '<i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block') + '</button></li>';
+          var inCatalog =
+            step.invoke &&
+            state.symbolCatalog &&
+            state.symbolCatalog.all.indexOf(step.invoke) !== -1;
+          html +=
+            '<li><button class="dropdown-item" type="button" data-step-action="go-to-block" data-step-id="' +
+            esc(step.id) +
+            '">' +
+            (inCatalog
+              ? '<i class="fa-solid fa-file-import me-2"></i>Defined in included file'
+              : '<i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block') +
+            '</button></li>';
         }
       }
       html += '<li><hr class="dropdown-divider"></li>';
-      html += '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' + esc(step.id) + '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove</button></li>';
+      html +=
+        '<li><button class="dropdown-item text-danger" type="button" data-step-action="remove" data-step-id="' +
+        esc(step.id) +
+        '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Remove</button></li>';
       html += '</ul></div>';
       html += '</div>';
-      if (typeLabel) html += '<span class="editor-order-type editor-order-type-' + esc(step.kind) + '">' + esc(typeLabel) + '</span>';
+      if (typeLabel)
+        html +=
+          '<span class="editor-order-type editor-order-type-' +
+          esc(step.kind) +
+          '">' +
+          esc(typeLabel) +
+          '</span>';
       html += '</div>';
       // Inline editors and branches must be siblings of the fixed-height row.
       // Nesting them inside .editor-order-step makes later rows overlap them.
@@ -8431,12 +12849,16 @@
         // level deeper than the last.
         var chain = getConditionChain(step);
         var chainTail = chain[chain.length - 1];
-        html += '<div class="editor-order-children' + (isCollapsed ? ' d-none' : '') + '">';
+        html +=
+          '<div class="editor-order-children' +
+          (isCollapsed ? ' d-none' : '') +
+          '">';
         html += renderOrderBranch(step, depth + 1, 'then', 'Then');
         for (var linkIndex = 1; linkIndex < chain.length; linkIndex++) {
           html += renderOrderChainLink(chain[linkIndex], depth);
         }
-        if (chainTail.has_else) html += renderOrderBranch(chainTail, depth + 1, 'else', 'Else');
+        if (chainTail.has_else)
+          html += renderOrderBranch(chainTail, depth + 1, 'else', 'Else');
         html += '</div>';
       }
       html += '</div>';
@@ -8448,18 +12870,30 @@
   function applyOrderFilter() {
     var timeline = document.getElementById('order-sortable-list');
     if (!timeline) return;
-    var query = String(state.orderFilter || '').trim().toLowerCase();
-    timeline.classList.toggle('editor-order-timeline-filtering', Boolean(query));
+    var query = String(state.orderFilter || '')
+      .trim()
+      .toLowerCase();
+    timeline.classList.toggle(
+      'editor-order-timeline-filtering',
+      Boolean(query),
+    );
     _orderSortables.forEach(function (sortable) {
-      if (sortable && typeof sortable.option === 'function') sortable.option('disabled', Boolean(query));
+      if (sortable && typeof sortable.option === 'function')
+        sortable.option('disabled', Boolean(query));
     });
 
-    var shells = Array.prototype.slice.call(timeline.querySelectorAll('.editor-order-step-shell'));
+    var shells = Array.prototype.slice.call(
+      timeline.querySelectorAll('.editor-order-step-shell'),
+    );
     if (!query) {
-      shells.forEach(function (shell) { shell.classList.remove('editor-order-filter-hidden'); });
-      timeline.querySelectorAll('.editor-order-branch').forEach(function (branchEl) {
-        branchEl.classList.remove('editor-order-filter-hidden');
+      shells.forEach(function (shell) {
+        shell.classList.remove('editor-order-filter-hidden');
       });
+      timeline
+        .querySelectorAll('.editor-order-branch')
+        .forEach(function (branchEl) {
+          branchEl.classList.remove('editor-order-filter-hidden');
+        });
       var clearedEmptyState = document.getElementById('order-filter-empty');
       if (clearedEmptyState) clearedEmptyState.hidden = true;
       return;
@@ -8469,29 +12903,51 @@
     // conditional visible even when the condition itself does not match.
     shells.reverse().forEach(function (shell) {
       var row = shell.querySelector(':scope > .editor-order-step');
-      var searchable = row ? Array.prototype.map.call(
-        row.querySelectorAll('.editor-order-title, .editor-order-detail, .editor-order-type'),
-        function (part) { return part.textContent || ''; }
-      ).join(' ').toLowerCase() : '';
+      var searchable = row
+        ? Array.prototype.map
+            .call(
+              row.querySelectorAll(
+                '.editor-order-title, .editor-order-detail, .editor-order-type',
+              ),
+              function (part) {
+                return part.textContent || '';
+              },
+            )
+            .join(' ')
+            .toLowerCase()
+        : '';
       var hasMatchingChild = Array.prototype.some.call(
-        shell.querySelectorAll(':scope > .editor-order-children .editor-order-step-shell'),
-        function (child) { return !child.classList.contains('editor-order-filter-hidden'); }
+        shell.querySelectorAll(
+          ':scope > .editor-order-children .editor-order-step-shell',
+        ),
+        function (child) {
+          return !child.classList.contains('editor-order-filter-hidden');
+        },
       );
-      shell.classList.toggle('editor-order-filter-hidden', searchable.indexOf(query) === -1 && !hasMatchingChild);
+      shell.classList.toggle(
+        'editor-order-filter-hidden',
+        searchable.indexOf(query) === -1 && !hasMatchingChild,
+      );
     });
 
-    timeline.querySelectorAll('.editor-order-branch').forEach(function (branchEl) {
-      var hasMatch = Array.prototype.some.call(
-        branchEl.querySelectorAll('.editor-order-step-shell'),
-        function (shell) { return !shell.classList.contains('editor-order-filter-hidden'); }
-      );
-      branchEl.classList.toggle('editor-order-filter-hidden', !hasMatch);
-    });
+    timeline
+      .querySelectorAll('.editor-order-branch')
+      .forEach(function (branchEl) {
+        var hasMatch = Array.prototype.some.call(
+          branchEl.querySelectorAll('.editor-order-step-shell'),
+          function (shell) {
+            return !shell.classList.contains('editor-order-filter-hidden');
+          },
+        );
+        branchEl.classList.toggle('editor-order-filter-hidden', !hasMatch);
+      });
     var filterEmptyState = document.getElementById('order-filter-empty');
     if (filterEmptyState) {
       filterEmptyState.hidden = Array.prototype.some.call(
         timeline.querySelectorAll(':scope > .editor-order-step-shell'),
-        function (shell) { return !shell.classList.contains('editor-order-filter-hidden'); }
+        function (shell) {
+          return !shell.classList.contains('editor-order-filter-hidden');
+        },
       );
     }
   }
@@ -8502,14 +12958,20 @@
     var orderTargets = getOrderTargets();
     var html = '<div class="editor-order-shell">';
     html += '<div class="editor-center-bar">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Interview Order</h2></div>';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Interview Order</h2></div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="wrap-selected-order-steps">Wrap selected in if</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Edit YAML</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="open-interview-flow-report" title="Open a printable report: every screen in interview order, with a flowchart"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Flow report</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="wrap-selected-order-steps">Wrap selected in if</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Edit YAML</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="open-interview-flow-report" title="Open a printable report: every screen in interview order, with a flowchart"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Flow report</button>';
     if (activeOrderBlock) {
-      html += '<button class="btn btn-sm btn-outline-secondary" id="order-back-to-code">Back to code block</button>';
+      html +=
+        '<button class="btn btn-sm btn-outline-secondary" id="order-back-to-code">Back to code block</button>';
     }
     html += '</div></div>';
 
@@ -8517,9 +12979,15 @@
       html += '<div class="editor-order-block-switcher mb-3">';
       orderTargets.forEach(function (block) {
         var isActive = activeOrderBlock && activeOrderBlock.id === block.id;
-        html += '<button type="button" class="btn btn-sm ' + (isActive ? 'btn-primary' : 'btn-outline-secondary') + '" data-order-block-id="' + esc(block.id) + '">';
+        html +=
+          '<button type="button" class="btn btn-sm ' +
+          (isActive ? 'btn-primary' : 'btn-outline-secondary') +
+          '" data-order-block-id="' +
+          esc(block.id) +
+          '">';
         html += esc(block.title || block.id);
-        if (block.tags && block.tags.indexOf('mandatory') !== -1) html += ' <span class="editor-inline-meta">Order</span>';
+        if (block.tags && block.tags.indexOf('mandatory') !== -1)
+          html += ' <span class="editor-inline-meta">Order</span>';
         html += '</button>';
       });
       html += '</div>';
@@ -8528,32 +12996,47 @@
     html += '<div class="editor-order-grid">';
 
     // Steps list
-    html += '<div class="editor-card editor-order-list-card"><div class="editor-card-header editor-order-list-head">';
-    html += '<span class="editor-order-block-name">' + esc(activeOrderBlock ? activeOrderBlock.id : 'interview_order') + '</span>';
+    html +=
+      '<div class="editor-card editor-order-list-card"><div class="editor-card-header editor-order-list-head">';
+    html +=
+      '<span class="editor-order-block-name">' +
+      esc(activeOrderBlock ? activeOrderBlock.id : 'interview_order') +
+      '</span>';
     html += '<span class="editor-order-spacer" aria-hidden="true"></span>';
-    html += '<label class="visually-hidden" for="order-step-filter">Filter steps</label>';
-    html += '<input type="search" class="form-control form-control-sm editor-order-filter" id="order-step-filter" placeholder="Filter steps" value="' + esc(state.orderFilter || '') + '">';
+    html +=
+      '<label class="visually-hidden" for="order-step-filter">Filter steps</label>';
+    html +=
+      '<input type="search" class="form-control form-control-sm editor-order-filter" id="order-step-filter" placeholder="Filter steps" value="' +
+      esc(state.orderFilter || '') +
+      '">';
     html += '</div>';
 
-    html += '<div class="editor-card-body"><div class="editor-order-timeline editor-order-drop-list" id="order-sortable-list" data-order-parent-step-id="" data-order-branch="then">';
+    html +=
+      '<div class="editor-card-body"><div class="editor-order-timeline editor-order-drop-list" id="order-sortable-list" data-order-parent-step-id="" data-order-branch="then">';
     if (state.orderBuilderLoading) {
-      html += '<div class="editor-info-box mb-2"><div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div><div>Loading interview order...</div></div></div>';
+      html +=
+        '<div class="editor-info-box mb-2"><div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div><div>Loading interview order...</div></div></div>';
     }
     html += renderOrderStepTree(state.orderSteps, 0, '', 'then');
-    html += '<p class="text-muted small editor-order-filter-empty" id="order-filter-empty" hidden>No matching steps.</p>';
+    html +=
+      '<p class="text-muted small editor-order-filter-empty" id="order-filter-empty" hidden>No matching steps.</p>';
     if (state.orderSteps.length === 0 && !state.orderBuilderLoading) {
       if (!activeOrderBlock) {
         html += '<div class="editor-info-box mb-2">';
-        html += '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
+        html +=
+          '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
         html += 'For example:';
-        html += '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
+        html +=
+          '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
         html += '</div>';
       }
-      html += '<p class="text-muted small editor-order-empty-message">No order steps yet. Hover the insert target or auto-generate a draft.</p>';
+      html +=
+        '<p class="text-muted small editor-order-empty-message">No order steps yet. Hover the insert target or auto-generate a draft.</p>';
     }
     html += '</div></div></div>';
 
-    html += '<div class="mt-2 d-flex justify-content-end"><button class="btn btn-primary" id="save-order-steps">Save order</button></div>';
+    html +=
+      '<div class="mt-2 d-flex justify-content-end"><button class="btn btn-primary" id="save-order-steps">Save order</button></div>';
 
     html += '</div></div>';
     canvasContent.innerHTML = html;
@@ -8562,66 +13045,93 @@
 
     // Initialize drag-to-reorder via SortableJS
     _orderSortables.forEach(function (sortable) {
-      if (sortable && typeof sortable.destroy === 'function') sortable.destroy();
+      if (sortable && typeof sortable.destroy === 'function')
+        sortable.destroy();
     });
     _orderSortables = [];
     if (typeof Sortable !== 'undefined') {
-      document.querySelectorAll('.editor-order-drop-list').forEach(function (sortableEl) {
-        _orderSortables.push(Sortable.create(sortableEl, {
-          group: 'interview-order-steps',
-          handle: '.drag-handle',
-          draggable: '.editor-order-step-shell',
-          disabled: Boolean(String(state.orderFilter || '').trim()),
-          animation: 150,
-          onMove: function (evt) {
-            // Do not ask the browser to place a condition inside its own DOM
-            // subtree; onEnd also guards the equivalent data-tree case.
-            return !(evt.dragged && evt.to && evt.dragged.contains(evt.to));
-          },
-          onEnd: function (evt) {
-            var row = evt.item && evt.item.querySelector(':scope > .editor-order-step');
-            var movedStepId = row ? row.getAttribute('data-step-id') : '';
-            var sourceRecord = findStepRecord(state.orderSteps, movedStepId, null);
-            if (!sourceRecord) {
-              renderOrderBuilder();
-              return;
-            }
+      document
+        .querySelectorAll('.editor-order-drop-list')
+        .forEach(function (sortableEl) {
+          _orderSortables.push(
+            Sortable.create(sortableEl, {
+              group: 'interview-order-steps',
+              handle: '.drag-handle',
+              draggable: '.editor-order-step-shell',
+              disabled: Boolean(String(state.orderFilter || '').trim()),
+              animation: 150,
+              onMove: function (evt) {
+                // Do not ask the browser to place a condition inside its own DOM
+                // subtree; onEnd also guards the equivalent data-tree case.
+                return !(evt.dragged && evt.to && evt.dragged.contains(evt.to));
+              },
+              onEnd: function (evt) {
+                var row =
+                  evt.item &&
+                  evt.item.querySelector(':scope > .editor-order-step');
+                var movedStepId = row ? row.getAttribute('data-step-id') : '';
+                var sourceRecord = findStepRecord(
+                  state.orderSteps,
+                  movedStepId,
+                  null,
+                );
+                if (!sourceRecord) {
+                  renderOrderBuilder();
+                  return;
+                }
 
-            var destinationParentId = evt.to.getAttribute('data-order-parent-step-id') || '';
-            var destinationBranch = evt.to.getAttribute('data-order-branch') || 'then';
-            // A condition cannot become one of its own descendants.
-            if (destinationParentId && findStepRecord([sourceRecord.step], destinationParentId, null)) {
-              renderOrderBuilder();
-              return;
-            }
+                var destinationParentId =
+                  evt.to.getAttribute('data-order-parent-step-id') || '';
+                var destinationBranch =
+                  evt.to.getAttribute('data-order-branch') || 'then';
+                // A condition cannot become one of its own descendants.
+                if (
+                  destinationParentId &&
+                  findStepRecord([sourceRecord.step], destinationParentId, null)
+                ) {
+                  renderOrderBuilder();
+                  return;
+                }
 
-            var destinationList = state.orderSteps;
-            if (destinationParentId) {
-              var destinationParent = findStepRecord(state.orderSteps, destinationParentId, null);
-              if (!destinationParent) {
+                var destinationList = state.orderSteps;
+                if (destinationParentId) {
+                  var destinationParent = findStepRecord(
+                    state.orderSteps,
+                    destinationParentId,
+                    null,
+                  );
+                  if (!destinationParent) {
+                    renderOrderBuilder();
+                    return;
+                  }
+                  destinationList = getOrderBranchSteps(
+                    destinationParent.step,
+                    destinationBranch,
+                  );
+                  if (destinationBranch === 'else')
+                    destinationParent.step.has_else = true;
+                }
+
+                var destinationShells = Array.prototype.filter.call(
+                  evt.to.children,
+                  function (child) {
+                    return child.classList.contains('editor-order-step-shell');
+                  },
+                );
+                var destinationIndex = destinationShells.indexOf(evt.item);
+                if (destinationIndex < 0)
+                  destinationIndex = destinationList.length;
+
+                sourceRecord.list.splice(sourceRecord.index, 1);
+                destinationList.splice(destinationIndex, 0, sourceRecord.step);
+                syncActiveOrderStepMap();
+                markOrderDirty();
                 renderOrderBuilder();
-                return;
-              }
-              destinationList = getOrderBranchSteps(destinationParent.step, destinationBranch);
-              if (destinationBranch === 'else') destinationParent.step.has_else = true;
-            }
-
-            var destinationShells = Array.prototype.filter.call(evt.to.children, function (child) {
-              return child.classList.contains('editor-order-step-shell');
-            });
-            var destinationIndex = destinationShells.indexOf(evt.item);
-            if (destinationIndex < 0) destinationIndex = destinationList.length;
-
-            sourceRecord.list.splice(sourceRecord.index, 1);
-            destinationList.splice(destinationIndex, 0, sourceRecord.step);
-            syncActiveOrderStepMap();
-            markOrderDirty();
-            renderOrderBuilder();
-          }
-        }));
-      });
+              },
+            }),
+          );
+        });
     }
-
   }
 
   var _uploadedFiles = [];
@@ -8634,9 +13144,27 @@
     var panelId = 'new-project-panel-' + id;
     var html = '<div class="accordion-item">';
     html += '<h2 class="accordion-header" id="' + headingId + '">';
-    html += '<button class="accordion-button' + (expanded ? '' : ' collapsed') + '" type="button" data-bs-toggle="collapse" data-bs-target="#' + panelId + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" aria-controls="' + panelId + '">' + esc(title) + '</button>';
+    html +=
+      '<button class="accordion-button' +
+      (expanded ? '' : ' collapsed') +
+      '" type="button" data-bs-toggle="collapse" data-bs-target="#' +
+      panelId +
+      '" aria-expanded="' +
+      (expanded ? 'true' : 'false') +
+      '" aria-controls="' +
+      panelId +
+      '">' +
+      esc(title) +
+      '</button>';
     html += '</h2>';
-    html += '<div id="' + panelId + '" class="accordion-collapse collapse' + (expanded ? ' show' : '') + '" aria-labelledby="' + headingId + '">';
+    html +=
+      '<div id="' +
+      panelId +
+      '" class="accordion-collapse collapse' +
+      (expanded ? ' show' : '') +
+      '" aria-labelledby="' +
+      headingId +
+      '">';
     html += '<div class="accordion-body">' + bodyHtml + '</div>';
     html += '</div></div>';
     return html;
@@ -8649,14 +13177,19 @@
 
     // Header
     html += '<div class="editor-card"><div class="editor-card-body">';
-    html += '<div class="d-flex justify-content-between align-items-start flex-wrap gap-3">';
+    html +=
+      '<div class="d-flex justify-content-between align-items-start flex-wrap gap-3">';
     html += '<div>';
-    html += '<h2 style="font-weight:700;font-size:18px;margin:0 0 6px">Create a new project</h2>';
-    html += '<p class="text-muted small mb-0" style="max-width:600px">Upload a PDF or DOCX template and Weaver will generate a scaffolded interview draft, or start with a blank project.</p>';
+    html +=
+      '<h2 style="font-weight:700;font-size:18px;margin:0 0 6px">Create a new project</h2>';
+    html +=
+      '<p class="text-muted small mb-0" style="max-width:600px">Upload a PDF or DOCX template and Weaver will generate a scaffolded interview draft, or start with a blank project.</p>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="cancel-new-project">Cancel</button>';
-    html += '<button class="btn btn-sm btn-primary" id="create-project-btn">Create project</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="cancel-new-project">Cancel</button>';
+    html +=
+      '<button class="btn btn-sm btn-primary" id="create-project-btn">Create project</button>';
     html += '</div></div>';
     html += '</div></div>';
 
@@ -8664,111 +13197,125 @@
     // They are independent rather than exclusive (no data-bs-parent): filling a
     // form is not a wizard, and closing the section you just typed into to open
     // the next one would be hostile.
-    html += '<div class="accordion editor-new-project-accordion" id="new-project-accordion">';
+    html +=
+      '<div class="accordion editor-new-project-accordion" id="new-project-accordion">';
 
     html += _newProjectSection('files', 'Template files', true,
-      '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">'
-      + '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>'
-      + '<div class="text-muted small text-center mb-3">or upload a document</div>'
-      + '<div class="editor-dropzone" id="upload-dropzone">'
-      + '<div class="editor-dropzone-icon">&#128196;</div>'
-      + '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>'
-      + '<div class="text-muted small mt-1">or click to browse</div>'
-      + '<div class="text-muted small mt-2">Add every form in the filing. Weaver drafts one interview from all of them: each contributes its fields and its own download. The first file names the interview, and the order here is the order they come out in.</div>'
-      + '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">'
-      + '</div>'
-      + '<div id="upload-file-list" class="mt-2"></div>');
+      '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">' +
+        '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>' +
+        '<div class="text-muted small text-center mb-3">or upload a document</div>' +
+        '<div class="editor-dropzone" id="upload-dropzone">' +
+        '<div class="editor-dropzone-icon">&#128196;</div>' +
+        '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>' +
+        '<div class="text-muted small mt-1">or click to browse</div>' +
+        '<div class="text-muted small mt-2">Add every form in the filing. Weaver drafts one interview from all of them: each contributes its fields and its own download. The first file names the interview, and the order here is the order they come out in.</div>' +
+        '<input type="file" id="upload-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">' +
+        '</div>' +
+        '<div id="upload-file-list" class="mt-2"></div>',
+    );
 
     // Basics: what an author has to decide, and what the document cannot answer.
     html += _newProjectSection('basics', 'Project settings', true,
-      '<div class="d-grid gap-3">'
-      + '<div><label class="editor-tiny" for="new-project-name">Project name</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">'
-      + '<div class="text-muted small mt-1">Suggested from the first uploaded document. Playground project names are letters and digits only.</div></div>'
-      + '<div><label class="editor-tiny" for="new-project-filename">Interview filename</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-filename" value="">'
-      + '<div class="text-muted small mt-1">Leave blank and Weaver names the file after the document. AssemblyLine\'s convention is a descriptive name when the package holds one interview, and <code>main.yml</code> for a runnable file in a package with several.</div></div>'
-      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label>'
-      + '<select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>'
-      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA">'
-      + '<div class="text-muted small mt-1">Preselects the state in address questions and sets the jurisdiction.</div></div></div>'
-      + '<div class="form-check form-switch m-0">'
-      + '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>'
-      + '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>'
-      + '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping. Variable names are always derived from the template\'s field labels, with or without this.</div>'
-      + '</div>'
-      + '</div>');
+      '<div class="d-grid gap-3">' +
+        '<div><label class="editor-tiny" for="new-project-name">Project name</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">' +
+        '<div class="text-muted small mt-1">Suggested from the first uploaded document. Playground project names are letters and digits only.</div></div>' +
+        '<div><label class="editor-tiny" for="new-project-filename">Interview filename</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-filename" value="">' +
+        '<div class="text-muted small mt-1">Leave blank and Weaver names the file after the document. AssemblyLine\'s convention is a descriptive name when the package holds one interview, and <code>main.yml</code> for a runnable file in a package with several.</div></div>' +
+        '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label>' +
+        '<select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>' +
+        '<div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA">' +
+        '<div class="text-muted small mt-1">Preselects the state in address questions and sets the jurisdiction.</div></div></div>' +
+        '<div class="form-check form-switch m-0">' +
+        '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>' +
+        '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>' +
+        '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping. Variable names are always derived from the template\'s field labels, with or without this.</div>' +
+        '</div>' +
+        '</div>',
+    );
 
     // Advanced: things Weaver can decide on its own, or that are already right.
     html += _newProjectSection('advanced', 'Advanced settings', false,
-      '<div class="d-grid gap-3">'
-      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label>'
-      + '<select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select>'
-      + '<div class="text-muted small mt-1">Drives party wording and the next-steps document.</div></div>'
-      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label>'
-      + '<select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>'
-      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>'
-      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>'
-      + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact question wording into your interview instead of leaving it in AssemblyLine\'s question library. It does not change how template field labels become variables.</div></div>'
-      + '</div>');
+      '<div class="d-grid gap-3">' +
+        '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label>' +
+        '<select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select>' +
+        '<div class="text-muted small mt-1">Drives party wording and the next-steps document.</div></div>' +
+        '<div class="col-md-6"><label class="editor-tiny" for="new-project-user-role">Typical user role</label>' +
+        '<select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>' +
+        '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>' +
+        '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>' +
+        '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact question wording into your interview instead of leaving it in AssemblyLine\'s question library. It does not change how template field labels become variables.</div></div>' +
+        '</div>',
+    );
 
     // Publishing metadata. AssemblyLine and CourtFormsOnline read these from the
     // interview's `metadata` block; a project created without them starts out
     // failing the shared metadata style rule, and nothing else can supply the
     // jurisdiction or the landing page for you.
     html += _newProjectSection('metadata', 'Publishing metadata', false,
-      '<p class="text-muted small">These become the interview\'s <code>metadata</code> block. Anything you skip Weaver fills in with a guess, and you can revise it later in AssemblyLine settings.</p>'
-      + '<div class="d-grid gap-3">'
-      + '<div class="row g-3"><div class="col-md-8"><label class="editor-tiny" for="new-project-title">Title</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-title">'
-      + '<div class="text-muted small mt-1">The form name people see in listings and on the interview\'s first screen. Suggested from the uploaded document\'s name.</div></div>'
-      + '<div class="col-md-4"><label class="editor-tiny" for="new-project-short-title">Short title</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-short-title" maxlength="25">'
-      + '<div class="text-muted small mt-1">Up to 25 characters, used where space is tight.</div></div></div>'
-      + '<div><label class="editor-tiny" for="new-project-description">Description</label>'
-      + '<textarea class="form-control form-control-sm mt-1" id="new-project-description" rows="2"></textarea>'
-      + '<div class="text-muted small mt-1">One or two sentences saying what the form does. Shown on listing pages.</div></div>'
-      + '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-jurisdiction">Jurisdiction code</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-jurisdiction" placeholder="NAM-US-US+MA">'
-      + '<div class="text-muted small mt-1">Leave blank to derive it from the default state.</div></div>'
-      + '<div class="col-md-6"><label class="editor-tiny" for="new-project-landing-page-url">Public landing page URL</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-landing-page-url" type="url">'
-      + '<div class="text-muted small mt-1">Where this form is published for the public. Defaults to courtformsonline.org.</div></div></div>'
-      + '<div><label class="editor-tiny" for="new-project-list-topics">LIST topics</label>'
-      + '<div class="input-group input-group-sm mt-1"><input class="form-control" id="new-project-list-topics">'
-      + '<button class="btn btn-outline-secondary" type="button" data-open-list-topics="new-project-list-topics"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>'
-      + '<div class="text-muted small mt-1">Codes from the LIST/NSMI taxonomy, for example <code>HO-00-00-00-00, HO-05-00-00-00</code>. Referral sites use them to categorise the form.</div></div>'
-      + '</div>');
+      '<p class="text-muted small">These become the interview\'s <code>metadata</code> block. Anything you skip Weaver fills in with a guess, and you can revise it later in AssemblyLine settings.</p>' +
+        '<div class="d-grid gap-3">' +
+        '<div class="row g-3"><div class="col-md-8"><label class="editor-tiny" for="new-project-title">Title</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-title">' +
+        '<div class="text-muted small mt-1">The form name people see in listings and on the interview\'s first screen. Suggested from the uploaded document\'s name.</div></div>' +
+        '<div class="col-md-4"><label class="editor-tiny" for="new-project-short-title">Short title</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-short-title" maxlength="25">' +
+        '<div class="text-muted small mt-1">Up to 25 characters, used where space is tight.</div></div></div>' +
+        '<div><label class="editor-tiny" for="new-project-description">Description</label>' +
+        '<textarea class="form-control form-control-sm mt-1" id="new-project-description" rows="2"></textarea>' +
+        '<div class="text-muted small mt-1">One or two sentences saying what the form does. Shown on listing pages.</div></div>' +
+        '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-jurisdiction">Jurisdiction code</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-jurisdiction" placeholder="NAM-US-US+MA">' +
+        '<div class="text-muted small mt-1">Leave blank to derive it from the default state.</div></div>' +
+        '<div class="col-md-6"><label class="editor-tiny" for="new-project-landing-page-url">Public landing page URL</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-landing-page-url" type="url">' +
+        '<div class="text-muted small mt-1">Where this form is published for the public. Defaults to courtformsonline.org.</div></div></div>' +
+        '<div><label class="editor-tiny" for="new-project-list-topics">LIST topics</label>' +
+        '<div class="input-group input-group-sm mt-1"><input class="form-control" id="new-project-list-topics">' +
+        '<button class="btn btn-outline-secondary" type="button" data-open-list-topics="new-project-list-topics"><i class="fa-solid fa-list-check me-1" aria-hidden="true"></i>Choose topics</button></div>' +
+        '<div class="text-muted small mt-1">Codes from the LIST/NSMI taxonomy, for example <code>HO-00-00-00-00, HO-05-00-00-00</code>. Referral sites use them to categorise the form.</div></div>' +
+        '</div>',
+    );
 
     html += _newProjectSection('context', 'Drafting context', false,
-      '<div class="d-grid gap-3">'
-      + '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>'
-      + '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>'
-      + '<input class="form-control form-control-sm mt-1" id="new-project-help-page-title">'
-      + '<div class="text-muted small mt-1">The title shown to users on the link to that reference page.</div></div>'
-      + '<div><label class="editor-tiny" for="new-project-notes">Extra context for Weaver (optional)</label>'
-      + '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="4" placeholder="E.g. special instructions or local context"></textarea>'
-      + '<div class="text-muted small mt-1">This text is passed through as drafting context and works whether or not AI is enabled.</div></div>'
-      + '</div>');
+      '<div class="d-grid gap-3">' +
+        '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>' +
+        '<div><label class="editor-tiny" for="new-project-help-page-title">Reference page title (optional)</label>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-help-page-title">' +
+        '<div class="text-muted small mt-1">The title shown to users on the link to that reference page.</div></div>' +
+        '<div><label class="editor-tiny" for="new-project-notes">Extra context for Weaver (optional)</label>' +
+        '<textarea class="form-control form-control-sm mt-1" id="new-project-notes" rows="4" placeholder="E.g. special instructions or local context"></textarea>' +
+        '<div class="text-muted small mt-1">This text is passed through as drafting context and works whether or not AI is enabled.</div></div>' +
+        '</div>',
+    );
 
     html += '</div>';
 
-    html += '<div class="editor-upload-modal d-none" id="upload-progress-modal" role="dialog" aria-modal="true" aria-labelledby="upload-progress-title">';
+    html +=
+      '<div class="editor-upload-modal d-none" id="upload-progress-modal" role="dialog" aria-modal="true" aria-labelledby="upload-progress-title">';
     html += '<div class="editor-upload-modal-backdrop"></div>';
     html += '<div class="editor-upload-modal-panel">';
-    html += '<div class="d-flex justify-content-between align-items-start gap-3">';
-    html += '<div><div class="editor-tiny">Creating project</div><h3 class="editor-upload-modal-title" id="upload-progress-title">Generating from uploaded document</h3></div>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary d-none" id="upload-progress-close">Close</button>';
+    html +=
+      '<div class="d-flex justify-content-between align-items-start gap-3">';
+    html +=
+      '<div><div class="editor-tiny">Creating project</div><h3 class="editor-upload-modal-title" id="upload-progress-title">Generating from uploaded document</h3></div>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary d-none" id="upload-progress-close">Close</button>';
     html += '</div>';
     html += '<div class="editor-upload-modal-body">';
-    html += '<div class="editor-upload-modal-running" id="upload-progress-running">';
-    html += '<div class="spinner-border text-primary" role="status" aria-hidden="true"></div>';
-    html += '<div><div class="fw-semibold">Creating project...</div><div class="text-muted small mt-1" id="upload-progress-msg">This may take a minute or two. Please wait.</div></div>';
+    html +=
+      '<div class="editor-upload-modal-running" id="upload-progress-running">';
+    html +=
+      '<div class="spinner-border text-primary" role="status" aria-hidden="true"></div>';
+    html +=
+      '<div><div class="fw-semibold">Creating project...</div><div class="text-muted small mt-1" id="upload-progress-msg">This may take a minute or two. Please wait.</div></div>';
     html += '</div>';
-    html += '<div class="editor-upload-modal-error d-none" id="upload-progress-error"></div>';
+    html +=
+      '<div class="editor-upload-modal-error d-none" id="upload-progress-error"></div>';
     html += '</div></div></div>';
 
     html += '</div>';
@@ -8783,11 +13330,25 @@
     var dropzone = document.getElementById('upload-dropzone');
     var fileInput = document.getElementById('upload-file-input');
     if (!dropzone || !fileInput) return;
-    dropzone.addEventListener('click', function () { fileInput.click(); });
-    fileInput.addEventListener('change', function () { _addFiles(fileInput.files); fileInput.value = ''; });
-    dropzone.addEventListener('dragover', function (e) { e.preventDefault(); dropzone.classList.add('editor-dropzone-active'); });
-    dropzone.addEventListener('dragleave', function () { dropzone.classList.remove('editor-dropzone-active'); });
-    dropzone.addEventListener('drop', function (e) { e.preventDefault(); dropzone.classList.remove('editor-dropzone-active'); _addFiles(e.dataTransfer.files); });
+    dropzone.addEventListener('click', function () {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', function () {
+      _addFiles(fileInput.files);
+      fileInput.value = '';
+    });
+    dropzone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropzone.classList.add('editor-dropzone-active');
+    });
+    dropzone.addEventListener('dragleave', function () {
+      dropzone.classList.remove('editor-dropzone-active');
+    });
+    dropzone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropzone.classList.remove('editor-dropzone-active');
+      _addFiles(e.dataTransfer.files);
+    });
   }
 
   function _addFiles(fileList) {
@@ -8797,7 +13358,9 @@
       var f = fileList[i];
       var ext = (f.name || '').toLowerCase().replace(/^.*(\.[^.]+)$/, '$1');
       if (validExts.indexOf(ext) === -1) continue;
-      var isDupe = _uploadedFiles.some(function (existing) { return existing.name === f.name && existing.size === f.size; });
+      var isDupe = _uploadedFiles.some(function (existing) {
+        return existing.name === f.name && existing.size === f.size;
+      });
       if (!isDupe) _uploadedFiles.push(f);
     }
     _renderFileList();
@@ -8809,7 +13372,10 @@
   // means the author sees that guess while they can still change it, instead of
   // meeting it after the project exists.
   function _titleFromFilename(filename) {
-    var base = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').trim();
+    var base = String(filename || '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.[^.]+$/, '')
+      .trim();
     if (!base) return '';
     // Underscores separate words; hyphens usually belong to a form number
     // (MC-030, CJ-P 34), so they stay.
@@ -8829,10 +13395,14 @@
   function _projectNameFromTitle(title) {
     // Mirrors normalize_project_name: playground names are alphanumeric only
     // and cannot start with a digit.
-    var parts = String(title || '').split(/[^A-Za-z0-9]+/).filter(Boolean);
-    var name = parts.map(function (part) {
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    }).join('');
+    var parts = String(title || '')
+      .split(/[^A-Za-z0-9]+/)
+      .filter(Boolean);
+    var name = parts
+      .map(function (part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('');
     if (!name) return '';
     if (/^[0-9]/.test(name)) name = 'P' + name;
     if (name.toLowerCase() === 'default') name = name + 'Project';
@@ -8869,28 +13439,57 @@
   function _renderFileList() {
     var container = document.getElementById('upload-file-list');
     if (!container) return;
-    if (_uploadedFiles.length === 0) { container.innerHTML = ''; return; }
+    if (_uploadedFiles.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
     var multiple = _uploadedFiles.length > 1;
     var html = '<ol class="editor-upload-list">';
     _uploadedFiles.forEach(function (f, idx) {
       var sizeKb = (f.size / 1024).toFixed(1);
       html += '<li class="editor-upload-item">';
-      html += '<span class="editor-upload-item-name">' + esc(f.name) + ' <span class="text-muted">(' + sizeKb + ' KB)</span></span>';
+      html +=
+        '<span class="editor-upload-item-name">' +
+        esc(f.name) +
+        ' <span class="text-muted">(' +
+        sizeKb +
+        ' KB)</span></span>';
       if (multiple && idx === 0) {
-        html += '<span class="editor-pill editor-pill-muted">Names the interview</span>';
+        html +=
+          '<span class="editor-pill editor-pill-muted">Names the interview</span>';
       }
       html += '<span class="editor-upload-item-actions">';
       if (multiple) {
-        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="up" data-upload-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + ' title="Move earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' earlier</span></button>';
-        html += '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="down" data-upload-idx="' + idx + '"' + (idx === _uploadedFiles.length - 1 ? ' disabled' : '') + ' title="Move later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(f.name) + ' later</span></button>';
+        html +=
+          '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="up" data-upload-idx="' +
+          idx +
+          '"' +
+          (idx === 0 ? ' disabled' : '') +
+          ' title="Move earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' +
+          esc(f.name) +
+          ' earlier</span></button>';
+        html +=
+          '<button type="button" class="editor-icon-btn btn btn-sm btn-outline-secondary" data-move-upload="down" data-upload-idx="' +
+          idx +
+          '"' +
+          (idx === _uploadedFiles.length - 1 ? ' disabled' : '') +
+          ' title="Move later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' +
+          esc(f.name) +
+          ' later</span></button>';
       }
-      html += '<button type="button" class="editor-upload-chip-remove" data-remove-upload="' + idx + '" title="Remove"><span aria-hidden="true">&times;</span><span class="visually-hidden">Remove ' + esc(f.name) + '</span></button>';
+      html +=
+        '<button type="button" class="editor-upload-chip-remove" data-remove-upload="' +
+        idx +
+        '" title="Remove"><span aria-hidden="true">&times;</span><span class="visually-hidden">Remove ' +
+        esc(f.name) +
+        '</span></button>';
       html += '</span></li>';
     });
     html += '</ol>';
     if (multiple) {
-      html += '<div class="text-muted small mt-2">A long companion form is often better as its own interview that this one calls into. See '
-        + '<a href="https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+      html +=
+        '<div class="text-muted small mt-2">A long companion form is often better as its own interview that this one calls into. See ' +
+        '<a href="https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
     }
     container.innerHTML = html;
   }
@@ -8910,21 +13509,26 @@
   function _showUploadProgressModal(message) {
     var nodes = _getUploadProgressModalNodes();
     if (!nodes.modal) return;
-    if (nodes.title) nodes.title.textContent = 'Generating from uploaded document';
+    if (nodes.title)
+      nodes.title.textContent = 'Generating from uploaded document';
     if (nodes.running) nodes.running.classList.remove('d-none');
     if (nodes.error) {
       nodes.error.classList.add('d-none');
       nodes.error.textContent = '';
     }
     if (nodes.closeButton) nodes.closeButton.classList.add('d-none');
-    if (nodes.message) nodes.message.textContent = message || 'This may take a minute or two. Please wait.';
+    if (nodes.message)
+      nodes.message.textContent =
+        message || 'This may take a minute or two. Please wait.';
     if (nodes.createButton) nodes.createButton.disabled = true;
     nodes.modal.classList.remove('d-none');
   }
 
   function _setUploadProgressMessage(message) {
     var nodes = _getUploadProgressModalNodes();
-    if (nodes.message) nodes.message.textContent = message || 'This may take a minute or two. Please wait.';
+    if (nodes.message)
+      nodes.message.textContent =
+        message || 'This may take a minute or two. Please wait.';
   }
 
   function _hideUploadProgressModal() {
@@ -8937,7 +13541,8 @@
       nodes.error.textContent = '';
     }
     if (nodes.closeButton) nodes.closeButton.classList.add('d-none');
-    if (nodes.message) nodes.message.textContent = 'This may take a minute or two. Please wait.';
+    if (nodes.message)
+      nodes.message.textContent = 'This may take a minute or two. Please wait.';
     if (nodes.createButton) nodes.createButton.disabled = false;
   }
 
@@ -8968,14 +13573,22 @@
           .then(function (response) {
             var payload = response.body || {};
             var jobData = payload.data || {};
-            var jobStatus = String(payload.status || jobData.status || '').toLowerCase();
-            if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
-              reject(new Error(
-                (payload.error && payload.error.message) ||
-                (jobData.error && jobData.error.message) ||
-                jobData.message ||
-                'Project creation failed.'
-              ));
+            var jobStatus = String(
+              payload.status || jobData.status || '',
+            ).toLowerCase();
+            if (
+              jobStatus === 'failed' ||
+              jobStatus === 'cancelled' ||
+              jobStatus === 'expired'
+            ) {
+              reject(
+                new Error(
+                  (payload.error && payload.error.message) ||
+                    (jobData.error && jobData.error.message) ||
+                    jobData.message ||
+                    'Project creation failed.',
+                ),
+              );
               return;
             }
             if (jobStatus === 'succeeded') {
@@ -8985,9 +13598,19 @@
             var progressPrefix = Number.isFinite(Number(jobData.progress))
               ? String(Number(jobData.progress)) + '% — '
               : '';
-            _setUploadProgressMessage(progressPrefix + (jobData.message || ('Creating project "' + (projectName || 'new project') + '"...')));
+            _setUploadProgressMessage(
+              progressPrefix +
+                (jobData.message ||
+                  'Creating project "' +
+                    (projectName || 'new project') +
+                    '"...'),
+            );
             if (attempts >= UPLOAD_JOB_MAX_ATTEMPTS) {
-              reject(new Error('Timed out waiting for the background job to finish.'));
+              reject(
+                new Error(
+                  'Timed out waiting for the background job to finish.',
+                ),
+              );
               return;
             }
             setTimeout(tick, UPLOAD_JOB_POLL_INTERVAL_MS);
@@ -9003,11 +13626,18 @@
 
   function _showSuccessBanner(message) {
     var banner = document.createElement('div');
-    banner.className = 'alert alert-success alert-dismissible fade show position-fixed';
-    banner.style.cssText = 'top:1rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:500px;';
-    banner.innerHTML = '<span>' + message + '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    banner.className =
+      'alert alert-success alert-dismissible fade show position-fixed';
+    banner.style.cssText =
+      'top:1rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:500px;';
+    banner.innerHTML =
+      '<span>' +
+      message +
+      '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
     document.body.appendChild(banner);
-    setTimeout(function () { if (banner.parentNode) banner.parentNode.removeChild(banner); }, 5000);
+    setTimeout(function () {
+      if (banner.parentNode) banner.parentNode.removeChild(banner);
+    }, 5000);
   }
 
   // -------------------------------------------------------------------------
@@ -9061,20 +13691,27 @@
     var body = document.getElementById('review-sync-body');
     var data = _reviewSync.data;
     if (!body || !data) return;
-    document.querySelectorAll('[data-review-sync-tab]').forEach(function (button) {
-      var active = button.getAttribute('data-review-sync-tab') === _reviewSync.tab;
-      button.className = 'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
-    });
+    document
+      .querySelectorAll('[data-review-sync-tab]')
+      .forEach(function (button) {
+        var active =
+          button.getAttribute('data-review-sync-tab') === _reviewSync.tab;
+        button.className =
+          'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
+      });
     if (_reviewSync.tab === 'draft') {
-      body.innerHTML = '<pre class="editor-diff-body"><code class="editor-diff-line">'
-        + esc(data.review_yaml || '') + '</code></pre>';
+      body.innerHTML =
+        '<pre class="editor-diff-body"><code class="editor-diff-line">' +
+        esc(data.review_yaml || '') +
+        '</code></pre>';
       return;
     }
     var diff = data.diff || {};
     var html = renderUnifiedDiffHtml(diff.diff || '');
     if (diff.truncated) {
-      html += '<p class="editor-agent-diff-note">This diff is too large to show in full. '
-        + 'Use "Edit the whole file instead" to read all of it.</p>';
+      html +=
+        '<p class="editor-agent-diff-note">This diff is too large to show in full. ' +
+        'Use "Edit the whole file instead" to read all of it.</p>';
     }
     body.innerHTML = html;
   }
@@ -9087,26 +13724,41 @@
       var sources = data.sources || [];
       var diff = data.diff || {};
       var parts = [];
-      parts.push(sources.length > 1
-        ? 'Read ' + sources.length + ' files: ' + sources.join(', ')
-        : 'Read ' + (sources[0] || state.filename));
-      parts.push(data.replaced
-        ? 'replaces the review screen this file has'
-        : 'adds a review screen to this file');
+      parts.push(
+        sources.length > 1
+          ? 'Read ' + sources.length + ' files: ' + sources.join(', ')
+          : 'Read ' + (sources[0] || state.filename),
+      );
+      parts.push(
+        data.replaced
+          ? 'replaces the review screen this file has'
+          : 'adds a review screen to this file',
+      );
       if (data.kept_entries) {
-        parts.push('keeps ' + data.kept_entries
-          + (data.kept_entries === 1 ? ' entry' : ' entries')
-          + ' the draft did not cover');
+        parts.push(
+          'keeps ' +
+            data.kept_entries +
+            (data.kept_entries === 1 ? ' entry' : ' entries') +
+            ' the draft did not cover',
+        );
       }
       if (diff.added || diff.removed) {
-        parts.push('+' + Number(diff.added || 0) + ' \u2212' + Number(diff.removed || 0) + ' lines');
+        parts.push(
+          '+' +
+            Number(diff.added || 0) +
+            ' \u2212' +
+            Number(diff.removed || 0) +
+            ' lines',
+        );
       }
       summary.textContent = parts.join(' \u00b7 ');
     }
     var apply = document.getElementById('review-sync-apply');
     if (apply) {
       apply.disabled = Boolean(data.unchanged);
-      apply.textContent = data.replaced ? 'Replace review screen' : 'Add review screen';
+      apply.textContent = data.replaced
+        ? 'Replace review screen'
+        : 'Add review screen';
     }
     renderReviewSyncBody();
     var modal = getOrCreateBootstrapModal('review-sync-modal');
@@ -9134,28 +13786,37 @@
       project: state.project,
       filename: state.filename,
       content: data.full_yaml,
-    }).then(function (res) {
-      if (apply) apply.disabled = false;
-      if (!res.success) {
-        window.alert((res.error && res.error.message) || 'Unable to save the review screen.');
-        return;
-      }
-      closeBootstrapModal('review-sync-modal');
-      loadFile().then(function () {
-        selectReviewBlockAfterSync();
-        _showSuccessBanner(data.replaced
-          ? 'Review screen re-drafted and saved.'
-          : 'Review screen added and saved.');
+    })
+      .then(function (res) {
+        if (apply) apply.disabled = false;
+        if (!res.success) {
+          window.alert(
+            (res.error && res.error.message) ||
+              'Unable to save the review screen.',
+          );
+          return;
+        }
+        closeBootstrapModal('review-sync-modal');
+        loadFile().then(function () {
+          selectReviewBlockAfterSync();
+          _showSuccessBanner(
+            data.replaced
+              ? 'Review screen re-drafted and saved.'
+              : 'Review screen added and saved.',
+          );
+        });
+      })
+      .catch(function (error) {
+        if (apply) apply.disabled = false;
+        if (isSupersededRequest(error)) return;
+        // The server's message is the useful half -- "Permission denied on
+        // main.yml" is something to act on, "unable to save" is not.
+        window.alert(
+          error && error.message
+            ? 'Unable to save the review screen: ' + error.message
+            : 'Unable to save the review screen.',
+        );
       });
-    }).catch(function (error) {
-      if (apply) apply.disabled = false;
-      if (isSupersededRequest(error)) return;
-      // The server's message is the useful half -- "Permission denied on
-      // main.yml" is something to act on, "unable to save" is not.
-      window.alert(error && error.message
-        ? 'Unable to save the review screen: ' + error.message
-        : 'Unable to save the review screen.');
-    });
   }
 
   function openReviewSyncInFullYaml() {
@@ -9179,7 +13840,9 @@
   // first. See ALWeaver#819.
   // -------------------------------------------------------------------------
   function newTemplateKind() {
-    var checked = document.querySelector('input[name="new-template-kind"]:checked');
+    var checked = document.querySelector(
+      'input[name="new-template-kind"]:checked',
+    );
     return checked ? checked.value : 'blank';
   }
 
@@ -9291,23 +13954,35 @@
   }
 
   function loadVariableReportSuggestion() {
-    apiGet('/api/template/variable-report/suggestion?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+    apiGet(
+      '/api/template/variable-report/suggestion?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
       .then(function (res) {
         if (!res.success || !res.data) return;
-        var reportName = document.getElementById('new-template-report-filename');
+        var reportName = document.getElementById(
+          'new-template-report-filename',
+        );
         var reportTitle = document.getElementById('new-template-report-title');
         var sources = document.getElementById('new-template-report-sources');
-        if (reportName && !reportName.value) reportName.value = res.data.filename || '';
-        if (reportTitle && !reportTitle.value) reportTitle.value = res.data.title || '';
+        if (reportName && !reportName.value)
+          reportName.value = res.data.filename || '';
+        if (reportTitle && !reportTitle.value)
+          reportTitle.value = res.data.title || '';
         applyVariableReportOptions(res.data);
         if (sources) {
           var names = res.data.sources || [];
-          sources.textContent = names.length > 1
-            ? 'Reads ' + names.length + ' files: ' + names.join(', ')
-            : 'Reads ' + (names[0] || state.filename);
+          sources.textContent =
+            names.length > 1
+              ? 'Reads ' + names.length + ' files: ' + names.join(', ')
+              : 'Reads ' + (names[0] || state.filename);
         }
       })
-      .catch(function () { /* the suggestion is a convenience, not a gate */ });
+      .catch(function () {
+        /* the suggestion is a convenience, not a gate */
+      });
   }
 
   function createNewTemplate() {
@@ -9315,7 +13990,9 @@
     setNewTemplateError('');
     var create = document.getElementById('new-template-create');
     if (create) create.disabled = true;
-    var finish = function () { if (create) create.disabled = false; };
+    var finish = function () {
+      if (create) create.disabled = false;
+    };
 
     if (newTemplateKind() === 'blank') {
       var nameInput = document.getElementById('new-template-filename');
@@ -9330,21 +14007,25 @@
         section: 'templates',
         filename: filename,
         content: '',
-      }).then(function (res) {
-        finish();
-        if (!res.success) {
-          setNewTemplateError((res.error && res.error.message) || 'Unable to create file.');
-          return;
-        }
-        closeBootstrapModal('new-template-modal');
-        state.sectionSelectedFile.templates = filename;
-        state.sectionDirty = false;
-        noteModuleSaveResult(res.data);
-        loadSectionFiles('templates');
-      }).catch(function (error) {
-        finish();
-        setNewTemplateError(error.message || 'Unable to create file.');
-      });
+      })
+        .then(function (res) {
+          finish();
+          if (!res.success) {
+            setNewTemplateError(
+              (res.error && res.error.message) || 'Unable to create file.',
+            );
+            return;
+          }
+          closeBootstrapModal('new-template-modal');
+          state.sectionSelectedFile.templates = filename;
+          state.sectionDirty = false;
+          noteModuleSaveResult(res.data);
+          loadSectionFiles('templates');
+        })
+        .catch(function (error) {
+          finish();
+          setNewTemplateError(error.message || 'Unable to create file.');
+        });
       return;
     }
 
@@ -9354,7 +14035,9 @@
       return;
     }
     var titleInput = document.getElementById('new-template-report-title');
-    var reportNameInput = document.getElementById('new-template-report-filename');
+    var reportNameInput = document.getElementById(
+      'new-template-report-filename',
+    );
     var varNames = document.getElementById('new-template-report-varnames');
     var shapeInput = document.getElementById('new-template-report-shape');
     var profileInput = document.getElementById('new-template-report-profile');
@@ -9370,60 +14053,106 @@
     };
     if (shape !== 'intake') {
       payload.court_profile = profileInput ? profileInput.value : '';
-      payload.include_certificate_of_service = Boolean(cosInput && cosInput.checked);
+      payload.include_certificate_of_service = Boolean(
+        cosInput && cosInput.checked,
+      );
     }
-    apiPost('/api/template/variable-report', payload).then(function (res) {
-      finish();
-      if (!res.success) {
-        setNewTemplateError((res.error && res.error.message) || 'Unable to draft the document.');
-        return;
-      }
-      closeBootstrapModal('new-template-modal');
-      state.sectionSelectedFile.templates = res.data.filename;
-      state.sectionDirty = false;
-      loadSectionFiles('templates');
-      var drafted = 'Drafted ' + esc(res.data.filename) + ' from ' + res.data.variables_count + ' variables.';
-      if (res.data.profile_name) {
-        drafted += ' Caption and signature block from ' + esc(res.data.profile_name) + '.';
-      }
-      _showSuccessBanner(drafted + ' Import it under Document setup to assemble it.');
-    }).catch(function (error) {
-      finish();
-      setNewTemplateError(error.message || 'Unable to draft the document.');
-    });
+    apiPost('/api/template/variable-report', payload)
+      .then(function (res) {
+        finish();
+        if (!res.success) {
+          setNewTemplateError(
+            (res.error && res.error.message) || 'Unable to draft the document.',
+          );
+          return;
+        }
+        closeBootstrapModal('new-template-modal');
+        state.sectionSelectedFile.templates = res.data.filename;
+        state.sectionDirty = false;
+        loadSectionFiles('templates');
+        var drafted =
+          'Drafted ' +
+          esc(res.data.filename) +
+          ' from ' +
+          res.data.variables_count +
+          ' variables.';
+        if (res.data.profile_name) {
+          drafted +=
+            ' Caption and signature block from ' +
+            esc(res.data.profile_name) +
+            '.';
+        }
+        _showSuccessBanner(
+          drafted + ' Import it under Document setup to assemble it.',
+        );
+      })
+      .catch(function (error) {
+        finish();
+        setNewTemplateError(error.message || 'Unable to draft the document.');
+      });
   }
 
   function renderSectionPreview(fileMeta) {
     if (!fileMeta) {
       return '<div class="editor-card"><div class="editor-card-body text-muted">No file selected.</div></div>';
     }
-    var rawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(state.currentView)) + '&filename=' + encodeURIComponent(fileMeta.filename);
+    var rawUrl =
+      API +
+      '/api/section-file/raw?project=' +
+      encodeURIComponent(state.project) +
+      '&section=' +
+      encodeURIComponent(getSectionFromView(state.currentView)) +
+      '&filename=' +
+      encodeURIComponent(fileMeta.filename);
     if (fileMeta.preview_kind === 'pdf') {
-      return '<div class="editor-card"><div class="editor-card-body"><iframe class="editor-file-preview-frame" src="' + esc(rawUrl) + '" title="PDF preview"></iframe></div></div>';
+      return (
+        '<div class="editor-card"><div class="editor-card-body"><iframe class="editor-file-preview-frame" src="' +
+        esc(rawUrl) +
+        '" title="PDF preview"></iframe></div></div>'
+      );
     }
     if (fileMeta.preview_kind === 'image') {
-      return '<div class="editor-card"><div class="editor-card-body"><img class="editor-image-preview" src="' + esc(rawUrl) + '" alt="Preview of ' + esc(fileMeta.filename) + '"></div></div>';
+      return (
+        '<div class="editor-card"><div class="editor-card-body"><img class="editor-image-preview" src="' +
+        esc(rawUrl) +
+        '" alt="Preview of ' +
+        esc(fileMeta.filename) +
+        '"></div></div>'
+      );
     }
     if (fileMeta.preview_kind === 'docx') {
       return '<div class="editor-card"><div class="editor-card-body"><div id="docx-preview-container" class="editor-docx-preview text-muted">Loading DOCX preview&hellip;</div></div></div>';
     }
-    return '<div class="editor-card"><div class="editor-card-body"><p class="text-muted mb-2">This file is not previewable inline.</p><a class="btn btn-sm btn-outline-secondary" href="' + esc(rawUrl) + '" target="_blank" rel="noopener noreferrer">Open file</a></div></div>';
+    return (
+      '<div class="editor-card"><div class="editor-card-body"><p class="text-muted mb-2">This file is not previewable inline.</p><a class="btn btn-sm btn-outline-secondary" href="' +
+      esc(rawUrl) +
+      '" target="_blank" rel="noopener noreferrer">Open file</a></div></div>'
+    );
   }
 
   function loadDocxPreview(view, filename) {
     var container = document.getElementById('docx-preview-container');
     if (!container) return;
-    apiGet('/api/section-file/docx-preview?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(getSectionFromView(view)) + '&filename=' + encodeURIComponent(filename))
+    apiGet(
+      '/api/section-file/docx-preview?project=' +
+        encodeURIComponent(state.project) +
+        '&section=' +
+        encodeURIComponent(getSectionFromView(view)) +
+        '&filename=' +
+        encodeURIComponent(filename),
+    )
       .then(function (res) {
         if (!res.success || !res.data || !res.data.html) {
-          container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
+          container.innerHTML =
+            '<div class="text-danger">Unable to load DOCX preview.</div>';
           return;
         }
         container.innerHTML = res.data.html;
       })
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
-        container.innerHTML = '<div class="text-danger">Unable to load DOCX preview.</div>';
+        container.innerHTML =
+          '<div class="text-danger">Unable to load DOCX preview.</div>';
       });
   }
 
@@ -9435,8 +14164,10 @@
   // `objects:` block, which is the last thing an author should have to hand
   // edit to move a cover sheet above a petition.
   // -------------------------------------------------------------------------
-  var ALDOCUMENT_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
-  var COMBINING_INTERVIEWS_DOCS_URL = 'https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews';
+  var ALDOCUMENT_DOCS_URL =
+    'https://assemblyline.suffolklitlab.org/docs/components/AssemblyLine/ALDocument/overview';
+  var COMBINING_INTERVIEWS_DOCS_URL =
+    'https://assemblyline.suffolklitlab.org/docs/authoring/combining-interviews';
   var TEMPLATE_IMPORT_POLL_INTERVAL_MS = 1500;
   var TEMPLATE_IMPORT_MAX_ATTEMPTS = 400;
 
@@ -9462,27 +14193,33 @@
       return Promise.resolve();
     }
     return apiGet(
-      '/api/documents?project=' + encodeURIComponent(state.project) +
-      '&filename=' + encodeURIComponent(state.filename)
-    ).then(function (res) {
-      // An edit in progress outranks a background refresh. Nothing can reach
-      // this while the pane is dirty without the author having been asked
-      // first, so replacing what they typed would only ever be a surprise.
-      if (state.documentsDirty) return;
-      state.documents = (res && res.success && res.data) ? res.data : null;
-      // A pristine copy, so saving only touches what the author changed
-      // instead of rewriting every declaration in the file.
-      state.documentsLoaded = state.documents ? JSON.parse(JSON.stringify(state.documents)) : null;
-      // The outline carries the "Not imported" badges, so it redraws too.
-      if (state.currentView === 'templates') {
-        renderOutline();
-        renderCanvas();
-      }
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return;
-      state.documents = null;
-      state.documentsLoaded = null;
-    });
+      '/api/documents?project=' +
+        encodeURIComponent(state.project) +
+        '&filename=' +
+        encodeURIComponent(state.filename),
+    )
+      .then(function (res) {
+        // An edit in progress outranks a background refresh. Nothing can reach
+        // this while the pane is dirty without the author having been asked
+        // first, so replacing what they typed would only ever be a surprise.
+        if (state.documentsDirty) return;
+        state.documents = res && res.success && res.data ? res.data : null;
+        // A pristine copy, so saving only touches what the author changed
+        // instead of rewriting every declaration in the file.
+        state.documentsLoaded = state.documents
+          ? JSON.parse(JSON.stringify(state.documents))
+          : null;
+        // The outline carries the "Not imported" badges, so it redraws too.
+        if (state.currentView === 'templates') {
+          renderOutline();
+          renderCanvas();
+        }
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        state.documents = null;
+        state.documentsLoaded = null;
+      });
   }
 
   // Reordering redraws the whole Templates view, and the enabled rules are only
@@ -9498,7 +14235,7 @@
       var value = mode === 'always' ? 'True' : mode === 'never' ? 'False' : '';
       if (mode === 'custom') {
         var expression = document.querySelector(
-          '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+          '[data-enabled-expression="' + cssAttrValue(name) + '"]',
         );
         value = expression ? String(expression.value || '').trim() : '';
       }
@@ -9519,7 +14256,8 @@
   // selector built from data has no business trusting that.
   function cssAttrValue(value) {
     return String(value === null || value === undefined ? '' : value).replace(
-      /["\\]/g, '\\$&'
+      /["\\]/g,
+      '\\$&',
     );
   }
 
@@ -9532,13 +14270,16 @@
     (model.bundles || []).forEach(function (bundle) {
       var before = findByName(original.bundles, bundle.name);
       if (!before) return;
-      if (before.elements.join(',') !== bundle.elements.join(',')) changed = true;
-      if (String(before.enabled || '') !== String(bundle.enabled || '')) changed = true;
+      if (before.elements.join(',') !== bundle.elements.join(','))
+        changed = true;
+      if (String(before.enabled || '') !== String(bundle.enabled || ''))
+        changed = true;
     });
     (model.documents || []).forEach(function (document_) {
       var before = findByName(original.documents, document_.name);
       if (!before) return;
-      if (String(before.enabled || '') !== String(document_.enabled || '')) changed = true;
+      if (String(before.enabled || '') !== String(document_.enabled || ''))
+        changed = true;
     });
     return changed;
   }
@@ -9560,7 +14301,7 @@
       if (radio.getAttribute('data-enabled-mode') !== 'custom') return;
       var name = radio.getAttribute('data-enabled-target');
       var box = document.querySelector(
-        '[data-enabled-expression="' + cssAttrValue(name) + '"]'
+        '[data-enabled-expression="' + cssAttrValue(name) + '"]',
       );
       if (!box || !String(box.value || '').trim()) unfinished = name;
     });
@@ -9579,7 +14320,8 @@
     var status = document.getElementById('documents-status');
     if (!status) return;
     if (problem) {
-      status.textContent = 'Write the rule for ' + problem + ', or choose Always or Never.';
+      status.textContent =
+        'Write the rule for ' + problem + ', or choose Always or Never.';
     } else {
       status.textContent = state.documentsDirty ? 'Unsaved changes' : '';
     }
@@ -9613,10 +14355,14 @@
   function renderEnabledControl(name, expression, label) {
     var mode = enabledMode(expression);
     var safeId = 'enabled-' + String(name).replace(/[^A-Za-z0-9_-]/g, '-');
-    var html = '<div class="editor-enabled" data-enabled-group="' + esc(name) + '">';
+    var html =
+      '<div class="editor-enabled" data-enabled-group="' + esc(name) + '">';
     html += '<div class="editor-enabled-control">';
     html += '<span class="editor-enabled-label">' + esc(label) + '</span>';
-    html += '<div class="btn-group btn-group-sm" role="group" aria-label="Include ' + esc(name) + '">';
+    html +=
+      '<div class="btn-group btn-group-sm" role="group" aria-label="Include ' +
+      esc(name) +
+      '">';
     [
       ['always', 'Always'],
       ['never', 'Never'],
@@ -9624,22 +14370,55 @@
     ].forEach(function (option) {
       var value = option[0];
       var inputId = safeId + '-' + value;
-      html += '<input type="radio" class="btn-check" name="' + esc(safeId) + '" id="' + esc(inputId) + '"';
-      html += ' data-enabled-mode="' + value + '" data-enabled-target="' + esc(name) + '" autocomplete="off"';
+      html +=
+        '<input type="radio" class="btn-check" name="' +
+        esc(safeId) +
+        '" id="' +
+        esc(inputId) +
+        '"';
+      html +=
+        ' data-enabled-mode="' +
+        value +
+        '" data-enabled-target="' +
+        esc(name) +
+        '" autocomplete="off"';
       html += (mode === value ? ' checked' : '') + '>';
-      html += '<label class="btn btn-outline-secondary" for="' + esc(inputId) + '">' + option[1] + '</label>';
+      html +=
+        '<label class="btn btn-outline-secondary" for="' +
+        esc(inputId) +
+        '">' +
+        option[1] +
+        '</label>';
     });
     html += '</div></div>';
 
-    html += '<div class="editor-enabled-custom"' + (mode === 'custom' ? '' : ' hidden') + ' data-enabled-custom="' + esc(name) + '">';
-    html += '<label class="editor-tiny" for="' + esc(safeId) + '-expression">Python expression, evaluated when the download screen is built</label>';
-    html += '<input class="form-control form-control-sm font-monospace" id="' + esc(safeId) + '-expression" data-enabled-expression="' + esc(name) + '"';
-    html += ' value="' + esc(mode === 'custom' ? expression : '') + '" spellcheck="false">';
-    html += '<div class="editor-tiny text-muted mt-1">Example: <code>user_is_low_income</code></div>';
+    html +=
+      '<div class="editor-enabled-custom"' +
+      (mode === 'custom' ? '' : ' hidden') +
+      ' data-enabled-custom="' +
+      esc(name) +
+      '">';
+    html +=
+      '<label class="editor-tiny" for="' +
+      esc(safeId) +
+      '-expression">Python expression, evaluated when the download screen is built</label>';
+    html +=
+      '<input class="form-control form-control-sm font-monospace" id="' +
+      esc(safeId) +
+      '-expression" data-enabled-expression="' +
+      esc(name) +
+      '"';
+    html +=
+      ' value="' +
+      esc(mode === 'custom' ? expression : '') +
+      '" spellcheck="false">';
+    html +=
+      '<div class="editor-tiny text-muted mt-1">Example: <code>user_is_low_income</code></div>';
     html += '</div>';
 
     if (mode === 'unset') {
-      html += '<div class="editor-tiny editor-enabled-warning">No rule set here. Unless something else in the interview defines it, assembly will stop and ask.</div>';
+      html +=
+        '<div class="editor-tiny editor-enabled-warning">No rule set here. Unless something else in the interview defines it, assembly will stop and ask.</div>';
     }
     return html + '</div>';
   }
@@ -9655,7 +14434,8 @@
     } else if (title) {
       html += '<div class="editor-doc-row-file">' + esc(title) + '</div>';
     } else {
-      html += '<div class="editor-doc-row-file editor-doc-row-missing">Not declared in this file</div>';
+      html +=
+        '<div class="editor-doc-row-file editor-doc-row-missing">Not declared in this file</div>';
     }
     return html + '</div>';
   }
@@ -9664,21 +14444,38 @@
     var model = state.documents;
     var html = '<section class="editor-doc-section">';
     html += '<div class="editor-doc-section-head">';
-    html += '<h3 class="editor-doc-section-title">Documents this interview assembles</h3>';
-    html += '<a class="editor-tiny" href="' + ALDOCUMENT_DOCS_URL + '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
+    html +=
+      '<h3 class="editor-doc-section-title">Documents this interview assembles</h3>';
+    html +=
+      '<a class="editor-tiny" href="' +
+      ALDOCUMENT_DOCS_URL +
+      '" target="_blank" rel="noopener noreferrer">ALDocument docs</a>';
     html += '</div>';
 
     if (!state.filename) {
-      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Open an interview file to see how its templates are assembled.</div></div></section>';
+      return (
+        html +
+        '<div class="editor-card"><div class="editor-card-body text-muted small">Open an interview file to see how its templates are assembled.</div></div></section>'
+      );
     }
     if (!model) {
-      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">Weaver could not read the documents in ' + esc(state.filename) + '.</div></div></section>';
+      return (
+        html +
+        '<div class="editor-card"><div class="editor-card-body text-muted small">Weaver could not read the documents in ' +
+        esc(state.filename) +
+        '.</div></div></section>'
+      );
     }
 
     var documents = model.documents || [];
     var bundles = model.bundles || [];
     if (!documents.length && !bundles.length) {
-      return html + '<div class="editor-card"><div class="editor-card-body text-muted small">' + esc(state.filename) + ' does not assemble any documents yet. Open a template under Template files and import it.</div></div></section>';
+      return (
+        html +
+        '<div class="editor-card"><div class="editor-card-body text-muted small">' +
+        esc(state.filename) +
+        ' does not assemble any documents yet. Open a template under Template files and import it.</div></div></section>'
+      );
     }
 
     // One card per bundle: its documents in the order they come out, and the
@@ -9686,8 +14483,13 @@
     bundles.forEach(function (bundle) {
       html += '<div class="editor-card editor-bundle-card">';
       html += '<div class="editor-bundle-card-header">';
-      html += '<code class="editor-bundle-card-name">' + esc(bundle.name) + '</code>';
-      if (bundle.title) html += '<span class="editor-bundle-card-subtitle">' + esc(bundle.title) + '</span>';
+      html +=
+        '<code class="editor-bundle-card-name">' + esc(bundle.name) + '</code>';
+      if (bundle.title)
+        html +=
+          '<span class="editor-bundle-card-subtitle">' +
+          esc(bundle.title) +
+          '</span>';
       html += '</div>';
       html += '<div class="editor-card-body">';
       if (!bundle.elements.length) {
@@ -9698,30 +14500,63 @@
         html += '<li class="editor-doc-row">';
         html += renderDocumentRow(element);
         html += '<div class="editor-doc-row-actions">';
-        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="up" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === 0 ? ' disabled' : '') + ' title="Assemble earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' earlier in ' + esc(bundle.name) + '</span></button>';
-        html += '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="down" data-bundle="' + esc(bundle.name) + '" data-doc-index="' + index + '"' + (index === bundle.elements.length - 1 ? ' disabled' : '') + ' title="Assemble later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' + esc(element) + ' later in ' + esc(bundle.name) + '</span></button>';
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="up" data-bundle="' +
+          esc(bundle.name) +
+          '" data-doc-index="' +
+          index +
+          '"' +
+          (index === 0 ? ' disabled' : '') +
+          ' title="Assemble earlier"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span class="visually-hidden">Move ' +
+          esc(element) +
+          ' earlier in ' +
+          esc(bundle.name) +
+          '</span></button>';
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-secondary editor-icon-btn" data-move-doc="down" data-bundle="' +
+          esc(bundle.name) +
+          '" data-doc-index="' +
+          index +
+          '"' +
+          (index === bundle.elements.length - 1 ? ' disabled' : '') +
+          ' title="Assemble later"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span class="visually-hidden">Move ' +
+          esc(element) +
+          ' later in ' +
+          esc(bundle.name) +
+          '</span></button>';
         html += '</div></li>';
       });
       html += '</ol>';
-      html += renderEnabledControl(bundle.name, bundle.enabled, 'Produce this bundle');
+      html += renderEnabledControl(
+        bundle.name,
+        bundle.enabled,
+        'Produce this bundle',
+      );
       html += '</div></div>';
     });
 
     html += '</section>';
 
     if (!documents.length) {
-      html += '<p class="text-muted small">No <code>ALDocument</code> is declared in ' + esc(state.filename) + ', so the bundles above list documents it does not define.</p>';
+      html +=
+        '<p class="text-muted small">No <code>ALDocument</code> is declared in ' +
+        esc(state.filename) +
+        ', so the bundles above list documents it does not define.</p>';
       return html;
     }
 
     // The same question, one level down: each document has its own rule.
     html += '<section class="editor-doc-section">';
     html += '<div class="editor-doc-section-head">';
-    html += '<h3 class="editor-doc-section-title">Include each document when</h3>';
+    html +=
+      '<h3 class="editor-doc-section-title">Include each document when</h3>';
     html += '</div>';
     html += '<div class="editor-card"><div class="editor-card-body">';
     documents.forEach(function (document_, index) {
-      html += '<div class="editor-doc-rule-row' + (index ? '' : ' editor-doc-rule-row-first') + '">';
+      html +=
+        '<div class="editor-doc-rule-row' +
+        (index ? '' : ' editor-doc-rule-row-first') +
+        '">';
       html += renderDocumentRow(document_.name);
       html += '<div class="editor-doc-rule-control">';
       html += renderEnabledControl(document_.name, document_.enabled, '');
@@ -9742,64 +14577,119 @@
     var attached = templateIsAttached(fileMeta.filename);
     var busy = state.templateImportBusy === fileMeta.filename;
     var buttonLabel = busy
-      ? (attached ? 'Reading…' : 'Importing…')
-      : (attached ? 'Reload fields' : 'Import into this interview');
+      ? attached
+        ? 'Reading…'
+        : 'Importing…'
+      : attached
+        ? 'Reload fields'
+        : 'Import into this interview';
 
-    var html = '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
+    var html =
+      '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
     html += '<span>' + esc(fileMeta.filename);
-    if (attached) html += ' <span class="text-muted fw-normal">already imported</span>';
+    if (attached)
+      html += ' <span class="text-muted fw-normal">already imported</span>';
     html += '</span>';
-    html += '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' + (state.templateImportBusy || !state.filename ? ' disabled' : '') + '>' + esc(buttonLabel) + '</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' +
+      (state.templateImportBusy || !state.filename ? ' disabled' : '') +
+      '>' +
+      esc(buttonLabel) +
+      '</button>';
     html += '</div><div class="editor-card-body">';
 
     if (!state.filename) {
-      html += '<p class="text-muted small mb-0">Open an interview file first: importing compares this template against what that interview already asks.</p>';
+      html +=
+        '<p class="text-muted small mb-0">Open an interview file first: importing compares this template against what that interview already asks.</p>';
       return html + '</div></div>';
     }
 
     if (busy && state.templateImportMessage) {
-      html += '<div class="editor-tiny text-muted mb-2" id="template-import-status">' + esc(state.templateImportMessage) + '</div>';
+      html +=
+        '<div class="editor-tiny text-muted mb-2" id="template-import-status">' +
+        esc(state.templateImportMessage) +
+        '</div>';
     } else if (state.templateImportBusy) {
-      html += '<div class="editor-tiny text-muted mb-2">Reading ' + esc(state.templateImportBusy) + '\u2026</div>';
+      html +=
+        '<div class="editor-tiny text-muted mb-2">Reading ' +
+        esc(state.templateImportBusy) +
+        '\u2026</div>';
     }
 
     // An import belongs to the pair it was run on: switch either the template
     // or the interview and it no longer describes what is on screen.
-    if (!analysis || analysis.template_filename !== fileMeta.filename
-        || analysis.interview_filename !== state.filename) {
+    if (
+      !analysis ||
+      analysis.template_filename !== fileMeta.filename ||
+      analysis.interview_filename !== state.filename
+    ) {
       if (attached) {
         var status = templateStatus(fileMeta.filename);
-        html += '<p class="text-muted small mb-0">Already part of ' + esc(state.filename) + ', assembled as <code>' + esc((status && status.document) || '') + '</code>. Reload the fields if the form has been revised since.</p>';
+        html +=
+          '<p class="text-muted small mb-0">Already part of ' +
+          esc(state.filename) +
+          ', assembled as <code>' +
+          esc((status && status.document) || '') +
+          '</code>. Reload the fields if the form has been revised since.</p>';
       } else {
-        html += '<p class="text-muted small mb-0">Weaver reads this template\'s fields and offers what ' + esc(state.filename) + ' is missing: the attachment block that turns it into a download, screens for fields nothing asks about yet, and the objects those screens need. You choose which of them to keep.</p>';
+        html +=
+          '<p class="text-muted small mb-0">Weaver reads this template\'s fields and offers what ' +
+          esc(state.filename) +
+          ' is missing: the attachment block that turns it into a download, screens for fields nothing asks about yet, and the objects those screens need. You choose which of them to keep.</p>';
       }
       return html + '</div></div>';
     }
 
     (analysis.warnings || []).forEach(function (warning) {
-      html += '<div class="alert alert-warning py-2 small">' + esc(warning) + '</div>';
+      html +=
+        '<div class="alert alert-warning py-2 small">' +
+        esc(warning) +
+        '</div>';
     });
 
     var candidates = templateImportCandidates(analysis);
     if (!candidates.length && !(analysis.bundle_additions || []).length) {
-      html += '<p class="text-muted small mb-0">Nothing to add: ' + esc(state.filename) + ' already covers this template.</p>';
+      html +=
+        '<p class="text-muted small mb-0">Nothing to add: ' +
+        esc(state.filename) +
+        ' already covers this template.</p>';
       return html + '</div></div>';
     }
 
     candidates.forEach(function (candidate) {
-      var checked = candidate.key in state.templateImportSelection
-        ? state.templateImportSelection[candidate.key]
-        : candidate.recommended !== false;
+      var checked =
+        candidate.key in state.templateImportSelection
+          ? state.templateImportSelection[candidate.key]
+          : candidate.recommended !== false;
       html += '<div class="form-check editor-import-item">';
-      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(candidate.key) + '" data-import-key="' + esc(candidate.key) + '"' + (checked ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="import-' + esc(candidate.key) + '">' + esc(candidate.title) + '</label>';
+      html +=
+        '<input class="form-check-input" type="checkbox" id="import-' +
+        esc(candidate.key) +
+        '" data-import-key="' +
+        esc(candidate.key) +
+        '"' +
+        (checked ? ' checked' : '') +
+        '>';
+      html +=
+        '<label class="form-check-label" for="import-' +
+        esc(candidate.key) +
+        '">' +
+        esc(candidate.title) +
+        '</label>';
       if (candidate.replaces_block_id) {
-        html += '<div class="editor-tiny text-warning-emphasis">Overwrites the existing block, including any hand edits to it.</div>';
+        html +=
+          '<div class="editor-tiny text-warning-emphasis">Overwrites the existing block, including any hand edits to it.</div>';
       }
       if (candidate.variables && candidate.variables.length) {
-        html += '<div class="editor-tiny text-muted">' + esc(candidate.variables.join(', ')) + '</div>';
+        html +=
+          '<div class="editor-tiny text-muted">' +
+          esc(candidate.variables.join(', ')) +
+          '</div>';
       }
-      html += '<details class="editor-import-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-import-yaml">' + esc(candidate.yaml) + '</pre></details>';
+      html +=
+        '<details class="editor-import-preview"><summary class="editor-tiny">Show YAML</summary><pre class="editor-import-yaml">' +
+        esc(candidate.yaml) +
+        '</pre></details>';
       html += '</div>';
     });
 
@@ -9807,18 +14697,40 @@
       var key = 'bundle-' + index;
       var checked = state.templateImportSelection[key] !== false;
       html += '<div class="form-check editor-import-item">';
-      html += '<input class="form-check-input" type="checkbox" id="import-' + esc(key) + '" data-import-key="' + esc(key) + '"' + (checked ? ' checked' : '') + '>';
-      html += '<label class="form-check-label" for="import-' + esc(key) + '">Add <code>' + esc(addition.element) + '</code> to <code>' + esc(addition.bundle) + '</code></label>';
+      html +=
+        '<input class="form-check-input" type="checkbox" id="import-' +
+        esc(key) +
+        '" data-import-key="' +
+        esc(key) +
+        '"' +
+        (checked ? ' checked' : '') +
+        '>';
+      html +=
+        '<label class="form-check-label" for="import-' +
+        esc(key) +
+        '">Add <code>' +
+        esc(addition.element) +
+        '</code> to <code>' +
+        esc(addition.bundle) +
+        '</code></label>';
       html += '</div>';
     });
 
     html += '<div class="mt-3 d-flex gap-2 align-items-center flex-wrap">';
-    html += '<button class="btn btn-sm btn-primary" id="apply-import-btn">Add selected to ' + esc(state.filename) + '</button>';
-    html += '<span class="editor-tiny text-muted" id="apply-import-hint"></span>';
-    html += '<span class="editor-tiny text-muted">Reorder the new blocks in the interview outline, and the documents themselves under Templates &rsaquo; Document setup.</span>';
+    html +=
+      '<button class="btn btn-sm btn-primary" id="apply-import-btn">Add selected to ' +
+      esc(state.filename) +
+      '</button>';
+    html +=
+      '<span class="editor-tiny text-muted" id="apply-import-hint"></span>';
+    html +=
+      '<span class="editor-tiny text-muted">Reorder the new blocks in the interview outline, and the documents themselves under Templates &rsaquo; Document setup.</span>';
     html += '</div>';
     if (!analysis.already_imported) {
-      html += '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' + COMBINING_INTERVIEWS_DOCS_URL + '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
+      html +=
+        '<div class="editor-tiny text-muted mt-2">A long second form is often better as its own interview this one calls into. See <a href="' +
+        COMBINING_INTERVIEWS_DOCS_URL +
+        '" target="_blank" rel="noopener noreferrer">combining interviews</a>.</div>';
     }
 
     return html + '</div></div>';
@@ -9859,21 +14771,25 @@
       project: state.project,
       filename: state.filename,
       template: fileMeta.filename,
-    }).then(function (res) {
-      if (!res || !res.job_url) throw new Error('Weaver did not queue the analysis.');
-      return pollTemplateImport(res.job_url);
-    }).then(function (result) {
-      state.templateImportBusy = null;
-      state.templateImportResult = result;
-      state.templateImportMessage = '';
-      renderCanvas();
-    }).catch(function (error) {
-      state.templateImportBusy = null;
-      state.templateImportMessage = '';
-      renderCanvas();
-      if (isSupersededRequest(error)) return;
-      showApiError(error);
-    });
+    })
+      .then(function (res) {
+        if (!res || !res.job_url)
+          throw new Error('Weaver did not queue the analysis.');
+        return pollTemplateImport(res.job_url);
+      })
+      .then(function (result) {
+        state.templateImportBusy = null;
+        state.templateImportResult = result;
+        state.templateImportMessage = '';
+        renderCanvas();
+      })
+      .catch(function (error) {
+        state.templateImportBusy = null;
+        state.templateImportMessage = '';
+        renderCanvas();
+        if (isSupersededRequest(error)) return;
+        showApiError(error);
+      });
   }
 
   // Redrawing on every poll would collapse the YAML previews the author has
@@ -9892,24 +14808,38 @@
     return new Promise(function (resolve, reject) {
       function tick() {
         attempts += 1;
-        apiGet(path).then(function (res) {
-          var data = (res && res.data) || {};
-          var status = String(res && res.status || data.status || 'queued');
-          if (status === 'succeeded') {
-            resolve(data.result || {});
-            return;
-          }
-          if (status === 'failed' || status === 'cancelled' || status === 'expired') {
-            reject(new Error((data.error && data.error.message) || data.message || 'Template analysis failed.'));
-            return;
-          }
-          setTemplateImportMessage(data.message || 'Analyzing…');
-          if (attempts >= TEMPLATE_IMPORT_MAX_ATTEMPTS) {
-            reject(new Error('Timed out waiting for the analysis to finish.'));
-            return;
-          }
-          setTimeout(tick, TEMPLATE_IMPORT_POLL_INTERVAL_MS);
-        }).catch(reject);
+        apiGet(path)
+          .then(function (res) {
+            var data = (res && res.data) || {};
+            var status = String((res && res.status) || data.status || 'queued');
+            if (status === 'succeeded') {
+              resolve(data.result || {});
+              return;
+            }
+            if (
+              status === 'failed' ||
+              status === 'cancelled' ||
+              status === 'expired'
+            ) {
+              reject(
+                new Error(
+                  (data.error && data.error.message) ||
+                    data.message ||
+                    'Template analysis failed.',
+                ),
+              );
+              return;
+            }
+            setTemplateImportMessage(data.message || 'Analyzing…');
+            if (attempts >= TEMPLATE_IMPORT_MAX_ATTEMPTS) {
+              reject(
+                new Error('Timed out waiting for the analysis to finish.'),
+              );
+              return;
+            }
+            setTimeout(tick, TEMPLATE_IMPORT_POLL_INTERVAL_MS);
+          })
+          .catch(reject);
       }
       tick();
     });
@@ -9933,13 +14863,19 @@
     if (!analysis) return;
     var blocks = [];
     templateImportCandidates(analysis).forEach(function (candidate) {
-      var chosen = candidate.key in state.templateImportSelection
-        ? state.templateImportSelection[candidate.key]
-        : candidate.recommended;
+      var chosen =
+        candidate.key in state.templateImportSelection
+          ? state.templateImportSelection[candidate.key]
+          : candidate.recommended;
       if (!chosen) return;
-      blocks.push(candidate.replaces_block_id
-        ? { yaml: candidate.yaml, replace_block_id: candidate.replaces_block_id }
-        : candidate.yaml);
+      blocks.push(
+        candidate.replaces_block_id
+          ? {
+              yaml: candidate.yaml,
+              replace_block_id: candidate.replaces_block_id,
+            }
+          : candidate.yaml,
+      );
     });
     var bundles = [];
     (analysis.bundle_additions || []).forEach(function (addition, index) {
@@ -9954,19 +14890,21 @@
       expected_revision: analysis.interview_revision,
       blocks: blocks,
       bundles: bundles,
-    }).then(function (res) {
-      if (!res || !res.success) return;
-      state.templateImportResult = null;
-      state.templateImportSelection = {};
-      _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
-      return loadFile().then(function () {
-        renderOutline();
-        renderCanvas();
+    })
+      .then(function (res) {
+        if (!res || !res.success) return;
+        state.templateImportResult = null;
+        state.templateImportSelection = {};
+        _showSuccessBanner('Added to ' + analysis.interview_filename + '.');
+        return loadFile().then(function () {
+          renderOutline();
+          renderCanvas();
+        });
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        showApiError(error);
       });
-    }).catch(function (error) {
-      if (isSupersededRequest(error)) return;
-      showApiError(error);
-    });
   }
 
   function setTemplatesMode(mode) {
@@ -9978,7 +14916,9 @@
     }
     state.templatesMode = nextMode;
     if (state.currentView !== 'templates') {
-      var templatesTab = document.querySelector('.editor-top-tab[data-view="templates"]');
+      var templatesTab = document.querySelector(
+        '.editor-top-tab[data-view="templates"]',
+      );
       if (templatesTab) {
         templatesTab.click();
         return;
@@ -10022,17 +14962,25 @@
     var bundles = [];
     (model.bundles || []).forEach(function (bundle) {
       var before = originalEntry(original.bundles || [], bundle.name);
-      if (before && before.elements.join(',') === bundle.elements.join(',')) return;
+      if (before && before.elements.join(',') === bundle.elements.join(','))
+        return;
       bundles.push({ bundle: bundle.name, elements: bundle.elements });
     });
     var enabled = [];
-    (model.documents || []).concat(model.bundles || []).forEach(function (entry) {
-      var before = originalEntry(
-        (original.documents || []).concat(original.bundles || []), entry.name
-      );
-      if (before && String(before.enabled || '') === String(entry.enabled || '')) return;
-      enabled.push({ name: entry.name, expression: entry.enabled || null });
-    });
+    (model.documents || [])
+      .concat(model.bundles || [])
+      .forEach(function (entry) {
+        var before = originalEntry(
+          (original.documents || []).concat(original.bundles || []),
+          entry.name,
+        );
+        if (
+          before &&
+          String(before.enabled || '') === String(entry.enabled || '')
+        )
+          return;
+        enabled.push({ name: entry.name, expression: entry.enabled || null });
+      });
     if (!bundles.length && !enabled.length) {
       state.documentsDirty = false;
       markDocumentsDirty();
@@ -10047,27 +14995,29 @@
       expected_revision: model.revision,
       bundles: bundles,
       enabled: enabled,
-    }).then(function (res) {
-      state.documentsBusy = false;
-      if (!res || !res.success) return false;
-      state.documents = res.data;
-      state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
-      state.documentsDirty = false;
-      updateTopbarSaveState();
-      _showSuccessBanner('Document setup saved.');
-      // `loadFile` re-reads the interview, and reloads the documents with it.
-      return loadFile().then(function () {
-        renderOutline();
+    })
+      .then(function (res) {
+        state.documentsBusy = false;
+        if (!res || !res.success) return false;
+        state.documents = res.data;
+        state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
+        state.documentsDirty = false;
+        updateTopbarSaveState();
+        _showSuccessBanner('Document setup saved.');
+        // `loadFile` re-reads the interview, and reloads the documents with it.
+        return loadFile().then(function () {
+          renderOutline();
+          renderCanvas();
+          return true;
+        });
+      })
+      .catch(function (error) {
+        state.documentsBusy = false;
         renderCanvas();
-        return true;
+        if (isSupersededRequest(error)) return false;
+        showApiError(error);
+        return false;
       });
-    }).catch(function (error) {
-      state.documentsBusy = false;
-      renderCanvas();
-      if (isSupersededRequest(error)) return false;
-      showApiError(error);
-      return false;
-    });
   }
 
   // The project-wide setup of the documents, reached from the Templates menu.
@@ -10076,11 +15026,17 @@
   function renderDocumentSetupView() {
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
-    html += '<div class="editor-tiny text-muted mt-1">' + (state.filename ? esc(state.filename) : 'No interview file open') + '</div></div>';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
+    html +=
+      '<div class="editor-tiny text-muted mt-1">' +
+      (state.filename ? esc(state.filename) : 'No interview file open') +
+      '</div></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
-    html += '<button class="btn btn-sm btn-outline-secondary" id="btn-new-template-setup"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New template</button>';
-    html += '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="btn-new-template-setup"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New template</button>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" data-templates-mode="files"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Template files</button>';
     html += '</div></div>';
     html += renderDocumentsCard();
     html += renderUnimportedTemplatesCard();
@@ -10088,8 +15044,12 @@
       // Pinned, because the rules are a long list and the save for all of them
       // is one action.
       html += '<div class="editor-doc-save">';
-      html += '<button class="btn btn-primary" id="save-documents-btn"' + (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') + '>Save document changes</button>';
-      html += '<span class="editor-tiny text-muted" id="documents-status"></span>';
+      html +=
+        '<button class="btn btn-primary" id="save-documents-btn"' +
+        (state.documentsBusy || !state.documentsDirty ? ' disabled' : '') +
+        '>Save document changes</button>';
+      html +=
+        '<span class="editor-tiny text-muted" id="documents-status"></span>';
       html += '</div>';
     }
     html += '</div>';
@@ -10103,12 +15063,22 @@
       return statuses[filename].status === 'not_imported';
     });
     if (!pending.length) return '';
-    var html = '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
-    html += '<p class="text-muted small">These files are in the project but nothing in ' + esc(state.filename || 'the interview') + ' uses them. Open one under Template files to import it.</p>';
+    var html =
+      '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
+    html +=
+      '<p class="text-muted small">These files are in the project but nothing in ' +
+      esc(state.filename || 'the interview') +
+      ' uses them. Open one under Template files to import it.</p>';
     html += '<ul class="editor-doc-list editor-doc-list-plain">';
     pending.forEach(function (filename) {
-      html += '<li class="editor-doc-item"><span class="editor-doc-item-name">' + esc(filename) + '</span>';
-      html += '<span class="editor-doc-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-open-template="' + esc(filename) + '">Open</button></span></li>';
+      html +=
+        '<li class="editor-doc-item"><span class="editor-doc-item-name">' +
+        esc(filename) +
+        '</span>';
+      html +=
+        '<span class="editor-doc-item-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-open-template="' +
+        esc(filename) +
+        '">Open</button></span></li>';
     });
     html += '</ul></div></div>';
     return html;
@@ -10118,7 +15088,10 @@
     var view = state.currentView;
     var section = getSectionFromView(view);
     if (!section || !state.project) {
-      canvasContent.innerHTML = '<div class="editor-secondary-center"><div class="editor-secondary-card"><h2 style="font-weight:700">' + esc(sectionTitle(view)) + '</h2><p class="text-muted mt-2">Select a project to manage files in this section.</p></div></div>';
+      canvasContent.innerHTML =
+        '<div class="editor-secondary-center"><div class="editor-secondary-card"><h2 style="font-weight:700">' +
+        esc(sectionTitle(view)) +
+        '</h2><p class="text-muted mt-2">Select a project to manage files in this section.</p></div></div>';
       return;
     }
     if (view === 'templates' && state.templatesMode === 'documents') {
@@ -10134,14 +15107,31 @@
     var html = '';
     html += '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">' + esc(sectionTitle(view)) + (fileMeta ? ' — ' + esc(fileMeta.filename) : '') + '</h2></div>';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0">' +
+      esc(sectionTitle(view)) +
+      (fileMeta ? ' — ' + esc(fileMeta.filename) : '') +
+      '</h2></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
     if (fileMeta) {
-      var sectionRawUrl = API + '/api/section-file/raw?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename);
-      html += '<a class="btn btn-sm btn-outline-secondary" href="' + esc(sectionRawUrl) + '" download="' + esc(fileMeta.filename) + '"><i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download</a>';
+      var sectionRawUrl =
+        API +
+        '/api/section-file/raw?project=' +
+        encodeURIComponent(state.project) +
+        '&section=' +
+        encodeURIComponent(section) +
+        '&filename=' +
+        encodeURIComponent(fileMeta.filename);
+      html +=
+        '<a class="btn btn-sm btn-outline-secondary" href="' +
+        esc(sectionRawUrl) +
+        '" download="' +
+        esc(fileMeta.filename) +
+        '"><i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download</a>';
     }
     html += '</div></div>';
-    html += '<input type="file" id="section-upload-input" style="display:none" multiple>';
+    html +=
+      '<input type="file" id="section-upload-input" style="display:none" multiple>';
 
     // Weaver's document analysis used to be spent once, at project creation.
     // On the Templates tab it stays available for the life of the project.
@@ -10150,7 +15140,8 @@
     }
 
     if (!fileMeta) {
-      html += '<div class="editor-card"><div class="editor-card-body text-muted">No files in this section yet. Use Upload or + New.</div></div>';
+      html +=
+        '<div class="editor-card"><div class="editor-card-body text-muted">No files in this section yet. Use Upload or + New.</div></div>';
       html += '</div>';
       canvasContent.innerHTML = html;
       return;
@@ -10159,8 +15150,14 @@
     var editable = Boolean(fileMeta.editable);
     if (editable) {
       html += '<div class="editor-card"><div class="editor-card-body">';
-      html += '<div class="d-flex justify-content-between align-items-center mb-2"><div class="editor-tiny">Editing ' + esc(fileMeta.filename) + '</div><button class="btn btn-sm btn-primary" id="save-section-file"' + (!state.sectionDirty ? ' disabled' : '') + '>Save</button></div>';
-      html += '<div class="editor-source-container" id="section-file-source-editor" style="height:620px"></div>';
+      html +=
+        '<div class="d-flex justify-content-between align-items-center mb-2"><div class="editor-tiny">Editing ' +
+        esc(fileMeta.filename) +
+        '</div><button class="btn btn-sm btn-primary" id="save-section-file"' +
+        (!state.sectionDirty ? ' disabled' : '') +
+        '>Save</button></div>';
+      html +=
+        '<div class="editor-source-container" id="section-file-source-editor" style="height:620px"></div>';
       html += '</div></div>';
     } else {
       html += renderSectionPreview(fileMeta);
@@ -10176,19 +15173,37 @@
       // recording this file's text under whatever is selected by then would
       // corrupt the dirty-state snapshot for the other file.
       var requestedSnapshotKey = sectionSnapshotKey();
-      apiGet('/api/section-file?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(section) + '&filename=' + encodeURIComponent(fileMeta.filename))
+      apiGet(
+        '/api/section-file?project=' +
+          encodeURIComponent(state.project) +
+          '&section=' +
+          encodeURIComponent(section) +
+          '&filename=' +
+          encodeURIComponent(fileMeta.filename),
+      )
         .then(function (res) {
           if (sectionSnapshotKey() !== requestedSnapshotKey) return;
-          var text = (res && res.success && res.data) ? String(res.data.content || '') : '';
+          var text =
+            res && res.success && res.data
+              ? String(res.data.content || '')
+              : '';
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
           if (lowerName.endsWith('.py')) language = 'python';
           else if (lowerName.endsWith('.mako')) language = 'mako';
-          else if (lowerName.endsWith('.css') || lowerName.endsWith('.scss') || lowerName.endsWith('.less')) language = 'css';
-          else if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) language = 'html';
-          else if (lowerName.endsWith('.xml') || lowerName.endsWith('.svg')) language = 'xml';
+          else if (
+            lowerName.endsWith('.css') ||
+            lowerName.endsWith('.scss') ||
+            lowerName.endsWith('.less')
+          )
+            language = 'css';
+          else if (lowerName.endsWith('.html') || lowerName.endsWith('.htm'))
+            language = 'html';
+          else if (lowerName.endsWith('.xml') || lowerName.endsWith('.svg'))
+            language = 'xml';
           else if (lowerName.endsWith('.json')) language = 'json';
-          else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) language = 'yaml';
+          else if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml'))
+            language = 'yaml';
           else if (lowerName.endsWith('.csv')) language = 'plaintext';
           initSourceEditor(function () {
             state.sectionSavedContent[sectionSnapshotKey()] = text;
@@ -10198,7 +15213,7 @@
                 var saveBtn = document.getElementById('save-section-file');
                 if (saveBtn) saveBtn.disabled = false;
                 updateTopbarSaveState();
-              }
+              },
             });
             state.sectionDirty = false;
             updateTopbarSaveState();
@@ -10225,7 +15240,10 @@
     var editableTitle = target.closest('.editor-order-title[data-editable]');
     if (editableTitle) {
       var stepId = editableTitle.getAttribute('data-step-id');
-      if (_slowClickTimer) { clearTimeout(_slowClickTimer); _slowClickTimer = null; }
+      if (_slowClickTimer) {
+        clearTimeout(_slowClickTimer);
+        _slowClickTimer = null;
+      }
       _slowClickStepId = stepId;
     } else {
       _slowClickStepId = null;
@@ -10236,7 +15254,10 @@
     if (!_slowClickStepId) return;
     var target = e.target;
     var editableTitle = target.closest('.editor-order-title[data-editable]');
-    if (!editableTitle || editableTitle.getAttribute('data-step-id') !== _slowClickStepId) {
+    if (
+      !editableTitle ||
+      editableTitle.getAttribute('data-step-id') !== _slowClickStepId
+    ) {
       _slowClickStepId = null;
       return;
     }
@@ -10255,7 +15276,10 @@
 
   // Cancel slow-click on double-click (select text behavior)
   document.addEventListener('dblclick', function (e) {
-    if (_slowClickTimer) { clearTimeout(_slowClickTimer); _slowClickTimer = null; }
+    if (_slowClickTimer) {
+      clearTimeout(_slowClickTimer);
+      _slowClickTimer = null;
+    }
   });
 
   document.addEventListener('click', function (e) {
@@ -10270,7 +15294,17 @@
       if (controlHost) target = controlHost;
     }
     var actionControl = target.closest('[data-action]');
-    var uiAction = actionControl ? actionControl.getAttribute('data-action') : null;
+    var uiAction = actionControl
+      ? actionControl.getAttribute('data-action')
+      : null;
+    if (uiAction === 'open-celery-setup') {
+      openCelerySetupModal();
+      return;
+    }
+    if (target.id === 'celery-setup-save') {
+      saveCeleryConfiguration();
+      return;
+    }
     var topTab = target.closest('.editor-top-tab');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
@@ -10320,7 +15354,9 @@
             refreshFromFileResponse(res.data);
             return;
           }
-          window.alert((res.error && res.error.message) || 'Unable to disable block.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to disable block.',
+          );
         });
       } else if (blockAction === 'delete') {
         if (!window.confirm('Delete this block permanently?')) return;
@@ -10333,7 +15369,9 @@
             refreshFromFileResponse(res.data);
             return;
           }
-          window.alert((res.error && res.error.message) || 'Unable to delete block.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to delete block.',
+          );
         });
       } else if (blockAction === 'enable') {
         if (!window.confirm('Re-enable this block?')) return;
@@ -10346,7 +15384,9 @@
             refreshFromFileResponse(res.data);
             return;
           }
-          window.alert((res.error && res.error.message) || 'Unable to re-enable block.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to re-enable block.',
+          );
         });
       }
       return;
@@ -10365,40 +15405,64 @@
         if (renamed === null) return;
         renamed = renamed.trim();
         if (!renamed || renamed === projectName) return;
-        apiPost('/api/project/rename', { project: projectName, new_project: renamed })
-          .then(function (res) {
-            if (!res.success || !res.data) {
-              window.alert((res.error && res.error.message) || 'Unable to rename project.');
-              return;
-            }
-            reloadProjectsAfterMutation(projectName, res.data.project);
-          });
+        apiPost('/api/project/rename', {
+          project: projectName,
+          new_project: renamed,
+        }).then(function (res) {
+          if (!res.success || !res.data) {
+            window.alert(
+              (res.error && res.error.message) || 'Unable to rename project.',
+            );
+            return;
+          }
+          reloadProjectsAfterMutation(projectName, res.data.project);
+        });
         return;
       }
       if (projectAction === 'delete') {
-        if (!window.confirm('Delete project "' + projectName + '" and all of its files?')) return;
-        apiPost('/api/project/delete', { project: projectName })
-          .then(function (res) {
+        if (
+          !window.confirm(
+            'Delete project "' + projectName + '" and all of its files?',
+          )
+        )
+          return;
+        apiPost('/api/project/delete', { project: projectName }).then(
+          function (res) {
             if (!res.success || !res.data) {
-              window.alert((res.error && res.error.message) || 'Unable to delete project.');
+              window.alert(
+                (res.error && res.error.message) || 'Unable to delete project.',
+              );
               return;
             }
             reloadProjectsAfterMutation(projectName, null);
-          });
+          },
+        );
         return;
       }
     }
 
-    if (target.closest('.editor-outline-drag-handle') || target.closest('.editor-outline-menu-btn') || target.closest('.editor-outline-item-actions') || target.closest('.editor-project-card-menu-btn') || target.closest('.editor-project-card-actions')) {
+    if (
+      target.closest('.editor-outline-drag-handle') ||
+      target.closest('.editor-outline-menu-btn') ||
+      target.closest('.editor-outline-item-actions') ||
+      target.closest('.editor-project-card-menu-btn') ||
+      target.closest('.editor-project-card-actions')
+    ) {
       return;
     }
 
-    if (!target.closest('#editor-symbol-typeahead') && !target.closest('[data-symbol-role]')) {
+    if (
+      !target.closest('#editor-symbol-typeahead') &&
+      !target.closest('[data-symbol-role]')
+    ) {
       hideTypeaheadMenu();
     }
 
     // Validation drawer toggle
-    if (target.id === 'validation-toggle' || target.closest('#validation-toggle')) {
+    if (
+      target.id === 'validation-toggle' ||
+      target.closest('#validation-toggle')
+    ) {
       state.validationOpen = !state.validationOpen;
       renderValidationDrawer();
       return;
@@ -10422,7 +15486,10 @@
       runValidation();
       return;
     }
-    if (target.id === 'btn-run-validation' || target.closest('#btn-run-validation')) {
+    if (
+      target.id === 'btn-run-validation' ||
+      target.closest('#btn-run-validation')
+    ) {
       state.validationOpen = true;
       runValidation();
       return;
@@ -10433,7 +15500,9 @@
       return;
     }
 
-    var validationItem = target.closest('.editor-validation-item[data-block-id]');
+    var validationItem = target.closest(
+      '.editor-validation-item[data-block-id]',
+    );
     if (validationItem) {
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
@@ -10447,13 +15516,22 @@
           state.validationOpen = true;
           state.selectedBlockId = validationBlockId;
           dirtyState.setActiveBlock(validationBlockId);
-          var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+          var interviewTab = document.querySelector(
+            '.editor-top-tab[data-view="interview"]',
+          );
           if (interviewTab) setActiveTopTab(interviewTab);
           renderOutline();
           renderCanvas();
           renderValidationDrawer();
         }
-        if (validationBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open the reported block', openValidationBlock)) return;
+        if (
+          validationBlockId !== state.selectedBlockId &&
+          deferNavigationForUnsavedChanges(
+            'open the reported block',
+            openValidationBlock,
+          )
+        )
+          return;
         openValidationBlock();
       }
       return;
@@ -10468,7 +15546,10 @@
         setActiveTopTab(topTab);
         if (state.currentView === 'interview') {
           state.canvasMode = state.project ? 'question' : 'project-selector';
-          if (!state.selectedBlockId || !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
+          if (
+            !state.selectedBlockId ||
+            !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))
+          ) {
             state.selectedBlockId = getDefaultVisibleBlockId();
           }
           renderOutline();
@@ -10479,7 +15560,11 @@
           loadSectionFiles(state.currentView);
         }
       }
-      if (nextView !== state.currentView && deferNavigationForUnsavedChanges('switch views', changeTopView)) return;
+      if (
+        nextView !== state.currentView &&
+        deferNavigationForUnsavedChanges('switch views', changeTopView)
+      )
+        return;
       changeTopView();
       return;
     }
@@ -10491,7 +15576,11 @@
         stashCurrentEditorState();
         openProject(cardProject);
       }
-      if (cardProject !== state.project && deferNavigationForUnsavedChanges('switch projects', openCardProject)) return;
+      if (
+        cardProject !== state.project &&
+        deferNavigationForUnsavedChanges('switch projects', openCardProject)
+      )
+        return;
       openCardProject();
       return;
     }
@@ -10502,8 +15591,12 @@
     }
     if (target.id === 'project-github-import-submit') {
       var importUrlInput = document.getElementById('project-github-import-url');
-      var importNameInput = document.getElementById('project-github-import-name');
-      var importStatus = document.getElementById('project-github-import-status');
+      var importNameInput = document.getElementById(
+        'project-github-import-name',
+      );
+      var importStatus = document.getElementById(
+        'project-github-import-status',
+      );
       var importUrl = importUrlInput ? importUrlInput.value.trim() : '';
       var importName = importNameInput ? importNameInput.value.trim() : '';
       if (!importUrl) {
@@ -10516,24 +15609,35 @@
       target.disabled = true;
       if (importStatus) {
         importStatus.className = 'alert alert-info py-2 mt-3 mb-0';
-        importStatus.textContent = 'Creating the project and pulling files from GitHub…';
+        importStatus.textContent =
+          'Creating the project and pulling files from GitHub…';
       }
       apiPost('/api/new-project', { project_name: importName, github_url: importUrl })
         .then(function (res) {
           if (!res.success || !res.data) {
-            throw new Error((res.error && res.error.message) || 'Unable to create the project from GitHub.');
+            throw new Error(
+              (res.error && res.error.message) ||
+                'Unable to create the project from GitHub.',
+            );
           }
-          _showSuccessBanner('Created "' + esc(res.data.project) + '" from GitHub.');
+          _showSuccessBanner(
+            'Created "' + esc(res.data.project) + '" from GitHub.',
+          );
           state.project = res.data.project;
           state.filename = res.data.filename;
           state.canvasMode = 'question';
-          return reloadProjectList().then(function () { return loadFiles(); });
+          return reloadProjectList().then(function () {
+            return loadFiles();
+          });
         })
         .catch(function (error) {
           target.disabled = false;
           if (importStatus) {
             importStatus.className = 'alert alert-danger py-2 mt-3 mb-0';
-            importStatus.textContent = error && error.message ? error.message : 'Unable to create the project from GitHub.';
+            importStatus.textContent =
+              error && error.message
+                ? error.message
+                : 'Unable to create the project from GitHub.';
           }
         });
       return;
@@ -10541,33 +15645,48 @@
 
     // Outline block selection
     var outlineItem = target.closest('.editor-outline-item');
-    if (outlineItem && !target.closest('[data-stop-propagation]') && !target.closest('.editor-file-actions-kebab') && !target.closest('.dropdown-menu')) {
+    if (
+      outlineItem &&
+      !target.closest('[data-stop-propagation]') &&
+      !target.closest('.editor-file-actions-kebab') &&
+      !target.closest('.dropdown-menu')
+    ) {
       if (!isInterviewView()) {
         var viewForFile = state.currentView;
-        var selectedSectionFilename = outlineItem.getAttribute('data-section-filename');
-        if (selectedSectionFilename !== state.sectionSelectedFile[viewForFile] && deferNavigationForUnsavedChanges('open another file', function () {
-          state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
-          if (viewForFile === 'templates') state.templatesMode = 'files';
-          renderOutline();
-          renderCanvas();
-        })) return;
+        var selectedSectionFilename = outlineItem.getAttribute(
+          'data-section-filename',
+        );
+        if (
+          selectedSectionFilename !== state.sectionSelectedFile[viewForFile] &&
+          deferNavigationForUnsavedChanges('open another file', function () {
+            state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
+            if (viewForFile === 'templates') state.templatesMode = 'files';
+            renderOutline();
+            renderCanvas();
+          })
+        )
+          return;
         state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
         // Picking a file out of the list means the author wants that file, not
         // the project-wide setup pane they may have been looking at.
         if (viewForFile === 'templates') state.templatesMode = 'files';
       } else {
         var nextBlockId = outlineItem.getAttribute('data-block-id');
-        if (nextBlockId !== state.selectedBlockId && deferNavigationForUnsavedChanges('open another block', function () {
-          state.selectedBlockId = nextBlockId;
-          dirtyState.setActiveBlock(nextBlockId);
-          state.canvasMode = 'question';
-          state.questionEditMode = 'preview';
-          state.questionBlockTab = 'screen';
-          state.advancedOpen = false;
-          state.advancedShowMore = false;
-          renderOutline();
-          renderCanvas();
-        })) return;
+        if (
+          nextBlockId !== state.selectedBlockId &&
+          deferNavigationForUnsavedChanges('open another block', function () {
+            state.selectedBlockId = nextBlockId;
+            dirtyState.setActiveBlock(nextBlockId);
+            state.canvasMode = 'question';
+            state.questionEditMode = 'preview';
+            state.questionBlockTab = 'screen';
+            state.advancedOpen = false;
+            state.advancedShowMore = false;
+            renderOutline();
+            renderCanvas();
+          })
+        )
+          return;
         stashCurrentEditorState();
         state.selectedBlockId = nextBlockId;
         dirtyState.setActiveBlock(nextBlockId);
@@ -10587,7 +15706,9 @@
       var topicTrigger = target.closest('[data-open-list-topics]');
       openListTopicsPicker(
         topicTrigger.getAttribute('data-open-list-topics'),
-        topicTrigger.getAttribute('data-topic-separator') === 'newline' ? '\n' : ', '
+        topicTrigger.getAttribute('data-topic-separator') === 'newline'
+          ? '\n'
+          : ', ',
       );
       return;
     }
@@ -10596,7 +15717,9 @@
       openNewTemplateModal();
       return;
     }
-    var reviewSyncTab = target.closest ? target.closest('[data-review-sync-tab]') : null;
+    var reviewSyncTab = target.closest
+      ? target.closest('[data-review-sync-tab]')
+      : null;
     if (reviewSyncTab) {
       _reviewSync.tab = reviewSyncTab.getAttribute('data-review-sync-tab');
       renderReviewSyncBody();
@@ -10628,14 +15751,19 @@
     }
     if (target.matches('[data-ql-quantity-mode]')) {
       questionLibrary.quantityMode = target.value;
-      var qlNumberWrap = document.querySelector('#question-library-new-quantity .editor-obj-quantity-number');
-      if (qlNumberWrap) qlNumberWrap.classList.toggle('d-none', target.value !== 'exactly');
+      var qlNumberWrap = document.querySelector(
+        '#question-library-new-quantity .editor-obj-quantity-number',
+      );
+      if (qlNumberWrap)
+        qlNumberWrap.classList.toggle('d-none', target.value !== 'exactly');
       return;
     }
     if (target.id === 'question-library-clear') {
-      document.querySelectorAll('#question-library-body input[data-ql-kind]').forEach(function (box) {
-        box.checked = false;
-      });
+      document
+        .querySelectorAll('#question-library-body input[data-ql-kind]')
+        .forEach(function (box) {
+          box.checked = false;
+        });
       updateQuestionLibraryCount();
       return;
     }
@@ -10643,17 +15771,24 @@
       updateQuestionLibraryCount();
       return;
     }
-    if (target.id === 'list-topics-expand' || target.id === 'list-topics-collapse') {
+    if (
+      target.id === 'list-topics-expand' ||
+      target.id === 'list-topics-collapse'
+    ) {
       var shouldOpen = target.id === 'list-topics-expand';
-      document.querySelectorAll('#list-topics-tree [data-topic-group]').forEach(function (group) {
-        group.open = shouldOpen;
-      });
+      document
+        .querySelectorAll('#list-topics-tree [data-topic-group]')
+        .forEach(function (group) {
+          group.open = shouldOpen;
+        });
       return;
     }
     if (target.id === 'list-topics-clear') {
-      document.querySelectorAll('#list-topics-tree input[data-topic-code]').forEach(function (box) {
-        box.checked = false;
-      });
+      document
+        .querySelectorAll('#list-topics-tree input[data-topic-code]')
+        .forEach(function (box) {
+          box.checked = false;
+        });
       updateListTopicsCounts();
       return;
     }
@@ -10664,7 +15799,8 @@
 
     // Outline insert
     if (outlineInsertBtn) {
-      state.insertAfterBlockId = outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+      state.insertAfterBlockId =
+        outlineInsertBtn.getAttribute('data-insert-after-id') || '';
       var insertModal = getOrCreateBootstrapModal('insert-modal');
       if (insertModal) insertModal.show();
       return;
@@ -10680,10 +15816,9 @@
         // Playground and writes back to it, so unsaved work has to land first
         // or the refresh afterwards would drop it.
         closeBootstrapModal('insert-modal');
-        promptAndSaveUnsavedChanges('add questions from the AssemblyLine library')
-          .then(function (canContinue) {
-            if (canContinue) openQuestionLibraryPicker();
-          });
+        promptAndSaveUnsavedChanges('add questions from the AssemblyLine library').then(function (canContinue) {
+          if (canContinue) openQuestionLibraryPicker();
+        });
         return;
       }
       var isAiScreen = kind === 'ai-screen';
@@ -10692,7 +15827,10 @@
       if (insertKind === 'review') {
         state.jumpTarget = 'reviews';
         syncJumpSelect();
-      } else if (insertKind !== 'question' && state.jumpTarget === 'questions') {
+      } else if (
+        insertKind !== 'question' &&
+        state.jumpTarget === 'questions'
+      ) {
         state.jumpTarget = 'all';
         syncJumpSelect();
       }
@@ -10708,7 +15846,10 @@
           if (isAiScreen) {
             var newBlock = getSelectedBlock();
             if (!newBlock || newBlock.type !== 'question') return;
-            var screenInstruction = window.prompt('Optional guidance for this screen (leave blank for auto-draft):', '');
+            var screenInstruction = window.prompt(
+              'Optional guidance for this screen (leave blank for auto-draft):',
+              '',
+            );
             if (screenInstruction === null) return;
             _setButtonLoading('ai-generate-screen', true, 'Drafting...');
             apiPost('/api/ai/generate-screen', {
@@ -10722,23 +15863,34 @@
                 subquestion: newBlock.data.subquestion || '',
                 fields: newBlock.data.fields || [],
               },
-            }).then(function (aiRes) {
-              if (!aiRes.success || !aiRes.data || !aiRes.data.screen) {
-                throw new Error((aiRes.error && aiRes.error.message) || 'AI screen generation failed');
-              }
-              applyAIGeneratedScreenToBlock(newBlock, aiRes.data.screen);
-              markInterviewDirty();
-              renderCanvas();
-            }).catch(function (err) {
-              if (isSupersededRequest(err)) return;
-              window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
-            }).finally(function () {
-              _setButtonLoading('ai-generate-screen', false, '');
-            });
+            })
+              .then(function (aiRes) {
+                if (!aiRes.success || !aiRes.data || !aiRes.data.screen) {
+                  throw new Error(
+                    (aiRes.error && aiRes.error.message) ||
+                      'AI screen generation failed',
+                  );
+                }
+                applyAIGeneratedScreenToBlock(newBlock, aiRes.data.screen);
+                markInterviewDirty();
+                renderCanvas();
+              })
+              .catch(function (err) {
+                if (isSupersededRequest(err)) return;
+                window.alert(
+                  'Unable to generate screen: ' +
+                    String((err && err.message) || err || 'Unknown error'),
+                );
+              })
+              .finally(function () {
+                _setButtonLoading('ai-generate-screen', false, '');
+              });
           }
           return;
         }
-        window.alert((res.error && res.error.message) || 'Unable to insert block.');
+        window.alert(
+          (res.error && res.error.message) || 'Unable to insert block.',
+        );
       });
       return;
     }
@@ -10756,7 +15908,10 @@
       }
       if (!targetEl) {
         var activeEl = document.activeElement;
-        if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+        if (
+          activeEl &&
+          (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')
+        ) {
           targetEl = activeEl;
         }
       }
@@ -10769,16 +15924,33 @@
       var labelAction = labelQuickBtn.getAttribute('data-label-insert');
       var labelTarget = _symbolInsertContext.targetEl;
       if (labelAction === 'bold') {
-        insertTextAtCursor(labelTarget, '', { wrapSelectionPrefix: '**', wrapSelectionSuffix: '**', defaultSelection: 'text' });
+        insertTextAtCursor(labelTarget, '', {
+          wrapSelectionPrefix: '**',
+          wrapSelectionSuffix: '**',
+          defaultSelection: 'text',
+        });
       } else if (labelAction === 'italic') {
-        insertTextAtCursor(labelTarget, '', { wrapSelectionPrefix: '*', wrapSelectionSuffix: '*', defaultSelection: 'text' });
+        insertTextAtCursor(labelTarget, '', {
+          wrapSelectionPrefix: '*',
+          wrapSelectionSuffix: '*',
+          defaultSelection: 'text',
+        });
       } else if (labelAction === 'link') {
         closeBootstrapModal('symbol-insert-modal');
-        openMarkupInsertModal({ targetEl: labelTarget, role: 'all', insertMode: 'markup-form', action: 'link' });
+        openMarkupInsertModal({
+          targetEl: labelTarget,
+          role: 'all',
+          insertMode: 'markup-form',
+          action: 'link',
+        });
         return;
       } else if (labelAction === 'mako') {
         closeBootstrapModal('symbol-insert-modal');
-        openSymbolInsertModal({ targetEl: labelTarget, role: 'all', insertMode: 'label-menu' });
+        openSymbolInsertModal({
+          targetEl: labelTarget,
+          role: 'all',
+          insertMode: 'label-menu',
+        });
         return;
       }
       closeBootstrapModal('symbol-insert-modal');
@@ -10789,7 +15961,8 @@
       var actionName = target.getAttribute('data-insert-form-action') || '';
       if (!_symbolInsertContext) return;
       var formTarget = _symbolInsertContext.targetEl;
-      if (!formTarget && _symbolInsertContext.targetId) formTarget = document.getElementById(_symbolInsertContext.targetId);
+      if (!formTarget && _symbolInsertContext.targetId)
+        formTarget = document.getElementById(_symbolInsertContext.targetId);
       if (!formTarget) return;
       var insertion = buildInsertionFromForm(actionName);
       if (insertion) {
@@ -10809,11 +15982,24 @@
     if (typeaheadItemBtn) {
       var pick = typeaheadItemBtn.getAttribute('data-typeahead-name');
       var pickTargetId = typeaheadItemBtn.getAttribute('data-target-id');
-      var pickStart = parseInt(typeaheadItemBtn.getAttribute('data-typeahead-start') || '-1', 10);
-      var pickEnd = parseInt(typeaheadItemBtn.getAttribute('data-typeahead-end') || '-1', 10);
-      var pickTarget = pickTargetId ? document.getElementById(pickTargetId) : null;
+      var pickStart = parseInt(
+        typeaheadItemBtn.getAttribute('data-typeahead-start') || '-1',
+        10,
+      );
+      var pickEnd = parseInt(
+        typeaheadItemBtn.getAttribute('data-typeahead-end') || '-1',
+        10,
+      );
+      var pickTarget = pickTargetId
+        ? document.getElementById(pickTargetId)
+        : null;
       if (pickTarget) {
-        if (Number.isFinite(pickStart) && Number.isFinite(pickEnd) && pickStart >= 0 && pickEnd >= pickStart) {
+        if (
+          Number.isFinite(pickStart) &&
+          Number.isFinite(pickEnd) &&
+          pickStart >= 0 &&
+          pickEnd >= pickStart
+        ) {
           replaceInputRange(pickTarget, pickStart, pickEnd, pick);
         } else {
           insertTextAtCursor(pickTarget, pick);
@@ -10825,16 +16011,25 @@
 
     if (stepSelectInput) {
       var selectedStepId = stepSelectInput.getAttribute('data-step-select');
-      state.selectedOrderStepIds[selectedStepId] = Boolean(stepSelectInput.checked);
+      state.selectedOrderStepIds[selectedStepId] = Boolean(
+        stepSelectInput.checked,
+      );
       return;
     }
 
     if (orderBlockBtn) {
       var nextOrderBlockId = orderBlockBtn.getAttribute('data-order-block-id');
-      if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId) return;
-      if (deferNavigationForUnsavedChanges('open another order block', function () {
-        enterOrderBuilder(nextOrderBlockId, 'order-switcher');
-      })) return;
+      if (!nextOrderBlockId || nextOrderBlockId === state.activeOrderBlockId)
+        return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'open another order block',
+          function () {
+            enterOrderBuilder(nextOrderBlockId, 'order-switcher');
+          },
+        )
+      )
+        return;
       stashCurrentEditorState();
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
@@ -10846,16 +16041,27 @@
         stashCurrentEditorState();
         state.canvasMode = 'project-selector';
         state.currentView = 'interview';
-        var interviewTab0 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        var interviewTab0 = document.querySelector(
+          '.editor-top-tab[data-view="interview"]',
+        );
         if (interviewTab0) setActiveTopTab(interviewTab0);
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('open the project selector', showProjectSelector)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'open the project selector',
+          showProjectSelector,
+        )
+      )
+        return;
       showProjectSelector();
       return;
     }
 
-    if (target.id === 'btn-upload-section-file' || target.id === 'btn-upload-section-file-inline') {
+    if (
+      target.id === 'btn-upload-section-file' ||
+      target.id === 'btn-upload-section-file-inline'
+    ) {
       var uploadInput = document.getElementById('section-upload-input');
       if (uploadInput) uploadInput.click();
       return;
@@ -10869,7 +16075,10 @@
         openNewTemplateModal();
         return;
       }
-      var inlineNewName = window.prompt('New filename', defaultNewFilename(state.currentView));
+      var inlineNewName = window.prompt(
+        'New filename',
+        defaultNewFilename(state.currentView),
+      );
       if (!inlineNewName) return;
       var inlineSection = getSectionFromView(state.currentView);
       apiPost('/api/section-file/new', {
@@ -10879,7 +16088,9 @@
         content: '',
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to create file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to create file.',
+          );
           return;
         }
         state.sectionSelectedFile[state.currentView] = inlineNewName;
@@ -10905,10 +16116,13 @@
         new_filename: sfNewName,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to rename file.',
+          );
           return;
         }
-        state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : sfNewName;
+        state.sectionSelectedFile[state.currentView] =
+          res.data && res.data.filename ? res.data.filename : sfNewName;
         noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
@@ -10917,20 +16131,32 @@
 
     var sectionFileDashboard = target.closest('.js-section-file-dashboard');
     if (sectionFileDashboard) {
-      var dashboardFilename = sectionFileDashboard.getAttribute('data-filename');
+      var dashboardFilename =
+        sectionFileDashboard.getAttribute('data-filename');
       if (!dashboardFilename || !state.project || isInterviewView()) return;
       var dashboardSection = getSectionFromView(state.currentView);
-      promptAndSaveUnsavedChanges('open the dashboard editor').then(function (saved) {
-        if (!saved) return;
-        apiGet('/api/dashboard-editor-url?project=' + encodeURIComponent(state.project) + '&section=' + encodeURIComponent(dashboardSection) + '&filename=' + encodeURIComponent(dashboardFilename))
-          .then(function (res) {
+      promptAndSaveUnsavedChanges('open the dashboard editor').then(
+        function (saved) {
+          if (!saved) return;
+          apiGet(
+            '/api/dashboard-editor-url?project=' +
+              encodeURIComponent(state.project) +
+              '&section=' +
+              encodeURIComponent(dashboardSection) +
+              '&filename=' +
+              encodeURIComponent(dashboardFilename),
+          ).then(function (res) {
             if (res.success && res.data && res.data.url) {
               window.open(res.data.url, '_blank');
             } else {
-              window.alert((res.error && res.error.message) || 'No dashboard editor URL is configured for this file type.');
+              window.alert(
+                (res.error && res.error.message) ||
+                  'No dashboard editor URL is configured for this file type.',
+              );
             }
           });
-      });
+        },
+      );
       return;
     }
 
@@ -10946,7 +16172,9 @@
         filename: delName,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to delete file.',
+          );
           return;
         }
         if (state.sectionSelectedFile[state.currentView] === delName) {
@@ -10960,37 +16188,64 @@
 
     if (target.id === 'btn-new-interview-file') {
       if (!state.project) return;
-      var newInterviewName = window.prompt('New YAML filename', 'new_interview.yml');
+      var newInterviewName = window.prompt(
+        'New YAML filename',
+        'new_interview.yml',
+      );
       if (!newInterviewName) return;
       apiPost('/api/file/new', {
         project: state.project,
         filename: newInterviewName,
-      }).then(function (res) {
-        if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to create file.');
-          return;
-        }
-        state.filename = res.data && res.data.filename ? res.data.filename : newInterviewName;
-        loadFiles();
-      }).catch(function (error) {
-        if (isSupersededRequest(error)) return;
-        window.alert('Unable to create file: ' + String((error && error.message) || error || 'Unknown error'));
-      });
+      })
+        .then(function (res) {
+          if (!res.success) {
+            window.alert(
+              (res.error && res.error.message) || 'Unable to create file.',
+            );
+            return;
+          }
+          state.filename =
+            res.data && res.data.filename
+              ? res.data.filename
+              : newInterviewName;
+          loadFiles();
+        })
+        .catch(function (error) {
+          if (isSupersededRequest(error)) return;
+          window.alert(
+            'Unable to create file: ' +
+              String((error && error.message) || error || 'Unknown error'),
+          );
+        });
       return;
     }
 
     if (target.id === 'btn-upload-interview-file') {
-      var interviewUploadInput = document.getElementById('interview-upload-input');
+      var interviewUploadInput = document.getElementById(
+        'interview-upload-input',
+      );
       if (interviewUploadInput) interviewUploadInput.click();
       return;
     }
 
     if (target.id === 'btn-download-file') {
       if (!state.project || !state.filename) return;
-      apiGet('/api/file?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
+      apiGet(
+        '/api/file?project=' +
+          encodeURIComponent(state.project) +
+          '&filename=' +
+          encodeURIComponent(state.filename),
+      )
         .then(function (res) {
-          if (!res.success || !res.data || typeof res.data.raw_yaml !== 'string') {
-            window.alert((res.error && res.error.message) || 'Unable to download: the server returned an invalid file response.');
+          if (
+            !res.success ||
+            !res.data ||
+            typeof res.data.raw_yaml !== 'string'
+          ) {
+            window.alert(
+              (res.error && res.error.message) ||
+                'Unable to download: the server returned an invalid file response.',
+            );
             return;
           }
           var content = res.data.raw_yaml;
@@ -11003,7 +16258,8 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-        }).catch(function (error) {
+        })
+        .catch(function (error) {
           if (isSupersededRequest(error)) return;
           window.alert('Unable to download the file.');
         });
@@ -11012,7 +16268,10 @@
 
     if (target.id === 'btn-rename-file') {
       if (!state.project || !state.filename || !isInterviewView()) return;
-      var renamedInterviewFile = window.prompt('Rename file to', state.filename);
+      var renamedInterviewFile = window.prompt(
+        'Rename file to',
+        state.filename,
+      );
       if (!renamedInterviewFile) return;
       apiPost('/api/file/rename', {
         project: state.project,
@@ -11020,10 +16279,15 @@
         new_filename: renamedInterviewFile,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to rename file.',
+          );
           return;
         }
-        state.filename = res.data && res.data.filename ? res.data.filename : renamedInterviewFile;
+        state.filename =
+          res.data && res.data.filename
+            ? res.data.filename
+            : renamedInterviewFile;
         loadFiles();
       });
       return;
@@ -11037,7 +16301,9 @@
         filename: state.filename,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to delete file.',
+          );
           return;
         }
         state.filename = null;
@@ -11054,12 +16320,16 @@
     if (uiAction === 'open-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {
-        promptAndSaveUnsavedChanges('open the playground').then(function (saved) {
-          if (!saved) return;
-          return ensureModulesLoaded('open the playground').then(function (proceed) {
-            if (proceed) window.open(standardPlaygroundUrl, '_blank');
-          });
-        });
+        promptAndSaveUnsavedChanges('open the playground').then(
+          function (saved) {
+            if (!saved) return;
+            return ensureModulesLoaded('open the playground').then(
+              function (proceed) {
+                if (proceed) window.open(standardPlaygroundUrl, '_blank');
+              },
+            );
+          },
+        );
       }
       return;
     }
@@ -11076,7 +16346,10 @@
 
     if (target.id === 'btn-new-section-file') {
       if (!state.project || isInterviewView()) return;
-      var filenamePrompt = window.prompt('New filename', defaultNewFilename(state.currentView));
+      var filenamePrompt = window.prompt(
+        'New filename',
+        defaultNewFilename(state.currentView),
+      );
       if (!filenamePrompt) return;
       var sectionForNew = getSectionFromView(state.currentView);
       apiPost('/api/section-file/new', {
@@ -11086,7 +16359,9 @@
         content: '',
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to create file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to create file.',
+          );
           return;
         }
         state.sectionSelectedFile[state.currentView] = filenamePrompt;
@@ -11100,9 +16375,14 @@
     if (target.id === 'btn-rename-section-file') {
       if (!state.project || isInterviewView()) return;
       var sectionForRename = getSectionFromView(state.currentView);
-      var sectionFileMetaForRename = getSelectedSectionFileMeta(state.currentView);
+      var sectionFileMetaForRename = getSelectedSectionFileMeta(
+        state.currentView,
+      );
       if (!sectionForRename || !sectionFileMetaForRename) return;
-      var renamedSectionFile = window.prompt('Rename file to', sectionFileMetaForRename.filename);
+      var renamedSectionFile = window.prompt(
+        'Rename file to',
+        sectionFileMetaForRename.filename,
+      );
       if (!renamedSectionFile) return;
       apiPost('/api/section-file/rename', {
         project: state.project,
@@ -11111,10 +16391,15 @@
         new_filename: renamedSectionFile,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to rename file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to rename file.',
+          );
           return;
         }
-        state.sectionSelectedFile[state.currentView] = res.data && res.data.filename ? res.data.filename : renamedSectionFile;
+        state.sectionSelectedFile[state.currentView] =
+          res.data && res.data.filename
+            ? res.data.filename
+            : renamedSectionFile;
         noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
@@ -11124,16 +16409,21 @@
     if (target.id === 'btn-delete-section-file') {
       if (!state.project || isInterviewView()) return;
       var sectionForDelete = getSectionFromView(state.currentView);
-      var sectionFileMetaForDelete = getSelectedSectionFileMeta(state.currentView);
+      var sectionFileMetaForDelete = getSelectedSectionFileMeta(
+        state.currentView,
+      );
       if (!sectionForDelete || !sectionFileMetaForDelete) return;
-      if (!window.confirm('Delete ' + sectionFileMetaForDelete.filename + '?')) return;
+      if (!window.confirm('Delete ' + sectionFileMetaForDelete.filename + '?'))
+        return;
       apiPost('/api/section-file/delete', {
         project: state.project,
         section: sectionForDelete,
         filename: sectionFileMetaForDelete.filename,
       }).then(function (res) {
         if (!res.success) {
-          window.alert((res.error && res.error.message) || 'Unable to delete file.');
+          window.alert(
+            (res.error && res.error.message) || 'Unable to delete file.',
+          );
           return;
         }
         state.sectionSelectedFile[state.currentView] = null;
@@ -11156,11 +16446,19 @@
         stashCurrentEditorState();
         state.canvasMode = 'new-project';
         state.currentView = 'interview';
-        var interviewTab1 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        var interviewTab1 = document.querySelector(
+          '.editor-top-tab[data-view="interview"]',
+        );
         if (interviewTab1) setActiveTopTab(interviewTab1);
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('create another project', showNewProject)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'create another project',
+          showNewProject,
+        )
+      )
+        return;
       showNewProject();
       return;
     }
@@ -11168,13 +16466,17 @@
       function toggleFullYaml() {
         stashCurrentEditorState();
         _stashFullYamlContent();
-        state.canvasMode = state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
+        state.canvasMode =
+          state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
         state.currentView = 'interview';
-        var interviewTab2 = document.querySelector('.editor-top-tab[data-view="interview"]');
+        var interviewTab2 = document.querySelector(
+          '.editor-top-tab[data-view="interview"]',
+        );
         if (interviewTab2) setActiveTopTab(interviewTab2);
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('switch editors', toggleFullYaml)) return;
+      if (deferNavigationForUnsavedChanges('switch editors', toggleFullYaml))
+        return;
       toggleFullYaml();
       return;
     }
@@ -11187,7 +16489,13 @@
         renderCanvas();
         loadAssemblyLineSettings();
       }
-      if (deferNavigationForUnsavedChanges('open AssemblyLine settings', openAssemblyLineSettings)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'open AssemblyLine settings',
+          openAssemblyLineSettings,
+        )
+      )
+        return;
       openAssemblyLineSettings();
       return;
     }
@@ -11197,7 +16505,13 @@
         state.canvasMode = 'question';
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('close AssemblyLine settings', closeAssemblyLineSettings)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'close AssemblyLine settings',
+          closeAssemblyLineSettings,
+        )
+      )
+        return;
       closeAssemblyLineSettings();
       return;
     }
@@ -11206,19 +16520,40 @@
       return;
     }
     if (target.id === 'reset-next-steps-template') {
-      if (!window.confirm('Replace the current next steps DOCX with the standard shell for the selected form type? Weaver will keep a backup in Templates.')) return;
+      if (
+        !window.confirm(
+          'Replace the current next steps DOCX with the standard shell for the selected form type? Weaver will keep a backup in Templates.',
+        )
+      )
+        return;
       var proceedWithReset = function () {
         apiPost('/api/next-steps-template/reset', {
           project: state.project,
           filename: state.filename,
           confirm_replace: true,
-        }).then(function (res) {
-          if (!res.success) throw new Error((res.error && res.error.message) || 'Unable to replace the template.');
-          var backup = res.data && res.data.backup_filename ? ' Backup: ' + res.data.backup_filename + '.' : '';
-          _showSuccessBanner('Next steps shell replaced.' + backup);
-        }).catch(function (error) { window.alert(error.message || 'Unable to replace the next steps template.'); });
+        })
+          .then(function (res) {
+            if (!res.success)
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to replace the template.',
+              );
+            var backup =
+              res.data && res.data.backup_filename
+                ? ' Backup: ' + res.data.backup_filename + '.'
+                : '';
+            _showSuccessBanner('Next steps shell replaced.' + backup);
+          })
+          .catch(function (error) {
+            window.alert(
+              error.message || 'Unable to replace the next steps template.',
+            );
+          });
       };
-      if (state.assemblyLineSettingsDirty) saveAssemblyLineSettings().then(function (saved) { if (saved) proceedWithReset(); });
+      if (state.assemblyLineSettingsDirty)
+        saveAssemblyLineSettings().then(function (saved) {
+          if (saved) proceedWithReset();
+        });
       else proceedWithReset();
       return;
     }
@@ -11230,15 +16565,28 @@
         state.currentView = 'interview';
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('open the runtime inspector', openRuntimeInspector)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'open the runtime inspector',
+          openRuntimeInspector,
+        )
+      )
+        return;
       openRuntimeInspector();
       return;
     }
     if (orderBuilderBtn) {
-      var requestedOrderBlock = state.activeOrderBlockId || getDefaultOrderBlockId();
-      if (deferNavigationForUnsavedChanges('open the interview order', function () {
-        enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
-      })) return;
+      var requestedOrderBlock =
+        state.activeOrderBlockId || getDefaultOrderBlockId();
+      if (
+        deferNavigationForUnsavedChanges(
+          'open the interview order',
+          function () {
+            enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
+          },
+        )
+      )
+        return;
       enterOrderBuilder(requestedOrderBlock, 'topbar-order-button');
       return;
     }
@@ -11261,7 +16609,11 @@
       var questionText = titleEl ? titleEl.value : '';
       var currentBlock = getSelectedBlock();
       var allBlocks = state.blocks || [];
-      var newId = generateBlockId(questionText, allBlocks, currentBlock ? currentBlock.id : null);
+      var newId = generateBlockId(
+        questionText,
+        allBlocks,
+        currentBlock ? currentBlock.id : null,
+      );
       idEl.value = newId;
       idEl.dispatchEvent(new Event('input', { bubbles: true }));
       return;
@@ -11298,14 +16650,16 @@
     }
     var previewWidthButton = target.closest('[data-preview-width]');
     if (previewWidthButton) {
-      _screenPreviewWidth = previewWidthButton.getAttribute('data-preview-width');
+      _screenPreviewWidth =
+        previewWidthButton.getAttribute('data-preview-width');
       document.querySelectorAll('[data-preview-width]').forEach(function (btn) {
         var isActive = btn === previewWidthButton;
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
       });
       var previewStage = document.getElementById('screen-preview-stage');
-      if (previewStage) previewStage.setAttribute('data-preview-width', _screenPreviewWidth);
+      if (previewStage)
+        previewStage.setAttribute('data-preview-width', _screenPreviewWidth);
       return;
     }
     if (uiAction === 'preview-interview') {
@@ -11315,19 +16669,37 @@
         // The restart is deferred to here rather than to the module save, so
         // several edits cost one restart and it lands while the developer is
         // already waiting on a new tab.
-        return ensureModulesLoaded('run the interview').then(function (proceed) {
-          if (!proceed) return;
-          return apiGet('/api/preview-url?project=' + encodeURIComponent(state.project) + '&filename=' + encodeURIComponent(state.filename))
-            .then(function (res) { if (res.success && res.data && res.data.url) window.open(res.data.url, '_blank'); });
-        });
+        return ensureModulesLoaded('run the interview').then(
+          function (proceed) {
+            if (!proceed) return;
+            return apiGet(
+              '/api/preview-url?project=' +
+                encodeURIComponent(state.project) +
+                '&filename=' +
+                encodeURIComponent(state.filename),
+            ).then(function (res) {
+              if (res.success && res.data && res.data.url)
+                window.open(res.data.url, '_blank');
+            });
+          },
+        );
       });
       return;
     }
     if (target.id === 'ai-generate-screen') {
       var questionBlock = getSelectedBlock();
-      if (!questionBlock || questionBlock.type !== 'question' || !state.project || !state.filename) return;
+      if (
+        !questionBlock ||
+        questionBlock.type !== 'question' ||
+        !state.project ||
+        !state.filename
+      )
+        return;
       syncFieldsToData(questionBlock);
-      var screenInstruction = window.prompt('Optional guidance for this screen (leave blank for auto-draft):', '');
+      var screenInstruction = window.prompt(
+        'Optional guidance for this screen (leave blank for auto-draft):',
+        '',
+      );
       if (screenInstruction === null) return;
       _setButtonLoading('ai-generate-screen', true, 'Drafting...');
       apiPost('/api/ai/generate-screen', {
@@ -11341,24 +16713,38 @@
           subquestion: questionBlock.data.subquestion || '',
           fields: questionBlock.data.fields || [],
         },
-      }).then(function (res) {
-        if (!res.success || !res.data || !res.data.screen) {
-          throw new Error((res.error && res.error.message) || 'AI screen generation failed');
-        }
-        applyAIGeneratedScreenToBlock(questionBlock, res.data.screen);
-        markInterviewDirty();
-        renderCanvas();
-      }).catch(function (err) {
-        if (isSupersededRequest(err)) return;
-        window.alert('Unable to generate screen: ' + String((err && err.message) || err || 'Unknown error'));
-      }).finally(function () {
-        _setButtonLoading('ai-generate-screen', false, '');
-      });
+      })
+        .then(function (res) {
+          if (!res.success || !res.data || !res.data.screen) {
+            throw new Error(
+              (res.error && res.error.message) || 'AI screen generation failed',
+            );
+          }
+          applyAIGeneratedScreenToBlock(questionBlock, res.data.screen);
+          markInterviewDirty();
+          renderCanvas();
+        })
+        .catch(function (err) {
+          if (isSupersededRequest(err)) return;
+          window.alert(
+            'Unable to generate screen: ' +
+              String((err && err.message) || err || 'Unknown error'),
+          );
+        })
+        .finally(function () {
+          _setButtonLoading('ai-generate-screen', false, '');
+        });
       return;
     }
     if (target.id === 'ai-generate-fields') {
       var currentQuestionBlock = getSelectedBlock();
-      if (!currentQuestionBlock || currentQuestionBlock.type !== 'question' || !state.project || !state.filename) return;
+      if (
+        !currentQuestionBlock ||
+        currentQuestionBlock.type !== 'question' ||
+        !state.project ||
+        !state.filename
+      )
+        return;
       syncFieldsToData(currentQuestionBlock);
       _setButtonLoading('ai-generate-fields', true, 'Generating...');
       apiPost('/api/ai/generate-fields', {
@@ -11371,24 +16757,33 @@
           subquestion: currentQuestionBlock.data.subquestion || '',
           fields: currentQuestionBlock.data.fields || [],
         },
-      }).then(function (res) {
-        if (!res.success || !res.data || !Array.isArray(res.data.fields)) {
-          throw new Error((res.error && res.error.message) || 'AI field generation failed');
-        }
-        applyAIGeneratedScreenToBlock(currentQuestionBlock, {
-          question: currentQuestionBlock.data.question || '',
-          subquestion: currentQuestionBlock.data.subquestion || '',
-          fields: res.data.fields,
-          continue_button_field: currentQuestionBlock.data['continue button field'] || '',
+      })
+        .then(function (res) {
+          if (!res.success || !res.data || !Array.isArray(res.data.fields)) {
+            throw new Error(
+              (res.error && res.error.message) || 'AI field generation failed',
+            );
+          }
+          applyAIGeneratedScreenToBlock(currentQuestionBlock, {
+            question: currentQuestionBlock.data.question || '',
+            subquestion: currentQuestionBlock.data.subquestion || '',
+            fields: res.data.fields,
+            continue_button_field:
+              currentQuestionBlock.data['continue button field'] || '',
+          });
+          markInterviewDirty('ai-generate-fields');
+          renderCanvas();
+        })
+        .catch(function (err) {
+          if (isSupersededRequest(err)) return;
+          window.alert(
+            'Unable to generate fields: ' +
+              String((err && err.message) || err || 'Unknown error'),
+          );
+        })
+        .finally(function () {
+          _setButtonLoading('ai-generate-fields', false, '');
         });
-        markInterviewDirty('ai-generate-fields');
-        renderCanvas();
-      }).catch(function (err) {
-        if (isSupersededRequest(err)) return;
-        window.alert('Unable to generate fields: ' + String((err && err.message) || err || 'Unknown error'));
-      }).finally(function () {
-        _setButtonLoading('ai-generate-fields', false, '');
-      });
       return;
     }
     if (target.id === 'code-to-order-builder') {
@@ -11401,19 +16796,29 @@
           renderCanvas();
         });
       }
-      if (deferNavigationForUnsavedChanges('open the order builder', openCodeOrderBuilder)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'open the order builder',
+          openCodeOrderBuilder,
+        )
+      )
+        return;
       openCodeOrderBuilder();
       return;
     }
 
     // Toggle edit mode (shared by question / code / objects)
     if (target.id === 'toggle-edit-mode') {
-      var nextEditMode = state.questionEditMode === 'preview' ? 'yaml' : 'preview';
+      var nextEditMode =
+        state.questionEditMode === 'preview' ? 'yaml' : 'preview';
       function changeEditMode() {
         state.questionEditMode = nextEditMode;
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('switch editing modes', changeEditMode)) return;
+      if (
+        deferNavigationForUnsavedChanges('switch editing modes', changeEditMode)
+      )
+        return;
       changeEditMode();
       return;
     }
@@ -11428,32 +16833,51 @@
           state.questionEditMode = 'yaml';
           renderCanvas();
         }
-        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionYaml)) return;
+        if (
+          deferNavigationForUnsavedChanges(
+            'switch editing modes',
+            openQuestionYaml,
+          )
+        )
+          return;
         openQuestionYaml();
         return;
       } else if (qMode === 'preview' && state.questionEditMode !== 'preview') {
         function openQuestionPreviewMode() {
           state.questionEditMode = 'preview';
-          if (qTab === 'screen' || qTab === 'options') state.questionBlockTab = qTab;
+          if (qTab === 'screen' || qTab === 'options')
+            state.questionBlockTab = qTab;
           renderCanvas();
         }
-        if (deferNavigationForUnsavedChanges('switch editing modes', openQuestionPreviewMode)) return;
+        if (
+          deferNavigationForUnsavedChanges(
+            'switch editing modes',
+            openQuestionPreviewMode,
+          )
+        )
+          return;
         openQuestionPreviewMode();
         return;
       }
       if (qMode === 'preview') {
         stashCurrentEditorState();
-        if (qTab === 'screen' || qTab === 'options') state.questionBlockTab = qTab;
+        if (qTab === 'screen' || qTab === 'options')
+          state.questionBlockTab = qTab;
         renderCanvas();
       }
       return;
     }
 
-    var alMethodOptionsButton = target.closest('[data-al-field-method-options]');
+    var alMethodOptionsButton = target.closest(
+      '[data-al-field-method-options]',
+    );
     if (alMethodOptionsButton) {
       _openALFieldMethodModal(
-        parseInt(alMethodOptionsButton.getAttribute('data-al-field-method-options'), 10),
-        alMethodOptionsButton.getAttribute('data-method-name')
+        parseInt(
+          alMethodOptionsButton.getAttribute('data-al-field-method-options'),
+          10,
+        ),
+        alMethodOptionsButton.getAttribute('data-method-name'),
       );
       return;
     }
@@ -11470,7 +16894,8 @@
         syncFieldsToData(tabBlock);
         markInterviewDirty();
       }
-      _fieldSettingsTabs[tabFi] = target.getAttribute('data-field-settings-tab') || 'basic';
+      _fieldSettingsTabs[tabFi] =
+        target.getAttribute('data-field-settings-tab') || 'basic';
       renderCanvas();
       return;
     }
@@ -11481,29 +16906,51 @@
       var typeBlock = getSelectedBlock();
       if (typeBlock && typeBlock.type === 'question') {
         syncFieldsToData(typeBlock);
-        if (typeBlock.data && Array.isArray(typeBlock.data.fields) && typeBlock.data.fields[typeFi]) {
+        if (
+          typeBlock.data &&
+          Array.isArray(typeBlock.data.fields) &&
+          typeBlock.data.fields[typeFi]
+        ) {
           var selectedField = typeBlock.data.fields[typeFi];
-          var selectedMethodCall = _fieldMethodCallsFromData([selectedField])[0];
+          var selectedMethodCall = _fieldMethodCallsFromData([
+            selectedField,
+          ])[0];
           var isGenericCodeField = Boolean(
-            selectedField && typeof selectedField === 'object' &&
+            selectedField &&
+            typeof selectedField === 'object' &&
             typeof selectedField.code === 'string' &&
-            !selectedField.label && !selectedField.field && !selectedMethodCall
+            !selectedField.label &&
+            !selectedField.field &&
+            !selectedMethodCall,
           );
           if (_isALFieldMethodType(nextType)) {
-            var currentVariable = selectedField && typeof selectedField === 'object'
-              ? String(selectedField.field || '')
-              : '';
+            var currentVariable =
+              selectedField && typeof selectedField === 'object'
+                ? String(selectedField.field || '')
+                : '';
             if (selectedMethodCall) currentVariable = selectedMethodCall.object;
             var receiver = _suggestALIndividualReceiver(currentVariable);
-            typeBlock.data.fields[typeFi] = { code: _methodCallFromParts(receiver, nextType, '') };
+            typeBlock.data.fields[typeFi] = {
+              code: _methodCallFromParts(receiver, nextType, ''),
+            };
           } else if (nextType === 'code') {
             if (!isGenericCodeField) {
-              typeBlock.data.fields[typeFi] = { code: DEFAULT_CODE_FIELD_EXPRESSION };
+              typeBlock.data.fields[typeFi] = {
+                code: DEFAULT_CODE_FIELD_EXPRESSION,
+              };
             }
           } else if (selectedMethodCall || isGenericCodeField) {
-            typeBlock.data.fields[typeFi] = { label: 'Label', field: '', datatype: nextType };
+            typeBlock.data.fields[typeFi] = {
+              label: 'Label',
+              field: '',
+              datatype: nextType,
+            };
           } else if (typeof selectedField === 'string') {
-            typeBlock.data.fields[typeFi] = { label: selectedField, field: '', datatype: nextType };
+            typeBlock.data.fields[typeFi] = {
+              label: selectedField,
+              field: '',
+              datatype: nextType,
+            };
           } else {
             selectedField.datatype = nextType;
           }
@@ -11512,7 +16959,9 @@
         markInterviewDirty('set-field-datatype:' + typeFi);
         renderCanvas();
         if (_isALFieldMethodType(nextType)) {
-          setTimeout(function () { _openALFieldMethodModal(typeFi, nextType); }, 0);
+          setTimeout(function () {
+            _openALFieldMethodModal(typeFi, nextType);
+          }, 0);
         }
       }
       return;
@@ -11540,7 +16989,10 @@
     }
 
     if (reviewItemToggle) {
-      var ri = parseInt(reviewItemToggle.getAttribute('data-review-item-toggle'), 10);
+      var ri = parseInt(
+        reviewItemToggle.getAttribute('data-review-item-toggle'),
+        10,
+      );
       state.openReviewItemIndex = state.openReviewItemIndex === ri ? null : ri;
       renderCanvas();
       return;
@@ -11550,20 +17002,31 @@
       var reviewBlock = getSelectedBlock();
       if (reviewBlock && reviewBlock.type === 'review') {
         stashReviewItemSnippets(reviewBlock);
-        reviewBlock.data.review = Array.isArray(reviewBlock.data.review) ? reviewBlock.data.review : [];
-        var kindToAdd = addReviewItemBtn.getAttribute('data-add-review-item') || 'edit';
+        reviewBlock.data.review = Array.isArray(reviewBlock.data.review)
+          ? reviewBlock.data.review
+          : [];
+        var kindToAdd =
+          addReviewItemBtn.getAttribute('data-add-review-item') || 'edit';
         if (kindToAdd === 'note') {
-          reviewBlock.data.review.push({ note: 'Add a note for the review screen.' });
+          reviewBlock.data.review.push({
+            note: 'Add a note for the review screen.',
+          });
         } else if (kindToAdd === 'html') {
-          reviewBlock.data.review.push({ html: '<div class="collapse">Add accordion HTML here.</div>' });
+          reviewBlock.data.review.push({
+            html: '<div class="collapse">Add accordion HTML here.</div>',
+          });
         } else {
           var fieldEl = document.getElementById('review-new-field');
-          var fieldName = fieldEl && fieldEl.value.trim() ? fieldEl.value.trim() : '';
+          var fieldName =
+            fieldEl && fieldEl.value.trim() ? fieldEl.value.trim() : '';
           if (!fieldName) {
             if (fieldEl) fieldEl.focus();
             return;
           }
-          reviewBlock.data.review.push({ Edit: fieldName, button: '${ showifdef("' + fieldName.replace(/"/g, '\\"') + '") }' });
+          reviewBlock.data.review.push({
+            Edit: fieldName,
+            button: '${ showifdef("' + fieldName.replace(/"/g, '\\"') + '") }',
+          });
         }
         state.openReviewItemIndex = reviewBlock.data.review.length - 1;
         markInterviewDirty('add-review-item');
@@ -11574,8 +17037,15 @@
 
     if (removeReviewItemBtn) {
       var removeReviewBlock = getSelectedBlock();
-      var removeRi = parseInt(removeReviewItemBtn.getAttribute('data-remove-review-item'), 10);
-      if (removeReviewBlock && removeReviewBlock.type === 'review' && Array.isArray(removeReviewBlock.data.review)) {
+      var removeRi = parseInt(
+        removeReviewItemBtn.getAttribute('data-remove-review-item'),
+        10,
+      );
+      if (
+        removeReviewBlock &&
+        removeReviewBlock.type === 'review' &&
+        Array.isArray(removeReviewBlock.data.review)
+      ) {
         if (!window.confirm('Remove this review item?')) return;
         stashReviewItemSnippets(removeReviewBlock);
         removeReviewBlock.data.review.splice(removeRi, 1);
@@ -11590,31 +17060,48 @@
       if (!state.project || !state.filename) return;
       // The draft is built from the file on disk, so anything unsaved has to go
       // in first or applying the result would quietly throw it away.
-      promptAndSaveUnsavedChanges('sync the review screen').then(function (saved) {
-        if (!saved) return;
-        apiPost('/api/draft-review-screen', { project: state.project, filename: state.filename, mode: 'sync' })
-          .then(function (res) {
+      promptAndSaveUnsavedChanges('sync the review screen').then(
+        function (saved) {
+          if (!saved) return;
+          apiPost('/api/draft-review-screen', {
+            project: state.project,
+            filename: state.filename,
+            mode: 'sync',
+          }).then(function (res) {
             if (res.success && res.data && res.data.full_yaml) {
               openReviewSyncModal(res.data);
               return;
             }
-            window.alert((res.error && res.error.message) || 'Unable to draft review screen.');
+            window.alert(
+              (res.error && res.error.message) ||
+                'Unable to draft review screen.',
+            );
           });
-      });
+        },
+      );
       return;
     }
 
     // Kebab field options toggle
-    var kebabBtn = target.closest ? target.closest('.editor-field-kebab-btn') : null;
-    if (!kebabBtn && target.classList.contains('editor-field-kebab-btn')) kebabBtn = target;
+    var kebabBtn = target.closest
+      ? target.closest('.editor-field-kebab-btn')
+      : null;
+    if (!kebabBtn && target.classList.contains('editor-field-kebab-btn'))
+      kebabBtn = target;
     if (kebabBtn) {
       var kFi = parseInt(kebabBtn.getAttribute('data-field-idx'), 10);
       _openFieldModsPanels[kFi] = !_openFieldModsPanels[kFi];
-      var modsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + kFi + '"]');
+      var modsPanel = document.querySelector(
+        '.editor-field-mods-panel[data-field-idx="' + kFi + '"]',
+      );
       if (modsPanel) {
-        if (_openFieldModsPanels[kFi]) modsPanel.removeAttribute('hidden'); else modsPanel.setAttribute('hidden', '');
+        if (_openFieldModsPanels[kFi]) modsPanel.removeAttribute('hidden');
+        else modsPanel.setAttribute('hidden', '');
       }
-      kebabBtn.setAttribute('aria-expanded', _openFieldModsPanels[kFi] ? 'true' : 'false');
+      kebabBtn.setAttribute(
+        'aria-expanded',
+        _openFieldModsPanels[kFi] ? 'true' : 'false',
+      );
       return;
     }
 
@@ -11629,7 +17116,8 @@
         filename: state.filename,
         block_id: originalBlockId,
         block_yaml: yamlVal,
-        edit_mode: state.questionEditMode === 'preview' ? 'graphical' : 'source',
+        edit_mode:
+          state.questionEditMode === 'preview' ? 'graphical' : 'source',
       }).then(function (res) {
         if (res.success && res.data) {
           var keepBlockId = res.data.saved_block_id || originalBlockId;
@@ -11639,7 +17127,9 @@
           renderCanvas();
           return;
         }
-        window.alert((res.error && res.error.message) || 'Unable to save block.');
+        window.alert(
+          (res.error && res.error.message) || 'Unable to save block.',
+        );
       });
       return;
     }
@@ -11656,7 +17146,9 @@
           refreshFromFileResponse(res.data);
           return;
         }
-        window.alert((res.error && res.error.message) || 'Unable to re-enable block.');
+        window.alert(
+          (res.error && res.error.message) || 'Unable to re-enable block.',
+        );
       });
       return;
     }
@@ -11669,7 +17161,11 @@
         state.fullYamlTab = nextYamlTab;
         renderCanvas();
       }
-      if (nextYamlTab !== state.fullYamlTab && deferNavigationForUnsavedChanges('switch source tabs', switchYamlTab)) return;
+      if (
+        nextYamlTab !== state.fullYamlTab &&
+        deferNavigationForUnsavedChanges('switch source tabs', switchYamlTab)
+      )
+        return;
       switchYamlTab();
       return;
     }
@@ -11682,7 +17178,13 @@
         renderOutline();
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('return to graphical editing', leaveFullYaml)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'return to graphical editing',
+          leaveFullYaml,
+        )
+      )
+        return;
       leaveFullYaml();
       return;
     }
@@ -11699,7 +17201,9 @@
           edit_mode: 'source',
         }).then(function (res) {
           if (res.success && res.data) {
-            refreshFromFileResponse(res.data, { savedBlockId: state.activeOrderBlockId });
+            refreshFromFileResponse(res.data, {
+              savedBlockId: state.activeOrderBlockId,
+            });
           }
         });
       } else if (state.fullYamlTab === 'metadata') {
@@ -11708,31 +17212,53 @@
           filename: state.filename,
           raw_yaml: yamlContent,
           expected_revision: state.revision,
-        }).then(function (res) {
-          if (res.success && res.data) {
-            refreshFromFileResponse(res.data);
-            return;
-          }
-          window.alert((res.error && res.error.message) || 'Unable to save metadata safely.');
-        }).catch(function (error) {
-          if (isSupersededRequest(error)) return;
-          window.alert('Unable to save metadata safely.');
-        });
+        })
+          .then(function (res) {
+            if (res.success && res.data) {
+              refreshFromFileResponse(res.data);
+              return;
+            }
+            window.alert(
+              (res.error && res.error.message) ||
+                'Unable to save metadata safely.',
+            );
+          })
+          .catch(function (error) {
+            if (isSupersededRequest(error)) return;
+            window.alert('Unable to save metadata safely.');
+          });
       } else {
-        apiPost('/api/file', { project: state.project, filename: state.filename, content: yamlContent })
-          .then(function (res) { if (res.success) loadFile(); });
+        apiPost('/api/file', {
+          project: state.project,
+          filename: state.filename,
+          content: yamlContent,
+        }).then(function (res) {
+          if (res.success) loadFile();
+        });
       }
       return;
     }
 
     // Order builder
     if (target.id === 'generate-draft-order') {
-      apiPost('/api/draft-order', { project: state.project, filename: state.filename })
-        .then(function (res) { if (res.success) { state.orderSteps = res.data.steps; syncActiveOrderStepMap(); markOrderDirty(); renderCanvas(); } });
+      apiPost('/api/draft-order', {
+        project: state.project,
+        filename: state.filename,
+      }).then(function (res) {
+        if (res.success) {
+          state.orderSteps = res.data.steps;
+          syncActiveOrderStepMap();
+          markOrderDirty();
+          renderCanvas();
+        }
+      });
       return;
     }
     if (target.id === 'wrap-selected-order-steps') {
-      if (wrapSelectedOrderSteps()) { markOrderDirty(); renderCanvas(); }
+      if (wrapSelectedOrderSteps()) {
+        markOrderDirty();
+        renderCanvas();
+      }
       return;
     }
     if (target.id === 'order-to-raw') {
@@ -11743,21 +17269,31 @@
         state.fullYamlTab = 'order';
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('switch editing modes', openRawOrder)) return;
+      if (
+        deferNavigationForUnsavedChanges('switch editing modes', openRawOrder)
+      )
+        return;
       openRawOrder();
       return;
     }
     if (target.id === 'order-back-to-code') {
       function returnToOrderCode() {
         stashCurrentEditorState();
-        if (state.activeOrderBlockId) state.selectedBlockId = state.activeOrderBlockId;
+        if (state.activeOrderBlockId)
+          state.selectedBlockId = state.activeOrderBlockId;
         dirtyState.setActiveBlock(state.selectedBlockId);
         state.canvasMode = 'question';
         state.questionEditMode = 'preview';
         renderOutline();
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('return to the code block', returnToOrderCode)) return;
+      if (
+        deferNavigationForUnsavedChanges(
+          'return to the code block',
+          returnToOrderCode,
+        )
+      )
+        return;
       returnToOrderCode();
       return;
     }
@@ -11767,8 +17303,17 @@
     }
     if (target.id === 'save-order-steps') {
       syncActiveOrderStepMap();
-      apiPost('/api/order', { project: state.project, filename: state.filename, order_block_id: state.activeOrderBlockId, steps: state.orderSteps })
-        .then(function (res) { if (res.success) { state.orderDirty = false; loadFile(); } });
+      apiPost('/api/order', {
+        project: state.project,
+        filename: state.filename,
+        order_block_id: state.activeOrderBlockId,
+        steps: state.orderSteps,
+      }).then(function (res) {
+        if (res.success) {
+          state.orderDirty = false;
+          loadFile();
+        }
+      });
       return;
     }
 
@@ -11799,18 +17344,23 @@
       } else if (action === 'edit') {
         showOrderEdit(stepRecord.step, targetStepId);
       } else if (action === 'toggle-collapse') {
-        state.orderCollapsed[targetStepId] = !state.orderCollapsed[targetStepId];
+        state.orderCollapsed[targetStepId] =
+          !state.orderCollapsed[targetStepId];
         renderCanvas();
       } else if (action === 'add-else' || action === 'add-elif') {
         // Both attach at the end of the chain, so it does not matter which
         // link the menu was opened from.
         if (action === 'add-elif') {
-          var newLink = appendChainElif(stepRecord.step, createOrderStep('condition'));
+          var newLink = appendChainElif(
+            stepRecord.step,
+            createOrderStep('condition'),
+          );
           _lastInsertedOrderStepId = newLink.id;
         } else {
           var chainTailStep = getChainTail(stepRecord.step);
           chainTailStep.has_else = true;
-          if (!Array.isArray(chainTailStep.else_children)) chainTailStep.else_children = [];
+          if (!Array.isArray(chainTailStep.else_children))
+            chainTailStep.else_children = [];
         }
         state.orderCollapsed[targetStepId] = false;
         syncActiveOrderStepMap();
@@ -11818,14 +17368,24 @@
         renderCanvas();
       } else if (action === 'inline-save') {
         var inlineInvoke = document.getElementById('order-inline-edit-invoke');
-        var inlineCondition = document.getElementById('order-inline-edit-condition');
+        var inlineCondition = document.getElementById(
+          'order-inline-edit-condition',
+        );
         var inlineValue = document.getElementById('order-inline-edit-value');
-        if (inlineInvoke) { stepRecord.step.invoke = inlineInvoke.value; stepRecord.step.summary = inlineInvoke.value; }
-        if (inlineCondition) { stepRecord.step.condition = inlineCondition.value; stepRecord.step.summary = inlineCondition.value; }
+        if (inlineInvoke) {
+          stepRecord.step.invoke = inlineInvoke.value;
+          stepRecord.step.summary = inlineInvoke.value;
+        }
+        if (inlineCondition) {
+          stepRecord.step.condition = inlineCondition.value;
+          stepRecord.step.summary = inlineCondition.value;
+        }
         if (inlineValue) {
           stepRecord.step.value = inlineValue.value;
-          if (stepRecord.step.kind === 'section') stepRecord.step.summary = 'Section: ' + inlineValue.value;
-          if (stepRecord.step.kind === 'progress') stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
+          if (stepRecord.step.kind === 'section')
+            stepRecord.step.summary = 'Section: ' + inlineValue.value;
+          if (stepRecord.step.kind === 'progress')
+            stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
         }
         _inlineEditStepId = null;
         syncActiveOrderStepMap();
@@ -11842,14 +17402,34 @@
             renderOutline();
             renderCanvas();
           }
-          if (deferNavigationForUnsavedChanges('open the referenced block', openOrderTargetBlock)) return;
+          if (
+            deferNavigationForUnsavedChanges(
+              'open the referenced block',
+              openOrderTargetBlock,
+            )
+          )
+            return;
           openOrderTargetBlock();
         } else {
-          var invokeLabel = stepRecord.step.invoke || stepRecord.step.value || stepRecord.step.summary || '';
-          var inOther = invokeLabel && state.symbolCatalog && state.symbolCatalog.all.indexOf(invokeLabel) !== -1;
-          window.alert(invokeLabel
-            ? '"' + invokeLabel + '" is ' + (inOther ? 'defined in an included file, not editable here.' : 'not found in this file.')
-            : 'No block reference available for this step.');
+          var invokeLabel =
+            stepRecord.step.invoke ||
+            stepRecord.step.value ||
+            stepRecord.step.summary ||
+            '';
+          var inOther =
+            invokeLabel &&
+            state.symbolCatalog &&
+            state.symbolCatalog.all.indexOf(invokeLabel) !== -1;
+          window.alert(
+            invokeLabel
+              ? '"' +
+                  invokeLabel +
+                  '" is ' +
+                  (inOther
+                    ? 'defined in an included file, not editable here.'
+                    : 'not found in this file.')
+              : 'No block reference available for this step.',
+          );
         }
       }
       return;
@@ -11859,7 +17439,10 @@
     if (openAddStepBtn) {
       var addParentStepId = openAddStepBtn.getAttribute('data-parent-step-id');
       var addBranch = openAddStepBtn.getAttribute('data-step-branch') || 'then';
-      var addInsertIndex = parseInt(openAddStepBtn.getAttribute('data-insert-index') || '-1', 10);
+      var addInsertIndex = parseInt(
+        openAddStepBtn.getAttribute('data-insert-index') || '-1',
+        10,
+      );
       openOrderAddModal(addParentStepId, addBranch, addInsertIndex);
       return;
     }
@@ -11898,7 +17481,7 @@
       var blk3 = getSelectedBlock();
       if (blk3 && blk3.data) {
         if (!blk3.data.objects) blk3.data.objects = [];
-        blk3.data.objects.push({ 'new_object': 'DAObject' });
+        blk3.data.objects.push({ new_object: 'DAObject' });
         if (!Array.isArray(blk3.editor_objects)) blk3.editor_objects = [];
         blk3.editor_objects.push({
           name: 'new_object',
@@ -11921,23 +17504,36 @@
       var blk4 = getSelectedBlock();
       if (blk4 && blk4.data && blk4.data.objects) {
         blk4.data.objects.splice(oi, 1);
-        if (Array.isArray(blk4.editor_objects)) blk4.editor_objects.splice(oi, 1);
+        if (Array.isArray(blk4.editor_objects))
+          blk4.editor_objects.splice(oi, 1);
         markInterviewDirty('remove-object:' + oi);
         renderCanvas();
       }
       return;
     }
 
-    if (target.id === 'cancel-new-project') { _hideUploadProgressModal(); state.canvasMode = 'project-selector'; _uploadedFiles = []; renderCanvas(); return; }
+    if (target.id === 'cancel-new-project') {
+      _hideUploadProgressModal();
+      state.canvasMode = 'project-selector';
+      _uploadedFiles = [];
+      renderCanvas();
+      return;
+    }
 
-    if (target.id === 'upload-progress-close' || target.closest('#upload-progress-close')) {
+    if (
+      target.id === 'upload-progress-close' ||
+      target.closest('#upload-progress-close')
+    ) {
       _hideUploadProgressModal();
       return;
     }
 
     if (removeUploadBtn) {
       var removeBtn = removeUploadBtn;
-      var removeIdx = parseInt(removeBtn.getAttribute('data-remove-upload'), 10);
+      var removeIdx = parseInt(
+        removeBtn.getAttribute('data-remove-upload'),
+        10,
+      );
       _uploadedFiles.splice(removeIdx, 1);
       _renderFileList();
       _suggestNamesFromUpload();
@@ -11946,7 +17542,10 @@
 
     if (moveUploadBtn) {
       var moveIdx = parseInt(moveUploadBtn.getAttribute('data-upload-idx'), 10);
-      var moveTo = moveUploadBtn.getAttribute('data-move-upload') === 'up' ? moveIdx - 1 : moveIdx + 1;
+      var moveTo =
+        moveUploadBtn.getAttribute('data-move-upload') === 'up'
+          ? moveIdx - 1
+          : moveIdx + 1;
       if (moveIdx >= 0 && moveTo >= 0 && moveTo < _uploadedFiles.length) {
         var moved = _uploadedFiles.splice(moveIdx, 1)[0];
         _uploadedFiles.splice(moveTo, 0, moved);
@@ -11964,7 +17563,8 @@
     }
 
     if (openTemplateBtn) {
-      state.sectionSelectedFile.templates = openTemplateBtn.getAttribute('data-open-template');
+      state.sectionSelectedFile.templates =
+        openTemplateBtn.getAttribute('data-open-template');
       setTemplatesMode('files');
       return;
     }
@@ -11973,7 +17573,7 @@
       moveDocumentInBundle(
         moveDocBtn.getAttribute('data-bundle'),
         parseInt(moveDocBtn.getAttribute('data-doc-index'), 10),
-        moveDocBtn.getAttribute('data-move-doc')
+        moveDocBtn.getAttribute('data-move-doc'),
       );
       return;
     }
@@ -11996,23 +17596,41 @@
     if (target.id === 'create-project-btn') {
       var nameInput = document.getElementById('new-project-name');
       var notesInput = document.getElementById('new-project-notes');
-      var helpPageUrlInput = document.getElementById('new-project-help-page-url');
-      var helpPageTitleInput = document.getElementById('new-project-help-page-title');
-      var useLlmAssistInput = document.getElementById('new-project-use-llm-assist');
+      var helpPageUrlInput = document.getElementById(
+        'new-project-help-page-url',
+      );
+      var helpPageTitleInput = document.getElementById(
+        'new-project-help-page-title',
+      );
+      var useLlmAssistInput = document.getElementById(
+        'new-project-use-llm-assist',
+      );
       var outputTypeInput = document.getElementById('new-project-output-type');
       var formTypeInput = document.getElementById('new-project-form-type');
-      var defaultStateInput = document.getElementById('new-project-default-state');
+      var defaultStateInput = document.getElementById(
+        'new-project-default-state',
+      );
       var userRoleInput = document.getElementById('new-project-user-role');
-      var includeNextStepsInput = document.getElementById('new-project-include-next-steps');
-      var enableNavigationInput = document.getElementById('new-project-enable-navigation');
-      var copyBaselineQuestionsInput = document.getElementById('new-project-copy-baseline-questions');
+      var includeNextStepsInput = document.getElementById(
+        'new-project-include-next-steps',
+      );
+      var enableNavigationInput = document.getElementById(
+        'new-project-enable-navigation',
+      );
+      var copyBaselineQuestionsInput = document.getElementById(
+        'new-project-copy-baseline-questions',
+      );
       var githubUrlInput = document.getElementById('new-project-github-url');
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
       var shortTitleInput = document.getElementById('new-project-short-title');
       var descriptionInput = document.getElementById('new-project-description');
-      var jurisdictionInput = document.getElementById('new-project-jurisdiction');
-      var landingPageUrlInput = document.getElementById('new-project-landing-page-url');
+      var jurisdictionInput = document.getElementById(
+        'new-project-jurisdiction',
+      );
+      var landingPageUrlInput = document.getElementById(
+        'new-project-landing-page-url',
+      );
       var listTopicsInput = document.getElementById('new-project-list-topics');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
@@ -12021,17 +17639,29 @@
       var useLlmAssist = useLlmAssistInput ? useLlmAssistInput.checked : false;
       var outputType = outputTypeInput ? outputTypeInput.value : 'form';
       var formType = formTypeInput ? formTypeInput.value : 'auto';
-      var defaultState = defaultStateInput ? defaultStateInput.value.trim() : '';
+      var defaultState = defaultStateInput
+        ? defaultStateInput.value.trim()
+        : '';
       var userRole = userRoleInput ? userRoleInput.value : 'auto';
-      var includeNextSteps = includeNextStepsInput ? includeNextStepsInput.checked : true;
-      var enableNavigation = enableNavigationInput ? enableNavigationInput.checked : true;
+      var includeNextSteps = includeNextStepsInput
+        ? includeNextStepsInput.checked
+        : true;
+      var enableNavigation = enableNavigationInput
+        ? enableNavigationInput.checked
+        : true;
       var copyBaselineQuestions = copyBaselineQuestionsInput ? copyBaselineQuestionsInput.checked : true;
       var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
       if (githubUrl && _uploadedFiles.length > 0) {
-        window.alert('Choose either a GitHub repository or uploaded documents, not both.');
+        window.alert(
+          'Choose either a GitHub repository or uploaded documents, not both.',
+        );
         return;
       }
-      _showUploadProgressModal(githubUrl ? 'Importing the GitHub repository…' : 'This may take a minute or two. Please wait.');
+      _showUploadProgressModal(
+        githubUrl
+          ? 'Importing the GitHub repository…'
+          : 'This may take a minute or two. Please wait.',
+      );
 
       if (_uploadedFiles.length > 0) {
         var formData = new FormData();
@@ -12055,32 +17685,49 @@
         formData.append('jurisdiction', jurisdictionInput ? jurisdictionInput.value.trim() : '');
         formData.append('landing_page_url', landingPageUrlInput ? landingPageUrlInput.value.trim() : '');
         formData.append('list_topics', listTopicsInput ? listTopicsInput.value.trim() : '');
-        _uploadedFiles.forEach(function (f) { formData.append('files', f, f.name); });
+        _uploadedFiles.forEach(function (f) {
+          formData.append('files', f, f.name);
+        });
         apiUploadDetailed('/api/new-project', formData)
           .then(function (response) {
             var payload = response.body || {};
-            if (String(payload.status || '').toLowerCase() === 'queued' || response.status === 202) {
+            if (
+              String(payload.status || '').toLowerCase() === 'queued' ||
+              response.status === 202
+            ) {
               var queuedData = payload.data || {};
               var queuedProject = queuedData.project || projectName;
               var jobUrl = payload.job_url || queuedData.job_url;
               if (!jobUrl) {
-                throw new Error('Queued job response did not include a status URL.');
+                throw new Error(
+                  'Queued job response did not include a status URL.',
+                );
               }
-              _setUploadProgressMessage('Queued project "' + queuedProject + '". Starting Weaver generation.');
-              return _pollNewProjectJob(jobUrl, queuedProject).then(function (jobPayload) {
-                var jobData = jobPayload.data || {};
-                _hideUploadProgressModal();
-                state.project = jobData.project || queuedProject;
-                state.filename = jobData.filename || 'main.yml';
-                state.canvasMode = 'question';
-                _uploadedFiles = [];
-                _showSuccessBanner('Project "' + esc(state.project) + '" created successfully.');
-                return apiGet('/api/projects').then(function (r) {
-                  if (r.success) applyProjectListData(r.data);
-                  populateProjects();
-                  loadFiles();
-                });
-              });
+              _setUploadProgressMessage(
+                'Queued project "' +
+                  queuedProject +
+                  '". Starting Weaver generation.',
+              );
+              return _pollNewProjectJob(jobUrl, queuedProject).then(
+                function (jobPayload) {
+                  var jobData = jobPayload.data || {};
+                  _hideUploadProgressModal();
+                  state.project = jobData.project || queuedProject;
+                  state.filename = jobData.filename || 'main.yml';
+                  state.canvasMode = 'question';
+                  _uploadedFiles = [];
+                  _showSuccessBanner(
+                    'Project "' +
+                      esc(state.project) +
+                      '" created successfully.',
+                  );
+                  return apiGet('/api/projects').then(function (r) {
+                    if (r.success) applyProjectListData(r.data);
+                    populateProjects();
+                    loadFiles();
+                  });
+                },
+              );
             }
             if (payload.success) {
               _hideUploadProgressModal();
@@ -12088,7 +17735,11 @@
               state.filename = payload.data.filename;
               state.canvasMode = 'question';
               _uploadedFiles = [];
-              _showSuccessBanner('Project "' + esc(payload.data.project) + '" created successfully.');
+              _showSuccessBanner(
+                'Project "' +
+                  esc(payload.data.project) +
+                  '" created successfully.',
+              );
               return apiGet('/api/projects').then(function (r) {
                 if (r.success) applyProjectListData(r.data);
                 populateProjects();
@@ -12117,9 +17768,17 @@
               state.project = res.data.project;
               state.filename = res.data.filename;
               state.canvasMode = 'question';
-              _showSuccessBanner('Project "' + esc(res.data.project) + '" created successfully.');
-              apiGet('/api/projects').then(function (r) { if (r.success) applyProjectListData(r.data); populateProjects(); loadFiles(); });
-            } else { _showUploadError(res.error ? res.error.message : 'Unknown error'); }
+              _showSuccessBanner(
+                'Project "' + esc(res.data.project) + '" created successfully.',
+              );
+              apiGet('/api/projects').then(function (r) {
+                if (r.success) applyProjectListData(r.data);
+                populateProjects();
+                loadFiles();
+              });
+            } else {
+              _showUploadError(res.error ? res.error.message : 'Unknown error');
+            }
           })
           .catch(function (err) {
             if (isSupersededRequest(err)) return;
@@ -12132,9 +17791,14 @@
 
   document.addEventListener('dblclick', function (e) {
     var target = e.target;
-    var reviewSummary = target.closest ? target.closest('[data-review-item-toggle]') : null;
+    var reviewSummary = target.closest
+      ? target.closest('[data-review-item-toggle]')
+      : null;
     if (reviewSummary) {
-      var ri = parseInt(reviewSummary.getAttribute('data-review-item-toggle'), 10);
+      var ri = parseInt(
+        reviewSummary.getAttribute('data-review-item-toggle'),
+        10,
+      );
       state.openReviewItemIndex = ri;
       renderCanvas();
     }
@@ -12192,24 +17856,44 @@
       if (state.canvasMode === 'project-selector') renderProjectSelector();
       return;
     }
-    if (target.matches('[data-field-prop]') || target.matches('.editor-field-choices') ||
-        target.matches('.editor-obj-input') || target.id === 'q-title' || target.id === 'q-subquestion' ||
-        target.id === 'adv-id' || target.id === 'adv-if' || target.id === 'adv-continue-field' ||
-        target.id === 'adv-continue-label' || target.id === 'adv-sets' || target.id === 'adv-need' ||
-        target.id === 'adv-event' || target.id === 'adv-generic-object' ||
-        target.id === 'review-block-id' || target.id === 'review-question' ||
-        target.id === 'review-subquestion' || target.id === 'review-event' ||
-        target.id === 'review-continue-field' || target.id === 'review-need' ||
-        target.id === 'review-tabular' || target.matches('.editor-review-item-yaml') ||
-        target.closest('.editor-review-item') || target.id === 'review-new-field' ||
-        target.matches('[data-fmod]') || target.matches('.editor-field-showif-input') ||
-        target.matches('.editor-field-showif-key') ||
-        target.id === 'order-inline-edit-invoke' || target.id === 'order-inline-edit-condition' ||
-        target.id === 'order-inline-edit-value' || target.id === 'order-add-invoke' ||
-        target.id === 'order-add-condition' || target.id === 'order-add-value' ||
-        target.id === 'order-add-code') {
+    if (
+      target.matches('[data-field-prop]') ||
+      target.matches('.editor-field-choices') ||
+      target.matches('.editor-obj-input') ||
+      target.id === 'q-title' ||
+      target.id === 'q-subquestion' ||
+      target.id === 'adv-id' ||
+      target.id === 'adv-if' ||
+      target.id === 'adv-continue-field' ||
+      target.id === 'adv-continue-label' ||
+      target.id === 'adv-sets' ||
+      target.id === 'adv-need' ||
+      target.id === 'adv-event' ||
+      target.id === 'adv-generic-object' ||
+      target.id === 'review-block-id' ||
+      target.id === 'review-question' ||
+      target.id === 'review-subquestion' ||
+      target.id === 'review-event' ||
+      target.id === 'review-continue-field' ||
+      target.id === 'review-need' ||
+      target.id === 'review-tabular' ||
+      target.matches('.editor-review-item-yaml') ||
+      target.closest('.editor-review-item') ||
+      target.id === 'review-new-field' ||
+      target.matches('[data-fmod]') ||
+      target.matches('.editor-field-showif-input') ||
+      target.matches('.editor-field-showif-key') ||
+      target.id === 'order-inline-edit-invoke' ||
+      target.id === 'order-inline-edit-condition' ||
+      target.id === 'order-inline-edit-value' ||
+      target.id === 'order-add-invoke' ||
+      target.id === 'order-add-condition' ||
+      target.id === 'order-add-value' ||
+      target.id === 'order-add-code'
+    ) {
       markInterviewDirty();
-      if (target.id && target.id.indexOf('order-') === 0) state.orderDirty = true;
+      if (target.id && target.id.indexOf('order-') === 0)
+        state.orderDirty = true;
     }
   });
 
@@ -12231,7 +17915,8 @@
     }
     if (target.matches('[data-enabled-mode]')) {
       var group = target.closest('[data-enabled-group]');
-      var wantsExpression = target.getAttribute('data-enabled-mode') === 'custom';
+      var wantsExpression =
+        target.getAttribute('data-enabled-mode') === 'custom';
       if (group) {
         var custom = group.querySelector('[data-enabled-custom]');
         if (custom) {
@@ -12251,7 +17936,8 @@
     if (target.matches('[data-import-key]')) {
       // Recorded rather than re-rendered: unticking one proposal should not
       // collapse the YAML previews the author has open next to it.
-      state.templateImportSelection[target.getAttribute('data-import-key')] = target.checked;
+      state.templateImportSelection[target.getAttribute('data-import-key')] =
+        target.checked;
       updateApplyImportButton();
       return;
     }
@@ -12262,14 +17948,20 @@
       updateTopbarSaveState();
       return;
     }
-    if (target.matches('.editor-field-required-switch') || target.id === 'adv-mandatory-switch' || target.id === 'review-skip-undefined') {
+    if (
+      target.matches('.editor-field-required-switch') ||
+      target.id === 'adv-mandatory-switch' ||
+      target.id === 'review-skip-undefined'
+    ) {
       markInterviewDirty();
       return;
     }
     if (target.matches('[data-obj-quantity-mode]')) {
       var quantityRow = target.closest('.editor-obj-row');
-      var numberWrap = quantityRow && quantityRow.querySelector('.editor-obj-quantity-number');
-      if (numberWrap) numberWrap.classList.toggle('d-none', target.value !== 'exactly');
+      var numberWrap =
+        quantityRow && quantityRow.querySelector('.editor-obj-quantity-number');
+      if (numberWrap)
+        numberWrap.classList.toggle('d-none', target.value !== 'exactly');
       markInterviewDirty();
       return;
     }
@@ -12282,7 +17974,13 @@
       return;
     }
     if (target.id === 'section-upload-input') {
-      if (!target.files || !target.files.length || !state.project || isInterviewView()) return;
+      if (
+        !target.files ||
+        !target.files.length ||
+        !state.project ||
+        isInterviewView()
+      )
+        return;
       var formData = new FormData();
       formData.append('project', state.project);
       formData.append('section', getSectionFromView(state.currentView));
@@ -12295,11 +17993,17 @@
             window.alert((res.error && res.error.message) || 'Upload failed.');
             return;
           }
-          if (res.data && Array.isArray(res.data.saved_files) && res.data.saved_files.length) {
-            state.sectionSelectedFile[state.currentView] = res.data.saved_files[0];
+          if (
+            res.data &&
+            Array.isArray(res.data.saved_files) &&
+            res.data.saved_files.length
+          ) {
+            state.sectionSelectedFile[state.currentView] =
+              res.data.saved_files[0];
             // Uploading is about the file just added, not the project-wide
             // document setup the author may have been looking at.
-            if (state.currentView === 'templates') state.templatesMode = 'files';
+            if (state.currentView === 'templates')
+              state.templatesMode = 'files';
           }
           state.sectionDirty = false;
           noteModuleSaveResult(res.data);
@@ -12324,10 +18028,13 @@
           content: content,
         }).then(function (res) {
           if (!res.success) {
-            window.alert((res.error && res.error.message) || 'Unable to upload file.');
+            window.alert(
+              (res.error && res.error.message) || 'Unable to upload file.',
+            );
             return;
           }
-          state.filename = res.data && res.data.filename ? res.data.filename : uploadName;
+          state.filename =
+            res.data && res.data.filename ? res.data.filename : uploadName;
           loadFiles();
         });
       };
@@ -12366,14 +18073,22 @@
     var labelField = e.target.closest('[data-label-field="true"]');
     if (!labelField) return;
     e.preventDefault();
-    openSymbolInsertModal({ targetEl: labelField, role: 'all', insertMode: 'label-menu' });
+    openSymbolInsertModal({
+      targetEl: labelField,
+      role: 'all',
+      insertMode: 'label-menu',
+    });
   });
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') hideTypeaheadMenu();
     // Ctrl/Cmd+S saves, so authors do not have to find the topbar button or
     // discover unsaved work only when a navigation prompt stops them.
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 's') {
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      String(e.key).toLowerCase() === 's'
+    ) {
       e.preventDefault();
       saveCurrentFile();
     }
@@ -12384,15 +18099,25 @@
   // -------------------------------------------------------------------------
   function showOrderPreview(step) {
     if (!step) return;
-    document.getElementById('order-preview-label').textContent = step.label || step.kind;
+    document.getElementById('order-preview-label').textContent =
+      step.label || step.kind;
     document.getElementById('order-preview-summary').textContent = step.summary;
-    var body = '<div class="editor-info-box">' + esc(step.invoke || step.value || step.code || step.summary) + '</div>';
+    var body =
+      '<div class="editor-info-box">' +
+      esc(step.invoke || step.value || step.code || step.summary) +
+      '</div>';
     if (step.invoke) {
       for (var i = 0; i < state.blocks.length; i++) {
         if (state.blocks[i].variable === step.invoke) {
-          body += '<div class="editor-info-box mt-2"><strong>' + esc(state.blocks[i].title) + '</strong>';
+          body +=
+            '<div class="editor-info-box mt-2"><strong>' +
+            esc(state.blocks[i].title) +
+            '</strong>';
           if (state.blocks[i].data && state.blocks[i].data.subquestion) {
-            body += '<div class="text-muted small mt-1">' + esc(String(state.blocks[i].data.subquestion)) + '</div>';
+            body +=
+              '<div class="text-muted small mt-1">' +
+              esc(String(state.blocks[i].data.subquestion)) +
+              '</div>';
           }
           body += '</div>';
           break;
@@ -12415,9 +18140,14 @@
     if (step.kind === 'raw') {
       _editStepId = stepId;
       _inlineEditStepId = null;
-      document.getElementById('order-edit-title').textContent = step.label || step.kind;
-      var body = '<div class="mb-3"><label class="editor-tiny">Python code</label>';
-      body += '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-edit-code" rows="4">' + esc(step.code || '') + '</textarea></div>';
+      document.getElementById('order-edit-title').textContent =
+        step.label || step.kind;
+      var body =
+        '<div class="mb-3"><label class="editor-tiny">Python code</label>';
+      body +=
+        '<textarea class="form-control form-control-sm mt-1 font-monospace" id="order-edit-code" rows="4">' +
+        esc(step.code || '') +
+        '</textarea></div>';
       document.getElementById('order-edit-body').innerHTML = body;
       var editModal = getOrCreateBootstrapModal('order-edit-modal');
       if (editModal) editModal.show();
@@ -12427,21 +18157,39 @@
     _editStepId = null;
     renderCanvas();
     setTimeout(function () {
-      var inlineInput = document.querySelector('.editor-order-inline-edit input, .editor-order-inline-edit textarea');
+      var inlineInput = document.querySelector(
+        '.editor-order-inline-edit input, .editor-order-inline-edit textarea',
+      );
       if (inlineInput) inlineInput.focus();
     }, 50);
   }
 
   function renderInlineEditRow(step) {
     var html = '<div class="editor-order-inline-edit">';
-    if (step.kind === 'screen' || step.kind === 'gather' || step.kind === 'function') {
+    if (
+      step.kind === 'screen' ||
+      step.kind === 'gather' ||
+      step.kind === 'function'
+    ) {
       var invokeRole = step.kind === 'function' ? 'function-call' : 'variable';
       html += '<label class="editor-tiny">Variable / expression</label>';
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' + invokeRole + '" id="order-inline-edit-invoke" value="' + esc(step.invoke || '') + '">';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="' +
+        invokeRole +
+        '" id="order-inline-edit-invoke" value="' +
+        esc(step.invoke || '') +
+        '">';
     } else if (step.kind === 'condition') {
       html += '<label class="editor-tiny">Condition</label>';
-      html += renderSymbolDatalist('order-inline-condition-list', 'variable', 120);
-      html += '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="variable" list="order-inline-condition-list" id="order-inline-edit-condition" value="' + esc(step.condition || step.summary || '') + '">';
+      html += renderSymbolDatalist(
+        'order-inline-condition-list',
+        'variable',
+        120,
+      );
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" data-symbol-role="variable" list="order-inline-condition-list" id="order-inline-edit-condition" value="' +
+        esc(step.condition || step.summary || '') +
+        '">';
     } else if (step.kind === 'section') {
       // Build list of section names from sections blocks
       var sectionNames = [];
@@ -12449,12 +18197,14 @@
         var secs = b.data && b.data.sections;
         if (!Array.isArray(secs)) return;
         secs.forEach(function (s) {
-          if (typeof s === 'string') { if (sectionNames.indexOf(s) === -1) sectionNames.push(s); }
-          else if (s && typeof s === 'object') {
+          if (typeof s === 'string') {
+            if (sectionNames.indexOf(s) === -1) sectionNames.push(s);
+          } else if (s && typeof s === 'object') {
             Object.keys(s).forEach(function (k) {
               var v = s[k];
               // keys are display labels, values are section identifiers
-              if (v && typeof v === 'string' && sectionNames.indexOf(v) === -1) sectionNames.push(v);
+              if (v && typeof v === 'string' && sectionNames.indexOf(v) === -1)
+                sectionNames.push(v);
               if (k && sectionNames.indexOf(k) === -1) sectionNames.push(k);
             });
           }
@@ -12462,18 +18212,38 @@
       });
       html += '<label class="editor-tiny">Section name</label>';
       if (sectionNames.length > 0) {
-        html += '<datalist id="order-section-list">' + sectionNames.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
-        html += '<input class="form-control form-control-sm mt-1" list="order-section-list" id="order-inline-edit-value" value="' + esc(step.value || '') + '" placeholder="Section name">';
+        html +=
+          '<datalist id="order-section-list">' +
+          sectionNames
+            .map(function (n) {
+              return '<option value="' + esc(n) + '">';
+            })
+            .join('') +
+          '</datalist>';
+        html +=
+          '<input class="form-control form-control-sm mt-1" list="order-section-list" id="order-inline-edit-value" value="' +
+          esc(step.value || '') +
+          '" placeholder="Section name">';
       } else {
-        html += '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' + esc(step.value || '') + '" placeholder="Section name">';
+        html +=
+          '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' +
+          esc(step.value || '') +
+          '" placeholder="Section name">';
       }
     } else if (step.kind === 'progress') {
       html += '<label class="editor-tiny">Progress value</label>';
-      html += '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' + esc(step.value || '') + '">';
+      html +=
+        '<input class="form-control form-control-sm mt-1" id="order-inline-edit-value" value="' +
+        esc(step.value || '') +
+        '">';
     }
     html += '<div class="d-flex gap-2 mt-1">';
-    html += '<button type="button" class="btn btn-sm btn-primary py-0 px-2" data-step-action="inline-save" data-step-id="' + esc(step.id) + '">Save</button>';
-    html += '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="inline-cancel">Cancel</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-primary py-0 px-2" data-step-action="inline-save" data-step-id="' +
+      esc(step.id) +
+      '">Save</button>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-step-action="inline-cancel">Cancel</button>';
     html += '</div></div>';
     return html;
   }
@@ -12486,7 +18256,9 @@
     });
   }
 
-  var _screenPreviewLayoutSelect = document.getElementById('screen-preview-layout');
+  var _screenPreviewLayoutSelect = document.getElementById(
+    'screen-preview-layout',
+  );
   if (_screenPreviewLayoutSelect) {
     _screenPreviewLayoutSelect.addEventListener('change', function () {
       _screenPreviewLabelLayout = this.value;
@@ -12494,7 +18266,9 @@
     });
   }
 
-  var _screenPreviewBackSelect = document.getElementById('screen-preview-back-label');
+  var _screenPreviewBackSelect = document.getElementById(
+    'screen-preview-back-label',
+  );
   if (_screenPreviewBackSelect) {
     _screenPreviewBackSelect.addEventListener('change', function () {
       _screenPreviewBackLabel = this.value;
@@ -12502,24 +18276,40 @@
     });
   }
 
-  document.getElementById('order-edit-save').addEventListener('click', function () {
-    if (!_editStepId) return;
-    var record = findStepRecord(state.orderSteps, _editStepId, null);
-    if (!record) return;
-    var step = record.step;
-    var invokeEl = document.getElementById('order-edit-invoke');
-    var valueEl = document.getElementById('order-edit-value');
-    var codeEl = document.getElementById('order-edit-code');
-    var conditionEl = document.getElementById('order-edit-condition');
-    if (invokeEl) { step.invoke = invokeEl.value; step.summary = invokeEl.value; }
-    if (conditionEl) { step.condition = conditionEl.value; step.summary = conditionEl.value; }
-    if (valueEl) { step.value = valueEl.value; if (step.kind === 'section') step.summary = 'Section: ' + valueEl.value; if (step.kind === 'progress') step.summary = 'Progress: ' + valueEl.value + '%'; }
-    if (codeEl) { step.code = codeEl.value; step.summary = codeEl.value.split('\n')[0].slice(0, 60); }
-    syncActiveOrderStepMap();
-    markOrderDirty();
-    closeBootstrapModal('order-edit-modal');
-    renderCanvas();
-  });
+  document
+    .getElementById('order-edit-save')
+    .addEventListener('click', function () {
+      if (!_editStepId) return;
+      var record = findStepRecord(state.orderSteps, _editStepId, null);
+      if (!record) return;
+      var step = record.step;
+      var invokeEl = document.getElementById('order-edit-invoke');
+      var valueEl = document.getElementById('order-edit-value');
+      var codeEl = document.getElementById('order-edit-code');
+      var conditionEl = document.getElementById('order-edit-condition');
+      if (invokeEl) {
+        step.invoke = invokeEl.value;
+        step.summary = invokeEl.value;
+      }
+      if (conditionEl) {
+        step.condition = conditionEl.value;
+        step.summary = conditionEl.value;
+      }
+      if (valueEl) {
+        step.value = valueEl.value;
+        if (step.kind === 'section') step.summary = 'Section: ' + valueEl.value;
+        if (step.kind === 'progress')
+          step.summary = 'Progress: ' + valueEl.value + '%';
+      }
+      if (codeEl) {
+        step.code = codeEl.value;
+        step.summary = codeEl.value.split('\n')[0].slice(0, 60);
+      }
+      syncActiveOrderStepMap();
+      markOrderDirty();
+      closeBootstrapModal('order-edit-modal');
+      renderCanvas();
+    });
 
   var orderAddKindSelect = document.getElementById('order-add-kind');
   if (orderAddKindSelect) {
@@ -12528,64 +18318,73 @@
     });
   }
 
-  document.getElementById('order-add-save').addEventListener('click', function () {
-    if (!_pendingOrderInsert) return;
-    var kindEl = document.getElementById('order-add-kind');
-    var kind = kindEl ? kindEl.value : 'screen';
-    var newStep = createOrderStep(kind);
+  document
+    .getElementById('order-add-save')
+    .addEventListener('click', function () {
+      if (!_pendingOrderInsert) return;
+      var kindEl = document.getElementById('order-add-kind');
+      var kind = kindEl ? kindEl.value : 'screen';
+      var newStep = createOrderStep(kind);
 
-    var invokeEl = document.getElementById('order-add-invoke');
-    var gatherEl = document.getElementById('order-add-gather-list');
-    var conditionEl = document.getElementById('order-add-condition');
-    var valueEl = document.getElementById('order-add-value');
-    var codeEl = document.getElementById('order-add-code');
+      var invokeEl = document.getElementById('order-add-invoke');
+      var gatherEl = document.getElementById('order-add-gather-list');
+      var conditionEl = document.getElementById('order-add-condition');
+      var valueEl = document.getElementById('order-add-value');
+      var codeEl = document.getElementById('order-add-code');
 
-    if (kind === 'screen' || kind === 'function') {
-      var invokeVal = invokeEl ? String(invokeEl.value || '').trim() : '';
-      if (!invokeVal) return;
-      newStep.invoke = invokeVal;
-      newStep.summary = invokeVal;
-    } else if (kind === 'gather') {
-      var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
-      if (!gatherVar) return;
-      newStep.invoke = gatherVar + '.gather()';
-      newStep.summary = 'Gather ' + gatherVar + ' list';
-    } else if (kind === 'condition') {
-      var conditionVal = conditionEl ? String(conditionEl.value || '').trim() : '';
-      if (!conditionVal) return;
-      newStep.condition = conditionVal;
-      newStep.summary = conditionVal;
-    } else if (kind === 'section') {
-      var sectionVal = valueEl ? String(valueEl.value || '').trim() : '';
-      if (!sectionVal) return;
-      newStep.value = sectionVal;
-      newStep.summary = 'Section: ' + sectionVal;
-    } else if (kind === 'progress') {
-      var progressRaw = valueEl ? String(valueEl.value || '').trim() : '';
-      var parsed = parseInt(progressRaw || '0', 10);
-      if (!Number.isFinite(parsed)) parsed = 0;
-      var bounded = Math.max(0, Math.min(100, parsed));
-      newStep.value = String(bounded);
-      newStep.summary = 'Progress: ' + bounded + '%';
-    } else {
-      var codeVal = codeEl ? String(codeEl.value || '').trim() : '';
-      if (!codeVal) return;
-      newStep.code = codeVal;
-      newStep.summary = codeVal.split('\n')[0].slice(0, 60);
-    }
+      if (kind === 'screen' || kind === 'function') {
+        var invokeVal = invokeEl ? String(invokeEl.value || '').trim() : '';
+        if (!invokeVal) return;
+        newStep.invoke = invokeVal;
+        newStep.summary = invokeVal;
+      } else if (kind === 'gather') {
+        var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
+        if (!gatherVar) return;
+        newStep.invoke = gatherVar + '.gather()';
+        newStep.summary = 'Gather ' + gatherVar + ' list';
+      } else if (kind === 'condition') {
+        var conditionVal = conditionEl
+          ? String(conditionEl.value || '').trim()
+          : '';
+        if (!conditionVal) return;
+        newStep.condition = conditionVal;
+        newStep.summary = conditionVal;
+      } else if (kind === 'section') {
+        var sectionVal = valueEl ? String(valueEl.value || '').trim() : '';
+        if (!sectionVal) return;
+        newStep.value = sectionVal;
+        newStep.summary = 'Section: ' + sectionVal;
+      } else if (kind === 'progress') {
+        var progressRaw = valueEl ? String(valueEl.value || '').trim() : '';
+        var parsed = parseInt(progressRaw || '0', 10);
+        if (!Number.isFinite(parsed)) parsed = 0;
+        var bounded = Math.max(0, Math.min(100, parsed));
+        newStep.value = String(bounded);
+        newStep.summary = 'Progress: ' + bounded + '%';
+      } else {
+        var codeVal = codeEl ? String(codeEl.value || '').trim() : '';
+        if (!codeVal) return;
+        newStep.code = codeVal;
+        newStep.summary = codeVal.split('\n')[0].slice(0, 60);
+      }
 
-    insertOrderStepAtLocation(newStep, _pendingOrderInsert.parentStepId, _pendingOrderInsert.branch, _pendingOrderInsert.insertIndex);
-    _lastInsertedOrderStepId = newStep.id;
-    _pendingOrderInsert = null;
-    syncActiveOrderStepMap();
-    markOrderDirty();
-    renderCanvas();
-    // Re-rendering nested branches can replace the order-builder subtree while
-    // the modal is open. Hide the live modal instance after that render so
-    // nested inserts do not leave a stale backdrop and dialog behind.
-    closeBootstrapModal('order-add-modal');
-    clearInsertedStepHighlightSoon(newStep.id);
-  });
+      insertOrderStepAtLocation(
+        newStep,
+        _pendingOrderInsert.parentStepId,
+        _pendingOrderInsert.branch,
+        _pendingOrderInsert.insertIndex,
+      );
+      _lastInsertedOrderStepId = newStep.id;
+      _pendingOrderInsert = null;
+      syncActiveOrderStepMap();
+      markOrderDirty();
+      renderCanvas();
+      // Re-rendering nested branches can replace the order-builder subtree while
+      // the modal is open. Hide the live modal instance after that render so
+      // nested inserts do not leave a stale backdrop and dialog behind.
+      closeBootstrapModal('order-add-modal');
+      clearInsertedStepHighlightSoon(newStep.id);
+    });
 
   // -------------------------------------------------------------------------
   // Select change handlers
@@ -12606,7 +18405,10 @@
       state.canvasMode = 'question';
       loadFiles();
     }
-    if (nextProject !== state.project && deferNavigationForUnsavedChanges('switch projects', changeProject)) {
+    if (
+      nextProject !== state.project &&
+      deferNavigationForUnsavedChanges('switch projects', changeProject)
+    ) {
       projectSelect.value = state.project || '';
       return;
     }
@@ -12623,7 +18425,10 @@
       dirtyState.activate(state.filename, null);
       loadFile();
     }
-    if (nextFilename !== state.filename && deferNavigationForUnsavedChanges('open another file', changeFile)) {
+    if (
+      nextFilename !== state.filename &&
+      deferNavigationForUnsavedChanges('open another file', changeFile)
+    ) {
       fileSelect.value = state.filename || '';
       return;
     }
@@ -12662,13 +18467,20 @@
         state.selectedBlockId = getDefaultVisibleBlockId();
       }
       state.currentView = 'interview';
-      var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+      var interviewTab = document.querySelector(
+        '.editor-top-tab[data-view="interview"]',
+      );
       if (interviewTab) setActiveTopTab(interviewTab);
       syncJumpSelect();
       renderCanvas();
       renderOutline();
     }
-    if (deferNavigationForUnsavedChanges('change the outline filter', changeJumpTarget)) {
+    if (
+      deferNavigationForUnsavedChanges(
+        'change the outline filter',
+        changeJumpTarget,
+      )
+    ) {
       // The prompt can still end in "stay", so put the control back to the
       // filter that is actually applied until the change really goes through.
       syncJumpSelect();
@@ -12686,9 +18498,13 @@
   // On narrow screens the navbar actions live inside a collapse. Close it once
   // the user picks something, so the editor isn't left behind a full-height menu.
   document.addEventListener('click', function (e) {
-    var host = e.target && e.target.closest ? e.target.closest('#editor-navbar-collapse') : null;
+    var host =
+      e.target && e.target.closest
+        ? e.target.closest('#editor-navbar-collapse')
+        : null;
     if (!host) return;
-    if (!e.target.closest('[data-action], .editor-top-tab, .dropdown-item')) return;
+    if (!e.target.closest('[data-action], .editor-top-tab, .dropdown-item'))
+      return;
     if (!host.classList.contains('show')) return;
     var Collapse = window.bootstrap && window.bootstrap.Collapse;
     if (Collapse) Collapse.getOrCreateInstance(host).hide();
@@ -12698,7 +18514,9 @@
   // Init
   // -------------------------------------------------------------------------
   function init() {
-    var isAuthenticated = Boolean(authState.authenticated || BOOT.authenticated);
+    var isAuthenticated = Boolean(
+      authState.authenticated || BOOT.authenticated,
+    );
     renderAccountMenu();
     if (!isAuthenticated) {
       renderLoginRequired();
@@ -12707,16 +18525,23 @@
     initProjectSearch();
     initGithubPublishing();
     renderSystemChecks();
-    document.querySelectorAll('[data-action="open-runtime-inspector"]').forEach(function (control) {
-      // The control now lives inside a dropdown, so hide the whole <li>;
-      // hiding only the button would leave a blank row in the menu.
-      var host = control.closest('li') || control;
-      host.classList.toggle('d-none', !(BOOT.features && BOOT.features.runtimeInspector));
-    });
+    document
+      .querySelectorAll('[data-action="open-runtime-inspector"]')
+      .forEach(function (control) {
+        // The control now lives inside a dropdown, so hide the whole <li>;
+        // hiding only the button would leave a blank row in the menu.
+        var host = control.closest('li') || control;
+        host.classList.toggle(
+          'd-none',
+          !(BOOT.features && BOOT.features.runtimeInspector),
+        );
+      });
     // No assistant control and no assistant markup unless the flag is on.
-    document.querySelectorAll('.js-assistant-toggle').forEach(function (control) {
-      control.classList.toggle('d-none', !agentEditorEnabled());
-    });
+    document
+      .querySelectorAll('.js-assistant-toggle')
+      .forEach(function (control) {
+        control.classList.toggle('d-none', !agentEditorEnabled());
+      });
     if (!agentEditorEnabled()) {
       var assistantPanel = document.getElementById('editor-assistant');
       if (assistantPanel) assistantPanel.remove();

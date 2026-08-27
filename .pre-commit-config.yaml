@@ -1,0 +1,32 @@
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: uv run --no-sync black
+        language: system
+        types: [python]
+        exclude: ^(.*(/)?)?(__init__|setup)\.py$
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (type check)
+        entry: uv run --no-sync mypy . --exclude '^build/' --explicit-package-bases
+        language: system
+        pass_filenames: false
+        files: ^.*\.py$
+
+      - id: js-checks
+        name: JavaScript static checks (Prettier, ESLint, TypeScript)
+        entry: npm run check
+        language: system
+        pass_filenames: false
+        files: ^(docassemble/ALWeaver/data/static/.*\.js|tsconfig\.json|eslint\.config\.mjs|package\.json)$
+
+      - id: pytest
+        name: pytest (unit tests)
+        entry: bash -c 'ISUNITTEST=true uv run --no-sync pytest'
+        language: system
+        pass_filenames: false
+        files: ^(docassemble/.*|conftest\.py|pyproject\.toml)$
