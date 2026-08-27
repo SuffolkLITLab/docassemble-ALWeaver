@@ -122,7 +122,9 @@ class TestEditorSecurity(unittest.TestCase):
                     "_restart_capability",
                     return_value={"allowed": True, "reason": None},
                 ),
-                patch.object(api_editor, "_config_file_path", return_value=str(config_path)),
+                patch.object(
+                    api_editor, "_config_file_path", return_value=str(config_path)
+                ),
                 patch.object(api_editor, "_write_config_source") as write_config,
                 patch.object(api_editor, "restart_docassemble") as restart,
             ):
@@ -133,9 +135,13 @@ class TestEditorSecurity(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.get_json()["data"]["changed"])
             written_source = write_config.call_args.args[0]
-            self.assertIn("docassemble.ALDashboard.api_dashboard_worker", written_source)
+            self.assertIn(
+                "docassemble.ALDashboard.api_dashboard_worker", written_source
+            )
             self.assertIn(CELERY_MODULE, written_source)
-            self.assertIn("mail:\n  default sender: forms@example.test\n", written_source)
+            self.assertIn(
+                "mail:\n  default sender: forms@example.test\n", written_source
+            )
             restart.assert_called_once_with()
 
     def test_celery_preflight_is_actionable_and_never_raises(self):

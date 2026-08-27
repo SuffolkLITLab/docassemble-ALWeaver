@@ -33,9 +33,7 @@ def add_celery_module_to_config_yaml(source: str) -> tuple[str, bool]:
     if not match:
         suffix = "" if not source or source.endswith(("\n", "\r")) else "\n"
         return (
-            source
-            + suffix
-            + f"{CELERY_CONFIG_KEY}:\n  - {CELERY_MODULE}\n",
+            source + suffix + f"{CELERY_CONFIG_KEY}:\n  - {CELERY_MODULE}\n",
             True,
         )
 

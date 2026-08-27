@@ -140,4 +140,6 @@ dev = [
     "mypy",
     "types-requests",
     "types-PyYAML",
+    "black>=26.5.1",
+    "pre-commit>=4.6.2",
 ]

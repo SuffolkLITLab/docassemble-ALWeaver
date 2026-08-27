@@ -7601,9 +7601,7 @@
         counts.kindVisible +
         ' block' +
         (counts.kindVisible === 1 ? '' : 's') +
-        ' (' +
-        counts.total +
-        ' total)';
+        ' (' + counts.total + ' total)';
     } else {
       var visible = counts.hasSearch ? counts.visible : counts.kindVisible;
       countEl.textContent =
@@ -13202,10 +13200,7 @@
     html +=
       '<div class="accordion editor-new-project-accordion" id="new-project-accordion">';
 
-    html += _newProjectSection(
-      'files',
-      'Template files',
-      true,
+    html += _newProjectSection('files', 'Template files', true,
       '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">' +
         '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>' +
@@ -13221,10 +13216,7 @@
     );
 
     // Basics: what an author has to decide, and what the document cannot answer.
-    html += _newProjectSection(
-      'basics',
-      'Project settings',
-      true,
+    html += _newProjectSection('basics', 'Project settings', true,
       '<div class="d-grid gap-3">' +
         '<div><label class="editor-tiny" for="new-project-name">Project name</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">' +
@@ -13246,10 +13238,7 @@
     );
 
     // Advanced: things Weaver can decide on its own, or that are already right.
-    html += _newProjectSection(
-      'advanced',
-      'Advanced settings',
-      false,
+    html += _newProjectSection('advanced', 'Advanced settings', false,
       '<div class="d-grid gap-3">' +
         '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label>' +
         '<select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select>' +
@@ -13266,10 +13255,7 @@
     // interview's `metadata` block; a project created without them starts out
     // failing the shared metadata style rule, and nothing else can supply the
     // jurisdiction or the landing page for you.
-    html += _newProjectSection(
-      'metadata',
-      'Publishing metadata',
-      false,
+    html += _newProjectSection('metadata', 'Publishing metadata', false,
       '<p class="text-muted small">These become the interview\'s <code>metadata</code> block. Anything you skip Weaver fills in with a guess, and you can revise it later in AssemblyLine settings.</p>' +
         '<div class="d-grid gap-3">' +
         '<div class="row g-3"><div class="col-md-8"><label class="editor-tiny" for="new-project-title">Title</label>' +
@@ -13294,10 +13280,7 @@
         '</div>',
     );
 
-    html += _newProjectSection(
-      'context',
-      'Drafting context',
-      false,
+    html += _newProjectSection('context', 'Drafting context', false,
       '<div class="d-grid gap-3">' +
         '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>' +
@@ -15629,10 +15612,7 @@
         importStatus.textContent =
           'Creating the project and pulling files from GitHub…';
       }
-      apiPost('/api/new-project', {
-        project_name: importName,
-        github_url: importUrl,
-      })
+      apiPost('/api/new-project', { project_name: importName, github_url: importUrl })
         .then(function (res) {
           if (!res.success || !res.data) {
             throw new Error(
@@ -15836,9 +15816,7 @@
         // Playground and writes back to it, so unsaved work has to land first
         // or the refresh afterwards would drop it.
         closeBootstrapModal('insert-modal');
-        promptAndSaveUnsavedChanges(
-          'add questions from the AssemblyLine library',
-        ).then(function (canContinue) {
+        promptAndSaveUnsavedChanges('add questions from the AssemblyLine library').then(function (canContinue) {
           if (canContinue) openQuestionLibraryPicker();
         });
         return;
@@ -17671,9 +17649,7 @@
       var enableNavigation = enableNavigationInput
         ? enableNavigationInput.checked
         : true;
-      var copyBaselineQuestions = copyBaselineQuestionsInput
-        ? copyBaselineQuestionsInput.checked
-        : true;
+      var copyBaselineQuestions = copyBaselineQuestionsInput ? copyBaselineQuestionsInput.checked : true;
       var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
       if (githubUrl && _uploadedFiles.length > 0) {
         window.alert(
@@ -17699,46 +17675,16 @@
         formData.append('form_type', formType);
         formData.append('default_state', defaultState);
         formData.append('typical_role', userRole);
-        formData.append(
-          'include_next_steps',
-          includeNextSteps ? 'true' : 'false',
-        );
-        formData.append(
-          'enable_navigation',
-          enableNavigation ? 'true' : 'false',
-        );
-        formData.append(
-          'copy_baseline_questions',
-          copyBaselineQuestions ? 'true' : 'false',
-        );
-        formData.append(
-          'interview_filename',
-          filenameInput ? filenameInput.value.trim() : '',
-        );
-        formData.append(
-          'interview_title',
-          titleInput ? titleInput.value.trim() : '',
-        );
-        formData.append(
-          'interview_short_title',
-          shortTitleInput ? shortTitleInput.value.trim() : '',
-        );
-        formData.append(
-          'interview_description',
-          descriptionInput ? descriptionInput.value.trim() : '',
-        );
-        formData.append(
-          'jurisdiction',
-          jurisdictionInput ? jurisdictionInput.value.trim() : '',
-        );
-        formData.append(
-          'landing_page_url',
-          landingPageUrlInput ? landingPageUrlInput.value.trim() : '',
-        );
-        formData.append(
-          'list_topics',
-          listTopicsInput ? listTopicsInput.value.trim() : '',
-        );
+        formData.append('include_next_steps', includeNextSteps ? 'true' : 'false');
+        formData.append('enable_navigation', enableNavigation ? 'true' : 'false');
+        formData.append('copy_baseline_questions', copyBaselineQuestions ? 'true' : 'false');
+        formData.append('interview_filename', filenameInput ? filenameInput.value.trim() : '');
+        formData.append('interview_title', titleInput ? titleInput.value.trim() : '');
+        formData.append('interview_short_title', shortTitleInput ? shortTitleInput.value.trim() : '');
+        formData.append('interview_description', descriptionInput ? descriptionInput.value.trim() : '');
+        formData.append('jurisdiction', jurisdictionInput ? jurisdictionInput.value.trim() : '');
+        formData.append('landing_page_url', landingPageUrlInput ? landingPageUrlInput.value.trim() : '');
+        formData.append('list_topics', listTopicsInput ? listTopicsInput.value.trim() : '');
         _uploadedFiles.forEach(function (f) {
           formData.append('files', f, f.name);
         });

@@ -107,13 +107,16 @@ class TestTemplateStatus(unittest.TestCase):
         )
 
     def test_a_template_used_some_other_way_is_referenced_not_attached(self):
-        interview = EXISTING_INTERVIEW + """---
+        interview = (
+            EXISTING_INTERVIEW
+            + """---
 question: |
   Hello
 subquestion: |
   ${ logo_png }
 content file: logo.png
 """
+        )
         statuses = template_status(interview, ["logo.png"])
         self.assertEqual(statuses["logo.png"]["status"], "referenced")
         self.assertEqual(statuses["logo.png"]["document"], "")

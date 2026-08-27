@@ -550,6 +550,21 @@ def _optional_webapp_attr(candidates: Sequence[Tuple[str, str]]) -> Any:
         return None
 
 
+def cloud_object() -> Any:
+    """The cloud storage handle Docassemble uses for shared config files.
+
+    1.10.x exposes ``cloud`` from ``docassemble.webapp.cloud.utils``; 1.9.x
+    keeps it in ``docassemble.webapp.backend``.  Returns ``None`` when cloud
+    storage is not configured.
+    """
+    return _optional_webapp_attr(
+        (
+            ("docassemble.webapp.cloud.utils", "cloud"),
+            ("docassemble.webapp.backend", "cloud"),
+        )
+    )
+
+
 def full_package_directory() -> Optional[str]:
     """The site-packages root Docassemble installs packages into.
 

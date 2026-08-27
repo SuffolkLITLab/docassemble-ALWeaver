@@ -10,7 +10,7 @@
     "lint": "eslint $npm_package_config_jsFiles",
     "typecheck": "tsc --project tsconfig.json",
     "check": "npm run format:check && npm run lint && npm run typecheck",
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
+    "prepare": "uv run pre-commit install 2>/dev/null || pre-commit install 2>/dev/null || true"
   },
   "config": {
     "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js"

@@ -425,9 +425,7 @@ def _editor_admin_check() -> bool:
     try:
         has_role = getattr(current_user, "has_role", None)
         return bool(
-            current_user.is_authenticated
-            and callable(has_role)
-            and has_role("admin")
+            current_user.is_authenticated and callable(has_role) and has_role("admin")
         )
     except Exception:
         return False
@@ -3809,13 +3807,9 @@ def _config_file_path() -> str:
 def _write_config_source(source: str) -> None:
     """Write config source verbatim locally and to configured shared storage."""
     config_path = _config_file_path()
-    try:
-        from docassemble.webapp.cloud.utils import cloud
-    except ModuleNotFoundError:
-        try:
-            from docassemble.webapp.backend import cloud  # type: ignore
-        except ModuleNotFoundError:
-            cloud = None  # type: ignore[assignment]
+    from .docassemble_compat import cloud_object
+
+    cloud = cloud_object()
     if cloud is not None:
         cloud.get_key("config.yml").set_contents_from_string(source)
     stat_result = os.stat(config_path)
@@ -7439,7 +7433,8 @@ def editor_api_ai_generate_screen() -> Response:
         template_context = _project_template_context_text(uid, project)
         current_screen_payload = post_data.get("current_screen")
 
-        system_message = textwrap.dedent("""
+        system_message = textwrap.dedent(
+            """
             You are drafting ONE docassemble question screen.
             Return ONLY JSON with keys:
               question: string
@@ -7455,7 +7450,8 @@ def editor_api_ai_generate_screen() -> Response:
             - Keep variable names python-safe snake_case.
             - When fields is non-empty, continue_button_field must be an empty string.
             - Use continue_button_field only for a screen with no input fields.
-            """).strip()
+            """
+        ).strip()
 
         user_message = (
             f"Allowed datatypes: {json.dumps(field_types)}\n\n"
@@ -7562,7 +7558,8 @@ def editor_api_ai_generate_fields() -> Response:
         if not isinstance(current_screen_payload, dict):
             current_screen_payload = deepcopy(block.get("data") or {})
 
-        system_message = textwrap.dedent("""
+        system_message = textwrap.dedent(
+            """
             You are generating fields for ONE docassemble question screen.
             Return ONLY JSON with key:
               fields: array of {label, field, datatype, choices?}
@@ -7573,7 +7570,8 @@ def editor_api_ai_generate_fields() -> Response:
             - Choose datatypes from the provided allowed list.
             - Keep labels plain and user-friendly.
             - Keep variable names python-safe snake_case.
-            """).strip()
+            """
+        ).strip()
 
         user_message = (
             f"Allowed datatypes: {json.dumps(field_types)}\n\n"
