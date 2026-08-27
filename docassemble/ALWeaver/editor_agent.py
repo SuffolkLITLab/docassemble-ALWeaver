@@ -56,8 +56,7 @@ MAX_MODEL_TRANSCRIPT_MESSAGES = 24
 
 DEFAULT_AGENT_MODEL = "gpt-5-mini"
 
-SYSTEM_PROMPT = textwrap.dedent(
-    """
+SYSTEM_PROMPT = textwrap.dedent("""
     You are an editing assistant for a Docassemble interview.
 
     You modify interviews only by calling the provided tools.
@@ -115,8 +114,7 @@ SYSTEM_PROMPT = textwrap.dedent(
     Only use "final" when the work is actually finished, or when you have
     concluded it cannot be done with the available tools. Do not describe an
     edit you have not made: an edit only exists once a tool call has succeeded.
-    """
-).strip()
+    """).strip()
 
 ACTION_SCHEMA = {
     "type": "object",
