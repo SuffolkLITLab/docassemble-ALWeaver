@@ -384,7 +384,7 @@ kinds of interviews that the Weaver can produce.
 `review_screen_sync.py` re-drafts a review screen for an interview that already
 exists, which the generation path cannot do -- by then the questions live in
 YAML, not in the Weaver's field model. It imports ALDashboard's
-`review_screen_generator` at runtime (optional, like the linter integration) and
+`review_screen_generator` at runtime (like the linter integration) and
 adds three things: it resolves what "the interview" means by walking the
 project's include graph in both directions, since review screens usually live in
 a `review.yml` that the interviews include rather than the other way round; it

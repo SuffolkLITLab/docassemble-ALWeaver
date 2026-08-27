@@ -17,6 +17,7 @@ dependencies = [
     "beautifulsoup4>=4.11.1",
     "docassemble.ALToolbox>=0.4.2",
     "docassemble.AssemblyLine>=2.11.3",
+    "docassemble.ALDashboard>=2.3.0",
     "docx2python>=1.27.1",
     "more-itertools>=8.6.0",
     "numpy>=1.0.4",
