@@ -62,11 +62,12 @@
     </div>
   </nav>
 
-  <div class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 d-none"
+  <div class="alert alert-warning alert-dismissible rounded-0 border-start-0 border-end-0 mb-0 d-none"
        id="editor-celery-warning" role="status" aria-live="polite">
     <strong>Weaver worker setup is incomplete.</strong>
     <span data-celery-warning-message></span>
-    <a class="alert-link" data-celery-warning-docs target="_blank" rel="noopener noreferrer">View setup instructions</a>.
+    <button type="button" class="btn btn-sm btn-warning ms-2" data-action="open-celery-setup">Set up background workers</button>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
   </div>
 
   <div class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-none d-flex flex-wrap align-items-center gap-2"
@@ -853,6 +854,30 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary d-none" id="symbol-insert-apply">Insert</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="celery-setup-modal" tabindex="-1" aria-labelledby="celery-setup-title" aria-describedby="celery-setup-description">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="celery-setup-title">Set up Weaver background workers</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="celery-setup-description">Slow editor operations run in Docassemble’s Celery workers. Add Weaver’s task module to the existing list, without removing any modules already there.</p>
+        <pre class="bg-body-tertiary border rounded p-3 mb-3"><code id="celery-setup-snippet">celery modules:
+  - docassemble.ALWeaver.api_weaver_worker</code></pre>
+        <p class="mb-0" id="celery-setup-help"></p>
+        <div class="alert alert-danger d-none mt-3 mb-0" id="celery-setup-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-sm btn-outline-secondary d-none" id="celery-setup-config-page" target="_blank" rel="noopener noreferrer">Open server configuration</a>
+        <a class="btn btn-sm btn-outline-secondary" id="celery-setup-docs" target="_blank" rel="noopener noreferrer">Setup instructions</a>
+        <button type="button" class="btn btn-sm btn-primary d-none" id="celery-setup-save">Add module and restart</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
