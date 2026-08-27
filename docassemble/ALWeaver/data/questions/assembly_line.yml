@@ -238,8 +238,8 @@ subquestion: |
         <div class="card-body">
           <h5 class="card-title">Try the new Weaver</h5>
           <p class="card-text">The new Weaver is a full replacement with many advanced additional features.</p>
-          <a class="btn btn-primary stretched-link align-self-end" href="https://assemblyline.suffolklitlab.org/al/editor" role="button">Open the new Weaver</a>
-          <p class="card-text mt-3 mb-0"><a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/weaver_overview">Read the new Weaver documentation</a></p>
+          <a class="btn btn-primary align-self-end" href="/al/editor" role="button">Open the new Weaver</a>
+          <p class="card-text mt-3 mb-0"><a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/weaver_overview/">Read the new Weaver documentation</a></p>
         </div>
       </div>
     </div>
