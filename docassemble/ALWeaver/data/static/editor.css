@@ -99,12 +99,6 @@ html, body {
   white-space: nowrap;
 }
 
-.editor-brand-caret {
-  font-size: 0.75em;
-  opacity: 0.7;
-  flex: 0 0 auto;
-}
-
 .editor-top-tab {
   /* nav-link renders an <a>; these are <button>s doing the same job. */
   border-width: 0 0 var(--bs-nav-underline-border-width);
@@ -2339,8 +2333,8 @@ html, body {
 .editor-top-tab-caret {
   background: transparent;
   border: none;
-  color: inherit;
-  opacity: 0.75;
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 1;
   cursor: pointer;
   padding: 4px 6px;
   font-size: 11px;

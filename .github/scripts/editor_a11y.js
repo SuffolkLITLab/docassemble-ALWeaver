@@ -108,14 +108,14 @@ async function closeModal(page, selector) {
   await modal.waitFor({ state: "hidden", timeout: 10_000 });
 }
 
-async function openMoreMenu(page) {
-  const button = page.locator("#topbar-more-menu");
-  const menu = page.locator('ul[aria-labelledby="topbar-more-menu"]');
+async function openInterviewMenu(page) {
+  const button = page.locator("#interview-menu");
+  const menu = page.locator('ul[aria-labelledby="interview-menu"]');
   if ((await button.getAttribute("aria-expanded")) !== "true") {
     await button.click();
   }
   await page.waitForFunction(
-    () => document.querySelector("#topbar-more-menu")?.getAttribute("aria-expanded") === "true",
+    () => document.querySelector("#interview-menu")?.getAttribute("aria-expanded") === "true",
     undefined,
     { timeout: 10_000 }
   );
@@ -218,7 +218,7 @@ async function main() {
     );
 
     // Full YAML, metadata, and interview-order source editors.
-    await openMoreMenu(page);
+    await openInterviewMenu(page);
     await page.locator('[data-action="open-full-yaml"]').click();
     await page.locator("#full-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
@@ -235,7 +235,7 @@ async function main() {
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
     // AssemblyLine settings, including its explanatory popover.
-    await openMoreMenu(page);
+    await openInterviewMenu(page);
     await page.locator('[data-action="open-assemblyline-settings"]').click();
     await page.locator("#assemblyline-settings-filter").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(

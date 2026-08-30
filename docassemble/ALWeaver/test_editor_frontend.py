@@ -743,6 +743,20 @@ class TestEditorFrontend(unittest.TestCase):
         )
         self.assertNotIn("renderDocumentsCard(fileMeta)", editor)
 
+    def test_interview_menu_replaces_more_and_exposes_order_tools(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertNotIn("editor-brand-caret", template)
+        self.assertNotIn('id="topbar-more-menu"', template)
+        self.assertIn('id="interview-menu"', template)
+        self.assertIn('data-action="open-interview-order"', template)
+        self.assertIn('data-action="open-interview-flow-report"', template)
+        self.assertIn("uiAction === 'open-interview-order'", editor)
+        self.assertIn("uiAction === 'open-interview-flow-report'", editor)
+        self.assertIn("color: rgba(255, 255, 255, 0.9);", css)
+
     def test_a_template_is_imported_not_analyzed(self):
         """The author's verb is the deed, not the means."""
         editor = (self.package_dir / "data/static/editor.js").read_text()

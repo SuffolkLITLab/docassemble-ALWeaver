@@ -16575,6 +16575,25 @@
       openRuntimeInspector();
       return;
     }
+    if (uiAction === 'open-interview-order') {
+      var requestedMenuOrderBlock =
+        state.activeOrderBlockId || getDefaultOrderBlockId();
+      if (
+        deferNavigationForUnsavedChanges(
+          'open the interview order',
+          function () {
+            enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+          },
+        )
+      )
+        return;
+      enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+      return;
+    }
+    if (uiAction === 'open-interview-flow-report') {
+      openInterviewFlowReport();
+      return;
+    }
     if (orderBuilderBtn) {
       var requestedOrderBlock =
         state.activeOrderBlockId || getDefaultOrderBlockId();
