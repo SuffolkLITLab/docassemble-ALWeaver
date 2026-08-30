@@ -16591,6 +16591,7 @@
       return;
     }
     if (uiAction === 'open-interview-flow-report') {
+      stashCurrentEditorState();
       openInterviewFlowReport();
       return;
     }
