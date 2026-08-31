@@ -104,6 +104,11 @@ Both generators enable ALKiln's all-pages accessibility mode by default by
 placing `I check all pages for accessibility issues` immediately after the
 interview-start step. The creation/sync modal can turn it off explicitly, and
 additive sync changes only that configuration step plus newly inferred rows.
+For the managed test, the author separately chooses the runnable YAML
+entrypoint and which project YAML files static analysis reads. Analysis
+defaults to all project YAML files for compatibility; the entrypoint is always
+included even if the submitted checklist omits it. This matters for packages
+with several runnable interviews that share only some supporting YAML.
 
 Docassemble Playground storage has no section corresponding to an arbitrary
 repository-root `.github` directory. Weaver therefore does not pretend to

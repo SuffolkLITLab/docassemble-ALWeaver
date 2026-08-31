@@ -13896,10 +13896,16 @@
     var questionInput = document.getElementById('kiln-test-question-id');
     var jsonInput = document.getElementById('kiln-test-json');
     var accessibilityInput = document.getElementById('kiln-test-accessibility');
+    var entrypointInput = document.getElementById('kiln-test-entrypoint');
     if (button) button.disabled = true;
     apiPost('/api/kiln-test/draft', {
       project: state.project,
-      interview_filename: state.filename,
+      interview_filename:
+        mode === 'it_runs' && entrypointInput
+          ? entrypointInput.value
+          : state.filename,
+      yaml_filenames:
+        mode === 'it_runs' ? selectedKilnYamlFilenames() : undefined,
       mode: mode,
       test_filename:
         mode === 'it_runs'
@@ -13938,6 +13944,73 @@
     return checked ? checked.value : 'it_runs';
   }
 
+  function selectedKilnYamlFilenames() {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('[data-kiln-yaml-file]:checked'))
+      .map(function (input) {
+        return input.getAttribute('data-kiln-yaml-file');
+      })
+      .filter(Boolean);
+  }
+
+  function renderKilnYamlFileControls(entrypoint, selectedFilenames) {
+    var select = document.getElementById('kiln-test-entrypoint');
+    var list = document.getElementById('kiln-test-yaml-files');
+    if (!select || !list) return;
+    var filenames = (state.files || []).map(function (file) {
+      return file.filename;
+    });
+    var selected = Array.isArray(selectedFilenames)
+      ? selectedFilenames.slice()
+      : filenames.slice();
+    var activeEntrypoint =
+      filenames.indexOf(entrypoint) !== -1
+        ? entrypoint
+        : filenames.indexOf(state.filename) !== -1
+          ? state.filename
+          : filenames[0] || '';
+    if (activeEntrypoint && selected.indexOf(activeEntrypoint) === -1) {
+      selected.push(activeEntrypoint);
+    }
+    select.innerHTML = filenames
+      .map(function (filename) {
+        return (
+          '<option value="' +
+          esc(filename) +
+          '"' +
+          (filename === activeEntrypoint ? ' selected' : '') +
+          '>' +
+          esc(filename) +
+          '</option>'
+        );
+      })
+      .join('');
+    list.innerHTML = filenames.length
+      ? filenames
+          .map(function (filename, index) {
+            var id = 'kiln-yaml-file-' + index;
+            var required = filename === activeEntrypoint;
+            return (
+              '<div class="form-check">' +
+              '<input class="form-check-input" type="checkbox" id="' +
+              id +
+              '" data-kiln-yaml-file="' +
+              esc(filename) +
+              '"' +
+              (selected.indexOf(filename) !== -1 ? ' checked' : '') +
+              (required ? ' disabled' : '') +
+              '><label class="form-check-label" for="' +
+              id +
+              '">' +
+              esc(filename) +
+              (required ? ' <span class="text-muted">(entrypoint)</span>' : '') +
+              '</label></div>'
+            );
+          })
+          .join('')
+      : '<div class="text-muted small">This project has no YAML files.</div>';
+  }
+
   function syncKilnTestModeFields() {
     var isJson = selectedKilnTestMode() === 'json';
     var itRuns = document.getElementById('kiln-test-it-runs-fields');
@@ -13964,6 +14037,7 @@
     if (filenameInput) filenameInput.value = options.filename || 'recorded_path.feature';
     if (questionInput) questionInput.value = options.questionId || 'review_screen';
     if (jsonInput) jsonInput.value = options.jsonText || '';
+    renderKilnYamlFileControls(options.entrypoint || state.filename);
     if (accessibilityInput) {
       accessibilityInput.checked =
         typeof options.accessibilityEnabled === 'boolean'
@@ -18290,6 +18364,13 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.id === 'kiln-test-entrypoint') {
+      renderKilnYamlFileControls(
+        target.value,
+        selectedKilnYamlFilenames(),
+      );
+      return;
+    }
     if (target.id === 'question-library-new-class') {
       // One person has no gather flow, so there is nothing to ask "how many".
       renderQuestionLibraryQuantity();

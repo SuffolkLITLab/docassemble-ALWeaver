@@ -1569,7 +1569,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
             ),
             patch.object(
                 api_editor, "_project_interview_yaml", return_value="question: New"
-            ),
+            ) as project_yaml,
             patch.object(api_editor, "sync_kiln_feature", return_value=synced) as sync,
         ):
             with api_editor.app.test_request_context(
@@ -1580,17 +1580,46 @@ class TestEditorKilnTestApi(unittest.TestCase):
                     "interview_filename": "main.yml",
                     "test_filename": "weaver_it_runs.feature",
                     "accessibility": False,
+                    "yaml_filenames": ["shared.yml"],
                 },
             ):
                 response = api_editor.editor_api_draft_kiln_test()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["data"]["removed_screens"], [])
+        project_yaml.assert_called_once_with(7, "Housing", ["main.yml", "shared.yml"])
         sync.assert_called_once_with(
             "Feature: existing",
             "question: New",
             interview_filename="main.yml",
             accessibility_enabled=False,
+        )
+
+    def test_fixture_analysis_reads_only_selected_yaml_files(self):
+        contents = {
+            "main.yml": "id: main",
+            "shared.yml": "id: shared",
+            "other.yml": "id: other",
+        }
+        with (
+            patch.object(
+                api_editor,
+                "_project_yaml_filenames",
+                return_value=list(contents),
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda _uid, _project, filename: contents[filename],
+            ) as read,
+        ):
+            combined = api_editor._project_interview_yaml(
+                7, "Housing", ["main.yml", "shared.yml"]
+            )
+        self.assertEqual(combined, "id: main\n---\nid: shared")
+        self.assertEqual(
+            [call.args[2] for call in read.call_args_list],
+            ["main.yml", "shared.yml"],
         )
 
     def test_apply_saves_to_the_sources_area(self):

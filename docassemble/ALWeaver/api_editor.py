@@ -994,14 +994,28 @@ def _project_kiln_test_filenames(user_id: int, project: str) -> List[str]:
     )
 
 
-def _project_interview_yaml(user_id: int, project: str) -> str:
-    """Combine project interview files so the fixture sees local includes."""
+def _project_interview_yaml(
+    user_id: int,
+    project: str,
+    filenames: Optional[List[str]] = None,
+) -> str:
+    """Combine the author-selected project YAML files for fixture analysis."""
+    available = _project_yaml_filenames(user_id, project)
+    if filenames is None:
+        selected = available
+    else:
+        selected = []
+        for filename in filenames:
+            normalized = _normalize_filename(filename)
+            if normalized not in available:
+                raise ValueError(f"{normalized} is not a YAML file in this project")
+            if normalized not in selected:
+                selected.append(normalized)
     sources = [
-        playground_read_yaml(user_id, project, filename)
-        for filename in _project_yaml_filenames(user_id, project)
+        playground_read_yaml(user_id, project, filename) for filename in selected
     ]
     if not sources:
-        raise ValueError("The project has no interview YAML to test")
+        raise ValueError("Select at least one interview YAML file to analyze")
     return "\n---\n".join(sources)
 
 
@@ -7963,6 +7977,16 @@ def editor_api_draft_kiln_test() -> Response:
         interview_filename = _normalize_filename(data.get("interview_filename"))
         mode = str(data.get("mode") or "it_runs").strip()
         accessibility_enabled = parse_bool(data.get("accessibility"), default=True)
+        yaml_filenames_raw = data.get("yaml_filenames")
+        yaml_filenames: Optional[List[str]] = None
+        if yaml_filenames_raw is not None:
+            if not isinstance(yaml_filenames_raw, list) or not all(
+                isinstance(filename, str) for filename in yaml_filenames_raw
+            ):
+                raise ValueError("yaml_filenames must be a list of YAML filenames")
+            yaml_filenames = list(yaml_filenames_raw)
+            if interview_filename not in yaml_filenames:
+                yaml_filenames.insert(0, interview_filename)
         requested_test = str(data.get("test_filename") or "").strip()
         if mode not in {"it_runs", "json"}:
             raise ValueError("Unknown ALKiln test creation mode")
@@ -8014,7 +8038,7 @@ def editor_api_draft_kiln_test() -> Response:
                 }
             )
         elif existing:
-            yaml_text = _project_interview_yaml(uid, project)
+            yaml_text = _project_interview_yaml(uid, project, yaml_filenames)
             result = sync_kiln_feature(
                 existing,
                 yaml_text,
@@ -8022,7 +8046,7 @@ def editor_api_draft_kiln_test() -> Response:
                 accessibility_enabled=accessibility_enabled,
             )
         else:
-            yaml_text = _project_interview_yaml(uid, project)
+            yaml_text = _project_interview_yaml(uid, project, yaml_filenames)
             result = create_kiln_feature(
                 yaml_text,
                 interview_filename=interview_filename,

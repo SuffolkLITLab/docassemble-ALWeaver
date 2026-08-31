@@ -452,8 +452,15 @@
             <label class="form-check-label" for="kiln-test-mode-json"><strong>Recorded path</strong> — use a Docassemble variables JSON export</label>
           </div>
         </fieldset>
-        <div id="kiln-test-it-runs-fields" class="alert alert-light border py-2">
-          Weaver manages one additive-only smoke test named <code>weaver_it_runs.feature</code>. Sync only adds newly inferred rows; it never removes existing rows.
+        <div id="kiln-test-it-runs-fields" class="mb-3">
+          <div class="alert alert-light border py-2 mb-3">Weaver manages one additive-only smoke test named <code>weaver_it_runs.feature</code>. Sync only adds newly inferred rows; it never removes existing rows.</div>
+          <label class="form-label" for="kiln-test-entrypoint">Runnable interview entrypoint</label>
+          <select class="form-select mb-3" id="kiln-test-entrypoint"></select>
+          <fieldset>
+            <legend class="form-label mb-1">YAML files to analyze for fixture rows</legend>
+            <div class="form-text mb-2">All files are included by default. The runnable entrypoint is always included.</div>
+            <div class="border rounded p-2" id="kiln-test-yaml-files"></div>
+          </fieldset>
         </div>
         <div id="kiln-test-json-fields" class="d-none mb-3">
           <div class="row g-2 mb-2">
