@@ -35,6 +35,7 @@ class TestKilnTests(unittest.TestCase):
         self.assertEqual(result["feature_text"], "Feature: test")
         self.assertNotIn("include_screen_definitions", seen["options"])
         self.assertEqual(seen["options"]["question_id"], "download")
+        self.assertTrue(seen["options"]["check_all_pages_for_accessibility"])
         self.assertEqual(seen["story_kwargs"]["source_path"], None)
 
     def test_json_export_uses_dashboard_story_generator(self):
@@ -74,6 +75,31 @@ class TestKilnTests(unittest.TestCase):
         self.assertEqual(result["feature_text"], "Feature: recorded")
         self.assertEqual(seen["options"]["question_id"], "done")
         self.assertEqual(seen["options"]["yaml_file_name"], "main.yml")
+        self.assertTrue(seen["options"]["check_all_pages_for_accessibility"])
+
+    def test_accessibility_mode_can_be_disabled(self):
+        seen = {}
+
+        class FakeOptions:
+            def __init__(self, **kwargs):
+                seen.update(kwargs)
+
+        with patch.object(
+            kiln_tests,
+            "_dashboard_story_api",
+            return_value=(
+                FakeOptions,
+                lambda _yaml: "done",
+                lambda *_args, **_kwargs: {"feature_text": "Feature: test"},
+                object(),
+            ),
+        ):
+            kiln_tests.create_kiln_feature(
+                "question: Hello",
+                interview_filename="main.yml",
+                accessibility_enabled=False,
+            )
+        self.assertFalse(seen["check_all_pages_for_accessibility"])
 
     def test_default_workflow_uses_standard_alkiln_action_and_secrets(self):
         self.assertIn("SuffolkLITLab/ALKiln@v5", kiln_tests.DEFAULT_ALKILN_WORKFLOW)
@@ -82,3 +108,11 @@ class TestKilnTests(unittest.TestCase):
             "secrets.DOCASSEMBLE_DEVELOPER_API_KEY",
             kiln_tests.DEFAULT_ALKILN_WORKFLOW,
         )
+
+    def test_detects_all_pages_accessibility_step(self):
+        self.assertTrue(
+            kiln_tests.kiln_feature_checks_accessibility(
+                "  Then I check all pages for accessibility issues\n"
+            )
+        )
+        self.assertFalse(kiln_tests.kiln_feature_checks_accessibility("Feature: plain"))

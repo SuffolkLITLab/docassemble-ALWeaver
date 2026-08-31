@@ -737,6 +737,8 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="kiln-test-mode-it-runs"', template)
         self.assertIn('id="kiln-test-mode-json"', template)
         self.assertIn('id="kiln-test-json"', template)
+        self.assertIn('id="kiln-test-accessibility" checked', template)
+        self.assertIn("I check all pages for accessibility issues", template)
         self.assertIn("/api/kiln-tests?project=", editor)
         self.assertIn("apiPost('/api/kiln-test/draft'", editor)
         self.assertIn("apiPost('/api/kiln-test/apply'", editor)

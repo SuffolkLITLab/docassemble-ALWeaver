@@ -100,6 +100,10 @@ JSON export. The latter always creates a new, user-named feature. A live debug
 session can prefill that mode from its current simplified variable snapshot via
 “Save as Kiln test,” including the current screen as the story's destination.
 The Tests workspace is available from both the Interview menu and Sources.
+Both generators enable ALKiln's all-pages accessibility mode by default by
+placing `I check all pages for accessibility issues` immediately after the
+interview-start step. The creation/sync modal can turn it off explicitly, and
+additive sync changes only that configuration step plus newly inferred rows.
 
 Docassemble Playground storage has no section corresponding to an arbitrary
 repository-root `.github` directory. Weaver therefore does not pretend to

@@ -1522,6 +1522,28 @@ class TestEditorKilnTestApi(unittest.TestCase):
             response.get_json()["data"]["managed_test_filename"],
             "weaver_it_runs.feature",
         )
+        self.assertIsNone(response.get_json()["data"]["managed_accessibility_enabled"])
+
+    def test_list_reports_the_managed_tests_accessibility_mode(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
+            ),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                return_value="And I check all pages for accessibility issues",
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-tests?project=Housing"
+            ):
+                response = api_editor.editor_api_kiln_tests()
+        self.assertTrue(response.get_json()["data"]["managed_accessibility_enabled"])
 
     def test_draft_syncs_the_selected_test_against_project_yaml(self):
         synced = {
@@ -1557,6 +1579,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
                     "project": "Housing",
                     "interview_filename": "main.yml",
                     "test_filename": "weaver_it_runs.feature",
+                    "accessibility": False,
                 },
             ):
                 response = api_editor.editor_api_draft_kiln_test()
@@ -1567,6 +1590,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
             "Feature: existing",
             "question: New",
             interview_filename="main.yml",
+            accessibility_enabled=False,
         )
 
     def test_apply_saves_to_the_sources_area(self):
@@ -1633,6 +1657,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
             '{"variables":{"answer":42}}',
             interview_filename="main.yml",
             question_id="done",
+            accessibility_enabled=True,
         )
 
     def test_json_apply_refuses_to_overwrite_an_existing_test(self):

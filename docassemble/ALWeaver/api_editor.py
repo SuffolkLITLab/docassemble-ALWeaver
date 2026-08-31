@@ -318,6 +318,7 @@ from .kiln_tests import (
     create_kiln_feature,
     create_kiln_feature_from_json,
     default_feature_filename,
+    kiln_feature_checks_accessibility,
     sync_kiln_feature,
 )
 
@@ -7921,13 +7922,20 @@ def editor_api_kiln_tests() -> Response:
     try:
         uid = _current_user_id()
         project = _normalize_project(request.args.get("project"))
+        tests = _project_kiln_test_filenames(uid, project)
+        managed_accessibility_enabled = None
+        if MANAGED_IT_RUNS_FILENAME in tests:
+            managed_accessibility_enabled = kiln_feature_checks_accessibility(
+                _read_project_text_file(uid, project, "data", MANAGED_IT_RUNS_FILENAME)
+            )
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
                 "data": {
-                    "tests": _project_kiln_test_filenames(uid, project),
+                    "tests": tests,
                     "managed_test_filename": MANAGED_IT_RUNS_FILENAME,
+                    "managed_accessibility_enabled": managed_accessibility_enabled,
                 },
             }
         )
@@ -7954,6 +7962,7 @@ def editor_api_draft_kiln_test() -> Response:
         project = _normalize_project(data.get("project"))
         interview_filename = _normalize_filename(data.get("interview_filename"))
         mode = str(data.get("mode") or "it_runs").strip()
+        accessibility_enabled = parse_bool(data.get("accessibility"), default=True)
         requested_test = str(data.get("test_filename") or "").strip()
         if mode not in {"it_runs", "json"}:
             raise ValueError("Unknown ALKiln test creation mode")
@@ -7984,6 +7993,7 @@ def editor_api_draft_kiln_test() -> Response:
                 json_text,
                 interview_filename=interview_filename,
                 question_id=question_id,
+                accessibility_enabled=accessibility_enabled,
             )
             result.update(
                 {
@@ -8009,12 +8019,14 @@ def editor_api_draft_kiln_test() -> Response:
                 existing,
                 yaml_text,
                 interview_filename=interview_filename,
+                accessibility_enabled=accessibility_enabled,
             )
         else:
             yaml_text = _project_interview_yaml(uid, project)
             result = create_kiln_feature(
                 yaml_text,
                 interview_filename=interview_filename,
+                accessibility_enabled=accessibility_enabled,
             )
             result.update(
                 {

@@ -3,6 +3,7 @@
 from typing import Any, Dict, Optional
 
 MANAGED_IT_RUNS_FILENAME = "weaver_it_runs.feature"
+ACCESSIBILITY_ALL_STEP = "I check all pages for accessibility issues"
 
 DEFAULT_ALKILN_WORKFLOW = """name: ALKiln v5 tests
 
@@ -59,6 +60,7 @@ def create_kiln_feature(
     *,
     interview_filename: str,
     feature_description: Optional[str] = None,
+    accessibility_enabled: bool = True,
 ) -> Dict[str, Any]:
     """Create the default test that supplies values for every generated screen."""
     StoryOptions, detect_ending, story_from_yaml, _sync_story = _dashboard_story_api()
@@ -68,6 +70,7 @@ def create_kiln_feature(
         scenario_description=title,
         yaml_file_name=interview_filename,
         question_id=detect_ending(yaml_text),
+        check_all_pages_for_accessibility=accessibility_enabled,
     )
     return story_from_yaml(
         yaml_text,
@@ -82,6 +85,7 @@ def sync_kiln_feature(
     yaml_text: str,
     *,
     interview_filename: str,
+    accessibility_enabled: bool = True,
 ) -> Dict[str, Any]:
     """Draft a synchronized feature and report changed screens/variables."""
     StoryOptions, detect_ending, _story_from_yaml, sync_story = _dashboard_story_api()
@@ -96,6 +100,7 @@ def sync_kiln_feature(
             scenario_description=title,
             yaml_file_name=interview_filename,
             question_id=detect_ending(yaml_text),
+            check_all_pages_for_accessibility=accessibility_enabled,
         ),
     )
 
@@ -106,6 +111,7 @@ def create_kiln_feature_from_json(
     interview_filename: str,
     question_id: str,
     feature_description: Optional[str] = None,
+    accessibility_enabled: bool = True,
 ) -> Dict[str, Any]:
     """Create a one-off ALKiln test from a Docassemble variables export."""
     try:
@@ -126,5 +132,11 @@ def create_kiln_feature_from_json(
             scenario_description=title,
             yaml_file_name=interview_filename,
             question_id=question_id,
+            check_all_pages_for_accessibility=accessibility_enabled,
         ),
     )
+
+
+def kiln_feature_checks_accessibility(feature_text: str) -> bool:
+    """Return whether a feature enables ALKiln's all-pages accessibility mode."""
+    return ACCESSIBILITY_ALL_STEP.lower() in str(feature_text or "").lower()

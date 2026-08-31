@@ -79,6 +79,7 @@
     templatesMode: 'files',
     kilnTests: [],
     kilnManagedFilename: 'weaver_it_runs.feature',
+    kilnManagedAccessibility: true,
     kilnTestsLoading: false,
     kilnTestsError: '',
     documents: null,
@@ -13894,6 +13895,7 @@
     var filenameInput = document.getElementById('kiln-test-filename');
     var questionInput = document.getElementById('kiln-test-question-id');
     var jsonInput = document.getElementById('kiln-test-json');
+    var accessibilityInput = document.getElementById('kiln-test-accessibility');
     if (button) button.disabled = true;
     apiPost('/api/kiln-test/draft', {
       project: state.project,
@@ -13907,6 +13909,7 @@
             : '',
       question_id: questionInput ? questionInput.value : '',
       json_text: jsonInput ? jsonInput.value : '',
+      accessibility: accessibilityInput ? accessibilityInput.checked : true,
     }).then(function (res) {
       if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to draft the ALKiln test.');
       _kilnTestSync.data = res.data;
@@ -13957,9 +13960,18 @@
     var filenameInput = document.getElementById('kiln-test-filename');
     var questionInput = document.getElementById('kiln-test-question-id');
     var jsonInput = document.getElementById('kiln-test-json');
+    var accessibilityInput = document.getElementById('kiln-test-accessibility');
     if (filenameInput) filenameInput.value = options.filename || 'recorded_path.feature';
     if (questionInput) questionInput.value = options.questionId || 'review_screen';
     if (jsonInput) jsonInput.value = options.jsonText || '';
+    if (accessibilityInput) {
+      accessibilityInput.checked =
+        typeof options.accessibilityEnabled === 'boolean'
+          ? options.accessibilityEnabled
+          : mode === 'it_runs'
+            ? state.kilnManagedAccessibility
+            : true;
+    }
     syncKilnTestModeFields();
     if (body) body.textContent = mode === 'json'
       ? 'Review the generated test before saving it as a new feature file.'
@@ -13971,6 +13983,39 @@
     if (summary) summary.textContent = '';
     var modal = getOrCreateBootstrapModal('kiln-test-sync-modal');
     if (modal) modal.show();
+    if (mode === 'it_runs') {
+      var initialAccessibility = accessibilityInput
+        ? accessibilityInput.checked
+        : true;
+      apiGet('/api/kiln-tests?project=' + encodeURIComponent(state.project))
+        .then(function (res) {
+          if (!res.success || !res.data) return;
+          state.kilnTests = Array.isArray(res.data.tests) ? res.data.tests : [];
+          state.kilnManagedFilename =
+            res.data.managed_test_filename || 'weaver_it_runs.feature';
+          if (typeof res.data.managed_accessibility_enabled === 'boolean') {
+            state.kilnManagedAccessibility =
+              res.data.managed_accessibility_enabled;
+            if (
+              accessibilityInput &&
+              accessibilityInput.checked === initialAccessibility
+            ) {
+              accessibilityInput.checked = state.kilnManagedAccessibility;
+            }
+          } else {
+            state.kilnManagedAccessibility = true;
+            if (
+              accessibilityInput &&
+              accessibilityInput.checked === initialAccessibility
+            ) {
+              accessibilityInput.checked = true;
+            }
+          }
+        })
+        .catch(function () {
+          // Drafting reports actionable server errors; keep the safe default here.
+        });
+    }
   }
 
   function applyKilnTestSync() {
@@ -14009,6 +14054,11 @@
         }
         state.kilnTests = Array.isArray(res.data.tests) ? res.data.tests : [];
         state.kilnManagedFilename = res.data.managed_test_filename || 'weaver_it_runs.feature';
+        if (typeof res.data.managed_accessibility_enabled === 'boolean') {
+          state.kilnManagedAccessibility = res.data.managed_accessibility_enabled;
+        } else {
+          state.kilnManagedAccessibility = true;
+        }
       })
       .catch(function (error) {
         state.kilnTestsError = error && error.message ? error.message : 'Unable to list tests.';
@@ -14043,6 +14093,11 @@
         html += isManaged
           ? '<span class="badge text-bg-light border ms-2">Weaver-managed</span>'
           : '<span class="badge text-bg-light border ms-2">Custom test</span>';
+        if (isManaged) {
+          html += state.kilnManagedAccessibility
+            ? '<span class="badge text-bg-success ms-2">Accessibility on</span>'
+            : '<span class="badge text-bg-secondary ms-2">Accessibility off</span>';
+        }
         html += '</div><div class="d-flex gap-2">';
         html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-kiln-test-open="' + esc(filename) + '">Open in Sources</button>';
         if (isManaged) {
