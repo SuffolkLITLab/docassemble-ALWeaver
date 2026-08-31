@@ -77,6 +77,9 @@
     sectionDirty: false,
     sectionSavedContent: {},
     templatesMode: 'files',
+    kilnTests: [],
+    kilnTestsLoading: false,
+    kilnTestsError: '',
     documents: null,
     documentsLoaded: null,
     documentsDirty: false,
@@ -7947,6 +7950,10 @@
       '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-new-section-file-inline"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
     html +=
       '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-upload-section-file-inline"><i class="fa-solid fa-upload me-1" aria-hidden="true"></i>Upload</button>';
+    if (view === 'data') {
+      html +=
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="btn-tests-overview-inline"><i class="fa-solid fa-vial-circle-check me-1" aria-hidden="true"></i>Tests</button>';
+    }
     html += '</div>';
     if (view === 'templates') {
       var setupOpen = state.templatesMode === 'documents';
@@ -9206,6 +9213,8 @@
       renderFullYaml();
     } else if (state.canvasMode === 'order-builder') {
       renderOrderBuilder();
+    } else if (state.canvasMode === 'tests-overview') {
+      renderTestsOverview();
     } else {
       renderBlockCanvas();
     }
@@ -13897,7 +13906,7 @@
     });
   }
 
-  function openKilnTestSyncModal() {
+  function openKilnTestSyncModal(selectedFilename) {
     if (!state.project) return;
     _kilnTestSync = { data: null, tab: 'diff' };
     var select = document.getElementById('kiln-test-select');
@@ -13916,7 +13925,14 @@
         option.textContent = filename;
         select.appendChild(option);
       });
-      if (res.data.tests && res.data.tests.length) select.value = res.data.tests[0];
+      if (
+        typeof selectedFilename === 'string' &&
+        (selectedFilename === '' || (res.data.tests || []).indexOf(selectedFilename) !== -1)
+      ) {
+        select.value = selectedFilename;
+      } else if (res.data.tests && res.data.tests.length) {
+        select.value = res.data.tests[0];
+      }
       if (body) body.textContent = res.data.tests && res.data.tests.length
         ? 'Choose a test and review what changed.'
         : 'No ALKiln test exists yet. Review the proposed default test.';
@@ -13939,10 +13955,73 @@
       closeBootstrapModal('kiln-test-sync-modal');
       _showSuccessBanner('Saved ALKiln test "' + esc(data.test_filename) + '".');
       if (state.currentView === 'data') loadSectionFiles('data');
+      if (state.currentView === 'interview' && state.canvasMode === 'tests-overview') {
+        loadKilnTestsOverview();
+      }
     }).catch(function (error) {
       if (apply) apply.disabled = false;
       window.alert(error && error.message ? error.message : 'Unable to save the ALKiln test.');
     });
+  }
+
+  function loadKilnTestsOverview() {
+    if (!state.project) return Promise.resolve();
+    state.kilnTestsLoading = true;
+    state.kilnTestsError = '';
+    renderTestsOverview();
+    return apiGet('/api/kiln-tests?project=' + encodeURIComponent(state.project))
+      .then(function (res) {
+        if (!res.success || !res.data) {
+          throw new Error((res.error && res.error.message) || 'Unable to list tests.');
+        }
+        state.kilnTests = Array.isArray(res.data.tests) ? res.data.tests : [];
+      })
+      .catch(function (error) {
+        state.kilnTestsError = error && error.message ? error.message : 'Unable to list tests.';
+      })
+      .finally(function () {
+        state.kilnTestsLoading = false;
+        if (state.currentView === 'interview' && state.canvasMode === 'tests-overview') {
+          renderTestsOverview();
+        }
+      });
+  }
+
+  function renderTestsOverview() {
+    var html = '<div class="editor-full-yaml-shell">';
+    html += '<div class="editor-full-yaml-header">';
+    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Tests</h2>';
+    html += '<p class="text-muted small mb-0 mt-1">Create and keep ALKiln tests in sync with the screens in this interview.</p></div>';
+    html += '<button type="button" class="btn btn-sm btn-primary" id="btn-new-kiln-test-overview"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
+    html += '</div>';
+    if (state.kilnTestsLoading) {
+      html += '<div class="editor-secondary-center"><div class="text-muted">Loading tests…</div></div>';
+    } else if (state.kilnTestsError) {
+      html += '<div class="alert alert-danger m-3" role="alert">' + esc(state.kilnTestsError) + '</div>';
+    } else if (!state.kilnTests.length) {
+      html += '<div class="editor-secondary-center"><div class="editor-secondary-card"><h3 class="h5">No tests yet</h3><p class="text-muted">Create a default ALKiln test containing definitions for every generated screen.</p><button type="button" class="btn btn-primary" data-new-kiln-test><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Create your first test</button></div></div>';
+    } else {
+      html += '<div class="editor-card m-3"><div class="editor-card-body"><div class="list-group list-group-flush">';
+      state.kilnTests.forEach(function (filename) {
+        html += '<div class="list-group-item d-flex align-items-center justify-content-between gap-3 px-0">';
+        html += '<div><i class="fa-solid fa-vial-circle-check me-2 text-muted" aria-hidden="true"></i><span class="fw-semibold">' + esc(filename) + '</span></div>';
+        html += '<button type="button" class="btn btn-sm btn-outline-primary" data-kiln-test-sync="' + esc(filename) + '">Review &amp; sync</button>';
+        html += '</div>';
+      });
+      html += '</div></div></div>';
+    }
+    html += '</div>';
+    canvasContent.innerHTML = html;
+  }
+
+  function openTestsOverview() {
+    state.currentView = 'interview';
+    state.canvasMode = 'tests-overview';
+    var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+    if (interviewTab) setActiveTopTab(interviewTab);
+    renderOutline();
+    renderCanvas();
+    loadKilnTestsOverview();
   }
 
   // -------------------------------------------------------------------------
@@ -16200,6 +16279,10 @@
 
     if (target.id === 'btn-new-section-file-inline') {
       if (!state.project || isInterviewView()) return;
+      if (state.currentView === 'data') {
+        openKilnTestSyncModal('');
+        return;
+      }
       // Templates are the one section where "new" is a real choice: an empty
       // file, or a document drafted from the questions the interview asks.
       if (state.currentView === 'templates') {
@@ -16229,6 +16312,31 @@
         noteModuleSaveResult(res.data);
         loadSectionFiles(state.currentView);
       });
+      return;
+    }
+
+    if (target.id === 'btn-tests-overview-inline') {
+      promptAndSaveUnsavedChanges('open the tests overview').then(
+        function (saved) {
+          if (saved) openTestsOverview();
+        },
+      );
+      return;
+    }
+
+    if (
+      target.id === 'btn-new-kiln-test-overview' ||
+      target.closest('[data-new-kiln-test]')
+    ) {
+      openKilnTestSyncModal('');
+      return;
+    }
+
+    var kilnTestSyncButton = target.closest('[data-kiln-test-sync]');
+    if (kilnTestSyncButton) {
+      openKilnTestSyncModal(
+        kilnTestSyncButton.getAttribute('data-kiln-test-sync') || '',
+      );
       return;
     }
 
@@ -16470,9 +16578,9 @@
       return;
     }
 
-    if (uiAction === 'open-kiln-test-sync') {
-      promptAndSaveUnsavedChanges('sync an ALKiln test').then(function (saved) {
-        if (saved) openKilnTestSyncModal();
+    if (uiAction === 'open-tests-overview') {
+      promptAndSaveUnsavedChanges('open the tests overview').then(function (saved) {
+        if (saved) openTestsOverview();
       });
       return;
     }
@@ -16484,6 +16592,10 @@
 
     if (target.id === 'btn-new-section-file') {
       if (!state.project || isInterviewView()) return;
+      if (state.currentView === 'data') {
+        openKilnTestSyncModal('');
+        return;
+      }
       var filenamePrompt = window.prompt(
         'New filename',
         defaultNewFilename(state.currentView),

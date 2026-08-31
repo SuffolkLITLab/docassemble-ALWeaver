@@ -725,18 +725,25 @@ class TestEditorFrontend(unittest.TestCase):
         # The old hard-coded name must not survive as a fallback.
         self.assertNotIn("'interview.yml'", editor)
 
-    def test_new_project_defaults_to_a_test_and_the_interview_menu_can_sync_it(self):
+    def test_new_project_defaults_to_a_test_and_exposes_a_tests_workspace(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()
 
         self.assertIn('id="new-project-create-test" checked', editor)
         self.assertIn("formData.append('create_test'", editor)
         self.assertIn("create_test: createTest", editor)
-        self.assertIn('data-action="open-kiln-test-sync"', template)
+        self.assertIn('data-action="open-tests-overview"', template)
+        self.assertIn(">Tests</button>", template)
         self.assertIn('id="kiln-test-select"', template)
         self.assertIn("/api/kiln-tests?project=", editor)
         self.assertIn("apiPost('/api/kiln-test/draft'", editor)
         self.assertIn("apiPost('/api/kiln-test/apply'", editor)
+        self.assertIn("function renderTestsOverview()", editor)
+        self.assertIn("function openTestsOverview()", editor)
+        self.assertIn('id="btn-new-kiln-test-overview"', editor)
+        self.assertIn('data-kiln-test-sync="', editor)
+        self.assertIn('id="btn-tests-overview-inline"', editor)
+        self.assertIn("openKilnTestSyncModal('');", editor)
         self.assertIn("Deleted screens", editor)
         self.assertIn("Deleted functionality", editor)
 
