@@ -10,6 +10,7 @@ import importlib.metadata
 import io
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ import tempfile
 import tarfile
 import pathlib
 import threading
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 from urllib.parse import quote, urlparse
 
 from flask import Response, jsonify, url_for
@@ -1120,6 +1121,7 @@ def publish_github_package(
     manifest_path: str = "",
     default_branch: str = "",
     on_progress: Optional[Callable[[str, int], None]] = None,
+    extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
 ) -> Dict[str, Any]:
     """Commit a generated Playground package through GitHub's Git API.
 
@@ -1192,6 +1194,25 @@ def publish_github_package(
             raise DocassembleCompatibilityError(
                 "Docassemble did not create the GitHub package directory"
             )
+
+        for relative_path, content in (extra_repository_files or {}).items():
+            normalized_path = posixpath.normpath(str(relative_path).replace("\\", "/"))
+            if (
+                normalized_path in {"", ".", ".."}
+                or normalized_path.startswith("../")
+                or normalized_path.startswith("/")
+            ):
+                raise ValueError(
+                    "Extra GitHub package paths must stay inside the repository"
+                )
+            destination = os.path.join(packagedir, *normalized_path.split("/"))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if isinstance(content, bytes):
+                with open(destination, "wb") as binary_stream:
+                    binary_stream.write(content)
+            else:
+                with open(destination, "w", encoding="utf-8") as text_stream:
+                    text_stream.write(str(content))
 
         files: List[Tuple[str, str]] = []
         for root, _directories, filenames in os.walk(packagedir):

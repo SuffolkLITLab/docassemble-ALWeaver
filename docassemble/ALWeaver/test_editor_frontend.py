@@ -725,6 +725,21 @@ class TestEditorFrontend(unittest.TestCase):
         # The old hard-coded name must not survive as a fallback.
         self.assertNotIn("'interview.yml'", editor)
 
+    def test_new_project_defaults_to_a_test_and_the_interview_menu_can_sync_it(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="new-project-create-test" checked', editor)
+        self.assertIn("formData.append('create_test'", editor)
+        self.assertIn("create_test: createTest", editor)
+        self.assertIn('data-action="open-kiln-test-sync"', template)
+        self.assertIn('id="kiln-test-select"', template)
+        self.assertIn("/api/kiln-tests?project=", editor)
+        self.assertIn("apiPost('/api/kiln-test/draft'", editor)
+        self.assertIn("apiPost('/api/kiln-test/apply'", editor)
+        self.assertIn("Deleted screens", editor)
+        self.assertIn("Deleted functionality", editor)
+
     def test_templates_reaches_its_files_and_the_document_setup_separately(self):
         """One template and every document are different things to look at."""
         template = (self.package_dir / "data/templates/editor.html").read_text()

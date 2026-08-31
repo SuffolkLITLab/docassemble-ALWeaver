@@ -85,6 +85,24 @@ are left out rather than demanded from a table row.
 
 This directory also contains test files for unit testing with ALKiln (see below for more information.)
 
+The editor can create an ALKiln smoke test with a new project. The checked-by-
+default creation option calls ALDashboard's YAML fixture generator and stores
+the resulting `.feature` file in the Playground Sources area. Generated tests
+carry comment-only, machine-readable screen definitions; the editor's "Create
+or sync ALKiln test" action compares those definitions and fixture variables
+with the current project, then shows added/deleted screens and functionality
+alongside a unified diff before saving. The author chooses which existing
+feature to synchronize.
+
+Docassemble Playground storage has no section corresponding to an arbitrary
+repository-root `.github` directory. Weaver therefore does not pretend to
+round-trip that directory through the Playground. When the GitHub package
+manifest lists at least one `.feature` source, the GitHub publisher adds the
+standard `.github/workflows/run_interview_tests.yml` ALKiln workflow directly
+to its temporary repository tree. Publishing without a feature adds no
+workflow. The generated workflow is consequently reproducible from Playground
+state and does not need a hidden copy there.
+
 ### Static files in docassemble/ALWeaver/data/static
 
 These files are primarily the front-end interface files, including images and

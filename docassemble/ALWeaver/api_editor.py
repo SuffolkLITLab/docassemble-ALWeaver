@@ -312,6 +312,12 @@ from .playground_publish import (
     record_project_github_sync,
     rename_project,
 )
+from .kiln_tests import (
+    DEFAULT_ALKILN_WORKFLOW,
+    create_kiln_feature,
+    default_feature_filename,
+    sync_kiln_feature,
+)
 
 __all__: list = []
 
@@ -968,6 +974,57 @@ def _write_project_text_file(
     area.finalize()
     if normalized_section == "modules":
         _sync_module_after_write(user_id, project, normalized_filename, content)
+
+
+def _normalize_kiln_test_filename(filename: Any) -> str:
+    normalized = _normalize_storage_filename(filename)
+    if not normalized.lower().endswith(".feature"):
+        raise ValueError("An ALKiln test filename must end in .feature")
+    return normalized
+
+
+def _project_kiln_test_filenames(user_id: int, project: str) -> List[str]:
+    return sorted(
+        str(item["filename"])
+        for item in _list_editor_section_files(user_id, project, "data")
+        if str(item.get("filename") or "").lower().endswith(".feature")
+    )
+
+
+def _project_interview_yaml(user_id: int, project: str) -> str:
+    """Combine project interview files so the fixture sees local includes."""
+    sources = [
+        playground_read_yaml(user_id, project, filename)
+        for filename in _project_yaml_filenames(user_id, project)
+    ]
+    if not sources:
+        raise ValueError("The project has no interview YAML to test")
+    return "\n---\n".join(sources)
+
+
+def _write_default_kiln_test(
+    user_id: int,
+    project: str,
+    interview_filename: str,
+    yaml_text: Optional[str] = None,
+) -> Dict[str, Any]:
+    generated = create_kiln_feature(
+        (
+            yaml_text
+            if yaml_text is not None
+            else _project_interview_yaml(user_id, project)
+        ),
+        interview_filename=interview_filename,
+    )
+    test_filename = default_feature_filename(interview_filename)
+    _write_project_text_file(
+        user_id,
+        project,
+        "data",
+        test_filename,
+        str(generated["feature_text"]),
+    )
+    return {"filename": test_filename, **generated}
 
 
 def _project_text_files(
@@ -7853,6 +7910,138 @@ def editor_api_preview_url() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/kiln-tests", methods=["GET"])
+def editor_api_kiln_tests() -> Response:
+    """List selectable ALKiln tests in a Playground project."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"tests": _project_kiln_test_filenames(uid, project)},
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/kiln-test/draft", methods=["POST"])
+def editor_api_draft_kiln_test() -> Response:
+    """Draft a new test or a semantic sync of a selected existing test."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        data = request.get_json(silent=True) or {}
+        project = _normalize_project(data.get("project"))
+        interview_filename = _normalize_filename(data.get("interview_filename"))
+        requested_test = str(data.get("test_filename") or "").strip()
+        test_filename = (
+            _normalize_kiln_test_filename(requested_test)
+            if requested_test
+            else default_feature_filename(interview_filename)
+        )
+        existing = ""
+        if requested_test:
+            existing = _read_project_text_file(uid, project, "data", test_filename)
+        yaml_text = _project_interview_yaml(uid, project)
+        if existing:
+            result = sync_kiln_feature(
+                existing,
+                yaml_text,
+                interview_filename=interview_filename,
+            )
+        else:
+            result = create_kiln_feature(
+                yaml_text,
+                interview_filename=interview_filename,
+            )
+            result.update(
+                {
+                    "existing_feature_text": "",
+                    "proposed_feature_text": result["feature_text"],
+                    "diff": unified_source_diff(
+                        "", str(result["feature_text"]), test_filename
+                    ),
+                    "unchanged": False,
+                    "screen_baseline_available": False,
+                    "added_screens": [
+                        str(item["id"]) for item in result.get("screen_definitions", [])
+                    ],
+                    "removed_screens": [],
+                    "added_functionality": [
+                        str(row).split("|")[1].strip()
+                        for row in result.get("rows", [])
+                        if str(row).count("|") >= 2
+                    ],
+                    "removed_functionality": [],
+                }
+            )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"test_filename": test_filename, **result},
+            }
+        )
+    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/kiln-test/apply", methods=["POST"])
+def editor_api_apply_kiln_test() -> Response:
+    """Save a reviewed ALKiln feature into the Playground Sources area."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        data = request.get_json(silent=True) or {}
+        project = _normalize_project(data.get("project"))
+        test_filename = _normalize_kiln_test_filename(data.get("test_filename"))
+        content = data.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("The generated ALKiln test is empty")
+        _write_project_text_file(uid, project, "data", test_filename, content)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"test_filename": test_filename},
+            }
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
 NEW_PROJECT_JOB_KEY_PREFIX = "da:alweaver:editor:new-project:"
 NEW_PROJECT_JOB_EXPIRE_SECONDS = 24 * 60 * 60
 NEW_PROJECT_CELERY_MODULE = CELERY_MODULE
@@ -7995,6 +8184,7 @@ def _complete_new_project_upload_job(
     generation_options: Dict[str, Any],
     debug_requested: bool,
     interview_filename: Optional[str] = None,
+    create_test: bool = False,
 ) -> Dict[str, Any]:
     stage = "start"
     temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
@@ -8107,6 +8297,11 @@ def _complete_new_project_upload_job(
             first_result.get("yaml_filename")
         )
         playground_write_yaml(uid, project_name, yaml_filename, yaml_text)
+        generated_test = None
+        if create_test:
+            generated_test = _write_default_kiln_test(
+                uid, project_name, yaml_filename, yaml_text
+            )["filename"]
 
         stage = "copy_templates"
         _update_new_project_job_state(
@@ -8153,6 +8348,7 @@ def _complete_new_project_upload_job(
             "uploaded_count": len(temp_paths),
             "generated_template_count": len(generated_paths),
             "renamed_template_count": len(normalized_bytes),
+            "test_filename": generated_test,
         }
         _update_new_project_job_state(
             job_id,
@@ -8204,6 +8400,7 @@ def _start_new_project_upload_job(
     generation_options: Dict[str, Any],
     debug_requested: bool,
     interview_filename: Optional[str] = None,
+    create_test: bool = True,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
     queued_at = time.time()
@@ -8238,6 +8435,7 @@ def _start_new_project_upload_job(
                 "generation_options": generation_options,
                 "debug_requested": debug_requested,
                 "interview_filename": interview_filename,
+                "create_test": create_test,
             },
         )
     except Exception as exc:
@@ -8455,6 +8653,14 @@ def _complete_github_publish_job(
             manifest_path=manifest_path,
             default_branch=str(github_repository.get("default_branch") or ""),
             on_progress=report,
+            extra_repository_files=(
+                {".github/workflows/run_interview_tests.yml": DEFAULT_ALKILN_WORKFLOW}
+                if any(
+                    str(name).lower().endswith(".feature")
+                    for name in package_info.get("sources_files", [])
+                )
+                else None
+            ),
         )
         record_project_github_sync(
             user_id=uid,
@@ -8641,6 +8847,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     raw_name = post_data.get("project_name", "NewProject")
     template_id = post_data.get("template_id")
     github_url = str(post_data.get("github_url") or "").strip()
+    create_test = parse_bool(post_data.get("create_test"), default=True)
     if github_url and not str(raw_name or "").strip():
         repository = normalize_github_repository_url(github_url)["repository"]
         raw_name = re.sub(r"^docassemble-", "", repository, flags=re.IGNORECASE)
@@ -8668,6 +8875,13 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
         # An imported repository can bring Python modules with it, and no save
         # went through the editor to install them.
         _reconcile_project_modules(uid, project_name)
+        test_filename = None
+        if create_test:
+            existing_tests = _project_kiln_test_filenames(uid, project_name)
+            if not existing_tests:
+                test_filename = _write_default_kiln_test(
+                    uid, project_name, imported["filename"]
+                )["filename"]
         return jsonify(
             {
                 "success": True,
@@ -8679,6 +8893,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
                     "github_branch": snapshot["branch"],
                     "files_imported": imported["files_imported"],
                     "restart_state": _restart_state_payload(uid, project_name),
+                    "test_filename": test_filename,
                 },
             }
         )
@@ -8719,6 +8934,14 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     playground_write_yaml(
         uid, project_name, DEFAULT_NEW_INTERVIEW_FILENAME, starter_yaml
     )
+    test_filename = None
+    if create_test:
+        test_filename = _write_default_kiln_test(
+            uid,
+            project_name,
+            DEFAULT_NEW_INTERVIEW_FILENAME,
+            starter_yaml,
+        )["filename"]
 
     return jsonify(
         {
@@ -8728,6 +8951,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
                 "project": project_name,
                 "filename": DEFAULT_NEW_INTERVIEW_FILENAME,
                 "template_id": template_id,
+                "test_filename": test_filename,
             },
         }
     )
@@ -8795,6 +9019,7 @@ def _new_project_from_uploads(
     copy_baseline_questions = parse_bool(
         request.form.get("copy_baseline_questions"), default=True
     )
+    create_test = parse_bool(request.form.get("create_test"), default=True)
     # Off by default: renaming rewrites the template that ships in the project,
     # so the author asks for it rather than discovering it happened.
     normalize_field_names = parse_bool(
@@ -8926,6 +9151,7 @@ def _new_project_from_uploads(
             generation_options=generation_options,
             debug_requested=debug_requested,
             interview_filename=interview_filename,
+            create_test=create_test,
         )
 
         return jsonify_with_status(

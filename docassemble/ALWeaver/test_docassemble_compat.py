@@ -846,6 +846,39 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
 
+    def test_publish_github_package_can_add_github_only_files(self):
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if method == "GET":
+                    return {"status": "404"}, b'{"message": "Not Found"}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                return {"status": "201"}, b'{"ref": "refs/heads/main"}'
+
+        http = FakeHttp()
+        result = self._publish(
+            http,
+            builder,
+            extra_repository_files={
+                ".github/workflows/run_interview_tests.yml": "name: ALKiln\n"
+            },
+        )
+
+        self.assertEqual(result["files"], 2)
+        paths = [entry["path"] for entry in self._body_for(http, "/git/trees")["tree"]]
+        self.assertIn(".github/workflows/run_interview_tests.yml", paths)
+
     def test_publish_github_package_initializes_an_empty_repository(self):
         """A repository Weaver just created has no commits.
 

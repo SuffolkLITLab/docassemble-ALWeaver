@@ -369,7 +369,7 @@ class TestEditorGithubApi(unittest.TestCase):
         "template_files": [],
         "module_files": [],
         "static_files": [],
-        "sources_files": [],
+        "sources_files": ["main.feature"],
         "dependencies": [],
         "description": "Housing forms",
         "license": "MIT License",
@@ -594,6 +594,16 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(publish_kwargs["default_branch"], "main")
         self.assertEqual(publish_kwargs["branch"], "feature/github")
         self.assertEqual(publish_kwargs["author_email"], "ada@example.com")
+        self.assertIn(
+            ".github/workflows/run_interview_tests.yml",
+            publish_kwargs["extra_repository_files"],
+        )
+        self.assertIn(
+            "SuffolkLITLab/ALKiln@v5",
+            publish_kwargs["extra_repository_files"][
+                ".github/workflows/run_interview_tests.yml"
+            ],
+        )
         self.assertEqual(progressed["message"], "Uploading main.yml (1 of 2).")
         self.assertEqual(progressed["progress"], 55)
 
@@ -912,6 +922,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 json={
                     "project_name": "",
                     "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                    "create_test": False,
                 },
             ):
                 response = api_editor.editor_api_new_project()
@@ -950,6 +961,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 json={
                     "project_name": "PublicForms",
                     "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                    "create_test": False,
                 },
             ):
                 response = api_editor.editor_api_new_project()
@@ -1401,11 +1413,34 @@ class TestEditorNewProjectNaming(unittest.TestCase):
             patch.object(api_editor, "create_project"),
         ):
             with api_editor.app.test_request_context(
-                "/al/editor/api/new-project", json={"project_name": "Blank"}
+                "/al/editor/api/new-project",
+                json={"project_name": "Blank", "create_test": False},
             ):
                 response = api_editor._new_project_from_template(7, "req-1")
         self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
         self.assertEqual(mock_write.call_args.args[2], "main.yml")
+
+    def test_blank_project_creates_a_default_test_unless_disabled(self):
+        with (
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Blank"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(
+                api_editor,
+                "_write_default_kiln_test",
+                return_value={"filename": "main.feature"},
+            ) as write_test,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project", json={"project_name": "Blank"}
+            ):
+                response = api_editor._new_project_from_template(7, "req-1")
+
+        self.assertEqual(response.get_json()["data"]["test_filename"], "main.feature")
+        write_test.assert_called_once()
 
     def test_publishing_metadata_reaches_the_generator(self):
         pdf_path = Path(__file__).parent / "test/test_dropdown_fields.pdf"
@@ -1458,6 +1493,91 @@ class TestEditorNewProjectNaming(unittest.TestCase):
         # An explicit jurisdiction is not overwritten by the default state.
         self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
         self.assertEqual(overrides["state"], "MA")
+
+
+class TestEditorKilnTestApi(unittest.TestCase):
+    def test_list_returns_selectable_feature_files(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["main.feature", "short.feature"],
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-tests?project=Housing"
+            ):
+                response = api_editor.editor_api_kiln_tests()
+
+        self.assertEqual(
+            response.get_json()["data"]["tests"],
+            ["main.feature", "short.feature"],
+        )
+
+    def test_draft_syncs_the_selected_test_against_project_yaml(self):
+        synced = {
+            "proposed_feature_text": "Feature: synced",
+            "diff": "+Feature: synced",
+            "added_screens": ["new screen"],
+            "removed_screens": ["old screen"],
+            "added_functionality": ["new_value"],
+            "removed_functionality": ["old_value"],
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                return_value="Feature: existing",
+            ),
+            patch.object(
+                api_editor, "_project_interview_yaml", return_value="question: New"
+            ),
+            patch.object(api_editor, "sync_kiln_feature", return_value=synced) as sync,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/draft",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "interview_filename": "main.yml",
+                    "test_filename": "main.feature",
+                },
+            ):
+                response = api_editor.editor_api_draft_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["removed_screens"], ["old screen"])
+        sync.assert_called_once_with(
+            "Feature: existing",
+            "question: New",
+            interview_filename="main.yml",
+        )
+
+    def test_apply_saves_to_the_sources_area(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_write_project_text_file") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/apply",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "test_filename": "main.feature",
+                    "content": "Feature: synced\n",
+                },
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        write.assert_called_once_with(
+            7, "Housing", "data", "main.feature", "Feature: synced\n"
+        )
 
 
 class TestEditorNewProjectMultipleUploads(unittest.TestCase):

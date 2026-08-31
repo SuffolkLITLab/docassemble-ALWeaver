@@ -117,6 +117,7 @@ def weaver_editor_new_project_task(
     generation_options: Dict[str, Any],
     debug_requested: bool,
     interview_filename: Optional[str] = None,
+    create_test: bool = False,
 ) -> Dict[str, Any]:
     """Create an editor project inside Docassemble's configured Celery worker."""
     with bg_context():
@@ -131,6 +132,7 @@ def weaver_editor_new_project_task(
             generation_options=generation_options,
             debug_requested=debug_requested,
             interview_filename=interview_filename,
+            create_test=create_test,
         )
 
 
