@@ -1587,7 +1587,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["data"]["removed_screens"], [])
-        project_yaml.assert_called_once_with(7, "Housing", ["main.yml", "shared.yml"])
+        project_yaml.assert_called_once_with(7, "Housing", ["shared.yml", "main.yml"])
         sync.assert_called_once_with(
             "Feature: existing",
             "question: New",

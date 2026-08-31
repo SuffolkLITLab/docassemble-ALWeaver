@@ -7984,9 +7984,15 @@ def editor_api_draft_kiln_test() -> Response:
                 isinstance(filename, str) for filename in yaml_filenames_raw
             ):
                 raise ValueError("yaml_filenames must be a list of YAML filenames")
-            yaml_filenames = list(yaml_filenames_raw)
-            if interview_filename not in yaml_filenames:
-                yaml_filenames.insert(0, interview_filename)
+            yaml_filenames = [
+                filename
+                for filename in yaml_filenames_raw
+                if filename != interview_filename
+            ]
+            # Destination detection uses the last relevant YAML document. Keep
+            # the runnable endpoint last so another checked endpoint cannot
+            # silently choose the test's ending screen.
+            yaml_filenames.append(interview_filename)
         requested_test = str(data.get("test_filename") or "").strip()
         if mode not in {"it_runs", "json"}:
             raise ValueError("Unknown ALKiln test creation mode")
