@@ -751,6 +751,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="btn-new-kiln-test-overview"', editor)
         self.assertIn('data-kiln-test-sync="', editor)
         self.assertIn('id="btn-tests-overview-inline"', editor)
+        self.assertIn("var KILN_CHANGE_BADGE_LIMIT = 10;", editor)
+        self.assertIn("values.length > KILN_CHANGE_BADGE_LIMIT", editor)
+        self.assertIn("values.length + ' new findings'", editor)
         self.assertIn("openKilnTestSyncModal({ mode: 'it_runs' });", editor)
         self.assertIn(
             "Save as Kiln test",

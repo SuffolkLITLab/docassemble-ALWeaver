@@ -13879,12 +13879,27 @@
     }
   }
 
+  var KILN_CHANGE_BADGE_LIMIT = 10;
+
   function kilnChangeList(label, values, changeClass) {
     if (!values || !values.length) return '';
+    var badges;
+    if (values.length > KILN_CHANGE_BADGE_LIMIT) {
+      badges =
+        '<span class="badge ' +
+        changeClass +
+        ' me-1">' +
+        esc(values.length + ' new findings') +
+        '</span>';
+    } else {
+      badges = values
+        .map(function (value) {
+          return '<span class="badge ' + changeClass + ' me-1">' + esc(value) + '</span>';
+        })
+        .join('');
+    }
     return '<div class="mb-2"><span class="fw-semibold">' + esc(label) + ':</span> ' +
-      values.map(function (value) {
-        return '<span class="badge ' + changeClass + ' me-1">' + esc(value) + '</span>';
-      }).join('') + '</div>';
+      badges + '</div>';
   }
 
   function draftKilnTestSync() {
