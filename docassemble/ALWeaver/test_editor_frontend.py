@@ -734,7 +734,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("create_test: createTest", editor)
         self.assertIn('data-action="open-tests-overview"', template)
         self.assertIn(">Tests</button>", template)
-        self.assertIn('id="kiln-test-select"', template)
+        self.assertIn('id="kiln-test-mode-it-runs"', template)
+        self.assertIn('id="kiln-test-mode-json"', template)
+        self.assertIn('id="kiln-test-json"', template)
         self.assertIn("/api/kiln-tests?project=", editor)
         self.assertIn("apiPost('/api/kiln-test/draft'", editor)
         self.assertIn("apiPost('/api/kiln-test/apply'", editor)
@@ -743,9 +745,13 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="btn-new-kiln-test-overview"', editor)
         self.assertIn('data-kiln-test-sync="', editor)
         self.assertIn('id="btn-tests-overview-inline"', editor)
-        self.assertIn("openKilnTestSyncModal('');", editor)
-        self.assertIn("Deleted screens", editor)
-        self.assertIn("Deleted functionality", editor)
+        self.assertIn("openKilnTestSyncModal({ mode: 'it_runs' });", editor)
+        self.assertIn(
+            "Save as Kiln test",
+            (self.package_dir / "data/static/editor_runtime_inspector.js").read_text(),
+        )
+        self.assertNotIn("Deleted screens", editor)
+        self.assertNotIn("Deleted functionality", editor)
 
     def test_templates_reaches_its_files_and_the_document_setup_separately(self):
         """One template and every document are different things to look at."""

@@ -1431,7 +1431,7 @@ class TestEditorNewProjectNaming(unittest.TestCase):
             patch.object(
                 api_editor,
                 "_write_default_kiln_test",
-                return_value={"filename": "main.feature"},
+                return_value={"filename": "weaver_it_runs.feature"},
             ) as write_test,
         ):
             with api_editor.app.test_request_context(
@@ -1439,7 +1439,10 @@ class TestEditorNewProjectNaming(unittest.TestCase):
             ):
                 response = api_editor._new_project_from_template(7, "req-1")
 
-        self.assertEqual(response.get_json()["data"]["test_filename"], "main.feature")
+        self.assertEqual(
+            response.get_json()["data"]["test_filename"],
+            "weaver_it_runs.feature",
+        )
         write_test.assert_called_once()
 
     def test_publishing_metadata_reaches_the_generator(self):
@@ -1515,15 +1518,19 @@ class TestEditorKilnTestApi(unittest.TestCase):
             response.get_json()["data"]["tests"],
             ["main.feature", "short.feature"],
         )
+        self.assertEqual(
+            response.get_json()["data"]["managed_test_filename"],
+            "weaver_it_runs.feature",
+        )
 
     def test_draft_syncs_the_selected_test_against_project_yaml(self):
         synced = {
             "proposed_feature_text": "Feature: synced",
             "diff": "+Feature: synced",
             "added_screens": ["new screen"],
-            "removed_screens": ["old screen"],
+            "removed_screens": [],
             "added_functionality": ["new_value"],
-            "removed_functionality": ["old_value"],
+            "removed_functionality": [],
         }
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -1532,6 +1539,11 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 api_editor,
                 "_read_project_text_file",
                 return_value="Feature: existing",
+            ),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
             ),
             patch.object(
                 api_editor, "_project_interview_yaml", return_value="question: New"
@@ -1544,13 +1556,13 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 json={
                     "project": "Housing",
                     "interview_filename": "main.yml",
-                    "test_filename": "main.feature",
+                    "test_filename": "weaver_it_runs.feature",
                 },
             ):
                 response = api_editor.editor_api_draft_kiln_test()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["data"]["removed_screens"], ["old screen"])
+        self.assertEqual(response.get_json()["data"]["removed_screens"], [])
         sync.assert_called_once_with(
             "Feature: existing",
             "question: New",
@@ -1561,6 +1573,11 @@ class TestEditorKilnTestApi(unittest.TestCase):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
+            ),
             patch.object(api_editor, "_write_project_text_file") as write,
         ):
             with api_editor.app.test_request_context(
@@ -1568,7 +1585,8 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 method="POST",
                 json={
                     "project": "Housing",
-                    "test_filename": "main.feature",
+                    "test_filename": "weaver_it_runs.feature",
+                    "mode": "it_runs",
                     "content": "Feature: synced\n",
                 },
             ):
@@ -1576,8 +1594,72 @@ class TestEditorKilnTestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         write.assert_called_once_with(
-            7, "Housing", "data", "main.feature", "Feature: synced\n"
+            7,
+            "Housing",
+            "data",
+            "weaver_it_runs.feature",
+            "Feature: synced\n",
         )
+
+    def test_json_draft_creates_a_new_recorded_path(self):
+        generated = {"feature_text": "Feature: recorded", "rows": ["| answer | 42 |"]}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_project_kiln_test_filenames", return_value=[]),
+            patch.object(
+                api_editor,
+                "create_kiln_feature_from_json",
+                return_value=generated,
+            ) as create,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/draft",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "interview_filename": "main.yml",
+                    "mode": "json",
+                    "test_filename": "happy_path.feature",
+                    "question_id": "done",
+                    "json_text": '{"variables":{"answer":42}}',
+                },
+            ):
+                response = api_editor.editor_api_draft_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["mode"], "json")
+        create.assert_called_once_with(
+            '{"variables":{"answer":42}}',
+            interview_filename="main.yml",
+            question_id="done",
+        )
+
+    def test_json_apply_refuses_to_overwrite_an_existing_test(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["happy_path.feature"],
+            ),
+            patch.object(api_editor, "_write_project_text_file") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/apply",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "test_filename": "happy_path.feature",
+                    "mode": "json",
+                    "content": "Feature: recorded\n",
+                },
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+
+        self.assertEqual(response.status_code, 400)
+        write.assert_not_called()
 
 
 class TestEditorNewProjectMultipleUploads(unittest.TestCase):

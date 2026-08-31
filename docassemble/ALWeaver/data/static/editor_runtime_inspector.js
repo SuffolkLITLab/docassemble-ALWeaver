@@ -171,6 +171,7 @@
       };
     var onSessionChange = options.onSessionChange || function () {};
     var onOpenSource = options.onOpenSource || function () {};
+    var onSaveAsKilnTest = options.onSaveAsKilnTest || function () {};
     var onClose = options.onClose || function () {};
     // Runs before a test session is created, so pending Python module changes
     // can be loaded first. Resolving false abandons the start.
@@ -574,6 +575,9 @@
         .forEach(function (button) {
           button.disabled = busy;
         });
+      var saveTestButton = wrapper.querySelector('#runtime-save-kiln-test');
+      if (saveTestButton)
+        saveTestButton.disabled = busy || !hasVariableSnapshot;
 
       // Polling calls this every second (see startPolling). Rebuilding a
       // panel that has not actually changed destroys and recreates its
@@ -710,6 +714,25 @@
           observeRuntime('Runtime facts refreshed.');
         }),
       );
+      var saveTest = makeButton(
+        'Save as Kiln test',
+        'btn btn-sm btn-outline-primary',
+        function () {
+          var questionName = String(
+            (question || {}).questionName || 'review_screen',
+          );
+          onSaveAsKilnTest({
+            variables: clone(variables),
+            questionId:
+              questionName.indexOf('ID ') === 0
+                ? questionName.slice(3)
+                : questionName,
+          });
+        },
+      );
+      saveTest.id = 'runtime-save-kiln-test';
+      saveTest.disabled = busy || !hasVariableSnapshot;
+      actions.appendChild(saveTest);
       actions.appendChild(
         makeButton(
           'Back one screen',

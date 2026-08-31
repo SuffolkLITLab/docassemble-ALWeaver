@@ -88,13 +88,18 @@ This directory also contains test files for unit testing with ALKiln (see below 
 The editor can create an ALKiln smoke test with a new project. The checked-by-
 default creation option calls ALDashboard's YAML fixture generator and stores
 the resulting `.feature` file in the Playground Sources area. Generated tests
-carry comment-only, machine-readable screen definitions. The Interview menu's
-Tests workspace lists the project's feature files; it can also be reached from
-the Sources outline. Each existing test has a sync action, while New in either
-the workspace or Sources opens the modal in create mode. Sync compares the
-saved definitions and fixture variables with the current project, then shows
-added/deleted screens and functionality alongside a unified diff before
-saving.
+do not carry a parallel screen inventory. Weaver reserves
+`weaver_it_runs.feature` as its one sync-managed smoke test. Syncing that file
+is additive: newly inferred fixture rows are proposed in a diff, but stale rows
+are left alone because ALKiln safely ignores them. Other feature files are
+listed in the Tests workspace but are never overwritten by sync.
+
+New in the Tests workspace or Sources opens a choice between the static “it
+runs” generator and ALDashboard's generator for a pasted Docassemble variables
+JSON export. The latter always creates a new, user-named feature. A live debug
+session can prefill that mode from its current simplified variable snapshot via
+“Save as Kiln test,” including the current screen as the story's destination.
+The Tests workspace is available from both the Interview menu and Sources.
 
 Docassemble Playground storage has no section corresponding to an arbitrary
 repository-root `.github` directory. Weaver therefore does not pretend to

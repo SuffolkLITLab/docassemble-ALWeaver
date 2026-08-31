@@ -314,7 +314,9 @@ from .playground_publish import (
 )
 from .kiln_tests import (
     DEFAULT_ALKILN_WORKFLOW,
+    MANAGED_IT_RUNS_FILENAME,
     create_kiln_feature,
+    create_kiln_feature_from_json,
     default_feature_filename,
     sync_kiln_feature,
 )
@@ -7923,7 +7925,10 @@ def editor_api_kiln_tests() -> Response:
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"tests": _project_kiln_test_filenames(uid, project)},
+                "data": {
+                    "tests": _project_kiln_test_filenames(uid, project),
+                    "managed_test_filename": MANAGED_IT_RUNS_FILENAME,
+                },
             }
         )
     except (ValueError, FileNotFoundError) as exc:
@@ -7948,23 +7953,65 @@ def editor_api_draft_kiln_test() -> Response:
         data = request.get_json(silent=True) or {}
         project = _normalize_project(data.get("project"))
         interview_filename = _normalize_filename(data.get("interview_filename"))
+        mode = str(data.get("mode") or "it_runs").strip()
         requested_test = str(data.get("test_filename") or "").strip()
+        if mode not in {"it_runs", "json"}:
+            raise ValueError("Unknown ALKiln test creation mode")
         test_filename = (
-            _normalize_kiln_test_filename(requested_test)
-            if requested_test
-            else default_feature_filename(interview_filename)
+            MANAGED_IT_RUNS_FILENAME
+            if mode == "it_runs"
+            else _normalize_kiln_test_filename(requested_test)
         )
         existing = ""
-        if requested_test:
+        if mode == "it_runs" and test_filename in _project_kiln_test_filenames(
+            uid, project
+        ):
             existing = _read_project_text_file(uid, project, "data", test_filename)
-        yaml_text = _project_interview_yaml(uid, project)
-        if existing:
+        if mode == "json":
+            if test_filename == MANAGED_IT_RUNS_FILENAME:
+                raise ValueError(
+                    f"{MANAGED_IT_RUNS_FILENAME} is reserved for Weaver's managed smoke test"
+                )
+            if test_filename in _project_kiln_test_filenames(uid, project):
+                raise ValueError(
+                    f"{test_filename} already exists. Choose a new filename; Weaver will not overwrite recorded tests."
+                )
+            json_text = data.get("json_text")
+            if not isinstance(json_text, str) or not json_text.strip():
+                raise ValueError("Paste a Docassemble variables JSON export")
+            question_id = str(data.get("question_id") or "review_screen").strip()
+            result = create_kiln_feature_from_json(
+                json_text,
+                interview_filename=interview_filename,
+                question_id=question_id,
+            )
+            result.update(
+                {
+                    "existing_feature_text": "",
+                    "proposed_feature_text": result["feature_text"],
+                    "diff": unified_source_diff(
+                        "", str(result["feature_text"]), test_filename
+                    ),
+                    "unchanged": False,
+                    "added_screens": [],
+                    "removed_screens": [],
+                    "added_functionality": [
+                        str(row).split("|")[1].strip()
+                        for row in result.get("rows", [])
+                        if str(row).count("|") >= 2
+                    ],
+                    "removed_functionality": [],
+                }
+            )
+        elif existing:
+            yaml_text = _project_interview_yaml(uid, project)
             result = sync_kiln_feature(
                 existing,
                 yaml_text,
                 interview_filename=interview_filename,
             )
         else:
+            yaml_text = _project_interview_yaml(uid, project)
             result = create_kiln_feature(
                 yaml_text,
                 interview_filename=interview_filename,
@@ -7977,7 +8024,6 @@ def editor_api_draft_kiln_test() -> Response:
                         "", str(result["feature_text"]), test_filename
                     ),
                     "unchanged": False,
-                    "screen_baseline_available": False,
                     "added_screens": [
                         str(item["id"]) for item in result.get("screen_definitions", [])
                     ],
@@ -7994,7 +8040,7 @@ def editor_api_draft_kiln_test() -> Response:
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"test_filename": test_filename, **result},
+                "data": {"test_filename": test_filename, "mode": mode, **result},
             }
         )
     except (ValueError, FileNotFoundError, RuntimeError) as exc:
@@ -8020,6 +8066,24 @@ def editor_api_apply_kiln_test() -> Response:
         data = request.get_json(silent=True) or {}
         project = _normalize_project(data.get("project"))
         test_filename = _normalize_kiln_test_filename(data.get("test_filename"))
+        mode = str(data.get("mode") or "it_runs").strip()
+        existing_tests = _project_kiln_test_filenames(uid, project)
+        if mode == "it_runs":
+            if test_filename != MANAGED_IT_RUNS_FILENAME:
+                raise ValueError(
+                    f"Only {MANAGED_IT_RUNS_FILENAME} can be synchronized by Weaver"
+                )
+        elif mode == "json":
+            if test_filename == MANAGED_IT_RUNS_FILENAME:
+                raise ValueError(
+                    f"{MANAGED_IT_RUNS_FILENAME} is reserved for Weaver's managed smoke test"
+                )
+            if test_filename in existing_tests:
+                raise ValueError(
+                    f"{test_filename} already exists. Weaver will not overwrite recorded tests."
+                )
+        else:
+            raise ValueError("Unknown ALKiln test creation mode")
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ValueError("The generated ALKiln test is empty")

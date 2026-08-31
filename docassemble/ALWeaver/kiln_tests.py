@@ -1,7 +1,8 @@
 """Create and re-sync ALKiln smoke tests for Weaver projects."""
 
-import re
 from typing import Any, Dict, Optional
+
+MANAGED_IT_RUNS_FILENAME = "weaver_it_runs.feature"
 
 DEFAULT_ALKILN_WORKFLOW = """name: ALKiln v5 tests
 
@@ -28,10 +29,8 @@ jobs:
 
 
 def default_feature_filename(interview_filename: str) -> str:
-    """Return a flat, Playground-safe feature filename."""
-    stem = re.sub(r"\.(?:yml|yaml)$", "", str(interview_filename), flags=re.I)
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_-") or "interview"
-    return f"{stem}.feature"
+    """Return the reserved filename for Weaver's additive smoke test."""
+    return MANAGED_IT_RUNS_FILENAME
 
 
 def _dashboard_story_api() -> tuple[Any, Any, Any, Any]:
@@ -69,7 +68,6 @@ def create_kiln_feature(
         scenario_description=title,
         yaml_file_name=interview_filename,
         question_id=detect_ending(yaml_text),
-        include_screen_definitions=True,
     )
     return story_from_yaml(
         yaml_text,
@@ -98,6 +96,35 @@ def sync_kiln_feature(
             scenario_description=title,
             yaml_file_name=interview_filename,
             question_id=detect_ending(yaml_text),
-            include_screen_definitions=True,
+        ),
+    )
+
+
+def create_kiln_feature_from_json(
+    json_text: str,
+    *,
+    interview_filename: str,
+    question_id: str,
+    feature_description: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create a one-off ALKiln test from a Docassemble variables export."""
+    try:
+        from docassemble.ALDashboard.alkiln_story import (
+            StoryOptions,
+            load_docassemble_json_text,
+            story_from_docassemble_json,
+        )
+    except (ImportError, AttributeError) as exc:
+        raise RuntimeError(
+            "This ALDashboard version does not support JSON ALKiln stories."
+        ) from exc
+    title = feature_description or f"Recorded path through {interview_filename}"
+    return story_from_docassemble_json(
+        load_docassemble_json_text(json_text),
+        options=StoryOptions(
+            feature_description=title,
+            scenario_description=title,
+            yaml_file_name=interview_filename,
+            question_id=question_id,
         ),
     )
