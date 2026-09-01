@@ -369,7 +369,7 @@ class TestEditorGithubApi(unittest.TestCase):
         "template_files": [],
         "module_files": [],
         "static_files": [],
-        "sources_files": [],
+        "sources_files": ["main.feature"],
         "dependencies": [],
         "description": "Housing forms",
         "license": "MIT License",
@@ -594,6 +594,16 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(publish_kwargs["default_branch"], "main")
         self.assertEqual(publish_kwargs["branch"], "feature/github")
         self.assertEqual(publish_kwargs["author_email"], "ada@example.com")
+        self.assertIn(
+            ".github/workflows/run_interview_tests.yml",
+            publish_kwargs["extra_repository_files"],
+        )
+        self.assertIn(
+            "SuffolkLITLab/ALKiln@v5",
+            publish_kwargs["extra_repository_files"][
+                ".github/workflows/run_interview_tests.yml"
+            ],
+        )
         self.assertEqual(progressed["message"], "Uploading main.yml (1 of 2).")
         self.assertEqual(progressed["progress"], 55)
 
@@ -912,6 +922,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 json={
                     "project_name": "",
                     "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                    "create_test": False,
                 },
             ):
                 response = api_editor.editor_api_new_project()
@@ -950,6 +961,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 json={
                     "project_name": "PublicForms",
                     "github_url": "https://github.com/OtherOrg/docassemble-PublicForms",
+                    "create_test": False,
                 },
             ):
                 response = api_editor.editor_api_new_project()
@@ -1401,11 +1413,37 @@ class TestEditorNewProjectNaming(unittest.TestCase):
             patch.object(api_editor, "create_project"),
         ):
             with api_editor.app.test_request_context(
-                "/al/editor/api/new-project", json={"project_name": "Blank"}
+                "/al/editor/api/new-project",
+                json={"project_name": "Blank", "create_test": False},
             ):
                 response = api_editor._new_project_from_template(7, "req-1")
         self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
         self.assertEqual(mock_write.call_args.args[2], "main.yml")
+
+    def test_blank_project_creates_a_default_test_unless_disabled(self):
+        with (
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Blank"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(
+                api_editor,
+                "_write_default_kiln_test",
+                return_value={"filename": "weaver_it_runs.feature"},
+            ) as write_test,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project", json={"project_name": "Blank"}
+            ):
+                response = api_editor._new_project_from_template(7, "req-1")
+
+        self.assertEqual(
+            response.get_json()["data"]["test_filename"],
+            "weaver_it_runs.feature",
+        )
+        write_test.assert_called_once()
 
     def test_publishing_metadata_reaches_the_generator(self):
         pdf_path = Path(__file__).parent / "test/test_dropdown_fields.pdf"
@@ -1458,6 +1496,224 @@ class TestEditorNewProjectNaming(unittest.TestCase):
         # An explicit jurisdiction is not overwritten by the default state.
         self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
         self.assertEqual(overrides["state"], "MA")
+
+
+class TestEditorKilnTestApi(unittest.TestCase):
+    def test_list_returns_selectable_feature_files(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["main.feature", "short.feature"],
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-tests?project=Housing"
+            ):
+                response = api_editor.editor_api_kiln_tests()
+
+        self.assertEqual(
+            response.get_json()["data"]["tests"],
+            ["main.feature", "short.feature"],
+        )
+        self.assertEqual(
+            response.get_json()["data"]["managed_test_filename"],
+            "weaver_it_runs.feature",
+        )
+        self.assertIsNone(response.get_json()["data"]["managed_accessibility_enabled"])
+
+    def test_list_reports_the_managed_tests_accessibility_mode(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
+            ),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                return_value="And I check all pages for accessibility issues",
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-tests?project=Housing"
+            ):
+                response = api_editor.editor_api_kiln_tests()
+        self.assertTrue(response.get_json()["data"]["managed_accessibility_enabled"])
+
+    def test_draft_syncs_the_selected_test_against_project_yaml(self):
+        synced = {
+            "proposed_feature_text": "Feature: synced",
+            "diff": "+Feature: synced",
+            "added_screens": ["new screen"],
+            "removed_screens": [],
+            "added_functionality": ["new_value"],
+            "removed_functionality": [],
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                return_value="Feature: existing",
+            ),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
+            ),
+            patch.object(
+                api_editor, "_project_interview_yaml", return_value="question: New"
+            ) as project_yaml,
+            patch.object(api_editor, "sync_kiln_feature", return_value=synced) as sync,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/draft",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "interview_filename": "main.yml",
+                    "test_filename": "weaver_it_runs.feature",
+                    "accessibility": False,
+                    "yaml_filenames": ["shared.yml"],
+                },
+            ):
+                response = api_editor.editor_api_draft_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["removed_screens"], [])
+        project_yaml.assert_called_once_with(7, "Housing", ["shared.yml", "main.yml"])
+        sync.assert_called_once_with(
+            "Feature: existing",
+            "question: New",
+            interview_filename="main.yml",
+            accessibility_enabled=False,
+        )
+
+    def test_fixture_analysis_reads_only_selected_yaml_files(self):
+        contents = {
+            "main.yml": "id: main",
+            "shared.yml": "id: shared",
+            "other.yml": "id: other",
+        }
+        with (
+            patch.object(
+                api_editor,
+                "_project_yaml_filenames",
+                return_value=list(contents),
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda _uid, _project, filename: contents[filename],
+            ) as read,
+        ):
+            combined = api_editor._project_interview_yaml(
+                7, "Housing", ["main.yml", "shared.yml"]
+            )
+        self.assertEqual(combined, "id: main\n---\nid: shared")
+        self.assertEqual(
+            [call.args[2] for call in read.call_args_list],
+            ["main.yml", "shared.yml"],
+        )
+
+    def test_apply_saves_to_the_sources_area(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["weaver_it_runs.feature"],
+            ),
+            patch.object(api_editor, "_write_project_text_file") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/apply",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "test_filename": "weaver_it_runs.feature",
+                    "mode": "it_runs",
+                    "content": "Feature: synced\n",
+                },
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        write.assert_called_once_with(
+            7,
+            "Housing",
+            "data",
+            "weaver_it_runs.feature",
+            "Feature: synced\n",
+        )
+
+    def test_json_draft_creates_a_new_recorded_path(self):
+        generated = {"feature_text": "Feature: recorded", "rows": ["| answer | 42 |"]}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_project_kiln_test_filenames", return_value=[]),
+            patch.object(
+                api_editor,
+                "create_kiln_feature_from_json",
+                return_value=generated,
+            ) as create,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/draft",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "interview_filename": "main.yml",
+                    "mode": "json",
+                    "test_filename": "happy_path.feature",
+                    "question_id": "done",
+                    "json_text": '{"variables":{"answer":42}}',
+                },
+            ):
+                response = api_editor.editor_api_draft_kiln_test()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["mode"], "json")
+        create.assert_called_once_with(
+            '{"variables":{"answer":42}}',
+            interview_filename="main.yml",
+            question_id="done",
+            accessibility_enabled=True,
+        )
+
+    def test_json_apply_refuses_to_overwrite_an_existing_test(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_kiln_test_filenames",
+                return_value=["happy_path.feature"],
+            ),
+            patch.object(api_editor, "_write_project_text_file") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/kiln-test/apply",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "test_filename": "happy_path.feature",
+                    "mode": "json",
+                    "content": "Feature: recorded\n",
+                },
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+
+        self.assertEqual(response.status_code, 400)
+        write.assert_not_called()
 
 
 class TestEditorNewProjectMultipleUploads(unittest.TestCase):

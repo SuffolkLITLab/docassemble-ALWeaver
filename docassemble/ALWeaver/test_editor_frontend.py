@@ -725,6 +725,43 @@ class TestEditorFrontend(unittest.TestCase):
         # The old hard-coded name must not survive as a fallback.
         self.assertNotIn("'interview.yml'", editor)
 
+    def test_new_project_defaults_to_a_test_and_exposes_a_tests_workspace(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('id="new-project-create-test" checked', editor)
+        self.assertIn("formData.append('create_test'", editor)
+        self.assertIn("create_test: createTest", editor)
+        self.assertIn('data-action="open-tests-overview"', template)
+        self.assertIn(">Tests</button>", template)
+        self.assertIn('id="kiln-test-mode-it-runs"', template)
+        self.assertIn('id="kiln-test-mode-json"', template)
+        self.assertIn('id="kiln-test-json"', template)
+        self.assertIn('id="kiln-test-accessibility" checked', template)
+        self.assertIn('id="kiln-test-entrypoint"', template)
+        self.assertIn('id="kiln-test-yaml-files"', template)
+        self.assertIn("I check all pages for accessibility issues", template)
+        self.assertIn("/api/kiln-tests?project=", editor)
+        self.assertIn("apiPost('/api/kiln-test/draft'", editor)
+        self.assertIn("apiPost('/api/kiln-test/apply'", editor)
+        self.assertIn("yaml_filenames:", editor)
+        self.assertIn("function renderKilnYamlFileControls(", editor)
+        self.assertIn("function renderTestsOverview()", editor)
+        self.assertIn("function openTestsOverview()", editor)
+        self.assertIn('id="btn-new-kiln-test-overview"', editor)
+        self.assertIn('data-kiln-test-sync="', editor)
+        self.assertIn('id="btn-tests-overview-inline"', editor)
+        self.assertIn("var KILN_CHANGE_BADGE_LIMIT = 10;", editor)
+        self.assertIn("values.length > KILN_CHANGE_BADGE_LIMIT", editor)
+        self.assertIn("values.length + ' new findings'", editor)
+        self.assertIn("openKilnTestSyncModal({ mode: 'it_runs' });", editor)
+        self.assertIn(
+            "Save as Kiln test",
+            (self.package_dir / "data/static/editor_runtime_inspector.js").read_text(),
+        )
+        self.assertNotIn("Deleted screens", editor)
+        self.assertNotIn("Deleted functionality", editor)
+
     def test_templates_reaches_its_files_and_the_document_setup_separately(self):
         """One template and every document are different things to look at."""
         template = (self.package_dir / "data/templates/editor.html").read_text()

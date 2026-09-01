@@ -34,6 +34,7 @@
               <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
               <li class="d-none" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
               <li><hr class="dropdown-divider"></li>
@@ -423,6 +424,76 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary" id="list-topics-apply">Use these topics</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ALKiln test sync -->
+<div class="modal fade" id="kiln-test-sync-modal" tabindex="-1" aria-labelledby="kiln-test-sync-title">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="kiln-test-sync-title">Create or sync ALKiln test</h5>
+          <div class="editor-tiny text-muted mt-1" id="kiln-test-sync-summary" role="status" aria-live="polite"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <fieldset class="mb-3">
+          <legend class="form-label mb-2">Test source</legend>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="kiln-test-mode" id="kiln-test-mode-it-runs" value="it_runs" checked>
+            <label class="form-check-label" for="kiln-test-mode-it-runs"><strong>It runs</strong> — infer safe fixture rows from the interview</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="kiln-test-mode" id="kiln-test-mode-json" value="json">
+            <label class="form-check-label" for="kiln-test-mode-json"><strong>Recorded path</strong> — use a Docassemble variables JSON export</label>
+          </div>
+        </fieldset>
+        <div id="kiln-test-it-runs-fields" class="mb-3">
+          <div class="alert alert-light border py-2 mb-3">Weaver manages one additive-only smoke test named <code>weaver_it_runs.feature</code>. Sync only adds newly inferred rows; it never removes existing rows.</div>
+          <label class="form-label" for="kiln-test-entrypoint">Runnable interview entrypoint</label>
+          <select class="form-select mb-3" id="kiln-test-entrypoint"></select>
+          <fieldset>
+            <legend class="form-label mb-1">YAML files to analyze for fixture rows</legend>
+            <div class="form-text mb-2">All files are included by default. The runnable entrypoint is always included.</div>
+            <div class="border rounded p-2" id="kiln-test-yaml-files"></div>
+          </fieldset>
+        </div>
+        <div id="kiln-test-json-fields" class="d-none mb-3">
+          <div class="row g-2 mb-2">
+            <div class="col-md-7">
+              <label class="form-label" for="kiln-test-filename">New test filename</label>
+              <input class="form-control" id="kiln-test-filename" value="recorded_path.feature">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="kiln-test-question-id">Ending screen ID</label>
+              <input class="form-control" id="kiln-test-question-id" value="review_screen">
+            </div>
+          </div>
+          <label class="form-label" for="kiln-test-json">Variables JSON export</label>
+          <textarea class="form-control font-monospace" id="kiln-test-json" rows="9" placeholder='{"variables": {"users": [...]}}'></textarea>
+          <div class="form-text">Paste the JSON export from Docassemble, or start this flow from “Save as Kiln test” in the debugger.</div>
+        </div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" role="switch" id="kiln-test-accessibility" checked>
+          <label class="form-check-label" for="kiln-test-accessibility">Check every following screen for accessibility issues</label>
+          <div class="form-text">Adds ALKiln’s “I check all pages for accessibility issues” step immediately after the interview starts.</div>
+        </div>
+        <div class="d-flex justify-content-end mb-3">
+          <button type="button" class="btn btn-outline-primary" id="kiln-test-draft">Review test</button>
+        </div>
+        <div class="editor-tab-bar mb-2 d-none" id="kiln-test-sync-tabs" role="tablist">
+          <button type="button" class="btn btn-primary" data-kiln-sync-tab="diff">What changes</button>
+          <button type="button" class="btn btn-outline-secondary" data-kiln-sync-tab="draft">Synced test</button>
+        </div>
+        <div id="kiln-test-sync-body" class="editor-diff-empty">Choose an existing test, or create a new default test.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="kiln-test-sync-apply" disabled>Save test</button>
       </div>
     </div>
   </div>

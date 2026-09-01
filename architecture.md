@@ -85,6 +85,40 @@ are left out rather than demanded from a table row.
 
 This directory also contains test files for unit testing with ALKiln (see below for more information.)
 
+The editor can create an ALKiln smoke test with a new project. The checked-by-
+default creation option calls ALDashboard's YAML fixture generator and stores
+the resulting `.feature` file in the Playground Sources area. Generated tests
+do not carry a parallel screen inventory. Weaver reserves
+`weaver_it_runs.feature` as its one sync-managed smoke test. Syncing that file
+is additive: newly inferred fixture rows are proposed in a diff, but stale rows
+are left alone because ALKiln safely ignores them. Other feature files are
+listed in the Tests workspace but are never overwritten by sync.
+
+New in the Tests workspace or Sources opens a choice between the static “it
+runs” generator and ALDashboard's generator for a pasted Docassemble variables
+JSON export. The latter always creates a new, user-named feature. A live debug
+session can prefill that mode from its current simplified variable snapshot via
+“Save as Kiln test,” including the current screen as the story's destination.
+The Tests workspace is available from both the Interview menu and Sources.
+Both generators enable ALKiln's all-pages accessibility mode by default by
+placing `I check all pages for accessibility issues` immediately after the
+interview-start step. The creation/sync modal can turn it off explicitly, and
+additive sync changes only that configuration step plus newly inferred rows.
+For the managed test, the author separately chooses the runnable YAML
+entrypoint and which project YAML files static analysis reads. Analysis
+defaults to all project YAML files for compatibility; the entrypoint is always
+included even if the submitted checklist omits it. This matters for packages
+with several runnable interviews that share only some supporting YAML.
+
+Docassemble Playground storage has no section corresponding to an arbitrary
+repository-root `.github` directory. Weaver therefore does not pretend to
+round-trip that directory through the Playground. When the GitHub package
+manifest lists at least one `.feature` source, the GitHub publisher adds the
+standard `.github/workflows/run_interview_tests.yml` ALKiln workflow directly
+to its temporary repository tree. Publishing without a feature adds no
+workflow. The generated workflow is consequently reproducible from Playground
+state and does not need a hidden copy there.
+
 ### Static files in docassemble/ALWeaver/data/static
 
 These files are primarily the front-end interface files, including images and

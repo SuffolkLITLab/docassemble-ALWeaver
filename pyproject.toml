@@ -127,6 +127,10 @@ ignore_missing_imports = true
 module = "docassemble.ALDashboard.variable_report_generator"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "docassemble.ALDashboard.alkiln_story"
+ignore_missing_imports = true
+
 
 [dependency-groups]
 dev = [
