@@ -16466,10 +16466,6 @@
 
     if (target.id === 'btn-new-section-file-inline') {
       if (!state.project || isInterviewView()) return;
-      if (state.currentView === 'data') {
-        openKilnTestSyncModal({ mode: 'it_runs' });
-        return;
-      }
       // Templates are the one section where "new" is a real choice: an empty
       // file, or a document drafted from the questions the interview asks.
       if (state.currentView === 'templates') {
@@ -16798,10 +16794,6 @@
 
     if (target.id === 'btn-new-section-file') {
       if (!state.project || isInterviewView()) return;
-      if (state.currentView === 'data') {
-        openKilnTestSyncModal({ mode: 'it_runs' });
-        return;
-      }
       var filenamePrompt = window.prompt(
         'New filename',
         defaultNewFilename(state.currentView),
