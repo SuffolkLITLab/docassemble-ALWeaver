@@ -95,7 +95,13 @@
     fullYamlStash: {},
     validationErrors: [],
     validationOpen: false,
+    validationBusy: false,
+    //: 'bottom' | 'tall' | 'side' | 'full' -- where the findings panel sits
+    validationDock: 'bottom',
     validationMode: 'validation',
+    // Whether the style check that produced the current results asked the
+    // server for AI suggestions. Re-running has to repeat the same choice.
+    styleCheckIncludeLlm: false,
     validationSourceScope: 'saved_source',
     validationBaseRevisionMatches: null,
     assemblyLineSettings: null,
@@ -104,6 +110,8 @@
   };
 
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
+  var VALIDATION_DOCK_STORAGE_KEY = 'alweaver_validation_dock';
+  var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];
   var MAX_RECENT_PROJECTS = 8;
   var _symbolInsertContext = null;
   var _alFieldMethodContext = null;
@@ -8413,6 +8421,71 @@
   // -------------------------------------------------------------------------
   var _validationInFlight = false;
 
+  function readValidationDock() {
+    try {
+      var stored = window.localStorage.getItem(VALIDATION_DOCK_STORAGE_KEY);
+      return VALIDATION_DOCKS.indexOf(stored) === -1 ? 'bottom' : stored;
+    } catch (_err) {
+      return 'bottom';
+    }
+  }
+
+  function setValidationDock(dock) {
+    if (VALIDATION_DOCKS.indexOf(dock) === -1) return;
+    state.validationDock = dock;
+    try {
+      window.localStorage.setItem(VALIDATION_DOCK_STORAGE_KEY, dock);
+    } catch (_err) {
+      // Ignore storage failures (private mode, quota, etc.)
+    }
+  }
+
+  // A collapsed panel is a header strip along the bottom no matter which dock
+  // is remembered: docking a header-only panel into its own column would take
+  // space away from the editor and show nothing in return.
+  function applyValidationDock() {
+    var workspace = document.getElementById('editor-workspace');
+    var drawer = document.getElementById('validation-drawer');
+    var dock = state.validationOpen ? state.validationDock : 'bottom';
+    if (workspace) {
+      workspace.classList.toggle('editor-workspace-side', dock === 'side');
+      workspace.classList.toggle('editor-workspace-full', dock === 'full');
+    }
+    if (drawer) {
+      drawer.classList.toggle('editor-validation-tall', dock === 'tall');
+    }
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-validation-dock]'),
+      function (button) {
+        button.setAttribute(
+          'aria-pressed',
+          button.getAttribute('data-validation-dock') === state.validationDock
+            ? 'true'
+            : 'false',
+        );
+      },
+    );
+  }
+
+  // A badge counting the errors a file has says nothing about how many style
+  // suggestions it has. Switching between the two checks therefore drops the
+  // old findings; re-running the same check keeps its numbers on screen so
+  // they do not blink off and back on.
+  function discardResultsFromTheOtherCheck(nextMode) {
+    if (state.validationMode === nextMode) return;
+    state.validationErrors = [];
+    renderOutline();
+  }
+
+  function getValidationRunningText() {
+    if (state.validationMode !== 'style') {
+      return 'Checking this file for errors and warnings\u2026';
+    }
+    return state.styleCheckIncludeLlm
+      ? 'Running the house-style checks and asking the model for suggestions. This one goes to a language model, so give it a few seconds.'
+      : 'Running the house-style checks\u2026';
+  }
+
   function getValidationDrawerTitle() {
     return state.validationMode === 'style'
       ? 'Style suggestions'
@@ -8421,7 +8494,7 @@
 
   function runCurrentValidationCheck() {
     if (state.validationMode === 'style') {
-      runStyleCheck();
+      runStyleCheck(state.styleCheckIncludeLlm);
       return;
     }
     runValidation();
@@ -8504,6 +8577,7 @@
 
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
+    discardResultsFromTheOtherCheck('validation');
     state.validationMode = 'validation';
     state.validationBaseRevisionMatches = null;
     var validationSnapshot;
@@ -8528,6 +8602,8 @@
     state.validationSourceScope = validationSnapshot.scope;
     var validationSource = validationSnapshot.rawYaml;
     _validationInFlight = true;
+    state.validationBusy = true;
+    renderValidationDrawer();
     apiPost('/api/validate-source', {
       project: state.project,
       filename: state.filename,
@@ -8536,6 +8612,7 @@
     })
       .then(function (res) {
         _validationInFlight = false;
+        state.validationBusy = false;
         if (res.success && res.data) {
           state.validationErrors =
             res.data.diagnostics || res.data.errors || [];
@@ -8547,8 +8624,12 @@
         renderOutline();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
+        state.validationBusy = false;
+        if (isSupersededRequest(error)) {
+          renderValidationDrawer();
+          return;
+        }
         state.validationErrors = [
           { level: 'error', message: 'Could not run validation right now.' },
         ];
@@ -8557,21 +8638,35 @@
       });
   }
 
-  function runStyleCheck() {
+  // `includeLlm` is the developer's own choice, made when they picked the menu
+  // item: the deterministic house-style rules always run, and the AI
+  // suggestions are asked for only when they said so. Nothing here infers it
+  // from whether a model happens to be configured on the server.
+  function runStyleCheck(includeLlm) {
     if (!state.project || !state.filename || _validationInFlight) return;
+    var wantsLlm = Boolean(includeLlm);
+    discardResultsFromTheOtherCheck('style');
     state.validationMode = 'style';
+    state.styleCheckIncludeLlm = wantsLlm;
     state.validationSourceScope = 'saved_source';
     state.validationBaseRevisionMatches = null;
     _validationInFlight = true;
+    // Say so before the request goes out. The old code only rendered on the
+    // response, so a check started from the menu looked like nothing had
+    // happened until it finished.
+    state.validationBusy = true;
+    renderValidationDrawer();
     apiGet(
       '/api/weaver/style-check?project=' +
         encodeURIComponent(state.project) +
         '&filename=' +
         encodeURIComponent(state.filename) +
-        '&include_llm=1',
+        '&include_llm=' +
+        (wantsLlm ? '1' : '0'),
     )
       .then(function (res) {
         _validationInFlight = false;
+        state.validationBusy = false;
         if (res.success && res.data) {
           state.validationErrors = res.data.errors || [];
         } else {
@@ -8581,8 +8676,12 @@
         renderOutline();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
+        state.validationBusy = false;
+        if (isSupersededRequest(error)) {
+          renderValidationDrawer();
+          return;
+        }
         state.validationErrors = [
           { level: 'error', message: 'Could not run style check right now.' },
         ];
@@ -8667,6 +8766,13 @@
       },
     );
 
+    applyValidationDock();
+    drawer.setAttribute('aria-busy', state.validationBusy ? 'true' : 'false');
+    var headerSpinner = document.getElementById('validation-spinner');
+    if (headerSpinner)
+      headerSpinner.classList.toggle('d-none', !state.validationBusy);
+    var rerunButton = document.getElementById('btn-run-validation');
+    if (rerunButton) rerunButton.disabled = state.validationBusy;
     drawer.classList.toggle('editor-validation-has-issues', hasProblems);
     drawer.classList.remove(
       'validation-error',
@@ -8683,8 +8789,22 @@
       return;
     }
     drawer.classList.add('open');
+    if (state.validationBusy) {
+      body.innerHTML =
+        '<div class="editor-validation-running" role="status">' +
+        '<span class="editor-validation-spinner" aria-hidden="true"></span>' +
+        '<span>' +
+        esc(getValidationRunningText()) +
+        '</span>' +
+        '</div>' +
+        '<div class="editor-validation-running-bar" aria-hidden="true"></div>';
+      return;
+    }
     var scopeText = isStyleMode
-      ? 'Suggestions from the shared house-style checker, against the saved source. None of these stop the interview from running or from being saved.'
+      ? (state.styleCheckIncludeLlm
+          ? 'Suggestions from the shared house-style checker and from AI, against the saved source. '
+          : 'Suggestions from the shared house-style checker, against the saved source. AI suggestions were not requested. ') +
+        'None of these stop the interview from running or from being saved.'
       : state.validationSourceScope === 'unsaved_source'
         ? 'This validation covers the unsaved source currently in the editor.'
         : 'This validation covers the saved source.';
@@ -10573,7 +10693,7 @@
     html +=
       '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Sync from questions</button>';
+      '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-arrows-rotate me-1" aria-hidden="true"></i>Sync from questions</button>';
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' +
       (isYaml ? 'Structured view' : 'Edit full YAML') +
@@ -15934,6 +16054,13 @@
     }
 
     // Validation drawer toggle
+    var dockButton = target.closest('[data-validation-dock]');
+    if (dockButton) {
+      setValidationDock(dockButton.getAttribute('data-validation-dock'));
+      state.validationOpen = true;
+      renderValidationDrawer();
+      return;
+    }
     if (
       target.id === 'validation-toggle' ||
       target.closest('#validation-toggle')
@@ -15966,12 +16093,7 @@
       target.closest('#btn-run-validation')
     ) {
       state.validationOpen = true;
-      runValidation();
-      return;
-    }
-    if (target.id === 'btn-style-check' || target.closest('#btn-style-check')) {
-      state.validationOpen = true;
-      runStyleCheck();
+      runCurrentValidationCheck();
       return;
     }
 
@@ -15989,6 +16111,10 @@
           }
           state.currentView = 'interview';
           state.validationOpen = true;
+          // A full-window panel covers the block the developer just asked to
+          // see. Move the findings beside the editor rather than jumping to a
+          // block behind them.
+          if (state.validationDock === 'full') setValidationDock('side');
           state.selectedBlockId = validationBlockId;
           dirtyState.setActiveBlock(validationBlockId);
           var interviewTab = document.querySelector(
@@ -17137,6 +17263,11 @@
     if (uiAction === 'open-interview-flow-report') {
       stashCurrentEditorState();
       openInterviewFlowReport();
+      return;
+    }
+    if (uiAction === 'run-style-check' || uiAction === 'run-style-check-ai') {
+      state.validationOpen = true;
+      runStyleCheck(uiAction === 'run-style-check-ai');
       return;
     }
     if (orderBuilderBtn) {
@@ -19106,6 +19237,8 @@
     initProjectSearch();
     initGithubPublishing();
     renderSystemChecks();
+    state.validationDock = readValidationDock();
+    applyValidationDock();
     document
       .querySelectorAll('[data-action="open-runtime-inspector"]')
       .forEach(function (control) {

@@ -296,6 +296,20 @@ buffer. Diagnostics use Weaver-owned level, filename, block, source-range, and
 YAML-path fields. The validation drawer identifies saved-source and
 unsaved-source results explicitly.
 
+The house-style check is separate from validation: it runs against the saved
+source via `GET /al/editor/api/weaver/style-check`, is reached from the
+Interview menu, and never blocks a save. Its AI suggestions are opt-in --
+"Style check" sends `include_llm=0` and "Style check + AI suggestions" sends
+`include_llm=1`, so a configured model on the server never decides for the
+developer. The findings panel shares a `.editor-workspace` flex wrapper with
+`.editor-layout`, which lets the same element dock along the bottom (short or
+tall), beside the editor as a right-hand column, or over the whole window; the
+choice is remembered in `localStorage` and ignored while the panel is
+collapsed. Both checks draw the panel before their request goes out, so a run
+started from a menu reports itself while it is happening; switching between the
+two checks drops the other one's findings rather than showing them under the
+new run's title.
+
 `docassemble_compat.py` is Weaver's compatibility boundary for Docassemble
 1.9.x and 1.10.x. Session orchestration uses the stable high-level functions in
 `docassemble.base.functions`; raw inspection actions feature-detect the 1.10

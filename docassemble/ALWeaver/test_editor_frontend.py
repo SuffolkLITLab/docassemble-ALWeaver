@@ -702,6 +702,166 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("'Style suggestions'", editor)
         self.assertIn("None of these stop the interview from running", editor)
 
+    def test_the_style_check_asks_before_it_uses_ai(self):
+        """The AI half of the style check is opt-in, and both halves are
+        reachable from the Interview menu rather than the error drawer."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn('data-action="run-style-check"', template)
+        self.assertIn('data-action="run-style-check-ai"', template)
+        self.assertIn("Style check + AI suggestions", template)
+        # The drawer's own menu is gone; it only re-runs what is on screen.
+        self.assertNotIn('id="btn-style-check"', template)
+        self.assertNotIn('aria-label="Validation actions"', template)
+
+        self.assertIn("function runStyleCheck(includeLlm) {", editor)
+        self.assertIn("var wantsLlm = Boolean(includeLlm);", editor)
+        self.assertIn("(wantsLlm ? '1' : '0')", editor)
+        # Re-running has to repeat the choice the developer already made.
+        self.assertIn("runStyleCheck(state.styleCheckIncludeLlm);", editor)
+        self.assertIn(
+            "runStyleCheck(uiAction === 'run-style-check-ai');",
+            editor,
+        )
+        self.assertIn("AI suggestions were not requested.", editor)
+
+    def test_the_findings_panel_can_be_expanded_or_docked_beside_the_editor(self):
+        """The default bottom strip is too short to read a long list in, so the
+        panel also goes tall, into a right-hand column, or full window."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        # The layout and the panel share a wrapper so the panel can sit either
+        # under the editor or beside it.
+        self.assertIn('id="editor-workspace"', template)
+        self.assertLess(
+            template.index('id="editor-workspace"'),
+            template.index('id="editor-layout"'),
+        )
+        self.assertLess(
+            template.index('id="editor-layout"'),
+            template.index('id="validation-drawer"'),
+        )
+        for dock in ("bottom", "tall", "side", "full"):
+            with self.subTest(dock=dock):
+                self.assertIn('data-validation-dock="%s"' % dock, template)
+
+        self.assertIn(
+            "var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];", editor
+        )
+        self.assertIn("'alweaver_validation_dock'", editor)
+        self.assertIn("function applyValidationDock() {", editor)
+        # The choice outlives a reload.
+        self.assertIn("state.validationDock = readValidationDock();", editor)
+        # A collapsed panel is a bottom strip whatever dock is remembered.
+        self.assertIn(
+            "var dock = state.validationOpen ? state.validationDock : 'bottom';",
+            editor,
+        )
+        # Full window hides the canvas, so following a finding has to leave it.
+        self.assertIn(
+            "if (state.validationDock === 'full') setValidationDock('side');",
+            editor,
+        )
+
+        self.assertIn(".editor-workspace.editor-workspace-side {", css)
+        self.assertIn(".editor-workspace-full > .editor-layout {", css)
+        self.assertIn(".editor-validation-drawer.open.editor-validation-tall", css)
+
+    def test_a_running_check_says_so_before_its_answer_arrives(self):
+        """The style check goes to the server, so the panel has to show it is
+        working rather than sitting on the last run's results."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="validation-spinner"', template)
+
+        # The panel is drawn before the request goes out, not only after it
+        # comes back.
+        validation_runner = editor[
+            editor.index("function runValidation() {") : editor.index(
+                "function runStyleCheck(includeLlm) {"
+            )
+        ]
+        style_runner = editor[
+            editor.index("function runStyleCheck(includeLlm) {") : editor.index(
+                "function _validationLevelRank(level) {"
+            )
+        ]
+        for runner in (validation_runner, style_runner):
+            with self.subTest(runner=runner[:40]):
+                self.assertRegex(
+                    runner,
+                    r"state\.validationBusy = true;\s*renderValidationDrawer\(\);",
+                )
+                # A cancelled/stale request is still finished: unlock future
+                # checks and remove the already-rendered busy state.
+                self.assertRegex(
+                    runner,
+                    r"\.catch\(function \(error\) \{\s*"
+                    r"_validationInFlight = false;\s*"
+                    r"state\.validationBusy = false;\s*"
+                    r"if \(isSupersededRequest\(error\)\) \{\s*"
+                    r"renderValidationDrawer\(\);\s*return;",
+                )
+        self.assertIn("state.validationBusy = false;", editor)
+        self.assertIn("function getValidationRunningText() {", editor)
+        self.assertIn("Running the house-style checks", editor)
+        # An AI run is the slow one, so it says as much.
+        self.assertIn("give it a few seconds", editor)
+        self.assertIn("drawer.setAttribute('aria-busy'", editor)
+        self.assertIn("rerunButton.disabled = state.validationBusy;", editor)
+        self.assertIn('<div class="editor-validation-running" role="status">', editor)
+        # Findings from the other check are not this check's answer.
+        self.assertIn("function discardResultsFromTheOtherCheck(nextMode) {", editor)
+        self.assertIn("discardResultsFromTheOtherCheck('style');", editor)
+        self.assertIn("discardResultsFromTheOtherCheck('validation');", editor)
+        discard_helper = editor[
+            editor.index(
+                "function discardResultsFromTheOtherCheck(nextMode) {"
+            ) : editor.index("function getValidationRunningText() {")
+        ]
+        self.assertRegex(
+            discard_helper,
+            r"state\.validationErrors = \[\];\s*renderOutline\(\);",
+        )
+
+        self.assertIn(".editor-validation-spinner {", css)
+        self.assertIn(".editor-validation-running-bar {", css)
+        self.assertIn("prefers-reduced-motion", css)
+
+    def test_the_magic_icon_marks_only_features_that_use_ai(self):
+        """A wand promises generative AI. Deterministic screens and actions
+        have to be drawn with something that does not."""
+        ai_markers = (
+            "toggle-assistant",
+            "run-style-check-ai",
+            "ai-screen",
+            "ai-generate-screen",
+            "ai-generate-fields",
+        )
+        for relative_path in (
+            "data/templates/editor.html",
+            "data/static/editor.js",
+            "data/questions/review_screen.yml",
+        ):
+            lines = (self.package_dir / relative_path).read_text().splitlines()
+            for index, line in enumerate(lines):
+                if "fa-magic" not in line and "wand-magic" not in line:
+                    continue
+                # An icon often sits on its own line inside the control that
+                # names the feature, so read a little of the way around it.
+                context = "\n".join(lines[max(0, index - 3) : index + 2])
+                with self.subTest(path=relative_path, line=index + 1):
+                    self.assertTrue(
+                        any(marker in context for marker in ai_markers),
+                        f"{relative_path}:{index + 1} uses the magic icon "
+                        "without using AI: " + line.strip(),
+                    )
+
     def test_new_project_collects_publishing_metadata_and_the_filename(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
 

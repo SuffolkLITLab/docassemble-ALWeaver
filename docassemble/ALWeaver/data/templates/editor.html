@@ -30,6 +30,8 @@
             <ul class="dropdown-menu" data-bs-theme="light" aria-labelledby="interview-menu">
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
@@ -83,6 +85,7 @@
   </div>
 
   <!-- ===== MAIN LAYOUT ===== -->
+  <div class="editor-workspace" id="editor-workspace">
   <div class="editor-layout" id="editor-layout">
 
     <!-- LEFT RAIL -->
@@ -188,17 +191,21 @@
         <i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>
         <span id="validation-drawer-title">Errors &amp; Warnings</span>
         <span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span>
+        <span class="editor-validation-spinner d-none" id="validation-spinner" aria-hidden="true"></span>
         <i class="fa-solid fa-chevron-up ms-auto editor-validation-chevron" aria-hidden="true"></i>
       </button>
-      <div class="dropdown editor-validation-actions">
-        <button type="button" class="editor-validation-menu-btn" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" aria-label="Validation actions" title="Validation actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
-        <ul class="dropdown-menu dropdown-menu-end editor-validation-menu">
-          <li><button type="button" class="dropdown-item" id="btn-run-validation"><i class="fa-solid fa-triangle-exclamation me-2" aria-hidden="true"></i>Errors &amp; warnings</button></li>
-          <li><button type="button" class="dropdown-item" id="btn-style-check"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>Style check</button></li>
-        </ul>
+      <div class="editor-validation-actions">
+        <div class="editor-validation-dock" role="group" aria-label="Where to put the findings panel">
+          <button type="button" class="editor-validation-dock-btn" data-validation-dock="bottom" title="Dock along the bottom" aria-label="Dock along the bottom"><i class="fa-solid fa-window-minimize" aria-hidden="true"></i></button>
+          <button type="button" class="editor-validation-dock-btn" data-validation-dock="tall" title="Make the panel taller" aria-label="Make the panel taller"><i class="fa-solid fa-up-down" aria-hidden="true"></i></button>
+          <button type="button" class="editor-validation-dock-btn" data-validation-dock="side" title="Dock to the right, beside the editor" aria-label="Dock to the right, beside the editor"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></button>
+          <button type="button" class="editor-validation-dock-btn" data-validation-dock="full" title="Fill the window" aria-label="Fill the window"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
+        </div>
+        <button type="button" class="editor-validation-menu-btn" id="btn-run-validation" aria-label="Run these checks again" title="Run these checks again"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="editor-validation-body" id="validation-drawer-body" tabindex="0"></div>
+  </div>
   </div>
 </div>
 
