@@ -207,11 +207,10 @@ async function main() {
     blockingViolations = blockingViolations.concat(
       await audit(page, "validation drawer")
     );
-    await page.locator('[aria-label="Validation actions"]').click();
-    blockingViolations = blockingViolations.concat(
-      await audit(page, "validation actions menu")
-    );
-    await page.locator("#btn-style-check").click();
+    // The style check lives in the Interview menu, and the deterministic run
+    // is the one that needs no model configured on the test server.
+    await openInterviewMenu(page);
+    await page.locator('[data-action="run-style-check"]').click();
     await page.waitForTimeout(1_000);
     blockingViolations = blockingViolations.concat(
       await audit(page, "style-check results")

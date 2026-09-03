@@ -66,7 +66,7 @@ mako: |
   <div class="card h-100 weaver-builtin review-question weaver-preview-card">
     <div class="card-header">
       <div class="weaver-card-heading">
-        <span class="weaver-card-icon" aria-hidden="true"><i class="fas fa-magic"></i></span>
+        <span class="weaver-card-icon" aria-hidden="true"><i class="fas fa-cube"></i></span>
         <div class="weaver-card-title">
       % if field.trigger_gather().endswith(".gather()"):
           Names of ${ field.trigger_gather().replace(".gather()", "").capitalize().replace("_", " ") }

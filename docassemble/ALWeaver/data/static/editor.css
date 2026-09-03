@@ -15,6 +15,7 @@
   /* Matches docassemble's navbar: 0.5rem padding + a 40px navbar-brand. */
   --editor-navbar-height: 56px;
   --editor-left-width: 280px;
+  --editor-validation-side-width: 400px;
   --editor-radius: 8px;
   --editor-radius-sm: 6px;
   --editor-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
@@ -2948,11 +2949,35 @@ html, body {
 
 /* ===== Validation / Errors drawer ===== */
 
+/* ===== Workspace: the editor grid plus the findings panel =====
+   The panel docks under the editor by default and beside it on request, so
+   the same element has to be able to sit in either direction. A flex wrapper
+   whose direction the dock choice flips does that without the grid in
+   `.editor-layout` having to know the panel exists. */
+
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-workspace.editor-workspace-side {
+  flex-direction: row;
+}
+
+.editor-workspace > .editor-layout {
+  min-width: 0;
+}
+
 .editor-validation-drawer {
   flex-shrink: 0;
   border-top: 1px solid var(--editor-border);
   background: #fff;
   z-index: 5;
+  min-width: 0;
 }
 
 .editor-validation-header {
@@ -2981,6 +3006,15 @@ html, body {
   background: #eef1f5;
 }
 
+/* Side-docked, the header is only a few hundred pixels wide, so the title
+   gives way before the chevron and the dock buttons do. */
+.editor-validation-toggle > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .editor-validation-actions {
   display: flex;
   align-items: center;
@@ -2995,14 +3029,6 @@ html, body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-}
-
-.editor-validation-menu-btn::after {
-  display: none;
-}
-
-.editor-validation-menu {
-  min-width: 180px;
 }
 
 .editor-validation-chevron {
@@ -3023,6 +3049,106 @@ html, body {
 
 .editor-validation-drawer.open .editor-validation-body {
   display: block;
+}
+
+/* ===== Dock sizes =====
+   Only an open panel is resized. A collapsed one is a header strip along the
+   bottom whichever dock is remembered, so re-opening restores the choice
+   without a collapsed panel eating a column. */
+
+.editor-validation-drawer.open.editor-validation-tall .editor-validation-body {
+  max-height: 55vh;
+}
+
+.editor-workspace-side > .editor-validation-drawer {
+  display: flex;
+  flex-direction: column;
+  width: var(--editor-validation-side-width);
+  max-width: 60vw;
+  min-height: 0;
+  border-top: none;
+  border-left: 1px solid var(--editor-border);
+}
+
+.editor-workspace-side > .editor-validation-drawer .editor-validation-body {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.editor-workspace-full > .editor-layout {
+  display: none;
+}
+
+.editor-workspace-full > .editor-validation-drawer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  border-top: none;
+}
+
+.editor-workspace-full > .editor-validation-drawer .editor-validation-body {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.editor-validation-dock {
+  display: none;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.editor-validation-drawer.open .editor-validation-dock {
+  display: inline-flex;
+}
+
+.editor-validation-dock-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--editor-muted);
+}
+
+.editor-validation-dock-btn:hover,
+.editor-validation-dock-btn:focus-visible {
+  border-color: var(--editor-border);
+  background: #eef1f5;
+  color: var(--editor-fg);
+}
+
+.editor-validation-dock-btn[aria-pressed='true'] {
+  border-color: var(--editor-border);
+  background: #fff;
+  color: var(--editor-fg);
+  box-shadow: inset 0 0 0 1px var(--editor-border);
+}
+
+@media (max-width: 900px) {
+  /* Too narrow to put anything beside the editor. */
+  .editor-workspace.editor-workspace-side {
+    flex-direction: column;
+  }
+
+  .editor-workspace-side > .editor-validation-drawer {
+    width: auto;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--editor-border);
+  }
+
+  .editor-workspace-side > .editor-validation-drawer .editor-validation-body {
+    max-height: 55vh;
+  }
 }
 
 .editor-validation-badge {
@@ -3319,7 +3445,7 @@ html, body {
   color: var(--editor-fg);
 }
 
-/* ===== Validation menu kebab ===== */
+/* ===== Validation drawer re-run button ===== */
 
 .editor-validation-menu-btn {
   border: 1px solid transparent;
