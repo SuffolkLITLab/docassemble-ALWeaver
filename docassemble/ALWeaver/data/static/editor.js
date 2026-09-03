@@ -8474,6 +8474,7 @@
   function discardResultsFromTheOtherCheck(nextMode) {
     if (state.validationMode === nextMode) return;
     state.validationErrors = [];
+    renderOutline();
   }
 
   function getValidationRunningText() {

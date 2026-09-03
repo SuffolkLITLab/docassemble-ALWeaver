@@ -796,6 +796,14 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("function discardResultsFromTheOtherCheck(nextMode) {", editor)
         self.assertIn("discardResultsFromTheOtherCheck('style');", editor)
         self.assertIn("discardResultsFromTheOtherCheck('validation');", editor)
+        discard_helper = editor[
+            editor.index(
+                "function discardResultsFromTheOtherCheck(nextMode) {"
+            ) : editor.index("function getValidationRunningText() {")
+        ]
+        self.assertIn(
+            "state.validationErrors = [];\n    renderOutline();", discard_helper
+        )
 
         self.assertIn(".editor-validation-spinner {", css)
         self.assertIn(".editor-validation-running-bar {", css)
