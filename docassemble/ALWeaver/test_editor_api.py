@@ -3602,9 +3602,127 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                     response = api_editor.editor_api_upload_section_file()
 
             self.assertEqual(response.status_code, 200)
-            saved = response.get_json()["data"]["saved_files"]
-            self.assertEqual(saved, ["93A_demand_letter_1.docx"])
+            data = response.get_json()["data"]
+            self.assertEqual(data["saved_files"], ["93A_demand_letter_1.docx"])
             self.assertEqual(os.listdir(tmpdir), ["93A_demand_letter_1.docx"])
+            # The author has to be told: the name they will refer to the file
+            # by in the interview is not the name they uploaded.
+            self.assertEqual(
+                data["renamed_files"],
+                [
+                    {
+                        "from": "93A demand letter (1).docx",
+                        "to": "93A_demand_letter_1.docx",
+                        "reason": "unsupported_characters",
+                        "message": data["renamed_files"][0]["message"],
+                    }
+                ],
+            )
+            self.assertIn(
+                "93A demand letter (1).docx", data["renamed_files"][0]["message"]
+            )
+            self.assertIn(
+                "93A_demand_letter_1.docx", data["renamed_files"][0]["message"]
+            )
+
+    def test_an_upload_that_needed_no_renaming_reports_none(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            upload = FileStorage(
+                stream=BytesIO(b"template bytes"), filename="petition.docx"
+            )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/upload",
+                    method="POST",
+                    data={
+                        "project": "default",
+                        "section": "templates",
+                        "files": upload,
+                    },
+                    content_type="multipart/form-data",
+                ):
+                    response = api_editor.editor_api_upload_section_file()
+
+            data = response.get_json()["data"]
+            self.assertEqual(data["saved_files"], ["petition.docx"])
+            self.assertEqual(data["renamed_files"], [])
+
+    def test_an_upload_whose_name_is_taken_says_so_rather_than_blaming_the_characters(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "petition.docx"), "wb") as handle:
+                handle.write(b"first")
+            upload = FileStorage(stream=BytesIO(b"second"), filename="petition.docx")
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/upload",
+                    method="POST",
+                    data={
+                        "project": "default",
+                        "section": "templates",
+                        "files": upload,
+                    },
+                    content_type="multipart/form-data",
+                ):
+                    response = api_editor.editor_api_upload_section_file()
+
+            data = response.get_json()["data"]
+            self.assertEqual(data["saved_files"], ["petition_1.docx"])
+            self.assertEqual(data["renamed_files"][0]["reason"], "name_taken")
+            self.assertIn(
+                "already has a file with that name",
+                data["renamed_files"][0]["message"],
+            )
+
+    def test_renaming_a_file_to_an_unusable_name_reports_what_it_became(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "petition.docx"), "wb") as handle:
+                handle.write(b"template bytes")
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+                patch.object(api_editor, "rename_saved_file"),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/rename",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "section": "templates",
+                        "filename": "petition.docx",
+                        "new_filename": "demand letter (final).docx",
+                    },
+                ):
+                    response = api_editor.editor_api_rename_section_file()
+
+            data = response.get_json()["data"]
+            self.assertEqual(data["filename"], "demand_letter_final.docx")
+            self.assertEqual(
+                data["renamed_files"][0]["from"], "demand letter (final).docx"
+            )
+            self.assertEqual(data["renamed_files"][0]["to"], "demand_letter_final.docx")
 
     def test_importing_an_older_template_renames_it_first(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -2270,6 +2270,47 @@
         error && error.message ? error.message : 'The editor request failed.';
   }
 
+  /* A file the project could not store under the name it was given.  The
+     author has to hear about it: the name they will refer to the file by in
+     the interview is not the name they uploaded. */
+  function reportRenamedFiles(data) {
+    var renamed = (data && data.renamed_files) || [];
+    if (!renamed.length) return;
+    var banner = document.getElementById('editor-file-renamed');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'editor-file-renamed';
+      banner.className = 'alert alert-warning alert-dismissible position-fixed';
+      banner.setAttribute('role', 'status');
+      banner.setAttribute('aria-live', 'polite');
+      banner.style.cssText =
+        'top:1rem;left:50%;transform:translateX(-50%);z-index:10000;min-width:300px;max-width:600px;';
+      var message = document.createElement('div');
+      message.setAttribute('data-renamed-message', '');
+      banner.appendChild(message);
+      var closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.className = 'btn-close';
+      closeButton.setAttribute('aria-label', 'Dismiss');
+      closeButton.addEventListener('click', function () {
+        banner.remove();
+      });
+      banner.appendChild(closeButton);
+      document.body.appendChild(banner);
+    }
+    var renamedNode = banner.querySelector('[data-renamed-message]');
+    if (!renamedNode) return;
+    renamedNode.textContent = '';
+    renamed.forEach(function (entry) {
+      var line = document.createElement('p');
+      line.className = 'mb-1';
+      line.textContent =
+        (entry && entry.message) ||
+        'Renamed ' + (entry && entry.from) + ' to ' + (entry && entry.to) + '.';
+      renamedNode.appendChild(line);
+    });
+  }
+
   function renderSystemChecks() {
     var warning = document.getElementById('editor-celery-warning');
     if (!warning) return;
@@ -15212,6 +15253,9 @@
         state.templateImportBusy = null;
         state.templateImportResult = result;
         state.templateImportMessage = '';
+        // An older template with an unresolvable name is renamed before it is
+        // read, and the attachment block will name the renamed file.
+        reportRenamedFiles(result);
         renderCanvas();
       })
       .catch(function (error) {
@@ -16615,6 +16659,7 @@
         state.sectionSelectedFile[state.currentView] =
           res.data && res.data.filename ? res.data.filename : sfNewName;
         noteModuleSaveResult(res.data);
+        reportRenamedFiles(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -16899,6 +16944,7 @@
             ? res.data.filename
             : renamedSectionFile;
         noteModuleSaveResult(res.data);
+        reportRenamedFiles(res.data);
         loadSectionFiles(state.currentView);
       });
       return;
@@ -18242,6 +18288,11 @@
                       esc(state.project) +
                       '" created successfully.',
                   );
+                  // The generated YAML refers to each template by the name the
+                  // project stores it under, which may not be the one uploaded.
+                  reportRenamedFiles(
+                    jobData.renamed_files ? jobData : queuedData,
+                  );
                   return apiGet('/api/projects').then(function (r) {
                     if (r.success) applyProjectListData(r.data);
                     populateProjects();
@@ -18536,6 +18587,7 @@
           }
           state.sectionDirty = false;
           noteModuleSaveResult(res.data);
+          reportRenamedFiles(res.data);
           reportUploadedModuleProblems(res.data);
           loadSectionFiles(state.currentView);
         })
