@@ -194,24 +194,15 @@ class TestConfiguration(unittest.TestCase):
         with patch.object(api_editor, "_daconfig", return_value={}):
             self.assertTrue(api_editor._agent_editor_enabled())
 
-    def test_a_grouped_lowercase_setting_turns_it_off(self):
-        config = {"weaver": {"assistant": False}}
-        with patch.object(api_editor, "_daconfig", return_value=config):
-            self.assertFalse(api_editor._agent_editor_enabled())
-
-    def test_a_flat_lowercase_setting_works_too(self):
-        with patch.object(
-            api_editor, "_daconfig", return_value={"weaver assistant": False}
+    def test_supported_assistant_setting_spellings_turn_it_off(self):
+        for config in (
+            {"weaver": {"assistant": False}},
+            {"weaver assistant": False},
+            {"WEAVER_ENABLE_AGENT_EDITOR": "false"},
         ):
-            self.assertFalse(api_editor._agent_editor_enabled())
-
-    def test_the_older_upper_snake_spelling_still_works(self):
-        with patch.object(
-            api_editor,
-            "_daconfig",
-            return_value={"WEAVER_ENABLE_AGENT_EDITOR": "false"},
-        ):
-            self.assertFalse(api_editor._agent_editor_enabled())
+            with self.subTest(config=config):
+                with patch.object(api_editor, "_daconfig", return_value=config):
+                    self.assertFalse(api_editor._agent_editor_enabled())
 
     def test_underscore_keys_are_found_after_docassemble_rewrites_them(self):
         """Docassemble rejects underscores in configuration keys and converts

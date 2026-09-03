@@ -9,6 +9,7 @@ const endpointFiles = [
   'docassemble/ALWeaver/data/static/editor_runtime_inspector.js',
   'docassemble/ALWeaver/data/static/editor_validation_source.js',
   'docassemble/ALWeaver/data/static/editor_dirty_state.js',
+  'docassemble/ALWeaver/data/static/editor_html.js',
 ];
 
 export default [
