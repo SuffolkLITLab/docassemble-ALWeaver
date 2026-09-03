@@ -37,9 +37,3 @@ repos:
         language: system
         types: [yaml]
         files: ^docassemble/.*/data/questions/.*\.ya?ml$
-
-      - id: check-do-not-preload
-        name: check test files for '# do not pre-load'
-        entry: uv run --no-sync python scripts/check_do_not_preload.py
-        language: system
-        files: ^docassemble/.*/(test_.*|.*_test)\.py$

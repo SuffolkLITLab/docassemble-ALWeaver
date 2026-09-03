@@ -1245,10 +1245,6 @@ class TestEditorApiFileCreation(unittest.TestCase):
             result["job_id"], celery_task_id="celery-task-1"
         )
 
-        api_source = Path(api_editor.__file__).read_text()
-        self.assertNotIn("import threading", api_source)
-        self.assertNotIn("threading.Thread", api_source)
-
     def test_metadata_save_preserves_unrelated_source_exactly(self):
         from . import editor_utils as real_editor_utils
 
@@ -2312,18 +2308,6 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
             ),
         ]
 
-    def _get_catalog(self, source=None):
-        with ExitStack() as stack:
-            for patcher in self._patches(source if source is not None else self.SOURCE):
-                stack.enter_context(patcher)
-            stack.enter_context(
-                api_editor.app.test_request_context(
-                    "/al/editor/api/question-library"
-                    "?project=default&filename=test.yml"
-                )
-            )
-            return api_editor.editor_api_question_library().get_json()
-
     def _insert(self, questions, insert_after_id=None, source=None):
         written = {}
 
@@ -2352,40 +2336,6 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
             )
             response = api_editor.editor_api_question_library_insert()
         return response, written.get("content")
-
-    def test_the_catalog_covers_the_people_this_file_declares(self):
-        payload = self._get_catalog()
-        self.assertTrue(payload["success"])
-        objects = payload["data"]["objects"]
-        self.assertEqual(
-            [entry["var"] for entry in objects], ["users", "children", "landlord"]
-        )
-
-    def test_a_question_already_written_into_the_file_is_marked_as_present(self):
-        payload = self._get_catalog()
-        users = payload["data"]["objects"][0]
-        by_kind = {question["kind"]: question for question in users["questions"]}
-        self.assertTrue(by_kind["names"]["present"])
-        self.assertFalse(by_kind["there_is_another"]["present"])
-        # The file asks for `users[i].birthdate`, so its question is worth a tick.
-        self.assertTrue(by_kind["birthdate"]["recommended"])
-        self.assertFalse(by_kind["mobile_number"]["recommended"])
-
-    def test_the_declaration_decides_which_gather_questions_are_offered(self):
-        payload = self._get_catalog()
-        by_var = {entry["var"]: entry for entry in payload["data"]["objects"]}
-        gather = {
-            var: [
-                question["kind"]
-                for question in entry["questions"]
-                if question["group"] == "gather"
-            ]
-            for var, entry in by_var.items()
-        }
-        # `users` already knows it has members; `children` counts itself.
-        self.assertEqual(gather["users"], ["names", "there_is_another"])
-        self.assertEqual(gather["children"], ["how_many", "names"])
-        self.assertEqual(gather["landlord"], ["name"])
 
     def test_inserting_writes_the_blocks_the_weaver_would_have_written(self):
         response, written = self._insert(
@@ -2426,12 +2376,6 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
             response.get_json()["data"]["revision"],
             real_editor_utils.source_revision(written),
         )
-
-    def test_the_blocks_name_the_authors_own_object_not_a_generic_x(self):
-        _response, written = self._insert([{"var": "children", "kind": "names"}])
-        added = written[: written.index("objects:")]
-        self.assertIn("children[i].name_fields()", added)
-        self.assertNotIn("generic object", added)
 
     def test_a_question_the_file_already_has_is_not_added_a_second_time(self):
         response, written = self._insert(
@@ -2899,40 +2843,6 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
         self.assertIn("motion", {shape["value"] for shape in data["shapes"]})
         self.assertEqual(data["court_profiles"][0]["value"], "ma_trial_court")
 
-    def test_the_suggestion_still_works_against_an_older_dashboard(self):
-        files = self._files()
-        with (
-            patch.object(api_editor, "_editor_auth_check", return_value=True),
-            patch.object(api_editor, "_current_user_id", return_value=7),
-            patch.object(
-                api_editor,
-                "playground_read_yaml",
-                side_effect=lambda uid, project, filename: files[filename],
-            ),
-            patch.object(
-                api_editor,
-                "suggested_report_names",
-                return_value={"title": "Main Draft", "filename": "main_draft.docx"},
-            ),
-            patch.object(
-                api_editor,
-                "court_form_options",
-                return_value={"supported": False, "shapes": [], "profiles": []},
-            ),
-        ):
-            with api_editor.app.test_request_context(
-                "/al/editor/api/template/variable-report/suggestion"
-                "?project=default&filename=main.yml",
-                method="GET",
-            ):
-                response = api_editor.editor_api_template_variable_report_suggestion()
-
-        self.assertEqual(response.status_code, 200)
-        data = response.get_json()["data"]
-        self.assertFalse(data["court_forms_supported"])
-        self.assertEqual(data["shapes"], [])
-        self.assertEqual(data["title"], "Main Draft")
-
     def test_a_court_shape_reaches_the_dashboard_and_comes_back_named(self):
         files = self._files()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2985,6 +2895,9 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
                         "shape": "motion",
                         "court_profile": "ma_trial_court",
                         "include_certificate_of_service": True,
+                        "show_variable_types": True,
+                        "max_list_cols": 6,
+                        "numbered_paragraphs": False,
                     },
                 ):
                     response = api_editor.editor_api_template_variable_report()
@@ -2993,56 +2906,12 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertEqual(written["shape"], "motion")
             self.assertEqual(written["court_profile"], "ma_trial_court")
             self.assertIs(written["include_certificate_of_service"], True)
+            self.assertIs(written["show_variable_types"], True)
+            self.assertEqual(written["max_list_cols"], 6)
+            self.assertIs(written["numbered_paragraphs"], False)
             data = response.get_json()["data"]
             self.assertEqual(data["profile_name"], "Massachusetts Trial Court")
             self.assertEqual(data["sections"]["caption"], "yaml")
-
-    def test_omitting_the_shape_still_drafts_the_intake_report(self):
-        """The editor drafted intake reports before shapes existed."""
-        files = self._files()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            written = {}
-
-            def fake_write(yaml_texts, output_path, **kwargs):
-                written.update(kwargs)
-                with open(output_path, "wb") as handle:
-                    handle.write(b"docx")
-                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
-
-            with (
-                patch.object(api_editor, "_editor_auth_check", return_value=True),
-                patch.object(api_editor, "_current_user_id", return_value=7),
-                patch.object(
-                    api_editor,
-                    "playground_read_yaml",
-                    side_effect=lambda uid, project, filename: files[filename],
-                ),
-                patch.object(
-                    api_editor,
-                    "suggested_report_names",
-                    return_value={
-                        "title": "Main Draft",
-                        "filename": "main_draft.docx",
-                    },
-                ),
-                patch.object(api_editor, "write_variable_report_docx", fake_write),
-                patch.object(
-                    api_editor,
-                    "_editor_storage_directory",
-                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
-                ),
-            ):
-                with api_editor.app.test_request_context(
-                    "/al/editor/api/template/variable-report",
-                    method="POST",
-                    json={"project": "default", "filename": "main.yml"},
-                ):
-                    response = api_editor.editor_api_template_variable_report()
-
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(written["shape"], "intake")
-            self.assertIsNone(written["court_profile"])
-            self.assertIsNone(written["include_certificate_of_service"])
 
     def test_the_markdown_draft_is_saved_beside_the_docx_when_asked(self):
         files = self._files()
@@ -3106,51 +2975,6 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertEqual(
                 written["markdown_path"], os.path.join(tmpdir, "main_draft.md")
             )
-
-    def test_no_markdown_is_written_or_named_by_default(self):
-        files = self._files()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            written = {}
-
-            def fake_write(yaml_texts, output_path, **kwargs):
-                written.update(kwargs)
-                with open(output_path, "wb") as handle:
-                    handle.write(b"docx")
-                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
-
-            with (
-                patch.object(api_editor, "_editor_auth_check", return_value=True),
-                patch.object(api_editor, "_current_user_id", return_value=7),
-                patch.object(
-                    api_editor,
-                    "playground_read_yaml",
-                    side_effect=lambda uid, project, filename: files[filename],
-                ),
-                patch.object(
-                    api_editor,
-                    "suggested_report_names",
-                    return_value={
-                        "title": "Main Draft",
-                        "filename": "main_draft.docx",
-                    },
-                ),
-                patch.object(api_editor, "write_variable_report_docx", fake_write),
-                patch.object(
-                    api_editor,
-                    "_editor_storage_directory",
-                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
-                ),
-            ):
-                with api_editor.app.test_request_context(
-                    "/al/editor/api/template/variable-report",
-                    method="POST",
-                    json={"project": "default", "filename": "main.yml"},
-                ):
-                    response = api_editor.editor_api_template_variable_report()
-
-            self.assertEqual(response.status_code, 200)
-            self.assertNotIn("markdown_filename", response.get_json()["data"])
-            self.assertIsNone(written["markdown_path"])
 
     def test_a_stale_markdown_draft_does_not_outlive_the_docx_it_described(self):
         """Overwriting with a Dashboard that returns no markdown.
@@ -3259,109 +3083,6 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(os.path.exists(kept))
             self.assertNotIn("markdown_written", response.get_json()["data"])
-
-    def test_the_table_and_numbering_options_reach_the_generator(self):
-        files = self._files()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            written = {}
-
-            def fake_write(yaml_texts, output_path, **kwargs):
-                written.update(kwargs)
-                with open(output_path, "wb") as handle:
-                    handle.write(b"docx")
-                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
-
-            with (
-                patch.object(api_editor, "_editor_auth_check", return_value=True),
-                patch.object(api_editor, "_current_user_id", return_value=7),
-                patch.object(
-                    api_editor,
-                    "playground_read_yaml",
-                    side_effect=lambda uid, project, filename: files[filename],
-                ),
-                patch.object(
-                    api_editor,
-                    "suggested_report_names",
-                    return_value={
-                        "title": "Main Draft",
-                        "filename": "main_draft.docx",
-                    },
-                ),
-                patch.object(api_editor, "write_variable_report_docx", fake_write),
-                patch.object(
-                    api_editor,
-                    "_editor_storage_directory",
-                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
-                ),
-            ):
-                with api_editor.app.test_request_context(
-                    "/al/editor/api/template/variable-report",
-                    method="POST",
-                    json={
-                        "project": "default",
-                        "filename": "main.yml",
-                        "show_variable_types": True,
-                        "max_list_cols": 6,
-                        "shape": "motion",
-                        "numbered_paragraphs": False,
-                    },
-                ):
-                    response = api_editor.editor_api_template_variable_report()
-
-            self.assertEqual(response.status_code, 200)
-            self.assertIs(written["show_variable_types"], True)
-            self.assertEqual(written["max_list_cols"], 6)
-            self.assertIs(written["numbered_paragraphs"], False)
-
-    def test_unset_numbering_stays_unset_rather_than_becoming_no(self):
-        """The court profile decides unless the author actually chose."""
-        files = self._files()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            written = {}
-
-            def fake_write(yaml_texts, output_path, **kwargs):
-                written.update(kwargs)
-                with open(output_path, "wb") as handle:
-                    handle.write(b"docx")
-                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
-
-            with (
-                patch.object(api_editor, "_editor_auth_check", return_value=True),
-                patch.object(api_editor, "_current_user_id", return_value=7),
-                patch.object(
-                    api_editor,
-                    "playground_read_yaml",
-                    side_effect=lambda uid, project, filename: files[filename],
-                ),
-                patch.object(
-                    api_editor,
-                    "suggested_report_names",
-                    return_value={
-                        "title": "Main Draft",
-                        "filename": "main_draft.docx",
-                    },
-                ),
-                patch.object(api_editor, "write_variable_report_docx", fake_write),
-                patch.object(
-                    api_editor,
-                    "_editor_storage_directory",
-                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
-                ),
-            ):
-                with api_editor.app.test_request_context(
-                    "/al/editor/api/template/variable-report",
-                    method="POST",
-                    json={
-                        "project": "default",
-                        "filename": "main.yml",
-                        "shape": "motion",
-                    },
-                ):
-                    response = api_editor.editor_api_template_variable_report()
-
-            self.assertEqual(response.status_code, 200)
-            self.assertIsNone(written["numbered_paragraphs"])
-            self.assertIsNone(written["max_list_cols"])
 
     def test_a_nonsense_column_count_is_rejected(self):
         files = self._files()

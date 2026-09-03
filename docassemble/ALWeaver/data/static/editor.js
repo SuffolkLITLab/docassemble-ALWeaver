@@ -3472,9 +3472,9 @@
       },
       onSaveAsKilnTest: function (snapshot) {
         var questionId = String(snapshot.questionId || 'review_screen');
-        var safeQuestionId = questionId
-          .replace(/[^A-Za-z0-9_-]+/g, '_')
-          .replace(/^_+|_+$/g, '') || 'recorded_path';
+        var safeQuestionId =
+          questionId.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') ||
+          'recorded_path';
         openKilnTestSyncModal({
           mode: 'json',
           filename: safeQuestionId + '.feature',
@@ -3604,13 +3604,7 @@
   // Escaping
   // -------------------------------------------------------------------------
   function esc(text) {
-    // Serializing a text node escapes &, < and > but leaves quotes alone, and
-    // almost every call here lands inside a double-quoted HTML attribute --
-    // block YAML in a title=, a help string in data-bs-content=. A quote in the
-    // value would end the attribute early, so escape those too.
-    var el = document.createElement('span');
-    el.textContent = text === null || text === undefined ? '' : text;
-    return el.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return window.ALWeaverEditorHtml.escapeAttribute(text);
   }
 
   function cloneData(value) {
@@ -7671,7 +7665,9 @@
         counts.kindVisible +
         ' block' +
         (counts.kindVisible === 1 ? '' : 's') +
-        ' (' + counts.total + ' total)';
+        ' (' +
+        counts.total +
+        ' total)';
     } else {
       var visible = counts.hasSearch ? counts.visible : counts.kindVisible;
       countEl.textContent =
@@ -13388,7 +13384,10 @@
     html +=
       '<div class="accordion editor-new-project-accordion" id="new-project-accordion">';
 
-    html += _newProjectSection('files', 'Template files', true,
+    html += _newProjectSection(
+      'files',
+      'Template files',
+      true,
       '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">' +
         '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>' +
@@ -13404,7 +13403,10 @@
     );
 
     // Basics: what an author has to decide, and what the document cannot answer.
-    html += _newProjectSection('basics', 'Project settings', true,
+    html += _newProjectSection(
+      'basics',
+      'Project settings',
+      true,
       '<div class="d-grid gap-3">' +
         '<div><label class="editor-tiny" for="new-project-name">Project name</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">' +
@@ -13426,7 +13428,10 @@
     );
 
     // Advanced: things Weaver can decide on its own, or that are already right.
-    html += _newProjectSection('advanced', 'Advanced settings', false,
+    html += _newProjectSection(
+      'advanced',
+      'Advanced settings',
+      false,
       '<div class="d-grid gap-3">' +
         '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-form-type">AssemblyLine form type</label>' +
         '<select class="form-select form-select-sm mt-1" id="new-project-form-type"><option value="auto">Let Weaver decide</option><option value="starts_case">Starts a case</option><option value="existing_case">Existing case</option><option value="appeal">Appeal</option><option value="other_form">Other form</option><option value="letter">Letter</option><option value="other">Other</option></select>' +
@@ -13444,7 +13449,10 @@
     // interview's `metadata` block; a project created without them starts out
     // failing the shared metadata style rule, and nothing else can supply the
     // jurisdiction or the landing page for you.
-    html += _newProjectSection('metadata', 'Publishing metadata', false,
+    html += _newProjectSection(
+      'metadata',
+      'Publishing metadata',
+      false,
       '<p class="text-muted small">These become the interview\'s <code>metadata</code> block. Anything you skip Weaver fills in with a guess, and you can revise it later in AssemblyLine settings.</p>' +
         '<div class="d-grid gap-3">' +
         '<div class="row g-3"><div class="col-md-8"><label class="editor-tiny" for="new-project-title">Title</label>' +
@@ -13469,7 +13477,10 @@
         '</div>',
     );
 
-    html += _newProjectSection('context', 'Drafting context', false,
+    html += _newProjectSection(
+      'context',
+      'Drafting context',
+      false,
       '<div class="d-grid gap-3">' +
         '<div><label class="editor-tiny" for="new-project-help-page-url">Reference page URL (optional)</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-help-page-url" type="url" placeholder="https://example.com/help"></div>' +
@@ -14028,13 +14039,19 @@
     var body = document.getElementById('kiln-test-sync-body');
     var data = _kilnTestSync.data;
     if (!body || !data) return;
-    document.querySelectorAll('[data-kiln-sync-tab]').forEach(function (button) {
-      var active = button.getAttribute('data-kiln-sync-tab') === _kilnTestSync.tab;
-      button.className = 'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
-    });
+    document
+      .querySelectorAll('[data-kiln-sync-tab]')
+      .forEach(function (button) {
+        var active =
+          button.getAttribute('data-kiln-sync-tab') === _kilnTestSync.tab;
+        button.className =
+          'btn ' + (active ? 'btn-primary' : 'btn-outline-secondary');
+      });
     if (_kilnTestSync.tab === 'draft') {
-      body.innerHTML = '<pre class="editor-diff-body"><code class="editor-diff-line">' +
-        esc(data.proposed_feature_text || '') + '</code></pre>';
+      body.innerHTML =
+        '<pre class="editor-diff-body"><code class="editor-diff-line">' +
+        esc(data.proposed_feature_text || '') +
+        '</code></pre>';
     } else {
       body.innerHTML = renderUnifiedDiffHtml(data.diff || '');
     }
@@ -14055,18 +14072,31 @@
     } else {
       badges = values
         .map(function (value) {
-          return '<span class="badge ' + changeClass + ' me-1">' + esc(value) + '</span>';
+          return (
+            '<span class="badge ' +
+            changeClass +
+            ' me-1">' +
+            esc(value) +
+            '</span>'
+          );
         })
         .join('');
     }
-    return '<div class="mb-2"><span class="fw-semibold">' + esc(label) + ':</span> ' +
-      badges + '</div>';
+    return (
+      '<div class="mb-2"><span class="fw-semibold">' +
+      esc(label) +
+      ':</span> ' +
+      badges +
+      '</div>'
+    );
   }
 
   function draftKilnTestSync() {
     var button = document.getElementById('kiln-test-draft');
     if (!state.project || !state.filename) return;
-    var modeInput = document.querySelector('input[name="kiln-test-mode"]:checked');
+    var modeInput = document.querySelector(
+      'input[name="kiln-test-mode"]:checked',
+    );
     var mode = modeInput ? modeInput.value : 'it_runs';
     var filenameInput = document.getElementById('kiln-test-filename');
     var questionInput = document.getElementById('kiln-test-question-id');
@@ -14092,31 +14122,53 @@
       question_id: questionInput ? questionInput.value : '',
       json_text: jsonInput ? jsonInput.value : '',
       accessibility: accessibilityInput ? accessibilityInput.checked : true,
-    }).then(function (res) {
-      if (!res.success || !res.data) throw new Error((res.error && res.error.message) || 'Unable to draft the ALKiln test.');
-      _kilnTestSync.data = res.data;
-      _kilnTestSync.tab = 'diff';
-      var tabs = document.getElementById('kiln-test-sync-tabs');
-      if (tabs) tabs.classList.remove('d-none');
-      var summary = document.getElementById('kiln-test-sync-summary');
-      if (summary) {
-        summary.innerHTML =
-          kilnChangeList('Added screens', res.data.added_screens, 'text-bg-success') +
-          kilnChangeList('Added rows', res.data.added_functionality, 'text-bg-success');
-        if (!summary.innerHTML) summary.textContent = 'The selected test is already in sync.';
-      }
-      var apply = document.getElementById('kiln-test-sync-apply');
-      if (apply) apply.disabled = Boolean(res.data.unchanged);
-      renderKilnTestSync();
-    }).catch(function (error) {
-      window.alert(error && error.message ? error.message : 'Unable to draft the ALKiln test.');
-    }).finally(function () {
-      if (button) button.disabled = false;
-    });
+    })
+      .then(function (res) {
+        if (!res.success || !res.data)
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to draft the ALKiln test.',
+          );
+        _kilnTestSync.data = res.data;
+        _kilnTestSync.tab = 'diff';
+        var tabs = document.getElementById('kiln-test-sync-tabs');
+        if (tabs) tabs.classList.remove('d-none');
+        var summary = document.getElementById('kiln-test-sync-summary');
+        if (summary) {
+          summary.innerHTML =
+            kilnChangeList(
+              'Added screens',
+              res.data.added_screens,
+              'text-bg-success',
+            ) +
+            kilnChangeList(
+              'Added rows',
+              res.data.added_functionality,
+              'text-bg-success',
+            );
+          if (!summary.innerHTML)
+            summary.textContent = 'The selected test is already in sync.';
+        }
+        var apply = document.getElementById('kiln-test-sync-apply');
+        if (apply) apply.disabled = Boolean(res.data.unchanged);
+        renderKilnTestSync();
+      })
+      .catch(function (error) {
+        window.alert(
+          error && error.message
+            ? error.message
+            : 'Unable to draft the ALKiln test.',
+        );
+      })
+      .finally(function () {
+        if (button) button.disabled = false;
+      });
   }
 
   function selectedKilnTestMode() {
-    var checked = document.querySelector('input[name="kiln-test-mode"]:checked');
+    var checked = document.querySelector(
+      'input[name="kiln-test-mode"]:checked',
+    );
     return checked ? checked.value : 'it_runs';
   }
 
@@ -14179,7 +14231,9 @@
               id +
               '">' +
               esc(filename) +
-              (required ? ' <span class="text-muted">(entrypoint)</span>' : '') +
+              (required
+                ? ' <span class="text-muted">(entrypoint)</span>'
+                : '') +
               '</label></div>'
             );
           })
@@ -14194,7 +14248,10 @@
     if (itRuns) itRuns.classList.toggle('d-none', isJson);
     if (jsonFields) jsonFields.classList.toggle('d-none', !isJson);
     var title = document.getElementById('kiln-test-sync-title');
-    if (title) title.textContent = isJson ? 'Create test from recorded path' : 'Create or sync “it runs” test';
+    if (title)
+      title.textContent = isJson
+        ? 'Create test from recorded path'
+        : 'Create or sync “it runs” test';
   }
 
   function openKilnTestSyncModal(options) {
@@ -14204,14 +14261,18 @@
     var body = document.getElementById('kiln-test-sync-body');
     var apply = document.getElementById('kiln-test-sync-apply');
     var mode = options.mode === 'json' ? 'json' : 'it_runs';
-    var modeInput = document.getElementById('kiln-test-mode-' + (mode === 'json' ? 'json' : 'it-runs'));
+    var modeInput = document.getElementById(
+      'kiln-test-mode-' + (mode === 'json' ? 'json' : 'it-runs'),
+    );
     if (modeInput) modeInput.checked = true;
     var filenameInput = document.getElementById('kiln-test-filename');
     var questionInput = document.getElementById('kiln-test-question-id');
     var jsonInput = document.getElementById('kiln-test-json');
     var accessibilityInput = document.getElementById('kiln-test-accessibility');
-    if (filenameInput) filenameInput.value = options.filename || 'recorded_path.feature';
-    if (questionInput) questionInput.value = options.questionId || 'review_screen';
+    if (filenameInput)
+      filenameInput.value = options.filename || 'recorded_path.feature';
+    if (questionInput)
+      questionInput.value = options.questionId || 'review_screen';
     if (jsonInput) jsonInput.value = options.jsonText || '';
     renderKilnYamlFileControls(options.entrypoint || state.filename);
     if (accessibilityInput) {
@@ -14223,9 +14284,11 @@
             : true;
     }
     syncKilnTestModeFields();
-    if (body) body.textContent = mode === 'json'
-      ? 'Review the generated test before saving it as a new feature file.'
-      : 'Review the additive changes to Weaver’s managed smoke test.';
+    if (body)
+      body.textContent =
+        mode === 'json'
+          ? 'Review the generated test before saving it as a new feature file.'
+          : 'Review the additive changes to Weaver’s managed smoke test.';
     if (apply) apply.disabled = true;
     var tabs = document.getElementById('kiln-test-sync-tabs');
     if (tabs) tabs.classList.add('d-none');
@@ -14278,18 +14341,33 @@
       test_filename: data.test_filename,
       mode: data.mode || 'it_runs',
       content: data.proposed_feature_text,
-    }).then(function (res) {
-      if (!res.success) throw new Error((res.error && res.error.message) || 'Unable to save the ALKiln test.');
-      closeBootstrapModal('kiln-test-sync-modal');
-      _showSuccessBanner('Saved ALKiln test "' + esc(data.test_filename) + '".');
-      if (state.currentView === 'data') loadSectionFiles('data');
-      if (state.currentView === 'interview' && state.canvasMode === 'tests-overview') {
-        loadKilnTestsOverview();
-      }
-    }).catch(function (error) {
-      if (apply) apply.disabled = false;
-      window.alert(error && error.message ? error.message : 'Unable to save the ALKiln test.');
-    });
+    })
+      .then(function (res) {
+        if (!res.success)
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to save the ALKiln test.',
+          );
+        closeBootstrapModal('kiln-test-sync-modal');
+        _showSuccessBanner(
+          'Saved ALKiln test "' + esc(data.test_filename) + '".',
+        );
+        if (state.currentView === 'data') loadSectionFiles('data');
+        if (
+          state.currentView === 'interview' &&
+          state.canvasMode === 'tests-overview'
+        ) {
+          loadKilnTestsOverview();
+        }
+      })
+      .catch(function (error) {
+        if (apply) apply.disabled = false;
+        window.alert(
+          error && error.message
+            ? error.message
+            : 'Unable to save the ALKiln test.',
+        );
+      });
   }
 
   function loadKilnTestsOverview() {
@@ -14297,25 +14375,35 @@
     state.kilnTestsLoading = true;
     state.kilnTestsError = '';
     renderTestsOverview();
-    return apiGet('/api/kiln-tests?project=' + encodeURIComponent(state.project))
+    return apiGet(
+      '/api/kiln-tests?project=' + encodeURIComponent(state.project),
+    )
       .then(function (res) {
         if (!res.success || !res.data) {
-          throw new Error((res.error && res.error.message) || 'Unable to list tests.');
+          throw new Error(
+            (res.error && res.error.message) || 'Unable to list tests.',
+          );
         }
         state.kilnTests = Array.isArray(res.data.tests) ? res.data.tests : [];
-        state.kilnManagedFilename = res.data.managed_test_filename || 'weaver_it_runs.feature';
+        state.kilnManagedFilename =
+          res.data.managed_test_filename || 'weaver_it_runs.feature';
         if (typeof res.data.managed_accessibility_enabled === 'boolean') {
-          state.kilnManagedAccessibility = res.data.managed_accessibility_enabled;
+          state.kilnManagedAccessibility =
+            res.data.managed_accessibility_enabled;
         } else {
           state.kilnManagedAccessibility = true;
         }
       })
       .catch(function (error) {
-        state.kilnTestsError = error && error.message ? error.message : 'Unable to list tests.';
+        state.kilnTestsError =
+          error && error.message ? error.message : 'Unable to list tests.';
       })
       .finally(function () {
         state.kilnTestsLoading = false;
-        if (state.currentView === 'interview' && state.canvasMode === 'tests-overview') {
+        if (
+          state.currentView === 'interview' &&
+          state.canvasMode === 'tests-overview'
+        ) {
           renderTestsOverview();
         }
       });
@@ -14324,22 +14412,35 @@
   function renderTestsOverview() {
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
-    html += '<div><h2 style="font-weight:700;font-size:18px;margin:0">Tests</h2>';
-    html += '<p class="text-muted small mb-0 mt-1">Create and keep ALKiln tests in sync with the screens in this interview.</p></div>';
-    html += '<button type="button" class="btn btn-sm btn-primary" id="btn-new-kiln-test-overview"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
+    html +=
+      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Tests</h2>';
+    html +=
+      '<p class="text-muted small mb-0 mt-1">Create and keep ALKiln tests in sync with the screens in this interview.</p></div>';
+    html +=
+      '<button type="button" class="btn btn-sm btn-primary" id="btn-new-kiln-test-overview"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New</button>';
     html += '</div>';
     if (state.kilnTestsLoading) {
-      html += '<div class="editor-secondary-center"><div class="text-muted">Loading tests…</div></div>';
+      html +=
+        '<div class="editor-secondary-center"><div class="text-muted">Loading tests…</div></div>';
     } else if (state.kilnTestsError) {
-      html += '<div class="alert alert-danger m-3" role="alert">' + esc(state.kilnTestsError) + '</div>';
+      html +=
+        '<div class="alert alert-danger m-3" role="alert">' +
+        esc(state.kilnTestsError) +
+        '</div>';
     } else if (!state.kilnTests.length) {
-      html += '<div class="editor-secondary-center"><div class="editor-secondary-card"><h3 class="h5">No tests yet</h3><p class="text-muted">Create a default ALKiln test containing definitions for every generated screen.</p><button type="button" class="btn btn-primary" data-new-kiln-test><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Create your first test</button></div></div>';
+      html +=
+        '<div class="editor-secondary-center"><div class="editor-secondary-card"><h3 class="h5">No tests yet</h3><p class="text-muted">Create a default ALKiln test containing definitions for every generated screen.</p><button type="button" class="btn btn-primary" data-new-kiln-test><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Create your first test</button></div></div>';
     } else {
-      html += '<div class="editor-card m-3"><div class="editor-card-body"><div class="list-group list-group-flush">';
+      html +=
+        '<div class="editor-card m-3"><div class="editor-card-body"><div class="list-group list-group-flush">';
       state.kilnTests.forEach(function (filename) {
         var isManaged = filename === state.kilnManagedFilename;
-        html += '<div class="list-group-item d-flex align-items-center justify-content-between gap-3 px-0">';
-        html += '<div><i class="fa-solid fa-vial-circle-check me-2 text-muted" aria-hidden="true"></i><span class="fw-semibold">' + esc(filename) + '</span>';
+        html +=
+          '<div class="list-group-item d-flex align-items-center justify-content-between gap-3 px-0">';
+        html +=
+          '<div><i class="fa-solid fa-vial-circle-check me-2 text-muted" aria-hidden="true"></i><span class="fw-semibold">' +
+          esc(filename) +
+          '</span>';
         html += isManaged
           ? '<span class="badge text-bg-light border ms-2">Weaver-managed</span>'
           : '<span class="badge text-bg-light border ms-2">Custom test</span>';
@@ -14349,9 +14450,15 @@
             : '<span class="badge text-bg-secondary ms-2">Accessibility off</span>';
         }
         html += '</div><div class="d-flex gap-2">';
-        html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-kiln-test-open="' + esc(filename) + '">Open in Sources</button>';
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-secondary" data-kiln-test-open="' +
+          esc(filename) +
+          '">Open in Sources</button>';
         if (isManaged) {
-          html += '<button type="button" class="btn btn-sm btn-outline-primary" data-kiln-test-sync="' + esc(filename) + '">Review &amp; sync</button>';
+          html +=
+            '<button type="button" class="btn btn-sm btn-outline-primary" data-kiln-test-sync="' +
+            esc(filename) +
+            '">Review &amp; sync</button>';
         }
         html += '</div>';
         html += '</div>';
@@ -14365,7 +14472,9 @@
   function openTestsOverview() {
     state.currentView = 'interview';
     state.canvasMode = 'tests-overview';
-    var interviewTab = document.querySelector('.editor-top-tab[data-view="interview"]');
+    var interviewTab = document.querySelector(
+      '.editor-top-tab[data-view="interview"]',
+    );
     if (interviewTab) setActiveTopTab(interviewTab);
     renderOutline();
     renderCanvas();
@@ -14625,7 +14734,11 @@
       var maxCols = maxColsInput ? maxColsInput.value.trim() : '';
       if (maxCols) {
         var parsedCols = Number(maxCols);
-        if (!Number.isInteger(parsedCols) || parsedCols < 1 || parsedCols > 12) {
+        if (
+          !Number.isInteger(parsedCols) ||
+          parsedCols < 1 ||
+          parsedCols > 12
+        ) {
           setNewTemplateError(
             'Columns per list must be a whole number from 1 to 12.',
           );
@@ -14669,7 +14782,8 @@
             '.';
         }
         if (res.data.markdown_filename) {
-          drafted += ' Saved ' + esc(res.data.markdown_filename) + ' beside it.';
+          drafted +=
+            ' Saved ' + esc(res.data.markdown_filename) + ' beside it.';
         } else if (res.data.markdown_written === false) {
           drafted +=
             ' ALDashboard returned no Markdown draft, so none was saved.';
@@ -16213,7 +16327,10 @@
         importStatus.textContent =
           'Creating the project and pulling files from GitHub…';
       }
-      apiPost('/api/new-project', { project_name: importName, github_url: importUrl })
+      apiPost('/api/new-project', {
+        project_name: importName,
+        github_url: importUrl,
+      })
         .then(function (res) {
           if (!res.success || !res.data) {
             throw new Error(
@@ -16433,7 +16550,9 @@
         // Playground and writes back to it, so unsaved work has to land first
         // or the refresh afterwards would drop it.
         closeBootstrapModal('insert-modal');
-        promptAndSaveUnsavedChanges('add questions from the AssemblyLine library').then(function (canContinue) {
+        promptAndSaveUnsavedChanges(
+          'add questions from the AssemblyLine library',
+        ).then(function (canContinue) {
           if (canContinue) openQuestionLibraryPicker();
         });
         return;
@@ -16746,7 +16865,9 @@
       var kilnFilename = kilnTestOpenButton.getAttribute('data-kiln-test-open');
       state.currentView = 'data';
       state.sectionSelectedFile.data = kilnFilename;
-      var sourcesTab = document.querySelector('.editor-top-tab[data-view="data"]');
+      var sourcesTab = document.querySelector(
+        '.editor-top-tab[data-view="data"]',
+      );
       if (sourcesTab) setActiveTopTab(sourcesTab);
       loadSectionFiles('data');
       return;
@@ -17002,9 +17123,11 @@
     }
 
     if (uiAction === 'open-tests-overview') {
-      promptAndSaveUnsavedChanges('open the tests overview').then(function (saved) {
-        if (saved) openTestsOverview();
-      });
+      promptAndSaveUnsavedChanges('open the tests overview').then(
+        function (saved) {
+          if (saved) openTestsOverview();
+        },
+      );
       return;
     }
 
@@ -18345,7 +18468,9 @@
       var enableNavigation = enableNavigationInput
         ? enableNavigationInput.checked
         : true;
-      var copyBaselineQuestions = copyBaselineQuestionsInput ? copyBaselineQuestionsInput.checked : true;
+      var copyBaselineQuestions = copyBaselineQuestionsInput
+        ? copyBaselineQuestionsInput.checked
+        : true;
       var createTest = createTestInput ? createTestInput.checked : true;
       var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
       if (githubUrl && _uploadedFiles.length > 0) {
@@ -18372,17 +18497,47 @@
         formData.append('form_type', formType);
         formData.append('default_state', defaultState);
         formData.append('typical_role', userRole);
-        formData.append('include_next_steps', includeNextSteps ? 'true' : 'false');
-        formData.append('enable_navigation', enableNavigation ? 'true' : 'false');
-        formData.append('copy_baseline_questions', copyBaselineQuestions ? 'true' : 'false');
+        formData.append(
+          'include_next_steps',
+          includeNextSteps ? 'true' : 'false',
+        );
+        formData.append(
+          'enable_navigation',
+          enableNavigation ? 'true' : 'false',
+        );
+        formData.append(
+          'copy_baseline_questions',
+          copyBaselineQuestions ? 'true' : 'false',
+        );
         formData.append('create_test', createTest ? 'true' : 'false');
-        formData.append('interview_filename', filenameInput ? filenameInput.value.trim() : '');
-        formData.append('interview_title', titleInput ? titleInput.value.trim() : '');
-        formData.append('interview_short_title', shortTitleInput ? shortTitleInput.value.trim() : '');
-        formData.append('interview_description', descriptionInput ? descriptionInput.value.trim() : '');
-        formData.append('jurisdiction', jurisdictionInput ? jurisdictionInput.value.trim() : '');
-        formData.append('landing_page_url', landingPageUrlInput ? landingPageUrlInput.value.trim() : '');
-        formData.append('list_topics', listTopicsInput ? listTopicsInput.value.trim() : '');
+        formData.append(
+          'interview_filename',
+          filenameInput ? filenameInput.value.trim() : '',
+        );
+        formData.append(
+          'interview_title',
+          titleInput ? titleInput.value.trim() : '',
+        );
+        formData.append(
+          'interview_short_title',
+          shortTitleInput ? shortTitleInput.value.trim() : '',
+        );
+        formData.append(
+          'interview_description',
+          descriptionInput ? descriptionInput.value.trim() : '',
+        );
+        formData.append(
+          'jurisdiction',
+          jurisdictionInput ? jurisdictionInput.value.trim() : '',
+        );
+        formData.append(
+          'landing_page_url',
+          landingPageUrlInput ? landingPageUrlInput.value.trim() : '',
+        );
+        formData.append(
+          'list_topics',
+          listTopicsInput ? listTopicsInput.value.trim() : '',
+        );
         _uploadedFiles.forEach(function (f) {
           formData.append('files', f, f.name);
         });
@@ -18604,10 +18759,7 @@
   document.addEventListener('change', function (e) {
     var target = e.target;
     if (target.id === 'kiln-test-entrypoint') {
-      renderKilnYamlFileControls(
-        target.value,
-        selectedKilnYamlFilenames(),
-      );
+      renderKilnYamlFileControls(target.value, selectedKilnYamlFilenames());
       return;
     }
     if (target.id === 'question-library-new-class') {
