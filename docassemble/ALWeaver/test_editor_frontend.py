@@ -155,6 +155,11 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="new-template-report-shape"', template)
         self.assertIn('id="new-template-report-profile"', template)
         self.assertIn('id="new-template-report-cos"', template)
+        self.assertIn('id="new-template-report-numbering"', template)
+        self.assertIn('id="new-template-report-vartypes"', template)
+        self.assertIn('id="new-template-report-maxcols"', template)
+        self.assertIn('id="new-template-report-markdown"', template)
+        self.assertIn('id="new-template-report-intake-wrap"', template)
         self.assertIn('id="new-template-report-sources"', template)
         self.assertIn(".editor-choice-card", css)
 

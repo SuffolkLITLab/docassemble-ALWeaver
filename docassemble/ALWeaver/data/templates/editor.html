@@ -583,10 +583,40 @@
               <input class="form-check-input" type="checkbox" id="new-template-report-cos">
               <label class="form-check-label editor-tiny" for="new-template-report-cos">Include a certificate of service</label>
             </div>
+            <label class="editor-tiny mt-2" for="new-template-report-numbering">Body paragraphs</label>
+            <select class="form-select form-select-sm mt-1" id="new-template-report-numbering">
+              <option value="">Follow the court&#39;s profile</option>
+              <option value="yes">Number them</option>
+              <option value="no">Leave them unnumbered</option>
+            </select>
+            <div class="editor-tiny text-muted mt-1">
+              Most courts want a numbered body, so the profile usually says yes.
+              Override it here for a form that reads as prose.
+            </div>
+          </div>
+          <div id="new-template-report-intake-wrap">
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="new-template-report-varnames">
+              <label class="form-check-label editor-tiny" for="new-template-report-varnames">Show variable names beside each label</label>
+            </div>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="new-template-report-vartypes">
+              <label class="form-check-label editor-tiny" for="new-template-report-vartypes">Show each variable&#39;s type beside its label</label>
+            </div>
+            <label class="editor-tiny mt-2" for="new-template-report-maxcols">Columns per list table</label>
+            <input class="form-control form-control-sm mt-1" id="new-template-report-maxcols" type="number" min="1" max="12" inputmode="numeric" autocomplete="off">
+            <div class="editor-tiny text-muted mt-1">
+              How many of a list item&#39;s attributes get their own column before
+              the rest spill into a second table. Leave blank for the default.
+            </div>
           </div>
           <div class="form-check mt-2">
-            <input class="form-check-input" type="checkbox" id="new-template-report-varnames">
-            <label class="form-check-label editor-tiny" for="new-template-report-varnames">Show variable names beside each label</label>
+            <input class="form-check-input" type="checkbox" id="new-template-report-markdown">
+            <label class="form-check-label editor-tiny" for="new-template-report-markdown">Also save the Mako + Markdown draft (.md)</label>
+          </div>
+          <div class="editor-tiny text-muted mt-1">
+            The same document in text, under the same name. It is the version you
+            can diff, and what an attachment&#39;s <code>content file:</code> wants.
           </div>
           <div class="editor-tiny text-muted mt-2" id="new-template-report-sources"></div>
         </div>
