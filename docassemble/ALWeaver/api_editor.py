@@ -736,6 +736,40 @@ def _normalize_storage_filename(raw: Optional[str]) -> str:
     return value
 
 
+def _optional_flag(raw: Any) -> Optional[bool]:
+    """A yes/no that is allowed to be neither, for a setting with a default.
+
+    A checkbox cannot say "leave it to the profile", so the editor sends the
+    key only when the author actually chose. An absent or empty value is that
+    third state and stays ``None`` rather than collapsing to ``False``.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in _TRUTHY:
+            return True
+        if value in _FALSY:
+            return False
+        raise ValueError(f"Expected yes or no, not {raw!r}.")
+    return bool(raw)
+
+
+def _optional_list_columns(raw: Any) -> Optional[int]:
+    """How many columns a list table may use, or ``None`` for the default."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if isinstance(raw, float) and not raw.is_integer():
+        raise ValueError("Columns per list must be a whole number.")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as err:
+        raise ValueError("Columns per list must be a whole number.") from err
+    if value < 1 or value > 12:
+        raise ValueError("Columns per list must be between 1 and 12.")
+    return value
+
+
 def _editor_storage_directory(
     user_id: int, project: str, storage_section: str
 ) -> tuple[Any, str]:
@@ -2857,6 +2891,8 @@ def editor_api_template_variable_report() -> Response:
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
         show_variable_names = bool(post_data.get("show_variable_names"))
+        show_variable_types = bool(post_data.get("show_variable_types"))
+        max_list_cols = _optional_list_columns(post_data.get("max_list_cols"))
         shape = str(post_data.get("shape") or "intake").strip().lower() or "intake"
         court_profile = str(post_data.get("court_profile") or "").strip() or None
         include_certificate_of_service = (
@@ -2864,6 +2900,10 @@ def editor_api_template_variable_report() -> Response:
             if post_data.get("include_certificate_of_service") is not None
             else None
         )
+        # Tri-state on purpose: unset means "whatever this court's profile
+        # says", which is not the same answer as "do not number the body".
+        numbered_paragraphs = _optional_flag(post_data.get("numbered_paragraphs"))
+        include_markdown = bool(post_data.get("include_markdown"))
 
         raw_yaml = playground_read_yaml(uid, project, filename)
 
@@ -2886,21 +2926,58 @@ def editor_api_template_variable_report() -> Response:
         storage_section = EDITOR_SECTION_TO_STORAGE["templates"]
         area, directory = _editor_storage_directory(uid, project, storage_section)
         path = os.path.join(directory, output_filename)
-        if os.path.exists(path) and not post_data.get("overwrite"):
-            raise ValueError(
-                f"{output_filename} already exists. Rename it, or choose to replace it."
-            )
+        # The Markdown draft is the same document in text, so it shares the
+        # DOCX's name -- and has to clear the same overwrite check before
+        # either file is written.
+        markdown_filename = (
+            f"{os.path.splitext(output_filename)[0]}.md" if include_markdown else None
+        )
+        for name in (output_filename, markdown_filename):
+            if not name:
+                continue
+            if os.path.exists(os.path.join(directory, name)) and not post_data.get(
+                "overwrite"
+            ):
+                raise ValueError(
+                    f"{name} already exists. Rename it, or choose to replace it."
+                )
 
         summary = write_variable_report_docx(
             yaml_texts,
             path,
             report_title=report_title or None,
             show_variable_names=show_variable_names,
+            show_variable_types=show_variable_types,
+            max_list_cols=max_list_cols,
             shape=shape,
             court_profile=court_profile,
             include_certificate_of_service=include_certificate_of_service,
+            numbered_paragraphs=numbered_paragraphs,
+            markdown_path=(
+                os.path.join(directory, markdown_filename)
+                if markdown_filename
+                else None
+            ),
         )
+
+        # A Dashboard that hands back no markdown leaves nothing to sit beside
+        # the new DOCX. Anything still at that path is the previous draft --
+        # the overwrite check already cleared it, or we would not be here --
+        # and it no longer describes the document next to it. Left alone it is
+        # a trap: an attachment's `content file:` would go on assembling the
+        # old text against the new form. So it goes, and the caller is told.
+        markdown_written = bool(markdown_filename and summary.get("markdown_size"))
+        if markdown_filename and not markdown_written:
+            stale_markdown = os.path.join(directory, markdown_filename)
+            if os.path.exists(stale_markdown):
+                os.remove(stale_markdown)
         area.finalize()
+
+        markdown_data: Dict[str, Any] = {}
+        if markdown_written:
+            markdown_data["markdown_filename"] = markdown_filename
+        elif include_markdown:
+            markdown_data["markdown_written"] = False
 
         return jsonify(
             {
@@ -2912,6 +2989,7 @@ def editor_api_template_variable_report() -> Response:
                     "filename": output_filename,
                     "title": report_title,
                     "sources": sources,
+                    **markdown_data,
                     **summary,
                 },
             }

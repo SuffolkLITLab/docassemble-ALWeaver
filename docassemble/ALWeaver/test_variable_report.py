@@ -30,8 +30,9 @@ class _FakeDashboard:
     test environment, which is exactly the condition these tests care about.
     """
 
-    def __init__(self, court_shapes: bool = True):
+    def __init__(self, court_shapes: bool = True, markdown: str = "# Draft\n"):
         self.court_shapes = court_shapes
+        self.markdown = markdown
         self.calls: List[Tuple[List[str], Dict[str, Any]]] = []
 
     def generate(self, texts, **kwargs):
@@ -45,6 +46,7 @@ class _FakeDashboard:
             "list_count": 1,
             "scalar_count": 3,
             "shape": kwargs.get("shape", "intake"),
+            "mako_markdown": self.markdown,
         }
         if kwargs.get("shape") and kwargs["shape"] != "intake":
             result.update(
@@ -176,6 +178,81 @@ class TestWriteVariableReportDocx(unittest.TestCase):
         summary = write_variable_report_docx([SAMPLE_YAML], self._path())
         self.assertEqual(summary["variables_count"], 4)
         self.assertGreater(summary["size"], 0)
+
+    def test_the_intake_table_options_reach_the_dashboard(self):
+        fake = _FakeDashboard()
+        fake.install(self)
+        write_variable_report_docx(
+            [SAMPLE_YAML],
+            self._path(),
+            show_variable_names=True,
+            show_variable_types=True,
+            max_list_cols=6,
+        )
+        _texts, kwargs = fake.calls[0]
+        self.assertIs(kwargs["show_variable_names"], True)
+        self.assertIs(kwargs["show_variable_types"], True)
+        self.assertEqual(kwargs["max_list_cols"], 6)
+
+    def test_an_unset_column_count_is_left_to_the_dashboard(self):
+        """Its default is an int, so None would be worse than saying nothing."""
+        fake = _FakeDashboard()
+        fake.install(self)
+        write_variable_report_docx([SAMPLE_YAML], self._path())
+        _texts, kwargs = fake.calls[0]
+        self.assertNotIn("max_list_cols", kwargs)
+        self.assertIs(kwargs["show_variable_types"], False)
+
+    def test_paragraph_numbering_is_passed_only_when_chosen(self):
+        fake = _FakeDashboard()
+        fake.install(self)
+        write_variable_report_docx([SAMPLE_YAML], self._path(), shape="motion")
+        _texts, kwargs = fake.calls[0]
+        self.assertNotIn("numbered_paragraphs", kwargs)
+
+        write_variable_report_docx(
+            [SAMPLE_YAML], self._path(), shape="motion", numbered_paragraphs=False
+        )
+        _texts, kwargs = fake.calls[1]
+        self.assertIs(kwargs["numbered_paragraphs"], False)
+
+    def test_paragraph_numbering_never_reaches_the_intake_report(self):
+        """It is a court body setting, and an older Dashboard would choke."""
+        fake = _FakeDashboard(court_shapes=False)
+        fake.install(self)
+        write_variable_report_docx(
+            [SAMPLE_YAML], self._path(), numbered_paragraphs=True
+        )
+        _texts, kwargs = fake.calls[0]
+        self.assertNotIn("numbered_paragraphs", kwargs)
+
+    def test_the_markdown_draft_is_written_beside_the_docx(self):
+        fake = _FakeDashboard(markdown="# Motion to Vacate\n\n${ docket_number }\n")
+        fake.install(self)
+        markdown_path = self._path("draft.md")
+        summary = write_variable_report_docx(
+            [SAMPLE_YAML], self._path(), markdown_path=markdown_path
+        )
+        with open(markdown_path, encoding="utf-8") as handle:
+            self.assertIn("${ docket_number }", handle.read())
+        self.assertGreater(summary["markdown_size"], 0)
+
+    def test_no_markdown_file_is_written_when_none_was_asked_for(self):
+        fake = _FakeDashboard()
+        fake.install(self)
+        summary = write_variable_report_docx([SAMPLE_YAML], self._path())
+        self.assertNotIn("markdown_size", summary)
+        self.assertFalse(os.path.exists(self._path("draft.md")))
+
+    def test_a_dashboard_that_returns_no_markdown_leaves_no_empty_file(self):
+        fake = _FakeDashboard(markdown="   ")
+        fake.install(self)
+        markdown_path = self._path("draft.md")
+        summary = write_variable_report_docx(
+            [SAMPLE_YAML], self._path(), markdown_path=markdown_path
+        )
+        self.assertNotIn("markdown_size", summary)
+        self.assertFalse(os.path.exists(markdown_path))
 
     def test_empty_yaml_is_rejected_before_the_dashboard_is_called(self):
         fake = _FakeDashboard()

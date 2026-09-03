@@ -14268,6 +14268,7 @@
     }
     if (reportName) reportName.value = '';
     if (reportTitle) reportTitle.value = '';
+    resetVariableReportIntakeFields();
     resetVariableReportShapes();
     if (sources) {
       sources.textContent = haveInterview
@@ -14289,11 +14290,27 @@
     var shape = document.getElementById('new-template-report-shape');
     var profile = document.getElementById('new-template-report-profile');
     var cos = document.getElementById('new-template-report-cos');
+    var numbering = document.getElementById('new-template-report-numbering');
     if (shapeWrap) shapeWrap.classList.add('d-none');
     if (courtWrap) courtWrap.classList.add('d-none');
     if (shape) shape.innerHTML = '';
     if (profile) profile.innerHTML = '';
     if (cos) cos.checked = false;
+    if (numbering) numbering.value = '';
+    // With no shape chosen the intake report is what gets drafted, so its
+    // options are the ones that belong on screen.
+    syncVariableReportShapeFields();
+  }
+
+  function resetVariableReportIntakeFields() {
+    var varNames = document.getElementById('new-template-report-varnames');
+    var varTypes = document.getElementById('new-template-report-vartypes');
+    var maxCols = document.getElementById('new-template-report-maxcols');
+    var markdown = document.getElementById('new-template-report-markdown');
+    if (varNames) varNames.checked = false;
+    if (varTypes) varTypes.checked = false;
+    if (maxCols) maxCols.value = '';
+    if (markdown) markdown.checked = false;
   }
 
   function fillSelect(select, items, selectedValue) {
@@ -14311,9 +14328,12 @@
   function syncVariableReportShapeFields() {
     var shape = document.getElementById('new-template-report-shape');
     var courtWrap = document.getElementById('new-template-report-court-wrap');
-    if (!courtWrap) return;
+    var intakeWrap = document.getElementById('new-template-report-intake-wrap');
     var isCourt = Boolean(shape && shape.value && shape.value !== 'intake');
-    courtWrap.classList.toggle('d-none', !isCourt);
+    if (courtWrap) courtWrap.classList.toggle('d-none', !isCourt);
+    // The Dashboard ignores the intake knobs on a court shape; showing them
+    // there would promise a setting that does nothing.
+    if (intakeWrap) intakeWrap.classList.toggle('d-none', isCourt);
   }
 
   function applyVariableReportOptions(data) {
@@ -14420,9 +14440,15 @@
       'new-template-report-filename',
     );
     var varNames = document.getElementById('new-template-report-varnames');
+    var varTypes = document.getElementById('new-template-report-vartypes');
+    var maxColsInput = document.getElementById('new-template-report-maxcols');
+    var markdownInput = document.getElementById('new-template-report-markdown');
     var shapeInput = document.getElementById('new-template-report-shape');
     var profileInput = document.getElementById('new-template-report-profile');
     var cosInput = document.getElementById('new-template-report-cos');
+    var numberingInput = document.getElementById(
+      'new-template-report-numbering',
+    );
     var shape = shapeInput && shapeInput.value ? shapeInput.value : 'intake';
     var payload = {
       project: state.project,
@@ -14431,12 +14457,30 @@
       output_filename: reportNameInput ? reportNameInput.value.trim() : '',
       show_variable_names: Boolean(varNames && varNames.checked),
       shape: shape,
+      include_markdown: Boolean(markdownInput && markdownInput.checked),
     };
-    if (shape !== 'intake') {
+    if (shape === 'intake') {
+      payload.show_variable_types = Boolean(varTypes && varTypes.checked);
+      var maxCols = maxColsInput ? maxColsInput.value.trim() : '';
+      if (maxCols) {
+        var parsedCols = Number(maxCols);
+        if (!Number.isInteger(parsedCols) || parsedCols < 1 || parsedCols > 12) {
+          setNewTemplateError(
+            'Columns per list must be a whole number from 1 to 12.',
+          );
+          finish();
+          return;
+        }
+        payload.max_list_cols = parsedCols;
+      }
+    } else {
       payload.court_profile = profileInput ? profileInput.value : '';
       payload.include_certificate_of_service = Boolean(
         cosInput && cosInput.checked,
       );
+      // Sent only when the author overrode it, so the profile keeps the say.
+      var numbering = numberingInput ? numberingInput.value : '';
+      if (numbering) payload.numbered_paragraphs = numbering === 'yes';
     }
     apiPost('/api/template/variable-report', payload)
       .then(function (res) {
@@ -14462,6 +14506,12 @@
             ' Caption and signature block from ' +
             esc(res.data.profile_name) +
             '.';
+        }
+        if (res.data.markdown_filename) {
+          drafted += ' Saved ' + esc(res.data.markdown_filename) + ' beside it.';
+        } else if (res.data.markdown_written === false) {
+          drafted +=
+            ' ALDashboard returned no Markdown draft, so none was saved.';
         }
         _showSuccessBanner(
           drafted + ' Import it under Document setup to assemble it.',

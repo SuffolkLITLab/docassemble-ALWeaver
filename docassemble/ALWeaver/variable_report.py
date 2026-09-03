@@ -21,6 +21,12 @@ screens become the middle of the document. This module exposes that as the
 server actually has, because the answer depends on which ALDashboard is
 installed -- an older one has none of this, and the Weaver has to keep working
 against it.
+
+Every shape is drafted twice by the Dashboard: once as the DOCX, and once as a
+Mako + Markdown source that says the same thing in text. The Dashboard's own
+screen saves both, and ``markdown_path`` does the same here -- a Markdown
+template is the one an author can diff, and it is what an attachment's
+``content file:`` wants.
 """
 
 import os
@@ -122,9 +128,13 @@ def write_variable_report_docx(
     *,
     report_title: Optional[str] = None,
     show_variable_names: bool = False,
+    show_variable_types: bool = False,
+    max_list_cols: Optional[int] = None,
     shape: str = DEFAULT_SHAPE,
     court_profile: Optional[str] = None,
     include_certificate_of_service: Optional[bool] = None,
+    numbered_paragraphs: Optional[bool] = None,
+    markdown_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Write the report to ``output_path`` and describe what went into it.
 
@@ -133,6 +143,17 @@ def write_variable_report_docx(
     court document using the jurisdiction profile named by ``court_profile``,
     and the returned summary then also carries which profile was used and which
     template each fixed section came from.
+
+    ``show_variable_types`` and ``max_list_cols`` shape the intake summary's
+    tables and are ignored by the court shapes. ``numbered_paragraphs`` is the
+    reverse -- it belongs to the court body, and leaving it ``None`` keeps
+    whatever the jurisdiction profile says, which is what an author who has not
+    thought about it should get.
+
+    Passing ``markdown_path`` also writes the Mako + Markdown draft the
+    Dashboard produces alongside every DOCX, and reports its size as
+    ``markdown_size``. A Dashboard old enough to return no markdown simply
+    writes no file, and the key is absent.
 
     Raises ``ALDashboardUnavailable`` when the Dashboard package is not
     installed, or when it is too old to draft the requested shape.
@@ -149,8 +170,13 @@ def write_variable_report_docx(
     options: Dict[str, Any] = {
         "report_title": report_title,
         "show_variable_names": show_variable_names,
+        "show_variable_types": show_variable_types,
         "output_docx_path": output_path,
     }
+    # Left out rather than passed as None: the Dashboard's default is an int,
+    # and an older one has no notion of "unset" for it.
+    if max_list_cols is not None:
+        options["max_list_cols"] = int(max_list_cols)
     if shape_name != DEFAULT_SHAPE:
         if not supports_court_form_shapes():
             raise ALDashboardUnavailable(
@@ -165,6 +191,8 @@ def write_variable_report_docx(
             options["include_certificate_of_service"] = bool(
                 include_certificate_of_service
             )
+        if numbered_paragraphs is not None:
+            options["numbered_paragraphs"] = bool(numbered_paragraphs)
 
     result = generate_variable_report(texts, **options)
 
@@ -181,4 +209,11 @@ def write_variable_report_docx(
     for key in ("profile_id", "profile_name", "sections"):
         if result.get(key):
             summary[key] = result[key]
+
+    if markdown_path:
+        markdown = str(result.get("mako_markdown") or "")
+        if markdown.strip():
+            with open(markdown_path, "w", encoding="utf-8") as handle:
+                handle.write(markdown)
+            summary["markdown_size"] = os.path.getsize(markdown_path)
     return summary
