@@ -158,6 +158,7 @@ from .editor_modules import (
     unpublish_module,
     validate_module_filename,
 )
+from .project_filenames import safe_project_filename
 from .assemblyline_settings import read_settings, update_settings
 from .question_library import (
     attribute_references,
@@ -734,6 +735,30 @@ def _normalize_storage_filename(raw: Optional[str]) -> str:
     if not value or value in {".", ".."}:
         raise ValueError("filename is required")
     return value
+
+
+def _renamed_file_message(requested: str, stored: str, reason: str) -> str:
+    """Explain, to the author, why the file is not called what they called it.
+
+    Args:
+        requested (str): the name the file arrived with.
+        stored (str): the name the project actually stores it under.
+        reason (str): ``unsupported_characters`` or ``name_taken``.
+
+    Returns:
+        str: a sentence naming both names and the rule behind the change.
+    """
+    if reason == "name_taken":
+        return (
+            f"{requested} was saved as {stored}, because this project already "
+            "has a file with that name."
+        )
+    return (
+        f"{requested} was saved as {stored}. The Playground can only find a "
+        "file whose name is made of letters, digits, dots, hyphens and "
+        "underscores, so anything else in the name is replaced. Refer to it "
+        f"as {stored} in your interview."
+    )
 
 
 def _optional_flag(raw: Any) -> Optional[bool]:
@@ -2917,8 +2942,11 @@ def editor_api_template_variable_report() -> Response:
         )
         suggested = suggested_report_names(yaml_texts, primary_filename=filename)
         report_title = str(post_data.get("title") or suggested["title"]).strip()
-        output_filename = _normalize_storage_filename(
-            post_data.get("output_filename") or suggested["filename"]
+        output_filename = safe_project_filename(
+            _normalize_storage_filename(
+                post_data.get("output_filename") or suggested["filename"]
+            ),
+            default_stem="variables",
         )
         if not output_filename.lower().endswith(".docx"):
             output_filename += ".docx"
@@ -3041,9 +3069,17 @@ def editor_api_upload_section_file() -> Response:
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
         saved_files: List[str] = []
+        renamed_files: List[Dict[str, str]] = []
         modules: List[Dict[str, Any]] = []
         for upload in uploads:
-            candidate_name = _normalize_storage_filename(upload.filename)
+            requested_name = _normalize_storage_filename(upload.filename)
+            # A name Docassemble cannot resolve -- `contract (1).docx` -- would
+            # be stored happily and then reported missing by every interview
+            # that referred to it, so uploads are renamed at the door.
+            candidate_name = safe_project_filename(requested_name, default_stem=section)
+            reason = (
+                "unsupported_characters" if candidate_name != requested_name else ""
+            )
             if section == "modules":
                 validate_module_filename(candidate_name)
             path = os.path.join(directory, candidate_name)
@@ -3054,12 +3090,26 @@ def editor_api_upload_section_file() -> Response:
                     candidate_name = f"{stem}_{counter}{ext}"
                     path = os.path.join(directory, candidate_name)
                     counter += 1
+                reason = "name_taken"
                 # De-duplicating the name can produce one Docassemble would
                 # skip, e.g. util_1.py is fine but a leading digit would not be.
                 if section == "modules":
                     validate_module_filename(candidate_name)
             upload.save(path)
             saved_files.append(candidate_name)
+            # Say so rather than leaving the author to notice: the name they
+            # uploaded is not the name anything in the project may refer to.
+            if reason:
+                renamed_files.append(
+                    {
+                        "from": requested_name,
+                        "to": candidate_name,
+                        "reason": reason,
+                        "message": _renamed_file_message(
+                            requested_name, candidate_name, reason
+                        ),
+                    }
+                )
         area.finalize()
         for candidate_name in saved_files if section == "modules" else []:
             with open(os.path.join(directory, candidate_name), encoding="utf-8") as fh:
@@ -3086,6 +3136,7 @@ def editor_api_upload_section_file() -> Response:
             "project": project,
             "section": section,
             "saved_files": saved_files,
+            "renamed_files": renamed_files,
         }
         if section == "modules":
             data["modules"] = modules
@@ -6333,9 +6384,10 @@ def editor_api_rename_section_file() -> Response:
         project = _normalize_project(post_data.get("project"))
         section = _normalize_section(post_data.get("section"))
         old_filename = _normalize_storage_filename(post_data.get("filename"))
-        new_filename = _normalize_renamed_storage_filename(
+        requested_filename = _normalize_renamed_storage_filename(
             post_data.get("new_filename"), old_filename
         )
+        new_filename = safe_project_filename(requested_filename, default_stem=section)
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
         if section == "modules":
@@ -6348,6 +6400,22 @@ def editor_api_rename_section_file() -> Response:
             "section": section,
             "filename": new_filename,
             "old_filename": old_filename,
+            # The author typed a name the Playground could not have found, so
+            # they need to hear which name the file actually has now.
+            "renamed_files": (
+                []
+                if new_filename == requested_filename
+                else [
+                    {
+                        "from": requested_filename,
+                        "to": new_filename,
+                        "reason": "unsupported_characters",
+                        "message": _renamed_file_message(
+                            requested_filename, new_filename, "unsupported_characters"
+                        ),
+                    }
+                ]
+            ),
         }
         if section == "modules":
             data["module"] = _rename_module_file(
@@ -8585,6 +8653,7 @@ def _start_new_project_upload_job(
     debug_requested: bool,
     interview_filename: Optional[str] = None,
     create_test: bool = True,
+    renamed_files: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
     queued_at = time.time()
@@ -8599,6 +8668,9 @@ def _start_new_project_upload_job(
         "request_id": request_id,
         "generated_from": uploaded_files[0].get("filename") if uploaded_files else None,
         "uploaded_count": len(uploaded_files),
+        # The generated YAML refers to the template by the name the project
+        # stores it under, which is not always the name that was uploaded.
+        "renamed_files": list(renamed_files or []),
         "queued_at": queued_at,
         "started_at": None,
         "finished_at": None,
@@ -9251,6 +9323,7 @@ def _new_project_from_uploads(
             f"normalize_field_names={normalize_field_names}",
             "info",
         )
+        renamed_uploads: List[Dict[str, str]] = []
         for file_storage in uploaded_files:
             filename = file_storage.filename or ""
             content_bytes = file_storage.read()
@@ -9262,6 +9335,18 @@ def _new_project_from_uploads(
                 content_bytes=content_bytes,
                 mimetype=mimetype,
             )
+            requested_name = os.path.basename(str(filename).strip())
+            if safe_name != requested_name:
+                renamed_uploads.append(
+                    {
+                        "from": requested_name,
+                        "to": safe_name,
+                        "reason": "unsupported_characters",
+                        "message": _renamed_file_message(
+                            requested_name, safe_name, "unsupported_characters"
+                        ),
+                    }
+                )
             uploaded_payloads.append(
                 {
                     "filename": safe_name,
@@ -9336,6 +9421,7 @@ def _new_project_from_uploads(
             debug_requested=debug_requested,
             interview_filename=interview_filename,
             create_test=create_test,
+            renamed_files=renamed_uploads,
         )
 
         return jsonify_with_status(
@@ -9430,8 +9516,16 @@ def editor_api_new_project_job(job_id: str) -> Response:
         )
 
 
-def _template_import_target(uid: int, project: str, template_filename: str) -> str:
+def _template_import_target(
+    uid: int, project: str, template_filename: str
+) -> Tuple[str, str]:
     """Locate a template file inside the project's templates section.
+
+    A template that predates upload renaming may still carry a name
+    Docassemble cannot resolve from a `docx template file:` line. Importing it
+    would write an attachment block pointing at a file the interview then
+    reports as missing, so the file is renamed on the way in and the caller
+    works with the name that will resolve.
 
     Args:
         uid (int): the Playground owner.
@@ -9439,13 +9533,14 @@ def _template_import_target(uid: int, project: str, template_filename: str) -> s
         template_filename (str): the template's filename.
 
     Returns:
-        str: the path to the template on disk.
+        Tuple[str, str]: the path to the template on disk, and the name the
+        project now stores it under.
 
     Raises:
         FileNotFoundError: when the project has no such template.
         ValueError: when the file is not a PDF or DOCX Weaver can read.
     """
-    _area, directory = _editor_storage_directory(
+    area, directory = _editor_storage_directory(
         uid, project, EDITOR_SECTION_TO_STORAGE["templates"]
     )
     path = os.path.join(directory, template_filename)
@@ -9453,7 +9548,23 @@ def _template_import_target(uid: int, project: str, template_filename: str) -> s
         raise FileNotFoundError(f"{template_filename} is not in this project")
     if not template_filename.lower().endswith((".pdf", ".docx")):
         raise ValueError("Only PDF and DOCX templates can be analyzed.")
-    return path
+    safe_filename = safe_project_filename(template_filename, default_stem="template")
+    if safe_filename == template_filename:
+        return path, template_filename
+    safe_path = os.path.join(directory, safe_filename)
+    if os.path.exists(safe_path):
+        raise ValueError(
+            f"{template_filename} cannot be used under a name Docassemble can "
+            f"resolve, because {safe_filename} is already in this project. "
+            "Rename one of them."
+        )
+    rename_saved_file(area, directory, template_filename, safe_filename)
+    log(
+        "ALWeaver editor: renamed template to a resolvable name "
+        f"project={project} from={template_filename!r} to={safe_filename!r}",
+        "info",
+    )
+    return safe_path, safe_filename
 
 
 def _complete_template_import_job(
@@ -9497,7 +9608,10 @@ def _complete_template_import_job(
             message=f"Reading {template_filename}.",
             progress=10,
         )
-        template_path = _template_import_target(uid, project, template_filename)
+        requested_filename = template_filename
+        template_path, template_filename = _template_import_target(
+            uid, project, template_filename
+        )
         interview_yaml = playground_read_yaml(uid, project, interview_filename)
 
         stage = "analyze"
@@ -9517,6 +9631,23 @@ def _complete_template_import_job(
         )
         result = analysis.to_dict()
         result["project"] = project
+        result["template_filename"] = template_filename
+        # The attachment block will name the renamed file, so the author has
+        # to be told the template is not called what they picked any more.
+        result["renamed_files"] = (
+            []
+            if template_filename == requested_filename
+            else [
+                {
+                    "from": requested_filename,
+                    "to": template_filename,
+                    "reason": "unsupported_characters",
+                    "message": _renamed_file_message(
+                        requested_filename, template_filename, "unsupported_characters"
+                    ),
+                }
+            ]
+        )
         result["interview_filename"] = interview_filename
         result["interview_revision"] = source_revision(interview_yaml)
         _update_job_state(
@@ -9570,7 +9701,10 @@ def editor_api_import_template() -> Response:
         use_llm_assist = parse_bool(post_data.get("use_llm_assist"), default=False)
         # Fail here rather than in the worker: an author who picked the wrong
         # file should hear about it now.
-        _template_import_target(uid, project, template_filename)
+        requested_filename = template_filename
+        _template_path, template_filename = _template_import_target(
+            uid, project, template_filename
+        )
         playground_read_yaml(uid, project, interview_filename)
 
         if not _editor_async_is_configured():
@@ -9602,6 +9736,24 @@ def editor_api_import_template() -> Response:
             "operation_type": "template_import",
             "project": project,
             "template": template_filename,
+            # Renaming happened before the job was queued, so say so here as
+            # well as on the finished analysis.
+            "renamed_files": (
+                []
+                if template_filename == requested_filename
+                else [
+                    {
+                        "from": requested_filename,
+                        "to": template_filename,
+                        "reason": "unsupported_characters",
+                        "message": _renamed_file_message(
+                            requested_filename,
+                            template_filename,
+                            "unsupported_characters",
+                        ),
+                    }
+                ]
+            ),
             "filename": interview_filename,
             "request_id": request_id,
             "queued_at": time.time(),

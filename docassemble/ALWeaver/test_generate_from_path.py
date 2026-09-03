@@ -111,6 +111,56 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
 
+    def test_a_template_name_with_punctuation_is_renamed_everywhere(self):
+        """https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
+
+        Docassemble strips everything outside ``[A-Za-z0-9-_. ]`` out of a
+        Playground template reference before looking the file up, so a
+        ``docx template file:`` line naming ``... (1).docx`` goes looking for
+        ``... 1.docx`` and reports the template missing. The generated YAML,
+        the reported template names and the packaged file all have to agree on
+        a name that survives that.
+        """
+        # Docassemble's own stripping, from `package_template_filename` in
+        # `docassemble.base.functions`.
+        docassemble_strip = re.compile(r"[^A-Za-z0-9\-\_\. ]")
+        uploaded_name = "93A_demand_letter_sample-labeled-highlighted (1).docx"
+        source = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            upload_dir = os.path.join(tmpdir, "upload")
+            output_dir = os.path.join(tmpdir, "output")
+            os.makedirs(upload_dir)
+            os.makedirs(output_dir)
+            uploaded_path = os.path.join(upload_dir, uploaded_name)
+            shutil.copyfile(source, uploaded_path)
+
+            result = generate_interview_from_path(
+                uploaded_path,
+                output_dir=output_dir,
+                create_package_zip=True,
+                include_next_steps=False,
+            )
+
+            expected_name = "93A_demand_letter_sample-labeled-highlighted_1.docx"
+            self.assertEqual(list(result.template_names), [expected_name])
+
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            referenced = re.findall(
+                r"(?m)^\s*docx template file:\s*(.+?)\s*$", yaml_text
+            )
+            self.assertEqual(referenced, [expected_name])
+            # The reference has to mean the same file after Docassemble is done
+            # with it, or the interview reports the template as missing.
+            self.assertEqual(docassemble_strip.sub("", referenced[0]), expected_name)
+
+            with zipfile.ZipFile(result.package_zip_path) as archive:
+                templates = [
+                    os.path.basename(name)
+                    for name in archive.namelist()
+                    if "/data/templates/" in name and name.endswith(".docx")
+                ]
+            self.assertEqual(templates, [expected_name])
+
     def test_ensure_unique_question_ids(self):
         sample = """---
 id: Duplicate title
@@ -1205,3 +1255,57 @@ class TestMultipleTemplates(unittest.TestCase):
                 create_package_zip=False,
                 additional_templates=[os.path.join(tmpdir, "nope.pdf")],
             )
+
+
+class TestUploadedTemplateNaming(unittest.TestCase):
+    """A template's name has to be one Docassemble can resolve.
+
+    https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
+    """
+
+    def _interview_with(self, templates):
+        from docassemble.base.util import DAFileList
+        from .interview_generator import DAInterview
+
+        interview = DAInterview()
+        interview.uploaded_templates = DAFileList(
+            "uploaded_templates", auto_gather=False, gathered=True
+        )
+        for index, template in enumerate(templates):
+            interview.uploaded_templates[index] = template
+        interview._rename_uploaded_templates_safely()
+        return [document.filename for document in interview.uploaded_templates]
+
+    def test_an_uploaded_file_loses_its_punctuation(self):
+        from docassemble.base.util import DAFile
+
+        names = self._interview_with(
+            [DAFile("one", filename="93A demand letter (1).docx")]
+        )
+        self.assertEqual(names, ["93A_demand_letter_1.docx"])
+
+    def test_two_names_that_become_the_same_are_kept_apart(self):
+        from docassemble.base.util import DAFile
+
+        names = self._interview_with(
+            [
+                DAFile("one", filename="demand (1).docx"),
+                DAFile("two", filename="demand 1.docx"),
+            ]
+        )
+        self.assertEqual(names, ["demand_1.docx", "demand_1_2.docx"])
+
+    def test_a_static_file_keeps_the_name_that_finds_it_on_disk(self):
+        from .interview_generator import _make_static_file_from_path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "already_safe.docx")
+            shutil.copyfile(
+                Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx", path
+            )
+            # `_resolve_template_inputs` has already named these, and the name
+            # is how the file is found again.
+            static_file = _make_static_file_from_path(
+                path, filename="petition (1).docx"
+            )
+            self.assertEqual(self._interview_with([static_file]), ["petition (1).docx"])

@@ -100,6 +100,20 @@ class test_api_utils(unittest.TestCase):
         self.assertEqual(filename, "example.pdf")
         self.assertEqual(extension, ".pdf")
 
+    def test_validate_upload_metadata_strips_punctuation(self):
+        filename, extension = validate_upload_metadata(
+            filename="93A_demand_letter_sample-labeled-highlighted (1).docx",
+            content_bytes=b"123",
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument"
+                ".wordprocessingml.document"
+            ),
+        )
+        self.assertEqual(
+            filename, "93A_demand_letter_sample-labeled-highlighted_1.docx"
+        )
+        self.assertEqual(extension, ".docx")
+
     def test_validate_upload_metadata_unsupported_type(self):
         with self.assertRaises(WeaverAPIValidationError):
             validate_upload_metadata(

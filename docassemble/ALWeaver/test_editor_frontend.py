@@ -967,6 +967,24 @@ class TestEditorFrontend(unittest.TestCase):
             editor,
         )
 
+    def test_a_renamed_upload_is_announced_rather_than_left_to_be_noticed(self):
+        """https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
+
+        A file whose name the Playground cannot resolve is stored under a
+        different one. The author will refer to it by that name in their
+        interview, so silently renaming it is worse than not renaming it.
+        """
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        self.assertIn("function reportRenamedFiles(data)", editor)
+        self.assertIn("data.renamed_files", editor)
+        # A status region, not an error: nothing went wrong, but the author
+        # has to read it.
+        self.assertIn("banner.id = 'editor-file-renamed'", editor)
+        self.assertIn("banner.setAttribute('aria-live', 'polite')", editor)
+        # Every path that can rename a file has to say so.
+        self.assertEqual(editor.count("reportRenamedFiles("), 6)
+
     def test_navbar_matches_docassemble_and_carries_the_account_menu(self):
         """The editor is a full-page app that sits where a native docassemble
         page would, so its bar has to be a real Bootstrap navbar at
