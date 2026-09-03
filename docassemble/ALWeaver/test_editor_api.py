@@ -3149,6 +3149,114 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
             self.assertNotIn("markdown_filename", response.get_json()["data"])
             self.assertIsNone(written["markdown_path"])
 
+    def test_a_stale_markdown_draft_does_not_outlive_the_docx_it_described(self):
+        """Overwriting with a Dashboard that returns no markdown.
+
+        The old `.md` would otherwise sit beside a freshly drafted DOCX still
+        claiming to be its text, and an attachment's `content file:` would go
+        on assembling it.
+        """
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stale = os.path.join(tmpdir, "main_draft.md")
+            with open(stale, "w") as handle:
+                handle.write("# The previous draft\n")
+
+            def fake_write(yaml_texts, output_path, **kwargs):
+                with open(output_path, "wb") as handle:
+                    handle.write(b"docx")
+                # No markdown_size: this Dashboard produced none.
+                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(api_editor, "write_variable_report_docx", fake_write),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "filename": "main.yml",
+                        "include_markdown": True,
+                        "overwrite": True,
+                    },
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(os.path.exists(stale))
+            data = response.get_json()["data"]
+            self.assertNotIn("markdown_filename", data)
+            # Said out loud rather than left for the author to notice.
+            self.assertIs(data["markdown_written"], False)
+
+    def test_an_untouched_markdown_draft_is_left_alone(self):
+        """Nothing is deleted when no markdown was asked for."""
+        files = self._files()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kept = os.path.join(tmpdir, "main_draft.md")
+            with open(kept, "w") as handle:
+                handle.write("# Hand written\n")
+
+            def fake_write(yaml_texts, output_path, **kwargs):
+                with open(output_path, "wb") as handle:
+                    handle.write(b"docx")
+                return {"variables_count": 4, "list_count": 1, "scalar_count": 3}
+
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    side_effect=lambda uid, project, filename: files[filename],
+                ),
+                patch.object(
+                    api_editor,
+                    "suggested_report_names",
+                    return_value={
+                        "title": "Main Draft",
+                        "filename": "main_draft.docx",
+                    },
+                ),
+                patch.object(api_editor, "write_variable_report_docx", fake_write),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/template/variable-report",
+                    method="POST",
+                    json={"project": "default", "filename": "main.yml"},
+                ):
+                    response = api_editor.editor_api_template_variable_report()
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(os.path.exists(kept))
+            self.assertNotIn("markdown_written", response.get_json()["data"])
+
     def test_the_table_and_numbering_options_reach_the_generator(self):
         files = self._files()
         with tempfile.TemporaryDirectory() as tmpdir:

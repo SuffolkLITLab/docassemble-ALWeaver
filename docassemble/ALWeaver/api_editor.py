@@ -2959,7 +2959,25 @@ def editor_api_template_variable_report() -> Response:
                 else None
             ),
         )
+
+        # A Dashboard that hands back no markdown leaves nothing to sit beside
+        # the new DOCX. Anything still at that path is the previous draft --
+        # the overwrite check already cleared it, or we would not be here --
+        # and it no longer describes the document next to it. Left alone it is
+        # a trap: an attachment's `content file:` would go on assembling the
+        # old text against the new form. So it goes, and the caller is told.
+        markdown_written = bool(markdown_filename and summary.get("markdown_size"))
+        if markdown_filename and not markdown_written:
+            stale_markdown = os.path.join(directory, markdown_filename)
+            if os.path.exists(stale_markdown):
+                os.remove(stale_markdown)
         area.finalize()
+
+        markdown_data: Dict[str, Any] = {}
+        if markdown_written:
+            markdown_data["markdown_filename"] = markdown_filename
+        elif include_markdown:
+            markdown_data["markdown_written"] = False
 
         return jsonify(
             {
@@ -2971,13 +2989,7 @@ def editor_api_template_variable_report() -> Response:
                     "filename": output_filename,
                     "title": report_title,
                     "sources": sources,
-                    # Named only when a file actually landed: a Dashboard that
-                    # returns no markdown writes none.
-                    **(
-                        {"markdown_filename": markdown_filename}
-                        if markdown_filename and summary.get("markdown_size")
-                        else {}
-                    ),
+                    **markdown_data,
                     **summary,
                 },
             }

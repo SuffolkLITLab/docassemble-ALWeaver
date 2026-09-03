@@ -14509,6 +14509,9 @@
         }
         if (res.data.markdown_filename) {
           drafted += ' Saved ' + esc(res.data.markdown_filename) + ' beside it.';
+        } else if (res.data.markdown_written === false) {
+          drafted +=
+            ' ALDashboard returned no Markdown draft, so none was saved.';
         }
         _showSuccessBanner(
           drafted + ' Import it under Document setup to assemble it.',
