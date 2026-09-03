@@ -305,7 +305,10 @@ developer. The findings panel shares a `.editor-workspace` flex wrapper with
 `.editor-layout`, which lets the same element dock along the bottom (short or
 tall), beside the editor as a right-hand column, or over the whole window; the
 choice is remembered in `localStorage` and ignored while the panel is
-collapsed.
+collapsed. Both checks draw the panel before their request goes out, so a run
+started from a menu reports itself while it is happening; switching between the
+two checks drops the other one's findings rather than showing them under the
+new run's title.
 
 `docassemble_compat.py` is Weaver's compatibility boundary for Docassemble
 1.9.x and 1.10.x. Session orchestration uses the stable high-level functions in

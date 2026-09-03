@@ -95,6 +95,7 @@
     fullYamlStash: {},
     validationErrors: [],
     validationOpen: false,
+    validationBusy: false,
     //: 'bottom' | 'tall' | 'side' | 'full' -- where the findings panel sits
     validationDock: 'bottom',
     validationMode: 'validation',
@@ -8466,6 +8467,24 @@
     );
   }
 
+  // A badge counting the errors a file has says nothing about how many style
+  // suggestions it has. Switching between the two checks therefore drops the
+  // old findings; re-running the same check keeps its numbers on screen so
+  // they do not blink off and back on.
+  function discardResultsFromTheOtherCheck(nextMode) {
+    if (state.validationMode === nextMode) return;
+    state.validationErrors = [];
+  }
+
+  function getValidationRunningText() {
+    if (state.validationMode !== 'style') {
+      return 'Checking this file for errors and warnings\u2026';
+    }
+    return state.styleCheckIncludeLlm
+      ? 'Running the house-style checks and asking the model for suggestions. This one goes to a language model, so give it a few seconds.'
+      : 'Running the house-style checks\u2026';
+  }
+
   function getValidationDrawerTitle() {
     return state.validationMode === 'style'
       ? 'Style suggestions'
@@ -8557,6 +8576,7 @@
 
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
+    discardResultsFromTheOtherCheck('validation');
     state.validationMode = 'validation';
     state.validationBaseRevisionMatches = null;
     var validationSnapshot;
@@ -8581,6 +8601,8 @@
     state.validationSourceScope = validationSnapshot.scope;
     var validationSource = validationSnapshot.rawYaml;
     _validationInFlight = true;
+    state.validationBusy = true;
+    renderValidationDrawer();
     apiPost('/api/validate-source', {
       project: state.project,
       filename: state.filename,
@@ -8589,6 +8611,7 @@
     })
       .then(function (res) {
         _validationInFlight = false;
+        state.validationBusy = false;
         if (res.success && res.data) {
           state.validationErrors =
             res.data.diagnostics || res.data.errors || [];
@@ -8602,6 +8625,7 @@
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
         _validationInFlight = false;
+        state.validationBusy = false;
         state.validationErrors = [
           { level: 'error', message: 'Could not run validation right now.' },
         ];
@@ -8617,11 +8641,17 @@
   function runStyleCheck(includeLlm) {
     if (!state.project || !state.filename || _validationInFlight) return;
     var wantsLlm = Boolean(includeLlm);
+    discardResultsFromTheOtherCheck('style');
     state.validationMode = 'style';
     state.styleCheckIncludeLlm = wantsLlm;
     state.validationSourceScope = 'saved_source';
     state.validationBaseRevisionMatches = null;
     _validationInFlight = true;
+    // Say so before the request goes out. The old code only rendered on the
+    // response, so a check started from the menu looked like nothing had
+    // happened until it finished.
+    state.validationBusy = true;
+    renderValidationDrawer();
     apiGet(
       '/api/weaver/style-check?project=' +
         encodeURIComponent(state.project) +
@@ -8632,6 +8662,7 @@
     )
       .then(function (res) {
         _validationInFlight = false;
+        state.validationBusy = false;
         if (res.success && res.data) {
           state.validationErrors = res.data.errors || [];
         } else {
@@ -8643,6 +8674,7 @@
       .catch(function (error) {
         if (isSupersededRequest(error)) return;
         _validationInFlight = false;
+        state.validationBusy = false;
         state.validationErrors = [
           { level: 'error', message: 'Could not run style check right now.' },
         ];
@@ -8728,6 +8760,12 @@
     );
 
     applyValidationDock();
+    drawer.setAttribute('aria-busy', state.validationBusy ? 'true' : 'false');
+    var headerSpinner = document.getElementById('validation-spinner');
+    if (headerSpinner)
+      headerSpinner.classList.toggle('d-none', !state.validationBusy);
+    var rerunButton = document.getElementById('btn-run-validation');
+    if (rerunButton) rerunButton.disabled = state.validationBusy;
     drawer.classList.toggle('editor-validation-has-issues', hasProblems);
     drawer.classList.remove(
       'validation-error',
@@ -8744,6 +8782,17 @@
       return;
     }
     drawer.classList.add('open');
+    if (state.validationBusy) {
+      body.innerHTML =
+        '<div class="editor-validation-running" role="status">' +
+        '<span class="editor-validation-spinner" aria-hidden="true"></span>' +
+        '<span>' +
+        esc(getValidationRunningText()) +
+        '</span>' +
+        '</div>' +
+        '<div class="editor-validation-running-bar" aria-hidden="true"></div>';
+      return;
+    }
     var scopeText = isStyleMode
       ? (state.styleCheckIncludeLlm
           ? 'Suggestions from the shared house-style checker and from AI, against the saved source. '

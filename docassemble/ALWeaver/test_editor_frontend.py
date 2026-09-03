@@ -770,6 +770,37 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn(".editor-workspace-full > .editor-layout {", css)
         self.assertIn(".editor-validation-drawer.open.editor-validation-tall", css)
 
+    def test_a_running_check_says_so_before_its_answer_arrives(self):
+        """The style check goes to the server, so the panel has to show it is
+        working rather than sitting on the last run's results."""
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn('id="validation-spinner"', template)
+
+        # The panel is drawn before the request goes out, not only after it
+        # comes back.
+        self.assertIn(
+            "state.validationBusy = true;\n    renderValidationDrawer();", editor
+        )
+        self.assertIn("state.validationBusy = false;", editor)
+        self.assertIn("function getValidationRunningText() {", editor)
+        self.assertIn("Running the house-style checks", editor)
+        # An AI run is the slow one, so it says as much.
+        self.assertIn("give it a few seconds", editor)
+        self.assertIn("drawer.setAttribute('aria-busy'", editor)
+        self.assertIn("rerunButton.disabled = state.validationBusy;", editor)
+        self.assertIn('<div class="editor-validation-running" role="status">', editor)
+        # Findings from the other check are not this check's answer.
+        self.assertIn("function discardResultsFromTheOtherCheck(nextMode) {", editor)
+        self.assertIn("discardResultsFromTheOtherCheck('style');", editor)
+        self.assertIn("discardResultsFromTheOtherCheck('validation');", editor)
+
+        self.assertIn(".editor-validation-spinner {", css)
+        self.assertIn(".editor-validation-running-bar {", css)
+        self.assertIn("prefers-reduced-motion", css)
+
     def test_the_magic_icon_marks_only_features_that_use_ai(self):
         """A wand promises generative AI. Deterministic screens and actions
         have to be drawn with something that does not."""

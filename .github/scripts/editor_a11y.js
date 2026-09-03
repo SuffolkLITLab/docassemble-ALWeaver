@@ -108,6 +108,15 @@ async function closeModal(page, selector) {
   await modal.waitFor({ state: "hidden", timeout: 10_000 });
 }
 
+// The findings panel reports it is working before the answer arrives, so wait
+// for the run to finish rather than auditing the spinner.
+async function settledFindings(page) {
+  await page
+    .locator('#validation-drawer[aria-busy="false"]')
+    .waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(250);
+}
+
 async function openInterviewMenu(page) {
   const button = page.locator("#interview-menu");
   const menu = page.locator('ul[aria-labelledby="interview-menu"]');
@@ -203,7 +212,7 @@ async function main() {
 
     // Validation actions and the open results drawer.
     await page.locator('[data-action="check-errors"]').click();
-    await page.waitForTimeout(1_000);
+    await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "validation drawer")
     );
@@ -211,7 +220,7 @@ async function main() {
     // is the one that needs no model configured on the test server.
     await openInterviewMenu(page);
     await page.locator('[data-action="run-style-check"]').click();
-    await page.waitForTimeout(1_000);
+    await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "style-check results")
     );
