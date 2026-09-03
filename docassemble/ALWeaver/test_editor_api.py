@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from flask import Flask, jsonify
+from werkzeug.datastructures import FileStorage
 
 
 def _load_api_editor_for_tests():
@@ -1881,7 +1882,9 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
     def test_a_queued_analysis_reports_where_to_poll(self):
         with (
             patch.object(
-                api_editor, "_template_import_target", return_value="/tmp/a.pdf"
+                api_editor,
+                "_template_import_target",
+                return_value=("/tmp/a.pdf", "affidavit.pdf"),
             ),
             patch.object(api_editor, "playground_read_yaml", return_value="---\n"),
             patch.object(api_editor, "_editor_async_is_configured", return_value=True),
@@ -3563,3 +3566,93 @@ class TestEditorPackageFileApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEditorProjectFileNaming(unittest.TestCase):
+    """A file a project stores has to have a name Docassemble can resolve.
+
+    https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
+    """
+
+    def test_an_upload_is_renamed_on_its_way_into_the_project(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            upload = FileStorage(
+                stream=BytesIO(b"template bytes"),
+                filename="93A demand letter (1).docx",
+            )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/upload",
+                    method="POST",
+                    data={
+                        "project": "default",
+                        "section": "templates",
+                        "files": upload,
+                    },
+                    content_type="multipart/form-data",
+                ):
+                    response = api_editor.editor_api_upload_section_file()
+
+            self.assertEqual(response.status_code, 200)
+            saved = response.get_json()["data"]["saved_files"]
+            self.assertEqual(saved, ["93A_demand_letter_1.docx"])
+            self.assertEqual(os.listdir(tmpdir), ["93A_demand_letter_1.docx"])
+
+    def test_importing_an_older_template_renames_it_first(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stored = os.path.join(tmpdir, "demand letter (1).docx")
+            with open(stored, "wb") as handle:
+                handle.write(b"template bytes")
+            renames = []
+
+            def fake_rename(area, directory, old_name, new_name):
+                renames.append((old_name, new_name))
+                os.rename(
+                    os.path.join(directory, old_name),
+                    os.path.join(directory, new_name),
+                )
+
+            with (
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+                patch.object(api_editor, "rename_saved_file", fake_rename),
+            ):
+                path, filename = api_editor._template_import_target(
+                    7, "Eviction", "demand letter (1).docx"
+                )
+
+            self.assertEqual(filename, "demand_letter_1.docx")
+            self.assertEqual(path, os.path.join(tmpdir, "demand_letter_1.docx"))
+            self.assertTrue(os.path.isfile(path))
+            self.assertEqual(renames, [("demand letter (1).docx", filename)])
+
+    def test_a_template_whose_safe_name_is_taken_is_reported_rather_than_replaced(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("demand letter (1).docx", "demand_letter_1.docx"):
+                with open(os.path.join(tmpdir, name), "wb") as handle:
+                    handle.write(b"template bytes")
+
+            with (
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(SimpleNamespace(finalize=lambda: None), tmpdir),
+                ),
+                patch.object(api_editor, "rename_saved_file") as mock_rename,
+            ):
+                with self.assertRaises(ValueError):
+                    api_editor._template_import_target(
+                        7, "Eviction", "demand letter (1).docx"
+                    )
+            mock_rename.assert_not_called()

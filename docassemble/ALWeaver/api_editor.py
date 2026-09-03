@@ -158,6 +158,7 @@ from .editor_modules import (
     unpublish_module,
     validate_module_filename,
 )
+from .project_filenames import safe_project_filename
 from .assemblyline_settings import read_settings, update_settings
 from .question_library import (
     attribute_references,
@@ -2917,8 +2918,11 @@ def editor_api_template_variable_report() -> Response:
         )
         suggested = suggested_report_names(yaml_texts, primary_filename=filename)
         report_title = str(post_data.get("title") or suggested["title"]).strip()
-        output_filename = _normalize_storage_filename(
-            post_data.get("output_filename") or suggested["filename"]
+        output_filename = safe_project_filename(
+            _normalize_storage_filename(
+                post_data.get("output_filename") or suggested["filename"]
+            ),
+            default_stem="variables",
         )
         if not output_filename.lower().endswith(".docx"):
             output_filename += ".docx"
@@ -3043,7 +3047,12 @@ def editor_api_upload_section_file() -> Response:
         saved_files: List[str] = []
         modules: List[Dict[str, Any]] = []
         for upload in uploads:
-            candidate_name = _normalize_storage_filename(upload.filename)
+            # A name Docassemble cannot resolve -- `contract (1).docx` -- would
+            # be stored happily and then reported missing by every interview
+            # that referred to it, so uploads are renamed at the door.
+            candidate_name = safe_project_filename(
+                _normalize_storage_filename(upload.filename), default_stem=section
+            )
             if section == "modules":
                 validate_module_filename(candidate_name)
             path = os.path.join(directory, candidate_name)
@@ -6333,8 +6342,11 @@ def editor_api_rename_section_file() -> Response:
         project = _normalize_project(post_data.get("project"))
         section = _normalize_section(post_data.get("section"))
         old_filename = _normalize_storage_filename(post_data.get("filename"))
-        new_filename = _normalize_renamed_storage_filename(
-            post_data.get("new_filename"), old_filename
+        new_filename = safe_project_filename(
+            _normalize_renamed_storage_filename(
+                post_data.get("new_filename"), old_filename
+            ),
+            default_stem=section,
         )
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
@@ -9430,8 +9442,16 @@ def editor_api_new_project_job(job_id: str) -> Response:
         )
 
 
-def _template_import_target(uid: int, project: str, template_filename: str) -> str:
+def _template_import_target(
+    uid: int, project: str, template_filename: str
+) -> Tuple[str, str]:
     """Locate a template file inside the project's templates section.
+
+    A template that predates upload renaming may still carry a name
+    Docassemble cannot resolve from a `docx template file:` line. Importing it
+    would write an attachment block pointing at a file the interview then
+    reports as missing, so the file is renamed on the way in and the caller
+    works with the name that will resolve.
 
     Args:
         uid (int): the Playground owner.
@@ -9439,13 +9459,14 @@ def _template_import_target(uid: int, project: str, template_filename: str) -> s
         template_filename (str): the template's filename.
 
     Returns:
-        str: the path to the template on disk.
+        Tuple[str, str]: the path to the template on disk, and the name the
+        project now stores it under.
 
     Raises:
         FileNotFoundError: when the project has no such template.
         ValueError: when the file is not a PDF or DOCX Weaver can read.
     """
-    _area, directory = _editor_storage_directory(
+    area, directory = _editor_storage_directory(
         uid, project, EDITOR_SECTION_TO_STORAGE["templates"]
     )
     path = os.path.join(directory, template_filename)
@@ -9453,7 +9474,23 @@ def _template_import_target(uid: int, project: str, template_filename: str) -> s
         raise FileNotFoundError(f"{template_filename} is not in this project")
     if not template_filename.lower().endswith((".pdf", ".docx")):
         raise ValueError("Only PDF and DOCX templates can be analyzed.")
-    return path
+    safe_filename = safe_project_filename(template_filename, default_stem="template")
+    if safe_filename == template_filename:
+        return path, template_filename
+    safe_path = os.path.join(directory, safe_filename)
+    if os.path.exists(safe_path):
+        raise ValueError(
+            f"{template_filename} cannot be used under a name Docassemble can "
+            f"resolve, because {safe_filename} is already in this project. "
+            "Rename one of them."
+        )
+    rename_saved_file(area, directory, template_filename, safe_filename)
+    log(
+        "ALWeaver editor: renamed template to a resolvable name "
+        f"project={project} from={template_filename!r} to={safe_filename!r}",
+        "info",
+    )
+    return safe_path, safe_filename
 
 
 def _complete_template_import_job(
@@ -9497,7 +9534,9 @@ def _complete_template_import_job(
             message=f"Reading {template_filename}.",
             progress=10,
         )
-        template_path = _template_import_target(uid, project, template_filename)
+        template_path, template_filename = _template_import_target(
+            uid, project, template_filename
+        )
         interview_yaml = playground_read_yaml(uid, project, interview_filename)
 
         stage = "analyze"
@@ -9570,7 +9609,9 @@ def editor_api_import_template() -> Response:
         use_llm_assist = parse_bool(post_data.get("use_llm_assist"), default=False)
         # Fail here rather than in the worker: an author who picked the wrong
         # file should hear about it now.
-        _template_import_target(uid, project, template_filename)
+        _template_path, template_filename = _template_import_target(
+            uid, project, template_filename
+        )
         playground_read_yaml(uid, project, interview_filename)
 
         if not _editor_async_is_configured():

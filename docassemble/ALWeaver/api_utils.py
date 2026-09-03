@@ -7,6 +7,7 @@ import tempfile
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .interview_generator import generate_interview_from_path, TemplateInput
+from .project_filenames import safe_project_filename
 
 WEAVER_API_BASE_PATH = "/al/api/v1/weaver"
 
@@ -204,6 +205,9 @@ def validate_upload_metadata(
             safe_filename + extension if "." not in safe_filename else safe_filename
         )
 
+    # Whatever the upload was called, the project stores it -- and the
+    # generated YAML refers to it -- under a name Docassemble can resolve.
+    safe_filename = safe_project_filename(safe_filename, default_stem="template")
     return safe_filename, extension
 
 

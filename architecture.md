@@ -413,6 +413,7 @@ kinds of interviews that the Weaver can produce.
 - `review_screen.py` groups the review screen a generated interview gets: one entry per question screen, in asking order, with `.revisit` entries for lists, and it decides which attributes a revisit table's `edit:` may name
 - `review_screen_sync.py` re-drafts a review screen for an interview that already exists, so one that has drifted from the questions can be brought back in line without hand-editing
 - `variable_report.py` drafts a starter DOCX template from the questions an interview already asks, for intakes where the answers are the output and there is no form to start from
+- `project_filenames.py` is the one place an uploaded file gets its project name. Docassemble resolves a Playground template reference by stripping every character outside `[A-Za-z0-9-_. ]` out of the name written in the YAML, so a template stored as `demand (1).docx` is looked for as `demand 1.docx` and the interview reports it missing. Uploads are renamed at the door instead, and the stored file, the generated `docx template file:` line and the packaged template all use that one name
 - `editor_modules.py` decides what saving a Playground Python module means: which names Docassemble will actually load, whether the source compiles, whether the module can go live immediately, and which projects are waiting on a restart
 
 `review_screen_sync.py` re-drafts a review screen for an interview that already

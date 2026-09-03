@@ -2,6 +2,7 @@ from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
 from .review_screen import build_review_entries, table_edit_attributes
+from .project_filenames import safe_project_filename
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
@@ -3751,6 +3752,7 @@ Rules:
             self.uploaded_templates = input_file.copy_deep(
                 self.attr_name("uploaded_templates")
             )
+            self._rename_uploaded_templates_safely()
             return
         # A plain list is how the non-interview entry points hand us several
         # templates: they build the file objects themselves, so there is
@@ -3761,6 +3763,7 @@ Rules:
             )
             for index, one_file in enumerate(input_file):
                 self.uploaded_templates[index] = one_file
+            self._rename_uploaded_templates_safely()
             return
         self.uploaded_templates = DAFileList(
             self.attr_name("uploaded_templates"), auto_gather=False, gathered=True
@@ -3768,6 +3771,43 @@ Rules:
         self.uploaded_templates[0] = input_file.copy_deep(
             self.attr_name("uploaded_templates") + "[0]"
         )
+        self._rename_uploaded_templates_safely()
+
+    def _rename_uploaded_templates_safely(self) -> None:
+        """Give every uploaded template a name Docassemble can resolve.
+
+        Docassemble keeps accents and spaces in the name it gives an uploaded
+        file, then strips both out again when it resolves a Playground
+        `docx template file:` reference -- so the generated interview would
+        report a template missing that is sitting in the project. The name on
+        the file object is the one the YAML and the package both use, so it is
+        the one to fix.
+
+        Only real uploads are renamed. A `DAStaticFile`'s filename *is* how it
+        finds itself on disk, and the callers that hand us those have already
+        named them.
+        """
+        # Two names that differed only in punctuation -- `demand (1).docx` and
+        # `demand 1.docx` -- would collide once both are made safe, and a
+        # package cannot hold two templates under one name.
+        used: Set[str] = {
+            str(getattr(template, "filename", "") or "")
+            for template in self.uploaded_templates
+            if not isinstance(template, DAFile)
+        }
+        for template in self.uploaded_templates:
+            if not isinstance(template, DAFile):
+                continue
+            current = str(getattr(template, "filename", "") or "")
+            safe_name = safe_project_filename(current, default_stem="template")
+            stem, extension = os.path.splitext(safe_name)
+            counter = 1
+            while safe_name in used:
+                counter += 1
+                safe_name = f"{stem}_{counter}{extension}"
+            used.add(safe_name)
+            if safe_name != current:
+                template.filename = safe_name
 
     def _guess_posture(self, title: str):
         """
@@ -7139,6 +7179,11 @@ def _resolve_template_inputs(
 ) -> List[TemplateInput]:
     """Put the templates in order, give each one a usable, distinct filename.
 
+    Names are made safe first: a template Docassemble cannot resolve by the
+    name written in the YAML -- anything with a space, a parenthesis or an
+    accent in it -- would leave the finished interview reporting a missing
+    template for a file sitting right there in the project.
+
     Two uploads can arrive with the same name, and two files cannot share one
     name in a package, so repeats are suffixed. Templates whose names differ
     only by extension keep both names: `document_names` tells those apart.
@@ -7166,8 +7211,9 @@ def _resolve_template_inputs(
     resolved: List[TemplateInput] = []
     used_names: Set[str] = set()
     for candidate in candidates:
-        name = os.path.basename(
-            str(candidate.exact_name or os.path.basename(candidate.path)).strip()
+        name = safe_project_filename(
+            str(candidate.exact_name or os.path.basename(candidate.path)),
+            default_stem="template",
         )
         stem, extension = os.path.splitext(name)
         counter = 1
