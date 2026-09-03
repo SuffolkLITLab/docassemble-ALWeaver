@@ -8624,9 +8624,12 @@
         renderOutline();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationBusy = false;
+        if (isSupersededRequest(error)) {
+          renderValidationDrawer();
+          return;
+        }
         state.validationErrors = [
           { level: 'error', message: 'Could not run validation right now.' },
         ];
@@ -8673,9 +8676,12 @@
         renderOutline();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
         _validationInFlight = false;
         state.validationBusy = false;
+        if (isSupersededRequest(error)) {
+          renderValidationDrawer();
+          return;
+        }
         state.validationErrors = [
           { level: 'error', message: 'Could not run style check right now.' },
         ];

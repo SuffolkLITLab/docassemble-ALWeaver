@@ -781,9 +781,32 @@ class TestEditorFrontend(unittest.TestCase):
 
         # The panel is drawn before the request goes out, not only after it
         # comes back.
-        self.assertIn(
-            "state.validationBusy = true;\n    renderValidationDrawer();", editor
-        )
+        validation_runner = editor[
+            editor.index("function runValidation() {") : editor.index(
+                "function runStyleCheck(includeLlm) {"
+            )
+        ]
+        style_runner = editor[
+            editor.index("function runStyleCheck(includeLlm) {") : editor.index(
+                "function _validationLevelRank(level) {"
+            )
+        ]
+        for runner in (validation_runner, style_runner):
+            with self.subTest(runner=runner[:40]):
+                self.assertRegex(
+                    runner,
+                    r"state\.validationBusy = true;\s*renderValidationDrawer\(\);",
+                )
+                # A cancelled/stale request is still finished: unlock future
+                # checks and remove the already-rendered busy state.
+                self.assertRegex(
+                    runner,
+                    r"\.catch\(function \(error\) \{\s*"
+                    r"_validationInFlight = false;\s*"
+                    r"state\.validationBusy = false;\s*"
+                    r"if \(isSupersededRequest\(error\)\) \{\s*"
+                    r"renderValidationDrawer\(\);\s*return;",
+                )
         self.assertIn("state.validationBusy = false;", editor)
         self.assertIn("function getValidationRunningText() {", editor)
         self.assertIn("Running the house-style checks", editor)
@@ -801,8 +824,9 @@ class TestEditorFrontend(unittest.TestCase):
                 "function discardResultsFromTheOtherCheck(nextMode) {"
             ) : editor.index("function getValidationRunningText() {")
         ]
-        self.assertIn(
-            "state.validationErrors = [];\n    renderOutline();", discard_helper
+        self.assertRegex(
+            discard_helper,
+            r"state\.validationErrors = \[\];\s*renderOutline\(\);",
         )
 
         self.assertIn(".editor-validation-spinner {", css)
