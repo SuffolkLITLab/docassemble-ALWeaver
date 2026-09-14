@@ -119,6 +119,26 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn(
             "if (pendingDismissal) dismissTransientTools(pendingDismissal);", editor
         )
+        # Raising a dialog has not left anything either: the editor behind it
+        # is unchanged and the user can still back out of it.
+        self.assertIn(
+            "else if (!dialogIsOpen()) dismissTransientTools(dismissal);", editor
+        )
+        self.assertIn("document.querySelector('.modal.show')", editor)
+        self.assertIn("classList.contains('modal-open')", editor)
+
+    def test_a_session_started_after_the_debugger_closed_is_released(self):
+        """Leaving while the session POST is in flight must not strand a test
+        session on the server with no debugger to own it."""
+        runtime = (
+            self.package_dir / "data/static/editor_runtime_inspector.js"
+        ).read_text()
+
+        start_body = runtime.split("function startSession() {", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        self.assertEqual(start_body.count("if (hidden)"), 2)
+        self.assertIn("if (hidden) return releaseSession();", start_body)
 
     def test_the_magic_icon_marks_only_features_that_use_ai(self):
         """A wand promises generative AI. Deterministic screens and actions

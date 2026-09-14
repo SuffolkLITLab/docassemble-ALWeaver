@@ -16034,6 +16034,17 @@
     return dismissal;
   }
 
+  // A dialog is an overlay, not a destination: the editor behind it has not
+  // changed yet and the user can still back out of it, so raising one leaves
+  // the tools where they are. Bootstrap marks the body synchronously when a
+  // modal opens; the `.modal.show` check covers a dialog that was already up.
+  function dialogIsOpen() {
+    return Boolean(
+      document.querySelector('.modal.show') ||
+      (document.body && document.body.classList.contains('modal-open')),
+    );
+  }
+
   function dismissTransientTools(dismissal) {
     if (dismissal.assistant && state.assistantOpen) setAssistantOpen(false);
     if (
@@ -16054,9 +16065,10 @@
     } finally {
       // A navigation queued behind the unsaved-changes prompt can still be
       // cancelled, so hand it the dismissal instead of closing the tools now.
+      // A click that only raised a dialog has not left anything yet either.
       if (dismissal.assistant || dismissal.inspector) {
         if (_pendingNavigationAction) _pendingNavigationDismissal = dismissal;
-        else dismissTransientTools(dismissal);
+        else if (!dialogIsOpen()) dismissTransientTools(dismissal);
       }
     }
   });

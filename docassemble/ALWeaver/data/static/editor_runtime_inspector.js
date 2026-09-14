@@ -293,6 +293,10 @@
             })
             .then(function (response) {
               session = clone(response.data);
+              // The user can leave while the POST is in flight. By now the
+              // server record is real, so hand it back rather than stranding
+              // a test session no visible debugger owns.
+              if (hidden) return releaseSession();
               resetObservedState();
               startPolling();
               onSessionChange(clone(session));
