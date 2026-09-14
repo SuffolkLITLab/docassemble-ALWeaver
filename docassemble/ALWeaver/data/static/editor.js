@@ -3577,9 +3577,7 @@
   function endAssistantSessionForFileChange() {
     if (!agentChat) return;
     agentChat.endSession();
-    if (state.assistantOpen) {
-      agentChat.render(document.getElementById('editor-assistant-body'));
-    }
+    setAssistantOpen(false);
   }
 
   function isSupersededRequest(error) {
@@ -8394,6 +8392,7 @@
   }
 
   var _pendingNavigationAction = null;
+  var _pendingNavigationDismissal = null;
 
   function deferNavigationForUnsavedChanges(actionLabel, action) {
     stashCurrentEditorState();
@@ -8406,8 +8405,15 @@
     if (alreadyPrompting) return true;
     promptAndSaveUnsavedChanges(actionLabel).then(function (canContinue) {
       var pendingAction = _pendingNavigationAction;
+      var pendingDismissal = _pendingNavigationDismissal;
       _pendingNavigationAction = null;
-      if (canContinue && pendingAction) pendingAction();
+      _pendingNavigationDismissal = null;
+      if (canContinue && pendingAction) {
+        // The click that asked for this navigation also asked to leave the
+        // transient tools, but only now is the navigation actually happening.
+        if (pendingDismissal) dismissTransientTools(pendingDismissal);
+        pendingAction();
+      }
     });
     return true;
   }
@@ -9359,6 +9365,15 @@
 
   function renderCanvas() {
     disposeSourceEditors();
+    // Runtime observations finish asynchronously. Every non-debugger render
+    // must first invalidate the debugger's canvas ownership so a late response
+    // cannot paint it back over the new view.
+    if (
+      state.currentView !== 'interview' ||
+      state.canvasMode !== 'runtime-inspector'
+    ) {
+      runtimeInspector.hide();
+    }
     var editorLayout = document.getElementById('editor-layout');
     if (editorLayout) {
       editorLayout.classList.toggle(
@@ -15991,7 +16006,81 @@
     }
   });
 
+  // The debugger and the assistant are transient tools laid over the editor.
+  // Working with the editor behind one of them is an implicit request to leave
+  // it; working inside a tool, inside a dialog raised above it, or on the
+  // tool's own toggle keeps it open.
+  function transientToolsDismissedByClick(e) {
+    var dismissal = { assistant: false, inspector: false };
+    var target = e.target;
+    if (!target || !target.closest) return dismissal;
+    // A dialog sits above the editor rather than in it, and the debugger opens
+    // several of them itself (the Kiln test list, the module restart prompt),
+    // so nothing clicked inside one counts as leaving a tool.
+    if (target.closest('.modal, .modal-backdrop')) return dismissal;
+    var actionControl = target.closest('[data-action]');
+    var uiAction = actionControl
+      ? actionControl.getAttribute('data-action')
+      : null;
+    dismissal.assistant =
+      state.assistantOpen &&
+      uiAction !== 'toggle-assistant' &&
+      !target.closest('#editor-assistant');
+    dismissal.inspector =
+      state.currentView === 'interview' &&
+      state.canvasMode === 'runtime-inspector' &&
+      uiAction !== 'open-runtime-inspector' &&
+      !target.closest('.editor-runtime-inspector');
+    return dismissal;
+  }
+
+  // A dialog is an overlay, not a destination: the editor behind it has not
+  // changed yet and the user can still back out of it, so raising one leaves
+  // the tools where they are. Bootstrap marks the body synchronously when a
+  // modal opens; the `.modal.show` check covers a dialog that was already up.
+  function dialogIsOpen() {
+    return Boolean(
+      document.querySelector('.modal.show') ||
+      (document.body && document.body.classList.contains('modal-open')),
+    );
+  }
+
+  function dismissTransientTools(dismissal) {
+    if (dismissal.assistant && state.assistantOpen) setAssistantOpen(false);
+    if (
+      dismissal.inspector &&
+      state.currentView === 'interview' &&
+      state.canvasMode === 'runtime-inspector'
+    ) {
+      state.canvasMode = 'question';
+      renderCanvas();
+      renderOutline();
+    }
+  }
+
   document.addEventListener('click', function (e) {
+    var dismissal = transientToolsDismissedByClick(e);
+    try {
+      handleEditorClick(e);
+    } finally {
+      // A navigation queued behind the unsaved-changes prompt can still be
+      // cancelled, so hand it the dismissal instead of closing the tools now.
+      if (dismissal.assistant || dismissal.inspector) {
+        if (_pendingNavigationAction) _pendingNavigationDismissal = dismissal;
+        // A click that only raised a dialog has not left anything yet either,
+        // and the dialog can go up a microtask late: publishing to GitHub
+        // opens its modal behind a save prompt that settles immediately when
+        // there is nothing to save. Let the click's own microtasks drain
+        // before deciding.
+        else
+          Promise.resolve().then(function () {
+            if (!dialogIsOpen()) dismissTransientTools(dismissal);
+          });
+      }
+    }
+  });
+
+  function handleEditorClick(e) {
     var target = e.target;
     // Clicking a button whose visible content is a Font Awesome <i> (or a badge
     // <span>) makes that child the event target, so the many `target.id === ...`
@@ -18646,7 +18735,7 @@
       }
       return;
     }
-  });
+  }
 
   document.addEventListener('dblclick', function (e) {
     var target = e.target;

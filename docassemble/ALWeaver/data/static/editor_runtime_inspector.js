@@ -242,8 +242,19 @@
       }
     }
 
+    // The editor owns navigation, so leaving the debugger does not always go
+    // through the panel's own Back button. Make hiding a public lifecycle
+    // operation: it also prevents an observation that was already in flight
+    // from rendering over the view that replaced the debugger.
+    function hide() {
+      hidden = true;
+      stopPolling();
+      container = null;
+    }
+
     function startPolling() {
       stopPolling();
+      if (hidden) return;
       // The interview runs in an iframe and normally advances through AJAX,
       // so its load event is not a reliable navigation signal.  Coalesced
       // observations make this inexpensive while ensuring every click is
@@ -268,6 +279,10 @@
       return Promise.resolve(beforeStart())
         .then(function (proceed) {
           if (proceed === false) return undefined;
+          // beforeStart can take a while (loading modules, a restart prompt),
+          // and the user may have left the debugger in the meantime. Starting
+          // a Docassemble session now would leave an orphan behind.
+          if (hidden) return undefined;
           setStatus('Starting a separate Docassemble test session...');
           render(container);
           return api
@@ -278,6 +293,10 @@
             })
             .then(function (response) {
               session = clone(response.data);
+              // The user can leave while the POST is in flight. By now the
+              // server record is real, so hand it back rather than stranding
+              // a test session no visible debugger owns.
+              if (hidden) return releaseSession();
               resetObservedState();
               startPolling();
               onSessionChange(clone(session));
@@ -340,7 +359,7 @@
     }
 
     function observeRuntime(successMessage) {
-      if (!session) return Promise.resolve();
+      if (!session || hidden) return Promise.resolve();
       if (observing) {
         observeAgain = true;
         return observationPromise || Promise.resolve();
@@ -682,8 +701,7 @@
           'Back to editor',
           'btn btn-sm btn-outline-secondary',
           function () {
-            hidden = true;
-            stopPolling();
+            hide();
             onClose();
           },
         ),
@@ -828,6 +846,7 @@
 
     return {
       render: show,
+      hide: hide,
       refreshAll: observeRuntime,
       getSession: function () {
         return clone(session);
