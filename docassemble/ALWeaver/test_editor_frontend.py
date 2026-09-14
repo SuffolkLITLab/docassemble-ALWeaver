@@ -120,10 +120,11 @@ class TestEditorFrontend(unittest.TestCase):
             "if (pendingDismissal) dismissTransientTools(pendingDismissal);", editor
         )
         # Raising a dialog has not left anything either: the editor behind it
-        # is unchanged and the user can still back out of it.
-        self.assertIn(
-            "else if (!dialogIsOpen()) dismissTransientTools(dismissal);", editor
-        )
+        # is unchanged and the user can still back out of it. The check waits
+        # a microtask because publishing to GitHub opens its modal behind a
+        # save prompt that settles immediately when there is nothing to save.
+        self.assertIn("Promise.resolve().then(function () {", editor)
+        self.assertIn("if (!dialogIsOpen()) dismissTransientTools(dismissal);", editor)
         self.assertIn("document.querySelector('.modal.show')", editor)
         self.assertIn("classList.contains('modal-open')", editor)
 

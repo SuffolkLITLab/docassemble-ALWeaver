@@ -16065,10 +16065,17 @@
     } finally {
       // A navigation queued behind the unsaved-changes prompt can still be
       // cancelled, so hand it the dismissal instead of closing the tools now.
-      // A click that only raised a dialog has not left anything yet either.
       if (dismissal.assistant || dismissal.inspector) {
         if (_pendingNavigationAction) _pendingNavigationDismissal = dismissal;
-        else if (!dialogIsOpen()) dismissTransientTools(dismissal);
+        // A click that only raised a dialog has not left anything yet either,
+        // and the dialog can go up a microtask late: publishing to GitHub
+        // opens its modal behind a save prompt that settles immediately when
+        // there is nothing to save. Let the click's own microtasks drain
+        // before deciding.
+        else
+          Promise.resolve().then(function () {
+            if (!dialogIsOpen()) dismissTransientTools(dismissal);
+          });
       }
     }
   });
