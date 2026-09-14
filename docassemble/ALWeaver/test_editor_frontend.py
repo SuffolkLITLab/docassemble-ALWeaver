@@ -77,6 +77,49 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
 
+    def test_transient_tools_are_closed_by_editor_navigation(self):
+        """A late debugger poll and an open assistant must not undo navigation."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        runtime = (
+            self.package_dir / "data/static/editor_runtime_inspector.js"
+        ).read_text()
+
+        self.assertIn("hide: hide", runtime)
+        # Hiding has to drop the canvas the panel was drawing into, or a late
+        # observation paints the debugger back over whatever replaced it.
+        self.assertIn("function hide() {", runtime)
+        hide_body = runtime.split("function hide() {", 1)[1].split("}", 1)[0]
+        self.assertIn("container = null;", hide_body)
+        self.assertIn("runtimeInspector.hide();", editor)
+        self.assertIn("!target.closest('#editor-assistant')", editor)
+        self.assertIn("!target.closest('.editor-runtime-inspector')", editor)
+        self.assertIn(
+            "if (dismissal.assistant && state.assistantOpen) setAssistantOpen(false);",
+            editor,
+        )
+
+    def test_dialogs_and_cancelled_navigation_leave_the_tools_open(self):
+        """A modal is raised over the editor, not part of it -- and the
+        debugger opens some of them itself. Clicking in one, or backing out of
+        the unsaved-changes prompt, has to leave the tool where it was."""
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+
+        dismissal_check = editor.split(
+            "function transientToolsDismissedByClick(e) {", 1
+        )[1].split("\n  }\n", 1)[0]
+        self.assertIn(
+            "if (target.closest('.modal, .modal-backdrop')) return dismissal;",
+            dismissal_check,
+        )
+        # The dismissal waits on the queued navigation instead of running
+        # while the prompt is still open, because the user may cancel it.
+        self.assertIn(
+            "if (_pendingNavigationAction) _pendingNavigationDismissal", editor
+        )
+        self.assertIn(
+            "if (pendingDismissal) dismissTransientTools(pendingDismissal);", editor
+        )
+
     def test_the_magic_icon_marks_only_features_that_use_ai(self):
         """A wand promises generative AI. Deterministic screens and actions
         have to be drawn with something that does not."""
