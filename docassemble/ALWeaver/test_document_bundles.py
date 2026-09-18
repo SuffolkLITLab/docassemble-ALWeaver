@@ -265,6 +265,66 @@ objects:
                 EXISTING_INTERVIEW, "al_user_bundle", ["petition; rm -rf /"]
             )
 
+    def test_a_bundle_without_elements_yet_gains_the_keyword(self):
+        """An unlisted bundle is not a computed one; importing a template fills it."""
+        source = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(filename="bundle", title="All")
+"""
+        updated = set_bundle_elements(source, "al_user_bundle", ["petition"])
+        self.assertEqual(interview_documents(updated).bundles[0].elements, ["petition"])
+
+    def test_a_computed_element_list_is_still_refused(self):
+        source = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(elements=chosen_documents, filename="b")
+"""
+        with self.assertRaises(ValueError):
+            set_bundle_elements(source, "al_user_bundle", ["petition"])
+
+    def test_an_attachment_sharing_a_name_prefix_is_left_alone(self):
+        """`petition_copy` is a different variable, and must not loop forever."""
+        source = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+---
+attachment:
+  variable name: petition_copy[i]
+  pdf template file: copy.pdf
+---
+attachment:
+  variable name: petition[i]
+  pdf template file: petition.pdf
+"""
+        updated = remove_document(source, "petition")
+        self.assertIn("petition_copy[i]", updated)
+        self.assertNotIn("petition.pdf", updated)
+        self.assertNotIn("ALDocument.using", updated)
+
+    def test_a_commented_out_attachment_does_not_block_deletion(self):
+        source = """---
+objects:
+  - petition: ALDocument.using(filename="petition", enabled=True)
+  - affidavit: ALDocument.using(filename="affidavit", enabled=True)
+---
+# attachment:
+#   variable name: petition[i]
+#   pdf template file: old.pdf
+---
+attachment:
+  variable name: petition[i]
+  pdf template file: petition.pdf
+"""
+        updated = remove_document(source, "petition")
+        self.assertIn("#   pdf template file: old.pdf", updated)
+        self.assertNotIn("pdf template file: petition.pdf", updated)
+        self.assertEqual(
+            [document.name for document in interview_documents(updated).documents],
+            ["affidavit"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

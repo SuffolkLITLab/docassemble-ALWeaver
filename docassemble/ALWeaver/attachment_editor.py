@@ -8,6 +8,28 @@ import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 
+def attachment_matches(variable_name: Any, document_name: str) -> bool:
+    """True when an attachment's ``variable name`` assigns this document.
+
+    Callers that select attachments and callers that remove them must agree
+    about this: a block one selects and the other declines to touch would be
+    rewritten forever.
+    """
+    return bool(
+        re.match(
+            r"^" + re.escape(document_name) + r"(?:\[|\.|$)",
+            str(variable_name or "").strip(),
+        )
+    )
+
+
+def _blank(node) -> bool:
+    """True when a key is absent or written with no value at all (``fields:``)."""
+    return node is None or (
+        isinstance(node, ScalarNode) and node.tag == "tag:yaml.org,2002:null"
+    )
+
+
 def _mapping(node):
     if not isinstance(node, MappingNode) or (node.flow_style and node.value):
         raise ValueError(
@@ -48,7 +70,9 @@ def attachment_mappings(source: str) -> List[Dict[str, Any]]:
         template = props.get("pdf template file", props.get("docx template file"))
         fields = props.get("fields")
         rows = []
-        if fields is not None:
+        if not _blank(fields):
+            if not isinstance(fields, (MappingNode, SequenceNode)):
+                raise ValueError("Use YAML mode for computed attachment fields.")
             groups = fields.value if isinstance(fields, SequenceNode) else [fields]
             seen = set()
             for group in groups:
@@ -118,12 +142,12 @@ def update_attachment_mappings(source: str, updates: list) -> str:
         props = _mapping(node)
         fields = props.get("fields")
         entries = {}
-        if fields is not None:
-            groups = fields.value if isinstance(fields, SequenceNode) else [fields]
+        if not _blank(fields):
             if not isinstance(fields, (MappingNode, SequenceNode)) or (
                 fields.flow_style and fields.value
             ):
-                raise ValueError("Use YAML mode for flow-style fields.")
+                raise ValueError("Use YAML mode for computed or flow-style fields.")
+            groups = fields.value if isinstance(fields, SequenceNode) else [fields]
             for group in groups:
                 for name, value in _mapping(group).items():
                     if name in entries:
@@ -150,7 +174,7 @@ def update_attachment_mappings(source: str, updates: list) -> str:
                 replacement += "\n"
             patches.append((old.start_mark.index, old.end_mark.index, replacement))
         if additions:
-            if fields is not None and not fields.value:
+            if fields is not None and (_blank(fields) or not fields.value):
                 field_key = next(
                     key for key, value in node.value if key.value == "fields"
                 )
@@ -215,8 +239,8 @@ def remove_attachment(source: str, document_name: str) -> str:
     targets = []
     for node in nodes:
         variable = _mapping(node).get("variable name")
-        if isinstance(variable, ScalarNode) and re.match(
-            r"^" + re.escape(document_name) + r"(?:\[|\.|$)", variable.value
+        if isinstance(variable, ScalarNode) and attachment_matches(
+            variable.value, document_name
         ):
             targets.append(node)
     if not targets:

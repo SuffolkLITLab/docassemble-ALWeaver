@@ -1139,6 +1139,31 @@ def update_block_in_yaml(
     edited_body = new_block_yaml.strip("\r\n")
     replacement: Optional[str] = None
     if preserve_unchanged_annotations:
+        # The question controls do not serialize attachments. Retain their
+        # exact source when saving a question carrying one or more documents.
+        original_data = _block.get("data") or {}
+        edited_data = yaml.safe_load(edited_body)
+        if (
+            "question" in original_data
+            and isinstance(edited_data, dict)
+            and "question" in edited_data
+        ):
+            original_node = yaml.compose(original_body)
+            if isinstance(original_node, yaml.MappingNode):
+                for index, (key, _value) in enumerate(original_node.value):
+                    if (
+                        key.value not in ("attachment", "attachments")
+                        or key.value in edited_data
+                    ):
+                        continue
+                    property_end = (
+                        original_node.value[index + 1][0].start_mark.index
+                        if index + 1 < len(original_node.value)
+                        else len(original_body)
+                    )
+                    edited_body += "\n" + original_body[
+                        key.start_mark.index : property_end
+                    ].rstrip("\r\n")
         replacement = _merge_changed_mapping_values(original_body, edited_body)
     if replacement is None:
         leading_len = len(original_body) - len(original_body.lstrip("\r\n"))

@@ -137,7 +137,7 @@ attachments:
         )
 
     def test_empty_fields_and_block_scalar_comments(self):
-        for empty in ("[]", "{}"):
+        for empty in ("[]", "{}", "null", "Null", "NULL", "~"):
             source = (
                 "attachment:\n  pdf template file: a.pdf\n  fields: "
                 + empty
@@ -147,6 +147,7 @@ attachments:
                 source, [{"index": 0, "values": {"new": "${ value }"}}]
             )
             self.assertIn("# keep", updated)
+            self.assertEqual(yaml.safe_load(updated)["attachment"]["name"], "Test")
             self.assertEqual(
                 yaml.safe_load(updated)["attachment"]["fields"], [{"new": "${ value }"}]
             )
@@ -156,3 +157,33 @@ attachments:
         )
         self.assertIn("# keep header", updated)
         self.assertEqual(yaml.safe_load(updated)["attachment"]["fields"]["x"], "new")
+
+    def test_a_fields_key_with_no_value_is_readable_and_fillable(self):
+        """A stub attachment is exactly what the dialog exists to fill in."""
+        source = (
+            "attachment:\n"
+            "  pdf template file: a.pdf\n"
+            "  fields:\n"
+            "  editable templates: True\n"
+        )
+        self.assertEqual(attachment_mappings(source)[0]["rows"], [])
+        updated = update_attachment_mappings(
+            source, [{"index": 0, "values": {"signature": "${ users[0] }"}}]
+        )
+        self.assertEqual(
+            yaml.safe_load(updated)["attachment"]["fields"],
+            [{"signature": "${ users[0] }"}],
+        )
+        self.assertIn("editable templates: True", updated)
+
+    def test_a_computed_fields_value_says_so(self):
+        source = "attachment:\n  pdf template file: a.pdf\n  fields: chosen_fields\n"
+        for call in (
+            lambda: attachment_mappings(source),
+            lambda: update_attachment_mappings(
+                source, [{"index": 0, "values": {"x": "y"}}]
+            ),
+        ):
+            with self.subTest(call=call), self.assertRaises(ValueError) as caught:
+                call()
+            self.assertIn("computed", str(caught.exception))

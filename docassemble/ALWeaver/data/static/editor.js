@@ -8047,13 +8047,23 @@
     return fallbackId ? getBlockById(fallbackId) : null;
   }
 
+  function isQuestionEditorBlock(block) {
+    return Boolean(
+      block &&
+      (block.type === 'question' ||
+        (block.type === 'attachment' &&
+          block.data &&
+          block.data.question !== undefined)),
+    );
+  }
+
   function getBlockYamlForSave(block) {
     if (!block) return '';
-    if (state.questionEditMode === 'preview' && block.type === 'attachment')
-      return block.yaml;
-    if (state.questionEditMode === 'preview' && block.type === 'question') {
+    if (state.questionEditMode === 'preview' && isQuestionEditorBlock(block)) {
       return serializeQuestionBlockToYaml(block);
     }
+    if (state.questionEditMode === 'preview' && block.type === 'attachment')
+      return block.yaml;
     if (state.questionEditMode === 'preview' && block.type === 'code') {
       return serializeCodeToYaml(block);
     }
@@ -9458,7 +9468,7 @@
       return;
     }
 
-    if (block.type === 'question') {
+    if (isQuestionEditorBlock(block)) {
       renderQuestionBlock(block);
     } else if (block.type === 'review') {
       renderReviewBlock(block);
@@ -15173,9 +15183,11 @@
   }
 
   var attachmentMappingContext = null;
-  document
-    .getElementById('attachment-mappings-modal')
-    .addEventListener('hide.bs.modal', function (event) {
+  var attachmentMappingsModal = document.getElementById(
+    'attachment-mappings-modal',
+  );
+  if (attachmentMappingsModal)
+    attachmentMappingsModal.addEventListener('hide.bs.modal', function (event) {
       if (attachmentMappingContext && attachmentMappingContext.saving)
         event.preventDefault();
       else attachmentMappingContext = null;
@@ -15268,7 +15280,7 @@
               (row.missing ? 'true' : 'false') +
               '" data-symbol-role="variable"' +
               (row.editable ? '' : ' disabled') +
-              '>' +
+              '>\n' +
               esc(row.value) +
               '</textarea></td></tr>';
           });
@@ -15292,6 +15304,7 @@
       return { index: attachment.index, values: Object.create(null) };
     });
     document
+      .getElementById('attachment-mappings-body')
       .querySelectorAll('[data-attachment-field]')
       .forEach(function (input) {
         if (

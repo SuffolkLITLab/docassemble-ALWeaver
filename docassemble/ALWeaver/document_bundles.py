@@ -533,16 +533,18 @@ def set_bundle_elements(
         if name not in cleaned:
             cleaned.append(name)
     block_id, declaration, entry = _find_declaration(raw_yaml, bundle_name)
-    try:
-        current = ast.parse(
-            declaration_keyword(declaration, "elements"), mode="eval"
-        ).body
-    except SyntaxError as exc:
-        raise ValueError("Use YAML mode for computed bundle elements.") from exc
-    if not isinstance(current, ast.List) or any(
-        not isinstance(item, ast.Name) for item in current.elts
-    ):
-        raise ValueError("Use YAML mode for computed bundle elements.")
+    # A bundle that has not listed its elements yet just gains the keyword.
+    # Only an existing list that is not plain variable names is beyond us.
+    existing = declaration_keyword(declaration, "elements")
+    if existing:
+        try:
+            current = ast.parse(existing, mode="eval").body
+        except SyntaxError as exc:
+            raise ValueError("Use YAML mode for computed bundle elements.") from exc
+        if not isinstance(current, ast.List) or any(
+            not isinstance(item, ast.Name) for item in current.elts
+        ):
+            raise ValueError("Use YAML mode for computed bundle elements.")
     updated = with_declaration_keyword(
         declaration, "elements", "[" + ", ".join(cleaned) + "]"
     )
@@ -558,6 +560,8 @@ def remove_document(raw_yaml: str, name: str) -> str:
     Template files and questions are retained, including questions carrying
     several attachments.
     """
+    from .attachment_editor import attachment_matches, remove_attachment
+
     model = interview_documents(raw_yaml)
     if name not in {document.name for document in model.documents}:
         raise ValueError(f"{name} is not a document in this interview.")
@@ -577,17 +581,23 @@ def remove_document(raw_yaml: str, name: str) -> str:
         target = None
         for entry in parse_interview_yaml(raw_yaml)["blocks"]:
             data = entry.get("data") or {}
+            # A commented-out block assembles nothing, and its source is hash
+            # marks rather than the YAML the attachment editor would patch.
+            if data.get("_commented"):
+                continue
             attachment = data.get("attachment", data.get("attachments"))
             attachments = attachment if isinstance(attachment, list) else [attachment]
             matching = any(
                 isinstance(item, dict)
-                and reference_root(item.get("variable name")) == name
+                and attachment_matches(item.get("variable name"), name)
                 for item in attachments
             )
             if matching:
-                from .attachment_editor import remove_attachment
-
                 replacement = remove_attachment(entry["yaml"], name)
+                if replacement == entry["yaml"]:
+                    # Nothing came out, so rewriting this block would find it
+                    # again on the next pass and never terminate.
+                    continue
                 remaining = yaml.safe_load(replacement) or {}
                 if any(
                     key in remaining
