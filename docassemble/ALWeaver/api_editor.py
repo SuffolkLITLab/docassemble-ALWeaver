@@ -121,6 +121,7 @@ from .docassemble_compat import (
 )
 from .document_bundles import (
     interview_documents,
+    remove_document,
     set_bundle_elements,
     set_enabled_expression,
     template_status,
@@ -10040,6 +10041,111 @@ def editor_api_apply_template_analysis() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/attachment-mappings", methods=["POST"])
+def editor_api_attachment_mappings() -> Response:
+    """Read actual template fields or save surgical, revision-checked field edits."""
+    from .attachment_editor import attachment_mappings, update_attachment_mappings
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        payload = request.get_json(silent=True) or {}
+        uid = _current_user_id()
+        project = _normalize_project(payload.get("project"))
+        filename = _normalize_filename(payload.get("filename"))
+        content = playground_read_yaml(uid, project, filename)
+        blocks = parse_interview_yaml(content)["blocks"]
+        matches = [block for block in blocks if block["id"] == payload.get("block_id")]
+        if len(matches) != 1:
+            raise ValueError("Select a unique attachment block.")
+        block = matches[0]
+        if "updates" in payload:
+            if payload.get("expected_revision") != source_revision(content):
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "revision_conflict",
+                            "message": "This interview changed. Reopen the field editor before saving.",
+                        },
+                    },
+                    409,
+                )
+            if not isinstance(payload["updates"], list):
+                raise ValueError("updates must be a list")
+            updated = update_attachment_mappings(block["yaml"], payload["updates"])
+            content = update_block_in_yaml(content, block["id"], updated)
+            playground_write_yaml(uid, project, filename, content)
+            return jsonify({"success": True, "request_id": request_id})
+
+        attachments = attachment_mappings(block["yaml"])
+        for attachment in attachments:
+            attachment["template_fields"] = []
+            try:
+                template = _normalize_storage_filename(attachment["template"])
+                if (
+                    template != attachment["template"]
+                    or ":" in template
+                    or "${" in template
+                ):
+                    raise ValueError(
+                        "Template reference is external or computed; edit its mappings below or use YAML mode."
+                    )
+                # Reading fields must not rename or modify the template.
+                _, directory = _editor_storage_directory(
+                    uid, project, EDITOR_SECTION_TO_STORAGE["templates"]
+                )
+                path = os.path.join(directory, template)
+                if not os.path.isfile(path) or os.path.islink(path):
+                    raise ValueError("Template is not a local project file.")
+                if not template.lower().endswith((".pdf", ".docx")):
+                    raise ValueError("Choose a PDF or DOCX template in YAML mode.")
+                from .interview_generator import _make_static_file_from_path, get_fields
+
+                fields = get_fields(
+                    cast(Any, _make_static_file_from_path(path, filename=template))
+                )
+                attachment["template_fields"] = list(
+                    dict.fromkeys(
+                        str(item[0] if template.lower().endswith(".pdf") else item)
+                        for item in fields
+                    )
+                )
+            except Exception as exc:
+                attachment["warning"] = f"Could not check template fields: {exc}"
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "revision": source_revision(content),
+                    "attachments": attachments,
+                },
+            }
+        )
+    except (ValueError, yaml.YAMLError, FileNotFoundError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: attachment mappings error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["GET"])
 def editor_api_documents() -> Response:
     """List the documents an interview assembles, and the bundles they sit in."""
@@ -10108,11 +10214,16 @@ def editor_api_save_documents() -> Response:
             raise ValueError("expected_revision is required")
         bundle_updates = post_data.get("bundles") or []
         enabled_updates = post_data.get("enabled") or []
+        removals = post_data.get("remove") or []
+        if not isinstance(removals, list) or any(
+            not isinstance(name, str) for name in removals
+        ):
+            raise ValueError("remove must be a list of document names")
         if not isinstance(bundle_updates, list) or not isinstance(
             enabled_updates, list
         ):
             raise ValueError("bundles and enabled must be lists")
-        if not bundle_updates and not enabled_updates:
+        if not bundle_updates and not enabled_updates and not removals:
             raise ValueError("Nothing was changed.")
 
         content = playground_read_yaml(uid, project, filename)
@@ -10151,6 +10262,17 @@ def editor_api_save_documents() -> Response:
             raw_expression = update.get("expression")
             expression = None if raw_expression is None else str(raw_expression)
             content = set_enabled_expression(content, name, expression)
+
+        for name in removals:
+            content = remove_document(content, name)
+
+        # Deleting a declaration must not leave an unresolved YAML alias.
+        try:
+            list(yaml.compose_all(content))
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"The document changes would invalidate the YAML: {exc}"
+            ) from exc
 
         playground_write_yaml(uid, project, filename, content)
         updated_model = parse_interview_yaml(content)

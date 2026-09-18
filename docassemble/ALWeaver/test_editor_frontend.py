@@ -8,6 +8,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_attachments.js",
     "test_editor_order_lookup.js",
     "test_editor_dirty_state.js",
     "test_editor_html.js",
@@ -36,6 +37,13 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_attachment_controls_support_questions_and_standalone_blocks(self):
+        editor = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn("data-edit-attachment-mappings", editor)
+        self.assertIn("function saveAttachmentMappings()", editor)
+        self.assertIn("data-remove-from-bundle", editor)
+        self.assertNotIn("This block has an attachment. Edit in YAML mode", editor)
+
     def test_separate_main_order_is_an_unchecked_advanced_option(self):
         editor = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn('id="new-project-separate-main-order">', editor)

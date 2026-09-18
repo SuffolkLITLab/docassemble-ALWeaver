@@ -43,6 +43,39 @@ SOURCE = (
 
 
 class TestEditorSourcePreservation(unittest.TestCase):
+    def test_graphical_question_save_preserves_attachment_source(self):
+        for key, value in (
+            (
+                "attachment",
+                "  pdf template file: \"form.pdf\" # keep\n  fields:\n    name: '${ users[0] }'\n",
+            ),
+            (
+                "attachments",
+                "  - pdf template file: \"form.pdf\" # keep\n    fields:\n      name: '${ users[0] }'\n",
+            ),
+        ):
+            with self.subTest(key=key):
+                attachment = key + ":\n" + value
+                source = "id: output\nquestion: Original\n" + attachment
+                edited = (
+                    "id: output\nquestion: Edited\nfields:\n  - Name: users[0].name\n"
+                )
+                updated = update_block_in_yaml(
+                    source, "output", edited, preserve_unchanged_annotations=True
+                )
+                self.assertEqual(yaml.safe_load(updated)["question"], "Edited")
+                self.assertEqual(
+                    yaml.safe_load(updated)["fields"], [{"Name": "users[0].name"}]
+                )
+                self.assertIn(attachment.rstrip("\n"), updated)
+                self.assertEqual(
+                    yaml.safe_load(updated)[key], yaml.safe_load(source)[key]
+                )
+                # Explicit edits in YAML mode must still be able to remove it.
+                self.assertNotIn(
+                    key, yaml.safe_load(update_block_in_yaml(source, "output", edited))
+                )
+
     def test_parser_returns_exact_block_yaml(self):
         question = next(
             block

@@ -2028,6 +2028,88 @@ class TestEditorApplyBlockReplacement(unittest.TestCase):
         mock_update.assert_not_called()
 
 
+class TestEditorAttachmentMappingsApi(unittest.TestCase):
+    SOURCE = 'id: output\nattachment:\n  pdf template file: form.pdf\n  fields:\n    name: "${ old }" # keep\n'
+
+    def _request(
+        self,
+        payload,
+        authenticated=True,
+        template_directory="/tmp/missing-template-folder",
+    ):
+        from . import editor_utils as real_utils
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=authenticated),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=self.SOURCE),
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                side_effect=real_utils.parse_interview_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "update_block_in_yaml",
+                side_effect=real_utils.update_block_in_yaml,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as write,
+            patch.object(
+                api_editor,
+                "_editor_storage_directory",
+                return_value=(None, template_directory),
+            ),
+            api_editor.app.test_request_context(
+                "/al/editor/api/attachment-mappings",
+                method="POST",
+                json={
+                    "project": "test",
+                    "filename": "main.yml",
+                    "block_id": "output",
+                    **payload,
+                },
+            ),
+        ):
+            response = api_editor.editor_api_attachment_mappings()
+        return response, write
+
+    def test_save_patches_value_and_preserves_comment(self):
+        response, write = self._request(
+            {
+                "expected_revision": "test-revision",
+                "updates": [
+                    {"index": 0, "values": {"name": "${ new if ready else '' }"}}
+                ],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(write.call_count, 1)
+        self.assertIn(" # keep", write.call_args.args[3])
+        self.assertIn("new if ready", write.call_args.args[3])
+
+    def test_stale_revision_and_invalid_updates_do_not_write(self):
+        for payload, status in (
+            ({"expected_revision": "stale", "updates": []}, 409),
+            ({"expected_revision": "test-revision", "updates": ["invalid"]}, 400),
+        ):
+            response, write = self._request(payload)
+            self.assertEqual(response.status_code, status)
+            write.assert_not_called()
+
+    def test_missing_template_still_allows_existing_mapping_edits(self):
+        response, write = self._request({})
+        self.assertEqual(response.status_code, 200)
+        attachment = response.get_json()["data"]["attachments"][0]
+        self.assertEqual(attachment["rows"][0]["name"], "name")
+        self.assertIn("Could not check", attachment["warning"])
+        write.assert_not_called()
+
+    def test_requires_authentication(self):
+        response, write = self._request({}, authenticated=False)
+        self.assertIn(response.status_code, (401, 403))
+        write.assert_not_called()
+
+
 class TestEditorDocumentsApi(unittest.TestCase):
     """Rearranging the documents an interview assembles."""
 
@@ -2130,6 +2212,45 @@ class TestEditorDocumentsApi(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("elements=[affidavit, petition]", content)
+
+    def test_removing_last_document_saves_an_empty_bundle(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "bundles": [{"bundle": "al_user_bundle", "elements": []}],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("elements=[]", content)
+        self.assertIn("pdf template file: petition.pdf", content)
+
+    def test_deleting_document_cleans_its_attachment_and_bundle_entries(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "remove": ["petition"],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("pdf template file: petition.pdf", content)
+        self.assertNotIn("- petition: ALDocument", content)
+        self.assertIn("elements=[affidavit]", content)
+
+    def test_deletion_with_stale_revision_does_not_write(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "old",
+                "remove": ["petition"],
+            }
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(content, "")
 
     def test_an_enabled_rule_is_written_into_the_declaration(self):
         response, content = self._save(
