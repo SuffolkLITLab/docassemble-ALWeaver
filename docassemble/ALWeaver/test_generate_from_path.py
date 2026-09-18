@@ -763,16 +763,60 @@ class _TestAutoDraftBase(unittest.TestCase):
 
 class TestAutoDraftFinalScreen(_TestAutoDraftBase):
     def test_final_download_sets_progress_to_100_first(self):
-        """Both YAML and editor auto-drafting use this generated main order."""
+        """The default single order reaches the download after all questions."""
         _result, yaml_text = self._generate(["users1_name_first", "rent_amount"])
+        from .editor_utils import parse_interview_yaml
 
-        main_order = yaml_text.split("###################### Main order", 1)[1].split(
-            "\n---\n", 1
-        )[0]
+        model = parse_interview_yaml(yaml_text)
+        orders = [
+            b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]
+        ]
+        self.assertEqual(len(orders), 1)
+        self.assertTrue(orders[0]["mandatory"])
+        main_order = orders[0]["code"]
+        self.assertLess(
+            main_order.index("al_intro_screen"), main_order.index("rent_amount")
+        )
+        self.assertLess(
+            main_order.index("rent_amount"), main_order.index("signature_date")
+        )
         self.assertRegex(
             main_order,
-            r"(?m)^  set_progress\(100\)\n  \w+_download$",
+            r"(?m)^set_progress\(100\)\n\w+_download$",
         )
+        self.assertNotIn("###################### Main order", yaml_text)
+
+    def test_separate_order_opt_in_preserves_reusable_form_flow(self):
+        from .editor_utils import parse_interview_yaml
+
+        _result, source = self._generate(
+            ["users1_name_first", "rent_amount"], separate_main_order=True
+        )
+        model = parse_interview_yaml(source)
+        orders = [
+            b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]
+        ]
+        self.assertEqual(len(orders), 2)
+        form, main = orders
+        self.assertNotIn("mandatory", form)
+        self.assertTrue(main["mandatory"])
+        self.assertIn(form["id"] + " = True", form["code"])
+        self.assertIn(form["id"], main["code"].splitlines())
+        self.assertIn("rent_amount", form["code"])
+        self.assertNotIn("rent_amount", main["code"])
+
+    def test_survey_single_order_saves_answers_before_thank_you(self):
+        from .editor_utils import parse_interview_yaml
+
+        _result, source = self._generate(["rent_amount"], include_download_screen=False)
+        model = parse_interview_yaml(source)
+        orders = [
+            b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]
+        ]
+        self.assertEqual(len(orders), 1)
+        code = orders[0]["code"]
+        self.assertLess(code.index("rent_amount"), code.index("saved_report_data"))
+        self.assertLess(code.index("saved_report_data"), code.index("_thank_you"))
 
 
 class TestAutoDraftPersonDetection(_TestAutoDraftBase):

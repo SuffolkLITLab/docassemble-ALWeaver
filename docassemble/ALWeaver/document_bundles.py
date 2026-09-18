@@ -17,16 +17,18 @@ comments, exactly as it was.
 from __future__ import annotations
 
 import re
+import ast
+import yaml
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .editor_utils import (
-    BLOCK_TYPE_ATTACHMENT,
     BLOCK_TYPE_OBJECTS,
     BLOCK_TYPE_TEMPLATE,
     _split_top_level_commas,
     parse_interview_yaml,
     update_block_in_yaml,
+    delete_block_from_yaml,
 )
 
 __all__ = [
@@ -385,20 +387,22 @@ def interview_documents(raw_yaml: str) -> InterviewDocuments:
                 titles[template_name[: -len(".title")]] = str(
                     data.get("content") or ""
                 ).strip()
-        elif block_type == BLOCK_TYPE_ATTACHMENT:
-            attachment = data.get("attachment")
-            if not isinstance(attachment, dict):
-                attachment = data
-            root = reference_root(attachment.get("variable name"))
-            if root:
-                attachments[root] = (
-                    str(
-                        attachment.get("pdf template file")
-                        or attachment.get("docx template file")
-                        or ""
-                    ).strip(),
-                    entry.get("id"),
-                )
+        if "attachment" in data or "attachments" in data:
+            attachment = data.get("attachment", data.get("attachments"))
+            entries = attachment if isinstance(attachment, list) else [attachment]
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                root = reference_root(item.get("variable name"))
+                if root:
+                    attachments[root] = (
+                        str(
+                            item.get("pdf template file")
+                            or item.get("docx template file")
+                            or ""
+                        ).strip(),
+                        entry.get("id"),
+                    )
 
     for entry in model["blocks"]:
         data = entry.get("data")
@@ -529,6 +533,16 @@ def set_bundle_elements(
         if name not in cleaned:
             cleaned.append(name)
     block_id, declaration, entry = _find_declaration(raw_yaml, bundle_name)
+    try:
+        current = ast.parse(
+            declaration_keyword(declaration, "elements"), mode="eval"
+        ).body
+    except SyntaxError as exc:
+        raise ValueError("Use YAML mode for computed bundle elements.") from exc
+    if not isinstance(current, ast.List) or any(
+        not isinstance(item, ast.Name) for item in current.elts
+    ):
+        raise ValueError("Use YAML mode for computed bundle elements.")
     updated = with_declaration_keyword(
         declaration, "elements", "[" + ", ".join(cleaned) + "]"
     )
@@ -536,6 +550,88 @@ def set_bundle_elements(
         str(entry.get("yaml") or ""), bundle_name, updated
     )
     return update_block_in_yaml(raw_yaml, str(block_id), block_yaml)
+
+
+def remove_document(raw_yaml: str, name: str) -> str:
+    """Remove an ALDocument, its standalone attachment and title, and bundle links.
+
+    Template files and questions are retained, including questions carrying
+    several attachments.
+    """
+    model = interview_documents(raw_yaml)
+    if name not in {document.name for document in model.documents}:
+        raise ValueError(f"{name} is not a document in this interview.")
+    for bundle in model.bundles:
+        # A computed list might include this document even if static discovery
+        # cannot see it. Refuse deletion rather than leave a dangling reference.
+        set_bundle_elements(raw_yaml, bundle.name, bundle.elements)
+        if name in bundle.elements:
+            raw_yaml = set_bundle_elements(
+                raw_yaml,
+                bundle.name,
+                [element for element in bundle.elements if element != name],
+            )
+
+    # Reparse after each deletion: synthetic block ids depend on source offsets.
+    while True:
+        target = None
+        for entry in parse_interview_yaml(raw_yaml)["blocks"]:
+            data = entry.get("data") or {}
+            attachment = data.get("attachment", data.get("attachments"))
+            attachments = attachment if isinstance(attachment, list) else [attachment]
+            matching = any(
+                isinstance(item, dict)
+                and reference_root(item.get("variable name")) == name
+                for item in attachments
+            )
+            if matching:
+                from .attachment_editor import remove_attachment
+
+                replacement = remove_attachment(entry["yaml"], name)
+                remaining = yaml.safe_load(replacement) or {}
+                if any(
+                    key in remaining
+                    for key in (
+                        "question",
+                        "attachment",
+                        "attachments",
+                        "code",
+                        "event",
+                    )
+                ):
+                    raw_yaml = update_block_in_yaml(raw_yaml, entry["id"], replacement)
+                    target = ""
+                else:
+                    target = entry["id"]
+                break
+            if data.get("template") == name + ".title":
+                target = entry["id"]
+                break
+        if target is None:
+            break
+        if target:
+            raw_yaml = delete_block_from_yaml(raw_yaml, target)
+
+    block_id, _declaration, entry = _find_declaration(raw_yaml, name)
+    declarations = objects_declarations(entry["data"])
+    if len(declarations) == 1:
+        return delete_block_from_yaml(raw_yaml, str(block_id))
+    block_yaml = str(entry["yaml"])
+    span = _entry_span(block_yaml, name)
+    if span is None:
+        raise ValueError("Use YAML mode to remove this document declaration.")
+    start, end, _lead = span
+    lines = block_yaml.splitlines(keepends=True)
+    replacement = "".join(lines[:start] + lines[end:])
+    try:
+        remaining = objects_declarations(yaml.safe_load(replacement))
+    except (yaml.YAMLError, AttributeError) as exc:
+        raise ValueError("Use YAML mode to remove this document declaration.") from exc
+    if remaining != [(key, value) for key, value in declarations if key != name]:
+        raise ValueError(
+            "This declaration shares source with other objects. Remove it in YAML mode."
+        )
+    return update_block_in_yaml(raw_yaml, str(block_id), replacement)
 
 
 def set_enabled_expression(raw_yaml: str, name: str, expression: Optional[str]) -> str:

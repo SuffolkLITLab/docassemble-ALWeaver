@@ -1534,6 +1534,12 @@ fields:
     default: True
     help: |
       ${ copy_baseline_questions_help }
+  - Separate main order and interview order blocks?: interview.separate_main_order
+    datatype: yesno
+    default: False
+    help: |
+      Useful when reusing this form inside another interview. By default,
+      one order block controls the entire interview.
 continue button field: ask_people_quantity_question
 ---
 template: copy_baseline_questions_help
@@ -2839,6 +2845,7 @@ code: |
   # Auto-drafting skips the screen that offers this, and a draft that copies in
   # the AssemblyLine questions about people is the more useful starting point.
   interview.copy_baseline_questions = True
+  interview.separate_main_order = False
   interview.enable_navigation = True
   interview.has_other_categories = False
   interview_sections_defaults_loaded = True

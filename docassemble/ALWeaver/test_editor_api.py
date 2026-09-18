@@ -1168,6 +1168,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
+        self.assertFalse(start_kwargs["generation_options"]["separate_main_order"])
         self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
         self.assertTrue(start_kwargs["generation_options"]["include_download_screen"])
         self.assertTrue(
@@ -1466,6 +1467,7 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                         "/al/editor/api/new-project",
                         data={
                             "project_name": "Meta",
+                            "separate_main_order": "true",
                             "interview_title": "Petition to enforce the sanitary code",
                             "interview_short_title": "Sanitary code",
                             "interview_description": "Ask the court to inspect.",
@@ -1481,6 +1483,7 @@ class TestEditorNewProjectNaming(unittest.TestCase):
 
         kwargs = mock_start_job.call_args.kwargs
         overrides = kwargs["generation_options"]["interview_overrides"]
+        self.assertTrue(kwargs["generation_options"]["separate_main_order"])
         self.assertEqual(kwargs["interview_filename"], "sanitary_code.yml")
         self.assertEqual(overrides["title"], "Petition to enforce the sanitary code")
         self.assertEqual(overrides["short_title"], "Sanitary code")
@@ -2025,6 +2028,88 @@ class TestEditorApplyBlockReplacement(unittest.TestCase):
         mock_update.assert_not_called()
 
 
+class TestEditorAttachmentMappingsApi(unittest.TestCase):
+    SOURCE = 'id: output\nattachment:\n  pdf template file: form.pdf\n  fields:\n    name: "${ old }" # keep\n'
+
+    def _request(
+        self,
+        payload,
+        authenticated=True,
+        template_directory="/tmp/missing-template-folder",
+    ):
+        from . import editor_utils as real_utils
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=authenticated),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=self.SOURCE),
+            patch.object(
+                api_editor,
+                "parse_interview_yaml",
+                side_effect=real_utils.parse_interview_yaml,
+            ),
+            patch.object(
+                api_editor,
+                "update_block_in_yaml",
+                side_effect=real_utils.update_block_in_yaml,
+            ),
+            patch.object(api_editor, "playground_write_yaml") as write,
+            patch.object(
+                api_editor,
+                "_editor_storage_directory",
+                return_value=(None, template_directory),
+            ),
+            api_editor.app.test_request_context(
+                "/al/editor/api/attachment-mappings",
+                method="POST",
+                json={
+                    "project": "test",
+                    "filename": "main.yml",
+                    "block_id": "output",
+                    **payload,
+                },
+            ),
+        ):
+            response = api_editor.editor_api_attachment_mappings()
+        return response, write
+
+    def test_save_patches_value_and_preserves_comment(self):
+        response, write = self._request(
+            {
+                "expected_revision": "test-revision",
+                "updates": [
+                    {"index": 0, "values": {"name": "${ new if ready else '' }"}}
+                ],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(write.call_count, 1)
+        self.assertIn(" # keep", write.call_args.args[3])
+        self.assertIn("new if ready", write.call_args.args[3])
+
+    def test_stale_revision_and_invalid_updates_do_not_write(self):
+        for payload, status in (
+            ({"expected_revision": "stale", "updates": []}, 409),
+            ({"expected_revision": "test-revision", "updates": ["invalid"]}, 400),
+        ):
+            response, write = self._request(payload)
+            self.assertEqual(response.status_code, status)
+            write.assert_not_called()
+
+    def test_missing_template_still_allows_existing_mapping_edits(self):
+        response, write = self._request({})
+        self.assertEqual(response.status_code, 200)
+        attachment = response.get_json()["data"]["attachments"][0]
+        self.assertEqual(attachment["rows"][0]["name"], "name")
+        self.assertIn("Could not check", attachment["warning"])
+        write.assert_not_called()
+
+    def test_requires_authentication(self):
+        response, write = self._request({}, authenticated=False)
+        self.assertIn(response.status_code, (401, 403))
+        write.assert_not_called()
+
+
 class TestEditorDocumentsApi(unittest.TestCase):
     """Rearranging the documents an interview assembles."""
 
@@ -2127,6 +2212,45 @@ class TestEditorDocumentsApi(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("elements=[affidavit, petition]", content)
+
+    def test_removing_last_document_saves_an_empty_bundle(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "bundles": [{"bundle": "al_user_bundle", "elements": []}],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("elements=[]", content)
+        self.assertIn("pdf template file: petition.pdf", content)
+
+    def test_deleting_document_cleans_its_attachment_and_bundle_entries(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "test-revision",
+                "remove": ["petition"],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("pdf template file: petition.pdf", content)
+        self.assertNotIn("- petition: ALDocument", content)
+        self.assertIn("elements=[affidavit]", content)
+
+    def test_deletion_with_stale_revision_does_not_write(self):
+        response, content = self._save(
+            {
+                "project": "Eviction",
+                "filename": "main.yml",
+                "expected_revision": "old",
+                "remove": ["petition"],
+            }
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(content, "")
 
     def test_an_enabled_rule_is_written_into_the_declaration(self):
         response, content = self._save(
@@ -2621,6 +2745,95 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
 
 class TestOrderBlockLookup(unittest.TestCase):
     """`order_blocks` holds document indices, not positions in `blocks`."""
+
+    SOURCE = (
+        "---\nmetadata:\n  title: Example\n"
+        "---\nid: interview_order_form\ncode: |\n  rent_amount\n  interview_order_form = True\n"
+        "---\n---\nid: main\nmandatory: True\ncode: |\n  intro\n  interview_order_form\n  download\n"
+        "---\nid: intro\nquestion: Hello\ncontinue button field: intro\n"
+    )
+
+    def _post_order_edit(self, path, payload):
+        from . import editor_utils
+
+        with ExitStack() as stack:
+            for name in (
+                "parse_interview_yaml",
+                "parse_order_code",
+                "serialize_order_steps",
+                "canonical_block_yaml",
+                "update_block_in_yaml",
+            ):
+                stack.enter_context(
+                    patch.object(api_editor, name, getattr(editor_utils, name))
+                )
+            stack.enter_context(
+                patch.object(api_editor, "_editor_auth_check", return_value=True)
+            )
+            stack.enter_context(
+                patch.object(api_editor, "_current_user_id", return_value=7)
+            )
+            stack.enter_context(
+                patch.object(
+                    api_editor, "playground_read_yaml", return_value=self.SOURCE
+                )
+            )
+            writer = stack.enter_context(
+                patch.object(api_editor, "playground_write_yaml")
+            )
+            client = stack.enter_context(api_editor.app.test_client())
+            response = client.post(
+                path, json={"project": "default", "filename": "test.yml", **payload}
+            )
+        return response, writer
+
+    def test_save_block_returns_steps_for_the_correct_order_ids(self):
+        from .editor_utils import serialize_order_steps
+
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": "id: intro\nquestion: Updated\ncontinue button field: intro\n",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        steps = response.get_json()["data"]["order_step_map"]
+        self.assertEqual(set(steps), {"interview_order_form", "main"})
+        self.assertIn(
+            "rent_amount", serialize_order_steps(steps["interview_order_form"])
+        )
+        self.assertNotIn(
+            "download", serialize_order_steps(steps["interview_order_form"])
+        )
+        self.assertIn("download", serialize_order_steps(steps["main"]))
+        writer.assert_called_once()
+
+    def test_save_order_without_id_updates_first_order_in_place(self):
+        from .editor_utils import parse_interview_yaml, parse_order_code
+
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order",
+            {"steps": parse_order_code("new_question\ninterview_order_form = True\n")},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        updated = writer.call_args.args[-1]
+        before = parse_interview_yaml(self.SOURCE)
+        after = parse_interview_yaml(updated)
+        self.assertEqual(len(before["blocks"]), len(after["blocks"]))
+        for old, new in zip(before["blocks"], after["blocks"]):
+            if old["id"] == "interview_order_form":
+                self.assertIn("new_question", new["data"]["code"])
+                self.assertNotIn("mandatory", new["data"])
+            else:
+                self.assertEqual(old["yaml"], new["yaml"])
+
+    def test_stale_order_id_does_not_append_a_duplicate(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order", {"order_block_id": "missing", "steps": []}
+        )
+        self.assertEqual(response.status_code, 400)
+        writer.assert_not_called()
 
     def test_an_order_block_in_the_last_document_is_found(self):
         # Every file that opens with `---` has an empty first document, so the

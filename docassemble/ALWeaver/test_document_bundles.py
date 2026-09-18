@@ -9,6 +9,7 @@ from .document_bundles import (
     template_status,
     set_bundle_elements,
     set_enabled_expression,
+    remove_document,
 )
 
 EXISTING_INTERVIEW = """---
@@ -68,6 +69,42 @@ attachment:
 
 
 class TestReadingDocuments(unittest.TestCase):
+    def test_removing_document_cleans_bundles_attachment_and_title(self):
+        updated = remove_document(EXISTING_INTERVIEW, "petition")
+        model = interview_documents(updated)
+        self.assertEqual([doc.name for doc in model.documents], ["affidavit"])
+        self.assertEqual(
+            [bundle.elements for bundle in model.bundles],
+            [["affidavit"], ["affidavit"]],
+        )
+        self.assertNotIn("pdf template file: petition.pdf", updated)
+        self.assertNotIn("template: petition.title", updated)
+        self.assertIn("pdf template file: affidavit.pdf", updated)
+        self.assertIn("# ALDocument objects specify the metadata", updated)
+        self.assertIn("What is your name?", updated)
+
+    def test_removing_last_document_leaves_valid_empty_bundles(self):
+        updated = remove_document(
+            remove_document(EXISTING_INTERVIEW, "petition"), "affidavit"
+        )
+        model = interview_documents(updated)
+        self.assertEqual(model.documents, [])
+        self.assertEqual([bundle.elements for bundle in model.bundles], [[], []])
+
+    def test_removal_preserves_question_and_refuses_computed_bundle(self):
+        embedded = EXISTING_INTERVIEW.replace(
+            "attachment:\n  name: Petition",
+            "question: Download\nattachment:\n  name: Petition",
+        )
+        computed = EXISTING_INTERVIEW.replace(
+            "elements=[petition, affidavit]", "elements=choose_documents()"
+        )
+        self.assertIn("question: Download", remove_document(embedded, "petition"))
+        with self.assertRaises(ValueError):
+            set_bundle_elements(computed, "al_user_bundle", [])
+        with self.assertRaises(ValueError):
+            remove_document(computed, "petition")
+
     def test_each_document_is_matched_to_the_template_it_fills(self):
         model = interview_documents(EXISTING_INTERVIEW)
         self.assertEqual(

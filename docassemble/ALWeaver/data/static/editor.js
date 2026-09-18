@@ -4765,11 +4765,10 @@
   }
 
   function getOrderBlocks() {
-    return state.orderIndices
-      .map(function (idx) {
-        return state.blocks[idx];
-      })
-      .filter(Boolean);
+    // YAML document indices include empty documents; array positions do not.
+    return state.blocks.filter(function (block) {
+      return state.orderIndices.indexOf(block.index) !== -1;
+    });
   }
 
   function getOrderTargets() {
@@ -4787,12 +4786,9 @@
 
   function isOrderBlockId(blockId) {
     if (!blockId) return false;
-    for (var i = 0; i < state.orderIndices.length; i++) {
-      var idx = state.orderIndices[i];
-      var block = state.blocks[idx];
-      if (block && block.id === blockId) return true;
-    }
-    return false;
+    return getOrderBlocks().some(function (block) {
+      return block.id === blockId;
+    });
   }
 
   function getDefaultOrderBlockId() {
@@ -7557,8 +7553,7 @@
   // path of the per-block test.
   function jumpTargetMatcher() {
     var orderById = {};
-    state.orderIndices.forEach(function (idx) {
-      var block = state.blocks[idx];
+    getOrderBlocks().forEach(function (block) {
       if (block && block.id) orderById[block.id] = true;
     });
     return function blockMatchesJumpTarget(b) {
@@ -8054,6 +8049,8 @@
 
   function getBlockYamlForSave(block) {
     if (!block) return '';
+    if (state.questionEditMode === 'preview' && block.type === 'attachment')
+      return block.yaml;
     if (state.questionEditMode === 'preview' && block.type === 'question') {
       return serializeQuestionBlockToYaml(block);
     }
@@ -9471,6 +9468,14 @@
       renderCodeBlock(block);
     } else if (block.type === 'objects') {
       renderObjectsBlock(block);
+    } else if (
+      block.type === 'attachment' &&
+      state.questionEditMode === 'preview'
+    ) {
+      canvasContent.innerHTML =
+        '<div class="editor-center-bar"><h2 class="h5">' +
+        esc(block.title) +
+        '</h2><button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit YAML</button></div><div class="editor-card"><div class="editor-card-body"><p>Map template fields to interview values, including conditional Mako expressions.</p><button class="btn btn-primary" data-edit-attachment-mappings>Edit field mappings</button></div></div>';
     } else {
       renderGenericBlock(block);
     }
@@ -10560,7 +10565,7 @@
           html +=
             '<div class="editor-card"><div class="editor-card-header">Attachment</div><div class="editor-card-body">';
           html +=
-            '<div class="editor-info-box">This block has an attachment. Edit in YAML mode for full control.</div>';
+            '<button class="btn btn-outline-primary" data-edit-attachment-mappings>Edit attachment field mappings</button>';
           html += '</div></div>';
         }
       }
@@ -11242,6 +11247,10 @@
       esc(block.title) +
       '</div>';
     html += '</div>';
+    if (block.type === 'attachment') {
+      html +=
+        '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Field mappings</button>';
+    }
     if (PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1) {
       html += '<div class="d-flex gap-2 flex-wrap">';
       html +=
@@ -13455,6 +13464,7 @@
         '<select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>' +
+        '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-separate-main-order"><label class="form-check-label editor-tiny" for="new-project-separate-main-order">Separate main order and interview order blocks</label><div class="text-muted small mt-1">Useful when reusing this form inside another interview. By default, one order block controls the entire interview.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact question wording into your interview instead of leaving it in AssemblyLine\'s question library. It does not change how template field labels become variables.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-create-test" checked><label class="form-check-label editor-tiny" for="new-project-create-test">Create an ALKiln “it runs” test</label><div class="text-muted small mt-1">Adds a Sources <code>.feature</code> file with default values for every generated screen. Weaver will add the standard ALKiln workflow when you publish the project to GitHub.</div></div>' +
         '</div>',
@@ -14987,6 +14997,7 @@
     var model = state.documents;
     var original = state.documentsLoaded;
     if (!model || !original) return false;
+    if ((model.removed || []).length) return true;
     var changed = false;
     (model.bundles || []).forEach(function (bundle) {
       var before = findByName(original.bundles, bundle.name);
@@ -15161,6 +15172,162 @@
     return html + '</div>';
   }
 
+  var attachmentMappingContext = null;
+  document
+    .getElementById('attachment-mappings-modal')
+    .addEventListener('hide.bs.modal', function (event) {
+      if (attachmentMappingContext && attachmentMappingContext.saving)
+        event.preventDefault();
+      else attachmentMappingContext = null;
+      hideTypeaheadMenu();
+    });
+
+  function openAttachmentMappings() {
+    var block = getSelectedBlock();
+    if (!block) return;
+    var context = {
+      project: state.project,
+      filename: state.filename,
+      block_id: block.id,
+    };
+    attachmentMappingContext = context;
+    var body = document.getElementById('attachment-mappings-body');
+    var save = document.getElementById('save-attachment-mappings');
+    body.textContent = 'Reading template fields…';
+    save.disabled = true;
+    document.getElementById('attachment-mappings-status').textContent = '';
+    getOrCreateBootstrapModal('attachment-mappings-modal').show();
+    apiPost('/api/attachment-mappings', context)
+      .then(function (res) {
+        if (attachmentMappingContext !== context) return;
+        context.expected_revision = res.data.revision;
+        context.attachments = res.data.attachments;
+        var html =
+          '<p class="small text-muted">Enter text or Mako, for example <code>${ amount if eligible else "" }</code>. Multi-line Mako conditions are supported. Complex values stay in YAML mode.</p>';
+        context.attachments.forEach(function (attachment) {
+          html +=
+            '<section class="mb-4"><h3 class="h6">' +
+            esc(attachment.template || 'Attachment ' + (attachment.index + 1)) +
+            '</h3>';
+          if (attachment.warning)
+            html +=
+              '<p class="alert alert-warning">' +
+              esc(attachment.warning) +
+              '</p>';
+          if (attachment.kind === 'docx')
+            html +=
+              '<p class="small">Word templates normally use interview variables directly. Add explicit mappings only when needed; doing so changes the context passed to the template.</p>';
+          if (attachment.dynamic)
+            html +=
+              '<p class="alert alert-info">This attachment also uses code or variable-based mappings. Fields without a row here may be supplied by those rules.</p>';
+          var rows = attachment.rows.slice();
+          attachment.template_fields.forEach(function (name) {
+            if (
+              !rows.some(function (row) {
+                return row.name === name;
+              })
+            )
+              rows.push({
+                name: name,
+                value: '',
+                editable: true,
+                missing: true,
+              });
+          });
+          html +=
+            '<table class="table"><thead><tr><th scope="col">Template field</th><th scope="col">Text or Mako expression</th></tr></thead><tbody>';
+          rows.forEach(function (row, index) {
+            var id = 'attachment-value-' + attachment.index + '-' + index;
+            html +=
+              '<tr><th scope="row"><label for="' +
+              id +
+              '">' +
+              esc(row.name) +
+              '</label>';
+            if (row.missing)
+              html +=
+                '<div class="small ' +
+                (attachment.kind === 'pdf' && !attachment.dynamic
+                  ? 'text-warning'
+                  : 'text-muted') +
+                '">' +
+                (attachment.kind === 'pdf' && !attachment.dynamic
+                  ? 'Missing mapping'
+                  : 'No explicit mapping') +
+                '</div>';
+            html +=
+              '</th><td><textarea class="form-control font-monospace" rows="2" id="' +
+              id +
+              '" data-attachment-index="' +
+              attachment.index +
+              '" data-attachment-field="' +
+              esc(row.name) +
+              '" data-attachment-original="' +
+              esc(row.value) +
+              '" data-attachment-missing="' +
+              (row.missing ? 'true' : 'false') +
+              '" data-symbol-role="variable"' +
+              (row.editable ? '' : ' disabled') +
+              '>' +
+              esc(row.value) +
+              '</textarea></td></tr>';
+          });
+          html += '</tbody></table></section>';
+        });
+        body.innerHTML = html;
+        save.disabled = false;
+      })
+      .catch(function (error) {
+        if (attachmentMappingContext !== context) return;
+        body.textContent =
+          error.message + ' You can edit this attachment in YAML mode.';
+      });
+  }
+
+  function saveAttachmentMappings() {
+    var context = attachmentMappingContext;
+    var button = document.getElementById('save-attachment-mappings');
+    if (!context || button.disabled) return;
+    var updates = context.attachments.map(function (attachment) {
+      return { index: attachment.index, values: Object.create(null) };
+    });
+    document
+      .querySelectorAll('[data-attachment-field]')
+      .forEach(function (input) {
+        if (
+          input.disabled ||
+          input.value === input.getAttribute('data-attachment-original')
+        )
+          return;
+        updates[Number(input.getAttribute('data-attachment-index'))].values[
+          input.getAttribute('data-attachment-field')
+        ] = input.value;
+      });
+    button.disabled = true;
+    context.saving = true;
+    document.getElementById('attachment-mappings-status').textContent =
+      'Saving…';
+    apiPost('/api/attachment-mappings', {
+      project: context.project,
+      filename: context.filename,
+      block_id: context.block_id,
+      expected_revision: context.expected_revision,
+      updates: updates,
+    })
+      .then(function () {
+        context.saving = false;
+        closeBootstrapModal('attachment-mappings-modal');
+        attachmentMappingContext = null;
+        return loadFile();
+      })
+      .catch(function (error) {
+        context.saving = false;
+        button.disabled = false;
+        document.getElementById('attachment-mappings-status').textContent =
+          error.message;
+      });
+  }
+
   function renderDocumentsCard() {
     var model = state.documents;
     var html = '<section class="editor-doc-section">';
@@ -15245,6 +15412,16 @@
           ' later in ' +
           esc(bundle.name) +
           '</span></button>';
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-danger" data-remove-doc="' +
+          esc(element) +
+          '" data-remove-from-bundle="' +
+          esc(bundle.name) +
+          '" aria-label="Remove ' +
+          esc(element) +
+          ' from ' +
+          esc(bundle.name) +
+          '">Remove</button>';
         html += '</div></li>';
       });
       html += '</ol>';
@@ -15281,6 +15458,20 @@
       html += renderDocumentRow(document_.name);
       html += '<div class="editor-doc-rule-control">';
       html += renderEnabledControl(document_.name, document_.enabled, '');
+      html +=
+        '<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-delete-document="' +
+        esc(document_.name) +
+        '">Delete from interview</button>';
+      if (
+        bundles.some(function (bundle) {
+          return bundle.elements.indexOf(document_.name) !== -1;
+        })
+      ) {
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-remove-doc="' +
+          esc(document_.name) +
+          '">Remove from all downloads</button>';
+      }
       html += '</div>';
       html += '</div>';
     });
@@ -15669,6 +15860,39 @@
     renderCanvas();
   }
 
+  function removeDocumentFromBundles(name, bundleName) {
+    if (!state.documents || state.documentsBusy) return;
+    captureDocumentEnabledInputs();
+    (state.documents.bundles || []).forEach(function (bundle) {
+      if (!bundleName || bundle.name === bundleName) {
+        bundle.elements = bundle.elements.filter(function (element) {
+          return element !== name;
+        });
+      }
+    });
+    markDocumentsDirty();
+    renderCanvas();
+  }
+
+  function deleteDocumentFromInterview(name) {
+    var model = state.documents;
+    if (!model || state.documentsBusy) return;
+    if (
+      !window.confirm(
+        'Delete ' +
+          name +
+          ' from this interview when you save? Its attachment, title, declaration, and bundle entries will be removed. The template file and questions will be kept. Review any custom code that refers to this document.',
+      )
+    )
+      return;
+    captureDocumentEnabledInputs();
+    model.removed = (model.removed || []).concat([name]);
+    model.documents = model.documents.filter(function (entry) {
+      return entry.name !== name;
+    });
+    removeDocumentFromBundles(name, null);
+  }
+
   function saveDocumentChanges() {
     var model = state.documents;
     if (!model || state.documentsBusy) return Promise.resolve(true);
@@ -15705,7 +15929,7 @@
           return;
         enabled.push({ name: entry.name, expression: entry.enabled || null });
       });
-    if (!bundles.length && !enabled.length) {
+    if (!bundles.length && !enabled.length && !(model.removed || []).length) {
       state.documentsDirty = false;
       markDocumentsDirty();
       return Promise.resolve(true);
@@ -15719,6 +15943,7 @@
       expected_revision: model.revision,
       bundles: bundles,
       enabled: enabled,
+      remove: model.removed || [],
     })
       .then(function (res) {
         state.documentsBusy = false;
@@ -18485,6 +18710,40 @@
       return;
     }
 
+    var removeDocButton = target.closest('[data-remove-doc]');
+    if (removeDocButton) {
+      removeDocumentFromBundles(
+        removeDocButton.getAttribute('data-remove-doc'),
+        removeDocButton.getAttribute('data-remove-from-bundle'),
+      );
+      return;
+    }
+
+    var deleteDocumentButton = target.closest('[data-delete-document]');
+    if (deleteDocumentButton) {
+      deleteDocumentFromInterview(
+        deleteDocumentButton.getAttribute('data-delete-document'),
+      );
+      return;
+    }
+
+    if (target.closest('[data-edit-attachment-mappings]')) {
+      if (
+        deferNavigationForUnsavedChanges(
+          'edit attachment mappings',
+          openAttachmentMappings,
+        )
+      )
+        return;
+      openAttachmentMappings();
+      return;
+    }
+
+    if (target.id === 'save-attachment-mappings') {
+      saveAttachmentMappings();
+      return;
+    }
+
     if (target.id === 'import-template-btn') {
       importSelectedTemplate(getSelectedSectionFileMeta(state.currentView));
       return;
@@ -18528,6 +18787,9 @@
         'new-project-copy-baseline-questions',
       );
       var createTestInput = document.getElementById('new-project-create-test');
+      var separateMainOrderInput = document.getElementById(
+        'new-project-separate-main-order',
+      );
       var githubUrlInput = document.getElementById('new-project-github-url');
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
@@ -18599,6 +18861,12 @@
           copyBaselineQuestions ? 'true' : 'false',
         );
         formData.append('create_test', createTest ? 'true' : 'false');
+        formData.append(
+          'separate_main_order',
+          separateMainOrderInput && separateMainOrderInput.checked
+            ? 'true'
+            : 'false',
+        );
         formData.append(
           'interview_filename',
           filenameInput ? filenameInput.value.trim() : '',
