@@ -4765,11 +4765,10 @@
   }
 
   function getOrderBlocks() {
-    return state.orderIndices
-      .map(function (idx) {
-        return state.blocks[idx];
-      })
-      .filter(Boolean);
+    // YAML document indices include empty documents; array positions do not.
+    return state.blocks.filter(function (block) {
+      return state.orderIndices.indexOf(block.index) !== -1;
+    });
   }
 
   function getOrderTargets() {
@@ -4787,12 +4786,9 @@
 
   function isOrderBlockId(blockId) {
     if (!blockId) return false;
-    for (var i = 0; i < state.orderIndices.length; i++) {
-      var idx = state.orderIndices[i];
-      var block = state.blocks[idx];
-      if (block && block.id === blockId) return true;
-    }
-    return false;
+    return getOrderBlocks().some(function (block) {
+      return block.id === blockId;
+    });
   }
 
   function getDefaultOrderBlockId() {
@@ -7557,8 +7553,7 @@
   // path of the per-block test.
   function jumpTargetMatcher() {
     var orderById = {};
-    state.orderIndices.forEach(function (idx) {
-      var block = state.blocks[idx];
+    getOrderBlocks().forEach(function (block) {
       if (block && block.id) orderById[block.id] = true;
     });
     return function blockMatchesJumpTarget(b) {
@@ -13455,6 +13450,7 @@
         '<select class="form-select form-select-sm mt-1" id="new-project-user-role"><option value="auto">Let Weaver decide</option><option value="plaintiff">Starts the case/request</option><option value="defendant">Responds to it</option><option value="unknown">Ask the user</option></select></div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-include-next-steps" checked><label class="form-check-label editor-tiny" for="new-project-include-next-steps">Include a next steps document</label><div class="text-muted small mt-1">The generated DOCX is a reusable shell. Later settings changes do not overwrite custom Word edits.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-enable-navigation" checked><label class="form-check-label editor-tiny" for="new-project-enable-navigation">Enable left navigation</label></div>' +
+        '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-separate-main-order"><label class="form-check-label editor-tiny" for="new-project-separate-main-order">Separate main order and interview order blocks</label><div class="text-muted small mt-1">Useful when reusing this form inside another interview. By default, one order block controls the entire interview.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-copy-baseline-questions" checked><label class="form-check-label editor-tiny" for="new-project-copy-baseline-questions">Copy the AssemblyLine questions about people</label><div class="text-muted small mt-1">Writes editable copies of the name, address, and contact question wording into your interview instead of leaving it in AssemblyLine\'s question library. It does not change how template field labels become variables.</div></div>' +
         '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="new-project-create-test" checked><label class="form-check-label editor-tiny" for="new-project-create-test">Create an ALKiln “it runs” test</label><div class="text-muted small mt-1">Adds a Sources <code>.feature</code> file with default values for every generated screen. Weaver will add the standard ALKiln workflow when you publish the project to GitHub.</div></div>' +
         '</div>',
@@ -18528,6 +18524,9 @@
         'new-project-copy-baseline-questions',
       );
       var createTestInput = document.getElementById('new-project-create-test');
+      var separateMainOrderInput = document.getElementById(
+        'new-project-separate-main-order',
+      );
       var githubUrlInput = document.getElementById('new-project-github-url');
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
@@ -18599,6 +18598,12 @@
           copyBaselineQuestions ? 'true' : 'false',
         );
         formData.append('create_test', createTest ? 'true' : 'false');
+        formData.append(
+          'separate_main_order',
+          separateMainOrderInput && separateMainOrderInput.checked
+            ? 'true'
+            : 'false',
+        );
         formData.append(
           'interview_filename',
           filenameInput ? filenameInput.value.trim() : '',

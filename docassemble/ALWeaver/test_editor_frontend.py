@@ -8,6 +8,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_order_lookup.js",
     "test_editor_dirty_state.js",
     "test_editor_html.js",
     "test_editor_api_client.js",
@@ -35,6 +36,12 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_separate_main_order_is_an_unchecked_advanced_option(self):
+        editor = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn('id="new-project-separate-main-order">', editor)
+        self.assertNotIn('id="new-project-separate-main-order" checked', editor)
+        self.assertIn("'separate_main_order',", editor)
+
     @classmethod
     def setUpClass(cls):
         cls.package_dir = Path(__file__).resolve().parent

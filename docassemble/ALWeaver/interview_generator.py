@@ -7239,6 +7239,7 @@ def generate_interview_from_path(
     include_next_steps: bool = True,
     include_download_screen: bool = True,
     copy_baseline_questions: bool = True,
+    separate_main_order: bool = False,
     use_llm_assist: bool = False,
     help_page_url: Optional[str] = None,
     help_page_title: Optional[str] = None,
@@ -7336,6 +7337,7 @@ def generate_interview_from_path(
     interview.output_mako_choice = output_mako_choice
     interview.include_next_steps = include_next_steps
     interview.copy_baseline_questions = bool(copy_baseline_questions)
+    interview.separate_main_order = bool(separate_main_order)
     interview.use_llm_assist = bool(use_llm_assist)
     if help_page_url is not None:
         interview.help_page_url = str(help_page_url).strip()

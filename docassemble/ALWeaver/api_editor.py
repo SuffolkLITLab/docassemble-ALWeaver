@@ -6797,16 +6797,7 @@ def editor_api_save_block() -> Response:
         playground_write_yaml(uid, project, filename, updated_content)
 
         model = parse_interview_yaml(updated_content)
-        order_step_map: Dict[str, List[Dict[str, Any]]] = {}
-        order_steps: list = []
-        for idx in model.get("order_blocks", []):
-            block = model["blocks"][idx]
-            code = block.get("data", {}).get("code", "")
-            if code:
-                parsed_steps = parse_order_code(code)
-                order_step_map[block["id"]] = parsed_steps
-                if not order_steps:
-                    order_steps = parsed_steps
+        order_step_map, order_steps = _order_steps_from_model(model)
         return jsonify(
             {
                 "success": True,
@@ -7557,8 +7548,16 @@ def editor_api_save_order() -> Response:
                 if block.get("id") == target_block_id:
                     target_block = block
                     break
+            if target_block is None:
+                raise ValueError(
+                    "The selected order block no longer exists. Reload the file."
+                )
         elif model["order_blocks"]:
-            target_block = model["blocks"][model["order_blocks"][0]]
+            target_block = next(
+                block
+                for block in model["blocks"]
+                if block["index"] == model["order_blocks"][0]
+            )
 
         if target_block:
             block_data = deepcopy(target_block.get("data") or {})
@@ -9394,6 +9393,9 @@ def _new_project_from_uploads(
             "include_next_steps": output_type == "form",
             "include_download_screen": output_type == "form",
             "copy_baseline_questions": copy_baseline_questions,
+            "separate_main_order": parse_bool(
+                request.form.get("separate_main_order"), default=False
+            ),
             "exact_name": uploaded_payloads[0]["filename"],
             "use_llm_assist": use_llm_assist,
             "interview_overrides": interview_overrides,

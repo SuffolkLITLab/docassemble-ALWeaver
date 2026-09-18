@@ -265,7 +265,14 @@ sections:
 comment: |
   Controls order and branching logic for questions specific to this form
 id: interview_order_${ interview.interview_label }
+% if not getattr(interview, "separate_main_order", False):
+mandatory: True
+% endif
 code: |
+  % if not getattr(interview, "separate_main_order", False):
+  al_intro_screen
+  ${ interview.interview_label }_intro
+  % endif
   % if generate_download_screen and interview.court_related:
   % if allowed_courts_value:
   # Set the allowed courts for this interview
@@ -289,6 +296,7 @@ ${ indent_by(line, 2) }\
   % if not generate_download_screen:
   saved_report_data
   % endif
+  % if getattr(interview, "separate_main_order", False):
   interview_order_${ interview.interview_label } = True
 ---
 <%text>###################### Main order ######################</%text>
@@ -300,6 +308,7 @@ code: |
   al_intro_screen
   ${ interview.interview_label }_intro
   interview_order_${ interview.interview_label }
+  % endif
   % if generate_download_screen:
   signature_date
   # Store anonymous data for analytics / statistics

@@ -1168,6 +1168,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
+        self.assertFalse(start_kwargs["generation_options"]["separate_main_order"])
         self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
         self.assertTrue(start_kwargs["generation_options"]["include_download_screen"])
         self.assertTrue(
@@ -1466,6 +1467,7 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                         "/al/editor/api/new-project",
                         data={
                             "project_name": "Meta",
+                            "separate_main_order": "true",
                             "interview_title": "Petition to enforce the sanitary code",
                             "interview_short_title": "Sanitary code",
                             "interview_description": "Ask the court to inspect.",
@@ -1481,6 +1483,7 @@ class TestEditorNewProjectNaming(unittest.TestCase):
 
         kwargs = mock_start_job.call_args.kwargs
         overrides = kwargs["generation_options"]["interview_overrides"]
+        self.assertTrue(kwargs["generation_options"]["separate_main_order"])
         self.assertEqual(kwargs["interview_filename"], "sanitary_code.yml")
         self.assertEqual(overrides["title"], "Petition to enforce the sanitary code")
         self.assertEqual(overrides["short_title"], "Sanitary code")
@@ -2621,6 +2624,95 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
 
 class TestOrderBlockLookup(unittest.TestCase):
     """`order_blocks` holds document indices, not positions in `blocks`."""
+
+    SOURCE = (
+        "---\nmetadata:\n  title: Example\n"
+        "---\nid: interview_order_form\ncode: |\n  rent_amount\n  interview_order_form = True\n"
+        "---\n---\nid: main\nmandatory: True\ncode: |\n  intro\n  interview_order_form\n  download\n"
+        "---\nid: intro\nquestion: Hello\ncontinue button field: intro\n"
+    )
+
+    def _post_order_edit(self, path, payload):
+        from . import editor_utils
+
+        with ExitStack() as stack:
+            for name in (
+                "parse_interview_yaml",
+                "parse_order_code",
+                "serialize_order_steps",
+                "canonical_block_yaml",
+                "update_block_in_yaml",
+            ):
+                stack.enter_context(
+                    patch.object(api_editor, name, getattr(editor_utils, name))
+                )
+            stack.enter_context(
+                patch.object(api_editor, "_editor_auth_check", return_value=True)
+            )
+            stack.enter_context(
+                patch.object(api_editor, "_current_user_id", return_value=7)
+            )
+            stack.enter_context(
+                patch.object(
+                    api_editor, "playground_read_yaml", return_value=self.SOURCE
+                )
+            )
+            writer = stack.enter_context(
+                patch.object(api_editor, "playground_write_yaml")
+            )
+            client = stack.enter_context(api_editor.app.test_client())
+            response = client.post(
+                path, json={"project": "default", "filename": "test.yml", **payload}
+            )
+        return response, writer
+
+    def test_save_block_returns_steps_for_the_correct_order_ids(self):
+        from .editor_utils import serialize_order_steps
+
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": "id: intro\nquestion: Updated\ncontinue button field: intro\n",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        steps = response.get_json()["data"]["order_step_map"]
+        self.assertEqual(set(steps), {"interview_order_form", "main"})
+        self.assertIn(
+            "rent_amount", serialize_order_steps(steps["interview_order_form"])
+        )
+        self.assertNotIn(
+            "download", serialize_order_steps(steps["interview_order_form"])
+        )
+        self.assertIn("download", serialize_order_steps(steps["main"]))
+        writer.assert_called_once()
+
+    def test_save_order_without_id_updates_first_order_in_place(self):
+        from .editor_utils import parse_interview_yaml, parse_order_code
+
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order",
+            {"steps": parse_order_code("new_question\ninterview_order_form = True\n")},
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        updated = writer.call_args.args[-1]
+        before = parse_interview_yaml(self.SOURCE)
+        after = parse_interview_yaml(updated)
+        self.assertEqual(len(before["blocks"]), len(after["blocks"]))
+        for old, new in zip(before["blocks"], after["blocks"]):
+            if old["id"] == "interview_order_form":
+                self.assertIn("new_question", new["data"]["code"])
+                self.assertNotIn("mandatory", new["data"])
+            else:
+                self.assertEqual(old["yaml"], new["yaml"])
+
+    def test_stale_order_id_does_not_append_a_duplicate(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order", {"order_block_id": "missing", "steps": []}
+        )
+        self.assertEqual(response.status_code, 400)
+        writer.assert_not_called()
 
     def test_an_order_block_in_the_last_document_is_found(self):
         # Every file that opens with `---` has an empty first document, so the
