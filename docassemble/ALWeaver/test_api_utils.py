@@ -19,6 +19,21 @@ from .api_utils import (
 
 
 class test_api_utils(unittest.TestCase):
+    def test_separate_main_order_boolean_option(self):
+        for value, expected in (
+            ("true", True),
+            ("false", False),
+            (True, True),
+            (False, False),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    coerce_generation_options({"separate_main_order": value})[
+                        "separate_main_order"
+                    ],
+                    expected,
+                )
+
     def test_parse_bool(self):
         self.assertTrue(parse_bool("true"))
         self.assertTrue(parse_bool("1"))

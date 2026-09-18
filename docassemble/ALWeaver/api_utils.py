@@ -102,6 +102,7 @@ def coerce_generation_options(raw_options: Mapping[str, Any]) -> Dict[str, Any]:
         "include_next_steps",
         "include_download_screen",
         "copy_baseline_questions",
+        "separate_main_order",
         "use_llm_assist",
         "normalize_field_names",
     ):
@@ -377,6 +378,10 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "separate_main_order": {
+                                            "type": "boolean",
+                                            "default": False,
+                                        },
                                         "copy_baseline_questions": {
                                             "type": "boolean",
                                             "description": (
@@ -436,6 +441,10 @@ def build_openapi_spec() -> Dict[str, Any]:
                                         "create_package_zip": {"type": "boolean"},
                                         "include_next_steps": {"type": "boolean"},
                                         "include_download_screen": {"type": "boolean"},
+                                        "separate_main_order": {
+                                            "type": "boolean",
+                                            "default": False,
+                                        },
                                         "copy_baseline_questions": {
                                             "type": "boolean",
                                             "description": (

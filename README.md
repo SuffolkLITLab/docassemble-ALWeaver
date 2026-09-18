@@ -18,6 +18,12 @@ consistent, and attractive Docassemble interviews that help complete court forms
 PDF or DOCX file, and the Assembly Line Weaver will produce a runnable, clean code, draft of a
 Docassemble interview that you can continue to edit and refine.
 
+New interviews use one mandatory interview order block. To generate separate
+main order and reusable form order blocks, select **Separate main order and
+interview order blocks** under **Create project → Advanced settings**. API callers
+can set `separate_main_order=true`; it defaults to `false`. Existing interviews
+keep their authored order blocks when opened or edited.
+
 Read more on our [documentation page](https://suffolklitlab.org/docassemble-AssemblyLine-documentation/).
 
 
