@@ -1,3 +1,4 @@
+# do not pre-load
 """Regression coverage for lossless graphical attachment field edits."""
 
 import unittest
