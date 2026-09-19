@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: black
         name: black
-        entry: uv run --no-sync black
+        entry: black
         language: system
         types: [python]
         exclude: ^(.*(/)?)?(__init__|setup)\.py$
@@ -12,7 +12,7 @@ repos:
     hooks:
       - id: mypy
         name: mypy (type check)
-        entry: uv run --no-sync mypy . --exclude '^build/' --explicit-package-bases
+        entry: mypy . --exclude '^build/' --explicit-package-bases
         language: system
         pass_filenames: false
         files: ^.*\.py$
@@ -26,14 +26,14 @@ repos:
 
       - id: pytest
         name: pytest (unit tests)
-        entry: bash -c 'ISUNITTEST=true uv run --no-sync pytest'
+        entry: bash -c 'ISUNITTEST=true pytest'
         language: system
         pass_filenames: false
         files: ^(docassemble/.*|conftest\.py|pyproject\.toml)$
 
       - id: dayamlchecker
         name: dayamlchecker (validate YAML interviews)
-        entry: uv run --no-sync dayamlchecker --no-url-check
+        entry: dayamlchecker --no-url-check
         language: system
         types: [yaml]
         files: ^docassemble/.*/data/questions/.*\.ya?ml$

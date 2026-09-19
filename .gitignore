@@ -30,3 +30,6 @@ node_modules/
 dist/**
 .codex
 .creds
+
+# Local Python resolver lockfile
+uv.lock
