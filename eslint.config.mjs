@@ -10,6 +10,7 @@ const endpointFiles = [
   'docassemble/ALWeaver/data/static/editor_validation_source.js',
   'docassemble/ALWeaver/data/static/editor_dirty_state.js',
   'docassemble/ALWeaver/data/static/editor_html.js',
+  'docassemble/ALWeaver/data/static/editor_expressions.js',
 ];
 
 export default [

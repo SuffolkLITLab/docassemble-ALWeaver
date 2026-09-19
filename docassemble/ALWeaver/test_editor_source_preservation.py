@@ -43,6 +43,55 @@ SOURCE = (
 
 
 class TestEditorSourcePreservation(unittest.TestCase):
+    def test_expression_edit_in_anonymous_question_keeps_sibling_comment(self):
+        source = (
+            "question: Income\nfields:\n"
+            "  - label: Income\n    field: income\n"
+            "    default: {code: base_income}\n"
+            "  # Keep this sibling author comment intact.\n"
+            "  - label: Other income\n    field: other_income\n"
+        )
+        block_id = parse_interview_yaml(source)["blocks"][0]["id"]
+        edited = "id: question\n" + source.replace(
+            "base_income", "other_income"
+        ).replace("  # Keep this sibling author comment intact.\n", "")
+        updated = update_block_in_yaml(
+            source, block_id, edited, preserve_unchanged_annotations=True
+        )
+        self.assertEqual(
+            updated, "id: question\n" + source.replace("base_income", "other_income")
+        )
+
+    def test_nested_expression_change_preserves_field_comments(self):
+        source = (
+            "id: question\nquestion: Example\nfields:\n"
+            "  - label: Income # first label\n    field: income\n"
+            "    show if:\n      code: eligible # condition\n"
+            '  # next field\n  - "Name": name # keep this\n'
+            "    datatype: text\n"
+        )
+        edited = (
+            "id: question\nquestion: Example\nfields:\n"
+            "  - label: Income\n    field: income\n"
+            '    show if: {code: "age >= 18"}\n'
+            "  - Name: name\n"
+        )
+        self.assertEqual(
+            update_block_in_yaml(
+                source, "question", edited, preserve_unchanged_annotations=True
+            ),
+            source.replace("code: eligible", 'code: "age >= 18"'),
+        )
+
+    def test_new_expression_modifier_keeps_sibling_field_source(self):
+        source = 'id: question\nquestion: Example\nfields:\n- Age: age\n- "Name": name # untouched\n'
+        edited = 'id: question\nquestion: Example\nfields:\n  - label: Age\n    field: age\n    show if: {code: "eligible"}\n  - Name: name\n'
+        updated = update_block_in_yaml(
+            source, "question", edited, preserve_unchanged_annotations=True
+        )
+        self.assertIn('- "Name": name # untouched\n', updated)
+        self.assertEqual(yaml.safe_load(updated), yaml.safe_load(edited))
+
     def test_graphical_question_save_preserves_attachment_source(self):
         for key, value in (
             (

@@ -7853,6 +7853,45 @@ def editor_api_ai_generate_fields() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/expression", methods=["POST"])
+def editor_api_expression() -> Response:
+    """Describe Python syntax for guided editing; never evaluate it."""
+    from .editor_expressions import parse_expression
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "bad_request", "message": "Expected an object"},
+            },
+            400,
+        )
+    try:
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": parse_expression(
+                    body.get("source", ""), body.get("context", "value")
+                ),
+            }
+        )
+    except Exception as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/parse-order", methods=["GET"])
 def editor_api_parse_order() -> Response:
     """Parse order code text into structured steps (no file required)."""
