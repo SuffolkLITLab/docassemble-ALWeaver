@@ -2111,7 +2111,7 @@ def playground_get_variables(
         variable_info = pg.variables_from_file(filename)
         # Reuse the interview tree the playground just assembled for symbol
         # discovery. Its module questions include all transitive YAML includes.
-        function_catalog = interview_function_catalog(None)
+        function_catalog = {}
         try:
             try:
                 from docassemble.base.thread_context import this_thread
@@ -2202,7 +2202,6 @@ def playground_get_variables(
 
     if classes:
         symbol_groups["classes"] = sorted(classes)
-    functions.update(function_catalog)
     functions.update(symbol_groups.get("functions", []))
     if functions:
         symbol_groups["functions"] = sorted(functions)

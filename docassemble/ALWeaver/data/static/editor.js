@@ -489,6 +489,26 @@
       : String(value === undefined || value === null ? '' : value);
   }
 
+  function requiredExpressionValue(value) {
+    if (value && typeof value === 'object' && typeof value.code === 'string')
+      return value.code;
+    if (typeof value === 'string' && ['True', 'False'].indexOf(value) === -1)
+      return value;
+    return '';
+  }
+
+  function serializedRequiredValue(input, previous) {
+    var expression = input && input.value ? input.value.trim() : '';
+    if (!expression) return null;
+    if (
+      previous &&
+      typeof previous === 'object' &&
+      typeof previous.code === 'string'
+    )
+      return { code: expression };
+    return expression;
+  }
+
   function expressionModifierYamlValue(key, value) {
     var pythonModifiers = [
       'validate',
@@ -504,11 +524,16 @@
       'label above field',
       'floating label',
     ];
-    if (
-      typeof value === 'object' ||
-      (typeof value === 'string' && pythonModifiers.indexOf(key) !== -1)
-    )
-      return JSON.stringify(value);
+    if (typeof value === 'object') return JSON.stringify(value);
+    if (typeof value === 'string' && pythonModifiers.indexOf(key) !== -1) {
+      var scalar = value.trim();
+      // Controls for Python modifiers contain a mixture of Python expressions
+      // and YAML scalars. Keep select/number values typed instead of turning
+      // False and 4 into truthy strings.
+      if (/^(?:True|False|None|null|true|false)$/.test(scalar)) return scalar;
+      if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalar)) return scalar;
+      return escapeYamlStr(value);
+    }
     return escapeYamlStr(String(value));
   }
 
@@ -614,11 +639,11 @@
       )
       .forEach(function (host) {
         if (host.dataset.expressionReady) return;
-        host.dataset.expressionReady = 'true';
         var input = host.matches('textarea')
           ? host
           : document.getElementById(host.dataset.mdToolbarFor);
         if (!input || input.disabled || input.readOnly) return;
+        host.dataset.expressionReady = 'true';
         var action = document.createElement('button');
         action.type = 'button';
         action.className = 'btn btn-sm btn-outline-secondary';
@@ -7184,8 +7209,12 @@
         var standaloneObj = {};
         standaloneObj[type] = label;
         if (hasCodeExpr) standaloneObj.code = codeEl.value.trim();
-        if (requiredExpression && requiredExpression.value.trim())
-          standaloneObj.required = requiredExpression.value.trim();
+        var standaloneRequired = serializedRequiredValue(
+          requiredExpression,
+          (previousFields[rowIdx] || {}).required,
+        );
+        if (standaloneRequired !== null)
+          standaloneObj.required = standaloneRequired;
         else if (!isRequired) standaloneObj.required = false;
         if (showIfVal)
           standaloneObj[showIfKey] = readExpressionModifier(
@@ -7215,8 +7244,11 @@
           .filter(Boolean);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
-      if (requiredExpression && requiredExpression.value.trim())
-        fieldObj.required = requiredExpression.value.trim();
+      var fieldRequired = serializedRequiredValue(
+        requiredExpression,
+        (previousFields[rowIdx] || {}).required,
+      );
+      if (fieldRequired !== null) fieldObj.required = fieldRequired;
       else if (!isRequired) fieldObj.required = false;
       if (showIfVal)
         fieldObj[showIfKey] = readExpressionModifier(
@@ -11927,11 +11959,7 @@
 
     function renderLogicTab() {
       var out = '';
-      var requiredExpression =
-        typeof fmods.required === 'string' &&
-        ['True', 'False'].indexOf(fmods.required) === -1
-          ? fmods.required
-          : '';
+      var requiredExpression = requiredExpressionValue(fmods.required);
       out += row(
         'field-required-expression-' + fi,
         'Required when (Python; leave blank to use Required toggle)',

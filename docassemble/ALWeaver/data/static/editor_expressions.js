@@ -886,7 +886,16 @@
   function install(options) {
     var active = null;
     async function open(value, context, apply, title, opener) {
-      if (active) return;
+      if (active) {
+        var activeFeedback = active.querySelector('[role="alert"]');
+        if (activeFeedback) {
+          activeFeedback.textContent =
+            'Finish or cancel the expression editor that is already open.';
+          activeFeedback.tabIndex = -1;
+          activeFeedback.focus();
+        }
+        return;
+      }
       var dialog = el('dialog', 'expression-dialog');
       dialog.setAttribute('aria-labelledby', 'expression-dialog-title');
       var heading = el('h2', 'h5', title || 'Edit expression');

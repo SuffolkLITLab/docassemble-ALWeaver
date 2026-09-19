@@ -32,7 +32,7 @@ def function_help(name, function, origin):
         "name": name,
         "signature": name + shape,
         "parameters": parameters,
-        "doc": (inspect.getdoc(function) or "No documentation available.")[:12000],
+        "doc": (inspect.getdoc(function) or "No documentation available.")[:4000],
         "origin": origin,
     }
 
@@ -48,10 +48,26 @@ def interview_function_catalog(interview, modules=None):
     for name in ("len", "str", "int", "float", "round", "min", "max", "sum", "abs"):
         catalog[name] = function_help(name, getattr(builtins, name), "Python")
     imports = []
-    if not getattr(interview, "imports_util", False) and not getattr(
-        interview, "consolidated_metadata", {}
-    ).get("suppress loading util", False):
-        imports.append(("docassemble.base.util", False))
+    # Docassemble implicitly exposes a small set of utility functions. Do not
+    # introspect every public helper in base.util: that makes the picker slow
+    # and sends a huge, mostly irrelevant catalog to the browser.
+    util = modules.get("docassemble.base.util")
+    if util is not None and not getattr(interview, "consolidated_metadata", {}).get(
+        "suppress loading util", False
+    ):
+        for name in (
+            "defined",
+            "value",
+            "showifdef",
+            "currency",
+            "today",
+            "as_datetime",
+        ):
+            function = getattr(util, name, None)
+            if function is not None and (
+                inspect.isfunction(function) or inspect.isbuiltin(function)
+            ):
+                catalog[name] = function_help(name, function, "docassemble.base.util")
     for question in getattr(interview, "questions_list", []):
         if question.question_type not in ("modules", "imports"):
             continue
