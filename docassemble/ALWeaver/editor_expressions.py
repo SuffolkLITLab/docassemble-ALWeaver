@@ -9,6 +9,7 @@ import ast
 import io
 import re
 import tokenize
+from functools import lru_cache
 
 OPERATORS = {
     ast.And: "and",
@@ -45,11 +46,26 @@ def _reference(node):
     return False
 
 
-def _offset(source, line, col):
+@lru_cache(maxsize=8)
+def _lines(source):
+    """Line texts plus each line's code point offset, cached per source.
+
+    _tree asks for two offsets per node, so splitting on every call re-scans
+    the whole expression hundreds of times for one request.
+    """
     lines = re.split(r"(?<=\n)|(?<=\r)(?!\n)", source)
-    return len("".join(lines[: line - 1])) + len(
-        lines[line - 1].encode("utf-8")[:col].decode("utf-8")
-    )
+    starts = []
+    total = 0
+    for line in lines:
+        starts.append(total)
+        total += len(line)
+    return lines, starts
+
+
+def _offset(source, line, col):
+    lines, starts = _lines(source)
+    # ast reports columns as utf-8 byte offsets; the client splices code points.
+    return starts[line - 1] + len(lines[line - 1].encode("utf-8")[:col].decode("utf-8"))
 
 
 def _tree(node, source):

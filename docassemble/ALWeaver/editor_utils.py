@@ -1063,7 +1063,9 @@ def _merge_changed_mapping_values(
     # The graphical question serializer assigns an ID to anonymous blocks.
     # Adding that ID must not force a rewrite of the author's existing fields.
     if "id" not in original and set(edited) == set(original) | {"id"}:
-        id_line = yaml.safe_dump({"id": edited["id"]}, sort_keys=False)
+        id_line = yaml.safe_dump(
+            {"id": edited["id"]}, sort_keys=False, width=10**9, allow_unicode=True
+        )
         return _merge_changed_mapping_values(id_line + original_body, edited_body)
     if set(original.keys()) != set(edited.keys()):
         return None
@@ -2119,7 +2121,10 @@ def playground_get_variables(
                 from docassemble.base.functions import this_thread
 
             function_catalog = interview_function_catalog(this_thread.interview)
-        except (ImportError, AttributeError):
+        except Exception:
+            # Optional help must never break variable discovery: the catalog
+            # introspects whatever modules the author's interview imported, so
+            # any failure there leaves the rest of the symbols intact.
             pass
 
     if not isinstance(variable_info, dict):

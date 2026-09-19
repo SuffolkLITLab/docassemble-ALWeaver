@@ -9,6 +9,11 @@ import builtins
 import inspect
 import sys
 
+# Docassemble exposes these implicitly, and `docassemble.base.legal` re-exports
+# util. Each contributes ~200 names and ~150 KB of JSON, so the catalog offers a
+# curated subset instead (see interview_function_catalog).
+IMPLICIT_UTIL_MODULES = ("docassemble.base.util", "docassemble.base.legal")
+
 
 def function_help(name, function, origin):
     try:
@@ -51,7 +56,7 @@ def interview_function_catalog(interview, modules=None):
     # Docassemble implicitly exposes a small set of utility functions. Do not
     # introspect every public helper in base.util: that makes the picker slow
     # and sends a huge, mostly irrelevant catalog to the browser.
-    util = modules.get("docassemble.base.util")
+    util = modules.get(IMPLICIT_UTIL_MODULES[0])
     if util is not None and not getattr(interview, "consolidated_metadata", {}).get(
         "suppress loading util", False
     ):
@@ -78,6 +83,11 @@ def interview_function_catalog(interview, modules=None):
     for module_name, qualified in imports:
         module = modules.get(module_name)
         if module is None:
+            continue
+        # Even narrowed by __all__, a star import of these adds ~200 entries
+        # to every response, which is what the curated list above exists to
+        # avoid. A qualified `imports:` still gets them, spelled out.
+        if not qualified and module_name in IMPLICIT_UTIL_MODULES:
             continue
         members = vars(module)
         exported = members.get("__all__") if not qualified else None

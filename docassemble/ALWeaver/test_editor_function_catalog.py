@@ -112,3 +112,43 @@ def test_unprintable_default_does_not_break_discovery():
     catalog = interview_function_catalog(interview, {"helpers": module})
     assert catalog["helper"]["signature"] == "helper(…)"
     assert catalog["helper"]["doc"] == "Still useful help."
+
+
+def test_declaring_util_explicitly_still_offers_only_the_curated_names():
+    util = ModuleType("docassemble.base.util")
+    util.defined = lambda variable_name: None
+    util.bulky_helper = lambda: None
+    legal = ModuleType("docassemble.base.legal")
+    legal.bulky_helper = lambda: None
+    interview = SimpleNamespace(
+        consolidated_metadata={},
+        questions_list=[
+            SimpleNamespace(
+                question_type="modules",
+                package="docassemble.ALWeaver",
+                module_list=["docassemble.base.util", "docassemble.base.legal"],
+            )
+        ],
+    )
+    catalog = interview_function_catalog(
+        interview, {util.__name__: util, legal.__name__: legal}
+    )
+    assert "defined" in catalog
+    assert "bulky_helper" not in catalog
+
+
+def test_a_qualified_import_of_util_still_spells_out_its_names():
+    util = ModuleType("docassemble.base.util")
+    util.bulky_helper = lambda: None
+    interview = SimpleNamespace(
+        consolidated_metadata={},
+        questions_list=[
+            SimpleNamespace(
+                question_type="imports",
+                package="docassemble.ALWeaver",
+                module_list=["docassemble.base.util"],
+            )
+        ],
+    )
+    catalog = interview_function_catalog(interview, {util.__name__: util})
+    assert "docassemble.base.util.bulky_helper" in catalog

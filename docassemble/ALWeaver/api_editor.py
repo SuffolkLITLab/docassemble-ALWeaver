@@ -7864,17 +7864,32 @@ def editor_api_expression() -> Response:
     body = request.get_json(silent=True) or {}
     if not isinstance(body, dict):
         return jsonify_with_status(
-            {"success": False, "error": {"message": "Expected an object"}}, 400
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "bad_request", "message": "Expected an object"},
+            },
+            400,
         )
-    return jsonify(
-        {
-            "success": True,
-            "request_id": request_id,
-            "data": parse_expression(
-                body.get("source", ""), body.get("context", "value")
-            ),
-        }
-    )
+    try:
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": parse_expression(
+                    body.get("source", ""), body.get("context", "value")
+                ),
+            }
+        )
+    except Exception as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/parse-order", methods=["GET"])

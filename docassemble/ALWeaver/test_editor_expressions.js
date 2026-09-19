@@ -38,5 +38,10 @@ assert.equal(changeType(wrapped, 'function'), wrapped);
 const calculation = changeType(fresh('operator'), 'calculation');
 assert.equal(calculation.op, '+');
 assert.equal(changeType(calculation, 'operator').op, 'and');
+// Switching between Conditions and Calculation keeps the author's operands.
+const twoOperands = {kind: 'operator', op: 'and', args: [variable('a'), variable('b'), variable('c')]};
+assert.equal(python(changeType(twoOperands, 'calculation')), '(a + b + c)');
+assert.equal(python(changeType(twoOperands, 'operator')), '(a and b and c)');
+assert.equal(python(changeType({kind: 'operator', op: 'not', args: [variable('a')]}, 'operator')), '(not a)');
 assert.equal(python({kind: 'function', name: 'custom', args: [wrapped, variable('poverty_limit')], keywords: [null, 'limit']}), 'custom(len(household_income), limit=poverty_limit)');
 console.log('Expression generation passed');

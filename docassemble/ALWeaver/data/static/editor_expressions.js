@@ -107,6 +107,18 @@
 
   function changeType(node, kind) {
     if (kind === 'function' && node.kind === 'function') return node;
+    // Conditions and Calculation are both operator nodes, so switching between
+    // them only changes the operator: keep the operands already entered.
+    if (kind === 'calculation' || kind === 'operator') {
+      if (node.kind === 'operator') {
+        var arithmetic = ['+', '-', '*', '/'].indexOf(node.op) !== -1;
+        if (kind === 'calculation') node.op = arithmetic ? node.op : '+';
+        else if (arithmetic) node.op = 'and';
+        if (node.args.length === 1 && node.op !== 'not')
+          node.args.push(fresh('variable'));
+        return node;
+      }
+    }
     var next = fresh(kind === 'calculation' ? 'operator' : kind);
     if (kind === 'calculation') next.op = '+';
     if (kind === 'function') next.args = [node];
@@ -376,9 +388,14 @@
         operators,
         node.op,
         function (v) {
+          var previous = node.op;
           node.op = v;
-          if (v === 'not') node.args = [node.args[0]];
-          else if (node.args.length === 1) node.args.push(fresh('variable'));
+          // Not takes a single operand: negate what is there rather than
+          // dropping every operand after the first.
+          if (v === 'not') {
+            if (node.args.length > 1)
+              node.args = [{ kind: 'operator', op: previous, args: node.args }];
+          } else if (node.args.length === 1) node.args.push(fresh('variable'));
           replace(node);
         },
         { and: 'All of (AND)', or: 'Any of (OR)', not: 'Not' },

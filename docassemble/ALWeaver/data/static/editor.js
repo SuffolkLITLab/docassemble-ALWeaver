@@ -497,16 +497,12 @@
     return '';
   }
 
-  function serializedRequiredValue(input, previous) {
+  function serializedRequiredValue(input) {
     var expression = input && input.value ? input.value.trim() : '';
-    if (!expression) return null;
-    if (
-      previous &&
-      typeof previous === 'object' &&
-      typeof previous.code === 'string'
-    )
-      return { code: expression };
-    return expression;
+    // Field-level `required` takes a bool or a Python string, which
+    // docassemble compiles (parse.py). A nested code mapping raises there, so
+    // a mapping read from the file round-trips as its plain source.
+    return expression || null;
   }
 
   function expressionModifierYamlValue(key, value) {
@@ -7209,10 +7205,7 @@
         var standaloneObj = {};
         standaloneObj[type] = label;
         if (hasCodeExpr) standaloneObj.code = codeEl.value.trim();
-        var standaloneRequired = serializedRequiredValue(
-          requiredExpression,
-          (previousFields[rowIdx] || {}).required,
-        );
+        var standaloneRequired = serializedRequiredValue(requiredExpression);
         if (standaloneRequired !== null)
           standaloneObj.required = standaloneRequired;
         else if (!isRequired) standaloneObj.required = false;
@@ -7244,10 +7237,7 @@
           .filter(Boolean);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
-      var fieldRequired = serializedRequiredValue(
-        requiredExpression,
-        (previousFields[rowIdx] || {}).required,
-      );
+      var fieldRequired = serializedRequiredValue(requiredExpression);
       if (fieldRequired !== null) fieldObj.required = fieldRequired;
       else if (!isRequired) fieldObj.required = false;
       if (showIfVal)
