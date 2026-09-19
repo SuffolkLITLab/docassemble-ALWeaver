@@ -1,3 +1,4 @@
+# do not pre-load
 """Function discovery must reflect imports without executing author code."""
 
 from types import ModuleType, SimpleNamespace
