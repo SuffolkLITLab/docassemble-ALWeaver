@@ -229,6 +229,27 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_expression_parser_requires_editor_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            response = api_editor.app.test_client().post(
+                "/al/editor/api/expression", json={"source": "x + 1"}
+            )
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_expression_parser_never_executes_source(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=True):
+            client = api_editor.app.test_client()
+            response = client.post(
+                "/al/editor/api/expression",
+                json={"source": '__import__("os").system("false")'},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json["data"]["valid"])
+            self.assertFalse(response.json["data"]["supported"])
+            self.assertEqual(
+                client.post("/al/editor/api/expression", json=["bad"]).status_code, 400
+            )
+
     def test_projects_only_marks_projects_with_a_github_manifest_as_synced(self):
         def find_sync(*, user_id, project_name):
             if project_name != "SyncedProject":

@@ -334,6 +334,8 @@
   // Source editor adapter
   // -------------------------------------------------------------------------
   var _sourceEditors = {};
+  var expressionEditor = null;
+  var expressionViews = [];
   var _outlineSortable = null;
   var _orderSortables = [];
 
@@ -342,6 +344,10 @@
   }
 
   function disposeSourceEditors() {
+    expressionViews.forEach(function (view) {
+      view.dispose();
+    });
+    expressionViews = [];
     Object.keys(_sourceEditors).forEach(function (key) {
       if (_sourceEditors[key]) _sourceEditors[key].dispose();
       delete _sourceEditors[key];
@@ -423,11 +429,234 @@
       dispose: function () {
         subscribers = [];
         view.destroy();
+        if (_sourceEditors[containerId] === editor)
+          delete _sourceEditors[containerId];
       },
     };
     if (options.onChange) editor.onChange(options.onChange);
     _sourceEditors[containerId] = editor;
+    if (expressionEditor && containerId !== 'expression-modal-source') {
+      container.classList.add('expression-selectable-source');
+      var expressionAction = document.createElement('button');
+      expressionAction.type = 'button';
+      expressionAction.className = 'btn btn-sm btn-outline-secondary mb-2';
+      expressionAction.textContent = 'Edit selected expression';
+      expressionAction.title =
+        'Select only the Python expression, without YAML keys or Mako ${ } delimiters';
+      container.prepend(expressionAction);
+      expressionAction.addEventListener('click', function () {
+        var selection = view.state.selection.main;
+        if (selection.empty) {
+          alert(
+            'Select a Python expression in the source first (without YAML keys or ${ } delimiters).',
+          );
+          return;
+        }
+        var before = editor.getValue();
+        expressionEditor.open(
+          before.slice(selection.from, selection.to),
+          'value',
+          function (next) {
+            if (!container.isConnected || before !== editor.getValue())
+              throw new Error(
+                'The source changed while editing. Select the expression again.',
+              );
+            view.dispatch({
+              changes: { from: selection.from, to: selection.to, insert: next },
+            });
+          },
+          'Edit selected Python expression',
+          expressionAction,
+        );
+      });
+    }
     return editor;
+  }
+
+  function parseGuidedExpression(source, context) {
+    return apiPost('/api/expression', {
+      source: source,
+      context: context,
+    }).then(function (response) {
+      if (!response.success) throw new Error(response.error.message);
+      return response.data;
+    });
+  }
+
+  function expressionFieldValue(value) {
+    return value && typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value === undefined || value === null ? '' : value);
+  }
+
+  function expressionModifierYamlValue(key, value) {
+    var pythonModifiers = [
+      'validate',
+      'disabled',
+      'exclude',
+      'accept',
+      'rows',
+      'maximum image size',
+      'persistent',
+      'private',
+      'object labeler',
+      'address autocomplete',
+      'label above field',
+      'floating label',
+    ];
+    if (
+      typeof value === 'object' ||
+      (typeof value === 'string' && pythonModifiers.indexOf(key) !== -1)
+    )
+      return JSON.stringify(value);
+    return escapeYamlStr(String(value));
+  }
+
+  function readExpressionModifier(input, original) {
+    var value = input ? input.value.trim() : '';
+    if (
+      value &&
+      ((original && typeof original === 'object') ||
+        (input.dataset && input.dataset.expressionMapping === 'true'))
+    ) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
+
+  function annotateExpressionInputs() {
+    var booleanSelectors =
+      '#adv-if, #order-add-condition, #order-inline-edit-condition, #order-edit-condition, [data-enabled-expression], [id^="review-item-show-if-"], [data-required-expression]';
+    var valueSelectors =
+      '.editor-field-code, [data-obj-prop="expression"], [data-al-param], #order-inline-edit-invoke, #order-add-invoke';
+    document
+      .querySelectorAll(booleanSelectors + ', ' + valueSelectors)
+      .forEach(function (input) {
+        input.dataset.expressionContext = input.matches(booleanSelectors)
+          ? 'boolean'
+          : 'value';
+      });
+    var directMods = [
+      'validate',
+      'exclude',
+      'accept',
+      'rows',
+      'maximum image size',
+      'persistent',
+      'private',
+      'object labeler',
+      'address autocomplete',
+      'label above field',
+      'floating label',
+      'disabled',
+    ];
+    var templateMods = [
+      'min',
+      'max',
+      'minlength',
+      'maxlength',
+      'step',
+      'hint',
+      'help',
+      'under text',
+      'note',
+      'css class',
+      'file css class',
+      'inline width',
+    ];
+    document
+      .querySelectorAll(
+        'input[data-fmod], textarea[data-fmod], .editor-field-showif-input',
+      )
+      .forEach(function (input) {
+        if (input.type === 'hidden') return;
+        var key = input.dataset.fmod;
+        if (
+          ['default', 'enable if', 'disable if'].indexOf(key) !== -1 ||
+          input.matches('.editor-field-showif-input')
+        ) {
+          input.dataset.expressionContext =
+            key === 'default' ? 'value' : 'boolean';
+          input.dataset.expressionWrapper = 'code';
+          var fieldType = document.querySelector(
+            '.editor-field-row[data-field-idx="' +
+              input.dataset.fieldIdx +
+              '"] [data-field-prop="type"]',
+          );
+          if (
+            key === 'default' &&
+            fieldType &&
+            /^object(?:_|$)/.test(fieldType.value)
+          )
+            input.dataset.expressionWrapper = '';
+        } else if (templateMods.indexOf(key) !== -1) {
+          input.dataset.expressionContext = 'value';
+          input.dataset.expressionWrapper = 'mako';
+        } else if (key === 'validation code')
+          input.dataset.expressionContext = 'code';
+        else if (directMods.indexOf(key) !== -1)
+          input.dataset.expressionContext = 'value';
+      });
+    document
+      .querySelectorAll('#order-add-code, #order-edit-code')
+      .forEach(function (input) {
+        input.dataset.expressionContext = 'code';
+      });
+    // Text/Mako fields need an insertion action: only the selected Python span
+    // is edited. Unselected prose and existing template directives stay exact.
+    document
+      .querySelectorAll(
+        '[data-md-toolbar-for], textarea[data-attachment-field]',
+      )
+      .forEach(function (host) {
+        if (host.dataset.expressionReady) return;
+        host.dataset.expressionReady = 'true';
+        var input = host.matches('textarea')
+          ? host
+          : document.getElementById(host.dataset.mdToolbarFor);
+        if (!input || input.disabled || input.readOnly) return;
+        var action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'btn btn-sm btn-outline-secondary';
+        action.textContent = 'Insert / edit expression';
+        action.title =
+          'Select a Python expression or a complete ${ expression }, or insert at the cursor';
+        action.addEventListener('click', function () {
+          var start = input.selectionStart,
+            end = input.selectionEnd,
+            original = input.value;
+          var selected = original.slice(start, end),
+            whole = /^\$\{([\s\S]*)\}$/.exec(selected);
+          expressionEditor.open(
+            whole ? whole[1].trim() : selected,
+            'value',
+            function (next) {
+              if (input.value !== original)
+                throw new Error(
+                  'The text changed while editing. Reopen the expression editor.',
+                );
+              expressionEditor.write(
+                input,
+                original.slice(0, start) +
+                  (whole || start === end ? '${ ' + next + ' }' : next) +
+                  original.slice(end),
+              );
+            },
+            'Python expression in template text',
+            action,
+          );
+        });
+        if (host.matches('textarea')) {
+          var group = document.createElement('div');
+          group.className = 'expression-input-group';
+          host.insertAdjacentElement('beforebegin', group);
+          group.append(host, action);
+        } else host.appendChild(action);
+      });
   }
 
   function getSourceEditorValue(containerId) {
@@ -3899,6 +4128,9 @@
   }
 
   function refreshActiveSymbolPickers() {
+    var expressionInput = document.activeElement;
+    if (expressionInput && expressionInput.closest('.expression-picker'))
+      expressionInput.dispatchEvent(new Event('expression-catalog-refresh'));
     if (_symbolInsertContext) {
       var search = document.getElementById('symbol-insert-search');
       refreshSymbolInsertModalList(search ? search.value || '' : '');
@@ -3941,6 +4173,7 @@
           all: uniqueList(data.all_names || []),
           topLevel: uniqueList(data.top_level_names || []),
           groups: data.symbol_groups || {},
+          functions: data.function_catalog || [],
         };
         refreshActiveSymbolPickers();
       })
@@ -5825,7 +6058,16 @@
       mandatoryEnabled = true;
     }
     if (mandatoryEnabled) {
-      yaml += 'mandatory: True\n';
+      var mandatoryValue = window.ALWeaverSerializers.enabledExpressionValue(
+        data.mandatory,
+        true,
+      );
+      yaml +=
+        'mandatory: ' +
+        (typeof mandatoryValue === 'string'
+          ? JSON.stringify(mandatoryValue)
+          : 'True') +
+        '\n';
     }
 
     var setsKey = document.getElementById('adv-sets')
@@ -6255,10 +6497,15 @@
             yaml += '      ' + line + '\n';
           });
         } else {
-          yaml += '    code: ' + standaloneCode + '\n';
+          yaml += '    code: ' + JSON.stringify(standaloneCode) + '\n';
         }
       }
-      if (field.required === false || field.required === 'False')
+      if (
+        typeof field.required === 'string' &&
+        !['True', 'False'].includes(field.required)
+      )
+        yaml += '    required: ' + JSON.stringify(field.required) + '\n';
+      else if (field.required === false || field.required === 'False')
         yaml += '    required: False\n';
       keys.forEach(function (key) {
         if (reserved[key] || key === standaloneType) return;
@@ -6269,7 +6516,8 @@
           String(value).trim() === ''
         )
           return;
-        yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
+        yaml +=
+          '    ' + key + ': ' + expressionModifierYamlValue(key, value) + '\n';
       });
       return yaml;
     }
@@ -6333,16 +6581,22 @@
           yaml += '      ' + line + '\n';
         });
       } else {
-        yaml += '    code: ' + codeText + '\n';
+        yaml += '    code: ' + JSON.stringify(codeText) + '\n';
       }
     }
-    if (!isRequired) yaml += '    required: False\n';
+    if (
+      typeof field.required === 'string' &&
+      !['True', 'False'].includes(field.required)
+    )
+      yaml += '    required: ' + JSON.stringify(field.required) + '\n';
+    else if (!isRequired) yaml += '    required: False\n';
 
     extraMods.forEach(function (key) {
       var value = field[key];
       if (value === undefined || value === null || String(value).trim() === '')
         return;
-      yaml += '    ' + key + ': ' + escapeYamlStr(String(value)) + '\n';
+      yaml +=
+        '    ' + key + ': ' + expressionModifierYamlValue(key, value) + '\n';
     });
 
     return yaml;
@@ -6727,7 +6981,7 @@
     } else if (condToggle && condToggle.checked) {
       blk.data._editor_if_enabled = true;
       delete blk.data['if'];
-    } else {
+    } else if (condToggle) {
       delete blk.data._editor_if_enabled;
       delete blk.data['if'];
     }
@@ -6739,7 +6993,10 @@
         (mandatorySwitch && mandatorySwitch.checked) ||
         (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
       )
-        blk.data.mandatory = true;
+        blk.data.mandatory = window.ALWeaverSerializers.enabledExpressionValue(
+          blk.data.mandatory,
+          true,
+        );
       else delete blk.data.mandatory;
     }
 
@@ -6856,6 +7113,7 @@
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
       return;
     }
+    var previousFields = blk.data.fields || [];
     blk.data.fields = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
@@ -6879,6 +7137,9 @@
       var requiredSwitch = document.querySelector(
         '.editor-field-required-switch[data-field-idx="' + rowIdx + '"]',
       );
+      var requiredExpression = document.getElementById(
+        'field-required-expression-' + rowIdx,
+      );
       var fieldModsPanel = document.querySelector(
         '.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]',
       );
@@ -6889,7 +7150,11 @@
       fmodInputs.forEach(function (el) {
         var k = el.getAttribute('data-fmod');
         var v = el.value.trim();
-        if (v) syncFmods[k] = v;
+        if (v)
+          syncFmods[k] = readExpressionModifier(
+            el,
+            (previousFields[rowIdx] || {})[k],
+          );
       });
       var hasCodeExpr = codeEl && codeEl.value.trim();
       var hasChoices =
@@ -6903,6 +7168,7 @@
         hasCodeExpr ||
         showIfVal ||
         !isRequired ||
+        (requiredExpression && requiredExpression.value.trim()) ||
         Object.keys(syncFmods).length > 0;
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
@@ -6917,6 +7183,15 @@
       if (isStandaloneType) {
         var standaloneObj = {};
         standaloneObj[type] = label;
+        if (hasCodeExpr) standaloneObj.code = codeEl.value.trim();
+        if (requiredExpression && requiredExpression.value.trim())
+          standaloneObj.required = requiredExpression.value.trim();
+        else if (!isRequired) standaloneObj.required = false;
+        if (showIfVal)
+          standaloneObj[showIfKey] = readExpressionModifier(
+            showIfEl,
+            (previousFields[rowIdx] || {})[showIfKey],
+          );
         Object.keys(syncFmods).forEach(function (k) {
           standaloneObj[k] = syncFmods[k];
         });
@@ -6940,8 +7215,14 @@
           .filter(Boolean);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
-      if (!isRequired) fieldObj.required = false;
-      if (showIfVal) fieldObj[showIfKey] = showIfVal;
+      if (requiredExpression && requiredExpression.value.trim())
+        fieldObj.required = requiredExpression.value.trim();
+      else if (!isRequired) fieldObj.required = false;
+      if (showIfVal)
+        fieldObj[showIfKey] = readExpressionModifier(
+          showIfEl,
+          (previousFields[rowIdx] || {})[showIfKey],
+        );
       Object.keys(syncFmods).forEach(function (k) {
         fieldObj[k] = syncFmods[k];
       });
@@ -10388,10 +10669,7 @@
             var hasChoices = CHOICE_TYPES.indexOf(dtype) !== -1;
             var hasCode = Boolean(codeExpr);
             var requiredVal = fmods.required;
-            var isRequired =
-              requiredVal === undefined ||
-              requiredVal === true ||
-              requiredVal === 'True';
+            var isRequired = requiredVal !== false && requiredVal !== 'False';
             var showIfVal = fmods['show if'] || fmods['hide if'] || '';
             var showIfKey = fmods['hide if'] ? 'hide if' : 'show if';
             if (typeof showIfVal === 'object')
@@ -11039,8 +11317,7 @@
 
     if (state.questionEditMode === 'preview') {
       // Python source editor
-      html +=
-        '<div class="editor-card"><div class="editor-card-header">Python code</div><div class="editor-card-body">';
+      html += '<div class="editor-card"><div class="editor-card-body">';
       html +=
         '<div class="editor-source-container" id="code-source-editor" style="height:400px"></div>';
       html += '</div></div>';
@@ -11060,11 +11337,38 @@
 
     initSourceEditor(function () {
       if (state.questionEditMode === 'preview') {
-        createSourceEditor('code-source-editor', codeText, 'python', {
-          onChange: function () {
-            markInterviewDirty();
+        var codeSource = createSourceEditor(
+          'code-source-editor',
+          codeText,
+          'python',
+          {
+            onChange: function () {
+              markInterviewDirty();
+            },
           },
-        });
+        );
+        var sourceHost = document.getElementById('code-source-editor');
+        sourceHost.style.height = '';
+        sourceHost.classList.add('expression-source');
+        var workspace = document.createElement('div');
+        workspace.className = 'expression-workspace expression-code-workspace';
+        sourceHost.parentNode.insertBefore(workspace, sourceHost);
+        expressionViews.push(
+          window.WeaverExpressions.mount(workspace, {
+            source: codeSource,
+            sourceHost: sourceHost,
+            context: 'code',
+            parse: parseGuidedExpression,
+            variables: function () {
+              return getSymbolCandidates('variable').map(function (item) {
+                return item.name;
+              });
+            },
+            functions: function () {
+              return state.symbolCatalog.functions || [];
+            },
+          }),
+        );
       } else {
         createSourceEditor('block-source-editor', block.yaml, 'yaml', {
           onChange: function () {
@@ -11575,7 +11879,7 @@
           '" data-fmod="default" data-field-idx="' +
           fi +
           '" value="' +
-          esc(String(fmods['default'] || '')) +
+          esc(expressionFieldValue(fmods['default'])) +
           '">',
       );
       out += row(
@@ -11603,22 +11907,42 @@
       );
       out += row(
         'fmod-disabled-' + fi,
-        'disabled',
-        '<select class="form-select editor-form-control" id="fmod-disabled-' +
+        'disabled (True, False, or Python expression)',
+        '<input class="form-control editor-form-control font-monospace" id="fmod-disabled-' +
           fi +
           '" data-fmod="disabled" data-field-idx="' +
           fi +
-          '"><option value=""' +
-          (!fmods.disabled ? ' selected' : '') +
-          '>No</option><option value="True"' +
-          (fmods.disabled ? ' selected' : '') +
-          '>Yes</option></select>',
+          '" value="' +
+          esc(
+            typeof fmods.disabled === 'boolean'
+              ? fmods.disabled
+                ? 'True'
+                : 'False'
+              : expressionFieldValue(fmods.disabled),
+          ) +
+          '">',
       );
       return out;
     }
 
     function renderLogicTab() {
       var out = '';
+      var requiredExpression =
+        typeof fmods.required === 'string' &&
+        ['True', 'False'].indexOf(fmods.required) === -1
+          ? fmods.required
+          : '';
+      out += row(
+        'field-required-expression-' + fi,
+        'Required when (Python; leave blank to use Required toggle)',
+        '<input class="form-control editor-form-control font-monospace" id="field-required-expression-' +
+          fi +
+          '" data-required-expression data-field-idx="' +
+          fi +
+          '" value="' +
+          esc(requiredExpression) +
+          '">',
+      );
       out +=
         '<div class="editor-field-option-row" data-field-idx="' + fi + '">';
       out +=
@@ -11658,7 +11982,7 @@
           '" data-fmod="enable if" data-field-idx="' +
           fi +
           '" value="' +
-          esc(String(fmods['enable if'] || '')) +
+          esc(expressionFieldValue(fmods['enable if'])) +
           '">',
       );
       out += row(
@@ -11669,7 +11993,7 @@
           '" data-fmod="disable if" data-field-idx="' +
           fi +
           '" value="' +
-          esc(String(fmods['disable if'] || '')) +
+          esc(expressionFieldValue(fmods['disable if'])) +
           '">',
       );
       out +=
@@ -19087,6 +19411,8 @@
     }
     if (
       target.matches('[data-field-prop]') ||
+      target.matches('[data-required-expression]') ||
+      target.matches('.editor-field-code') ||
       target.matches('.editor-field-choices') ||
       target.matches('.editor-obj-input') ||
       target.id === 'q-title' ||
@@ -19748,6 +20074,22 @@
   // Init
   // -------------------------------------------------------------------------
   function init() {
+    expressionEditor = window.WeaverExpressions.install({
+      createSource: createSourceEditor,
+      parse: parseGuidedExpression,
+      functions: function () {
+        return state.symbolCatalog.functions || [];
+      },
+      variables: function () {
+        return getSymbolCandidates('variable').map(function (item) {
+          return item.name;
+        });
+      },
+      annotate: annotateExpressionInputs,
+      alert: function (message) {
+        alert(message);
+      },
+    });
     var isAuthenticated = Boolean(
       authState.authenticated || BOOT.authenticated,
     );

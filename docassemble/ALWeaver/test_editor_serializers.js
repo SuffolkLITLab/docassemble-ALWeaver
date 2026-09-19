@@ -3,6 +3,13 @@
 const assert = require('assert');
 const serializers = require('./data/static/editor_serializers.js');
 
+// A checked Mandatory switch does not turn an existing Python condition into True.
+assert.strictEqual(serializers.enabledExpressionValue('eligible', true), 'eligible');
+assert.strictEqual(serializers.enabledExpressionValue('False', true), 'False');
+assert.strictEqual(serializers.enabledExpressionValue(true, true), true);
+assert.strictEqual(serializers.enabledExpressionValue(undefined, true), true);
+assert.strictEqual(serializers.enabledExpressionValue('eligible', false), undefined);
+
 function appendYamlValue(yaml, key, value) {
   if (value === undefined || value === null) return yaml;
   const text = String(value).trim();
@@ -19,7 +26,7 @@ function appendYamlBlockValue(yaml, key, value) {
   return yaml;
 }
 
-function makeDocument(type, modifiers, methodArgs) {
+function makeDocument(type, modifiers, methodArgs, extraValues) {
   const values = {
     'adv-id': { value: 'question_id' },
     'q-title': { value: 'Question text' },
@@ -28,6 +35,7 @@ function makeDocument(type, modifiers, methodArgs) {
     'field-code-0': { value: '' },
     'field-showif-0': { value: '' },
   };
+  Object.assign(values, extraValues || {});
   const row = {
     getAttribute(name) { return name === 'data-field-idx' ? '0' : null; },
     querySelector(selector) {
@@ -39,8 +47,9 @@ function makeDocument(type, modifiers, methodArgs) {
     },
   };
   const modifierInputs = (modifiers || []).map((key) => ({
-    value: 'modifier_value',
-    getAttribute(name) { return name === 'data-fmod' ? key : null; },
+    value: typeof key === 'object' ? key.value : 'modifier_value',
+    dataset: typeof key === 'object' && key.applied ? {expressionMapping: 'true'} : {},
+    getAttribute(name) { return name === 'data-fmod' ? (typeof key === 'object' ? key.key : key) : null; },
   }));
   return {
     getElementById(id) { return values[id] || null; },
@@ -55,9 +64,9 @@ function makeDocument(type, modifiers, methodArgs) {
   };
 }
 
-function serialize(type, modifiers, methodArgs) {
-  return serializers.serializeQuestionToYaml({ id: 'question_id', data: {} }, {
-    document: makeDocument(type, modifiers, methodArgs),
+function serialize(type, modifiers, methodArgs, block, extraValues) {
+  return serializers.serializeQuestionToYaml(block || { id: 'question_id', data: {} }, {
+    document: makeDocument(type, modifiers, methodArgs, extraValues),
     appendYamlValue,
     appendYamlBlockValue,
     fieldTypeSupportsStandaloneContent(value) {
@@ -83,6 +92,17 @@ assert.strictEqual(serializers.escapeYamlStr(undefined), undefined);
 assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
 assert.strictEqual(serializers.escapeYamlStr('two\nlines'), '|\n  two\n  lines');
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
+
+// Guided conditions/defaults use nested code; JSON-looking literal defaults
+// remain strings. Existing structured conditions also survive unrelated edits.
+const codeMapping = '{"code":"income < limit"}';
+assert.ok(serialize('text', [], '', undefined, {'field-code-0': {value: '["one", "two"]'}}).includes('    code: "[\\"one\\", \\"two\\"]"\n'));
+assert.ok(serialize('text', [], '', undefined, {'field-required-expression-0': {value: 'income > 0'}}).includes('    required: "income > 0"\n'));
+assert.ok(serialize('text', [{key: 'default', value: codeMapping, applied: true}]).includes('    default: ' + codeMapping + '\n'));
+assert.ok(serialize('text', [{key: 'default', value: codeMapping}]).includes('    default: "{\\"code\\":\\"income < limit\\"}"\n'));
+const mappingBlock = {id: 'question_id', data: {fields: [{'show if': {code: 'income < limit'}, default: {code: 'income'}}]}};
+assert.ok(serialize('text', [{key: 'default', value: '{"code":"income"}'}], '', mappingBlock, {'field-showif-0': {value: codeMapping}}).includes('    show if: ' + codeMapping + '\n'));
+assert.ok(serialize('text', [], '', undefined, {'field-showif-0': {value: codeMapping, dataset: {expressionMapping: 'true'}}}).includes('    show if: ' + codeMapping + '\n'));
 
 [
   'radio', 'checkboxes', 'combobox', 'multiselect', 'dropdown',

@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import yaml
 
 from .docassemble_compat import create_playground, create_saved_file
+from .editor_function_catalog import interview_function_catalog, local_function_catalog
 
 __all__ = [
     "parse_interview_yaml",
@@ -1059,7 +1060,12 @@ def _merge_changed_mapping_values(
         return None
     if not isinstance(original, dict) or not isinstance(edited, dict):
         return None
-    if list(original.keys()) != list(edited.keys()):
+    # The graphical question serializer assigns an ID to anonymous blocks.
+    # Adding that ID must not force a rewrite of the author's existing fields.
+    if "id" not in original and set(edited) == set(original) | {"id"}:
+        id_line = yaml.safe_dump({"id": edited["id"]}, sort_keys=False)
+        return _merge_changed_mapping_values(id_line + original_body, edited_body)
+    if set(original.keys()) != set(edited.keys()):
         return None
     original_ranges = _mapping_value_ranges(original_body)
     edited_ranges = _mapping_value_ranges(edited_body)
@@ -1089,10 +1095,85 @@ def _merge_changed_mapping_values(
         return value
 
     operations: List[Tuple[int, int, str]] = []
+    # Expression edits commonly change one nested field modifier. Keep sibling
+    # fields and their comments intact instead of replacing the whole sequence.
+    original_root = yaml.compose(original_body)
+    edited_root = yaml.compose(edited_body)
+    if not isinstance(original_root, yaml.MappingNode) or not isinstance(
+        edited_root, yaml.MappingNode
+    ):
+        return None
+    original_nodes = {key.value: value for key, value in original_root.value}
+    edited_nodes = {key.value: value for key, value in edited_root.value}
+
+    def true_end(node: yaml.Node) -> int:
+        if isinstance(node, (yaml.MappingNode, yaml.SequenceNode)) and node.flow_style:
+            return node.end_mark.index
+        if isinstance(node, yaml.MappingNode) and node.value:
+            return true_end(node.value[-1][1])
+        if isinstance(node, yaml.SequenceNode) and node.value:
+            return true_end(node.value[-1])
+        return node.end_mark.index
+
+    def patch_field_value(old_node, new_node, old_value, new_value):
+        if old_value == new_value:
+            return
+        if (
+            isinstance(old_node, yaml.MappingNode)
+            and isinstance(new_node, yaml.MappingNode)
+            and isinstance(old_value, dict)
+            and isinstance(new_value, dict)
+            and set(old_value) == set(new_value)
+            and all(isinstance(key, str) for key in old_value)
+        ):
+            old_children = {key.value: value for key, value in old_node.value}
+            new_children = {key.value: value for key, value in new_node.value}
+            if len(old_children) == len(old_node.value) and len(new_children) == len(
+                new_node.value
+            ):
+                for name in old_children:
+                    patch_field_value(
+                        old_children[name],
+                        new_children[name],
+                        old_value[name],
+                        new_value[name],
+                    )
+                return
+        start, end = old_node.start_mark.index, true_end(old_node)
+        replacement = edited_body[new_node.start_mark.index : true_end(new_node)]
+        indent_delta = old_node.start_mark.column - new_node.start_mark.column
+        lines = replacement.splitlines(keepends=True)
+        for i in range(1, len(lines)):
+            if indent_delta > 0 and lines[i].strip():
+                lines[i] = " " * indent_delta + lines[i]
+            elif indent_delta < 0 and lines[i].startswith(" " * -indent_delta):
+                lines[i] = lines[i][-indent_delta:]
+        replacement = "".join(lines)
+        if original_body[start:end].endswith("\n") and not replacement.endswith("\n"):
+            replacement += "\n"
+        operations.append((start, end, replacement))
+
     for key in original:
         if normalized_graphical_value(
             str(key), original[key]
         ) == normalized_graphical_value(str(key), edited[key]):
+            continue
+        if (
+            key == "fields"
+            and isinstance(original_nodes[key], yaml.SequenceNode)
+            and isinstance(edited_nodes[key], yaml.SequenceNode)
+            and len(original[key]) == len(edited[key])
+        ):
+            for old_node, new_node, old_value, new_value in zip(
+                original_nodes[key].value,
+                edited_nodes[key].value,
+                original[key],
+                edited[key],
+            ):
+                if normalized_graphical_value(
+                    "fields", [old_value]
+                ) != normalized_graphical_value("fields", [new_value]):
+                    patch_field_value(old_node, new_node, old_value, new_value)
             continue
         start, end = original_ranges[str(key)]
         edited_start, edited_end = edited_ranges[str(key)]
@@ -1112,8 +1193,21 @@ def _merge_changed_mapping_values(
             replacement += "\r"
         operations.append((start, end, replacement))
     updated = original_body
-    for start, end, replacement in reversed(operations):
+    for start, end, replacement in sorted(operations, reverse=True):
         updated = updated[:start] + replacement + updated[end:]
+    # Aliases or unusual collection styles may share ranges. Refuse the narrow
+    # patch if it does not represent the proposed edit; use the existing block
+    # replacement path instead of producing invalid or semantically wrong YAML.
+    try:
+        updated_data = yaml.safe_load(updated)
+        if not isinstance(updated_data, dict) or any(
+            normalized_graphical_value(str(key), updated_data.get(key))
+            != normalized_graphical_value(str(key), edited[key])
+            for key in edited
+        ):
+            return None
+    except yaml.YAMLError:
+        return None
     return updated
 
 
@@ -2015,6 +2109,18 @@ def playground_get_variables(
                 f"File {filename!r} not found in project {project!r}"
             )
         variable_info = pg.variables_from_file(filename)
+        # Reuse the interview tree the playground just assembled for symbol
+        # discovery. Its module questions include all transitive YAML includes.
+        function_catalog = interview_function_catalog(None)
+        try:
+            try:
+                from docassemble.base.thread_context import this_thread
+            except ImportError:
+                from docassemble.base.functions import this_thread
+
+            function_catalog = interview_function_catalog(this_thread.interview)
+        except (ImportError, AttributeError):
+            pass
 
     if not isinstance(variable_info, dict):
         variable_info = {}
@@ -2032,7 +2138,7 @@ def playground_get_variables(
     for key, value in variable_info.items():
         if key == "all_names_reduced":
             continue
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple, set)):
             cleaned = sorted(
                 {
                     str(item).strip()
@@ -2083,6 +2189,7 @@ def playground_get_variables(
 
             code_text = str(data.get("code") or "")
             if code_text:
+                function_catalog.update(local_function_catalog(code_text))
                 for match in re.finditer(
                     r"(?m)^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code_text
                 ):
@@ -2095,6 +2202,8 @@ def playground_get_variables(
 
     if classes:
         symbol_groups["classes"] = sorted(classes)
+    functions.update(function_catalog)
+    functions.update(symbol_groups.get("functions", []))
     if functions:
         symbol_groups["functions"] = sorted(functions)
 
@@ -2172,6 +2281,7 @@ def playground_get_variables(
         "top_level_names": top_level,
         "classes": sorted(classes),
         "functions": sorted(functions),
+        "function_catalog": list(function_catalog.values()),
         "yaml_files": yaml_files,
         "template_files": template_files,
         "static_files": static_files,

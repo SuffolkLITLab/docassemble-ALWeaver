@@ -21,6 +21,27 @@
 
   function serializeQuestionToYaml(block, options) {
     var document = options.document;
+    function modifierYaml(key, value, input, rowIdx) {
+      // These Docassemble modifiers distinguish literal/client-side values
+      // from Python through a nested code mapping. Preserve both forms.
+      var originalField = block && block.data && block.data.fields && block.data.fields[rowIdx];
+      var wasMapping = originalField && originalField[key] && typeof originalField[key] === 'object';
+      var appliedMapping = input && input.dataset && input.dataset.expressionMapping === 'true';
+      var appliedExpression = input && input.dataset && input.dataset.expressionApplied === 'true';
+      if ((wasMapping || appliedMapping) && ['show if', 'hide if', 'enable if', 'disable if', 'default'].indexOf(key) !== -1) {
+        try {
+          var structured = JSON.parse(value);
+          if (structured && typeof structured === 'object' && (key === 'default' || !Array.isArray(structured))) {
+            return '    ' + key + ': ' + JSON.stringify(structured) + '\n';
+          }
+        } catch (_) { /* Plain scalar. */ }
+      }
+      if (key === 'default' && appliedExpression && input.dataset.expressionWrapper === '') return '    default: ' + JSON.stringify(value) + '\n';
+      if (['validate', 'disabled', 'exclude', 'accept', 'rows', 'maximum image size', 'persistent', 'private', 'object labeler', 'address autocomplete', 'label above field', 'floating label'].indexOf(key) !== -1 && (appliedExpression || (originalField && typeof originalField[key] === 'string'))) {
+        return '    ' + key + ': ' + JSON.stringify(value) + '\n';
+      }
+      return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
+    }
     var appendYamlValue = options.appendYamlValue;
     var appendYamlBlockValue = options.appendYamlBlockValue;
     var fieldTypeSupportsStandaloneContent = options.fieldTypeSupportsStandaloneContent;
@@ -61,20 +82,24 @@
         var showIfEl = document.getElementById('field-showif-' + rowIdx);
         var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
         var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
+        var requiredExpression = document.getElementById('field-required-expression-' + rowIdx);
+        var requiredCode = requiredExpression ? requiredExpression.value.trim() : '';
         var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
         var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
         var sfmods = {};
+        var sfmodInputs = {};
         fmodInputs.forEach(function (el) {
           var key = el.getAttribute('data-fmod');
           var value = el.value.trim();
           if (value) sfmods[key] = value;
+          sfmodInputs[key] = el;
         });
         var hasCodeExpr = codeEl && codeEl.value.trim();
         var hasChoices = choicesEl && choicesEl.value.trim() && choiceTypes.indexOf(type) !== -1;
         var showIfVal = showIfEl ? showIfEl.value.trim() : '';
         var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
         var isRequired = requiredSwitch ? requiredSwitch.checked : true;
-        var hasMods = hasCodeExpr || showIfVal || !isRequired || Object.keys(sfmods).length > 0;
+        var hasMods = hasCodeExpr || showIfVal || !isRequired || requiredCode || Object.keys(sfmods).length > 0;
         var isMultiLineLabel = label.indexOf('\n') !== -1;
         if (isFieldMethodType) {
           var methodArgsEl = row.querySelector('[data-field-method-args]');
@@ -98,9 +123,10 @@
             yaml += '    code: |\n';
             standaloneCode.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
           }
-          if (!isRequired) yaml += '    required: False\n';
-          if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
-          Object.keys(sfmods).forEach(function (key) { yaml += '    ' + key + ': ' + escapeYamlStr(sfmods[key]) + '\n'; });
+          if (requiredCode) yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
+          else if (!isRequired) yaml += '    required: False\n';
+          if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
+          Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
           continue;
         }
         if (isMultiLineLabel || hasMods) {
@@ -123,12 +149,13 @@
             yaml += '    code: |\n';
             codeText.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
           } else {
-            yaml += '    code: ' + codeText + '\n';
+            yaml += '    code: ' + JSON.stringify(codeText) + '\n';
           }
         }
-        if (!isRequired) yaml += '    required: False\n';
-        if (showIfVal) yaml += '    ' + showIfKey + ': ' + escapeYamlStr(showIfVal) + '\n';
-        Object.keys(sfmods).forEach(function (key) { yaml += '    ' + key + ': ' + escapeYamlStr(sfmods[key]) + '\n'; });
+        if (requiredCode) yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
+        else if (!isRequired) yaml += '    required: False\n';
+        if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
+        Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
       }
     } else if (state.questionBlockTab !== 'screen' && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
       yaml += 'fields:\n';
@@ -486,7 +513,13 @@
     return '# replace with any docassemble YAML\n';
   }
 
+  function enabledExpressionValue(original, enabled) {
+    if (!enabled) return undefined;
+    return typeof original === 'string' ? original : true;
+  }
+
   return {
+    enabledExpressionValue: enabledExpressionValue,
     escapeYamlStr: escapeYamlStr,
     serializeQuestionToYaml: serializeQuestionToYaml,
     makeNewBlockYaml: makeNewBlockYaml,

@@ -8,6 +8,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_expressions.js",
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",
     "test_editor_dirty_state.js",
@@ -81,6 +82,7 @@ class TestEditorFrontend(unittest.TestCase):
             template.index("/static/app/cm6.min.js"), template.index("editor.js")
         )
         for module in (
+            "editor_expressions.js",
             "editor_html.js",
             "editor_api_client.js",
             "editor_dirty_state.js",
