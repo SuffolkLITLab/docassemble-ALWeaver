@@ -762,6 +762,35 @@ class _TestAutoDraftBase(unittest.TestCase):
 
 
 class TestAutoDraftFinalScreen(_TestAutoDraftBase):
+    def test_names_are_gathered_before_preview_and_signatures(self):
+        """A signature-only person must not first be named after the preview."""
+        _result, yaml_text = self._generate(
+            ["users1_signature", "other_parties1_signature"]
+        )
+        from .editor_utils import parse_interview_yaml
+
+        model = parse_interview_yaml(yaml_text)
+        orders = [
+            b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]
+        ]
+        self.assertEqual(len(orders), 1)
+        main_order = orders[0]["code"]
+
+        self.assertLess(
+            main_order.index("users.gather()"),
+            main_order.index("_preview_question"),
+        )
+        self.assertLess(
+            main_order.index("other_parties.gather()"),
+            main_order.index("_preview_question"),
+        )
+        self.assertLess(
+            main_order.index("_preview_question"),
+            main_order.index("basic_questions_signature_flow"),
+        )
+        self.assertNotIn("users[0].signature", main_order)
+        self.assertNotIn("other_parties[0].signature", main_order)
+
     def test_final_download_sets_progress_to_100_first(self):
         """The default single order reaches the download after all questions."""
         _result, yaml_text = self._generate(["users1_name_first", "rent_amount"])

@@ -1418,6 +1418,42 @@ def _guard_indexed_reference(line: str, known_lists: Container[str]) -> str:
     return f"if {list_name}.number() > {index}:\n  {line}"
 
 
+def _ensure_identity_gathers_before_final_screens(
+    order_lines: Sequence[str],
+    all_fields: "DAFieldList",
+    *,
+    include_download_screen: bool,
+) -> List[str]:
+    """Gather names needed by the preview, signature, and download screens.
+
+    AssemblyLine's signature flow needs the signer's name in order to display
+    its signature question.  If a person's signature is their only field, the
+    generated order previously had no reason to gather that person until after
+    the document preview had already been displayed.  The download screen also
+    addresses ``users`` by name, so a form interview should always gather the
+    user explicitly rather than relying on dependency resolution at the end.
+
+    Existing gathers are not duplicated.  This also preserves the usual Weaver
+    behavior of asking for the user's name before form-specific questions.
+    """
+    required = ["users.gather()"] if include_download_screen else []
+    known_people_lists = set(generator_constants.RESERVED_PLURALIZERS_MAP.values())
+    known_people_lists.update(all_fields.custom_people_plurals.values())
+
+    signature_fields = list(all_fields.builtins()) + list(all_fields.signatures())
+    for field in signature_fields:
+        display_var = str(getattr(field, "final_display_var", ""))
+        match = re.match(r"^([A-Za-z_]\w*)\[\d+\]\.signature$", display_var)
+        if match and match.group(1) in known_people_lists:
+            required.append(f"{match.group(1)}.gather()")
+
+    required = list(dict.fromkeys(required))
+    if not required:
+        return list(order_lines)
+    missing = [line for line in required if line not in order_lines]
+    return missing + list(order_lines)
+
+
 def _with_progress_markers(entries: List[Tuple[str, bool]]) -> List[str]:
     """Interleave ``set_progress()`` calls through an interview order block.
 
@@ -2282,7 +2318,8 @@ class DAQuestionList(DAList):
         all_fields: DAFieldList,
         screens: Optional[List[Union["DAQuestion", "DAField"]]] = None,
         sections: Optional[List[str]] = None,
-        set_progress=True,
+        set_progress: bool = True,
+        defer_signatures: bool = False,
     ) -> List[str]:
         """
         Creates a list of fields for use in creating an interview order block.
@@ -2331,10 +2368,15 @@ class DAQuestionList(DAList):
                 trigger_gather = question.trigger_gather(
                     custom_plurals=all_fields.custom_people_plurals.values()
                 )
-                if not (
+                is_builtin_signature = (
                     question in all_fields.builtins()
                     and trigger_gather.endswith(".signature")
-                ):
+                )
+                is_deferred_signature = defer_signatures and (
+                    trigger_gather.endswith(".signature")
+                    or question in all_fields.signatures()
+                )
+                if not (is_builtin_signature or is_deferred_signature):
                     logic_list.append((trigger_gather, True))
                     # set the saved answer name so it includes the user's name in saved
                     # answer list
@@ -6746,9 +6788,15 @@ def _render_interview_yaml(
             interview.all_fields,
             screen_reordered,
             sections=section_assignments,
+            defer_signatures=include_download_screen,
         )
     else:
         interview_order_lines = []
+    interview_order_lines = _ensure_identity_gathers_before_final_screens(
+        interview_order_lines,
+        interview.all_fields,
+        include_download_screen=include_download_screen,
+    )
 
     review_collections = interview.all_fields.review_collections(screen_reordered)
 
