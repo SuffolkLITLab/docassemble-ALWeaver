@@ -3042,14 +3042,33 @@
                 typeof fileCount === 'number'
                   ? fileCount + (fileCount === 1 ? ' file' : ' files')
                   : 'the project files';
+              var warnings = Array.isArray(result.warnings)
+                ? result.warnings
+                : [];
               setGithubPublishStatus(
                 'Published ' +
                   published +
                   ' to ' +
                   (result.branch || 'GitHub') +
-                  '.',
-                'success',
+                  '.' +
+                  (warnings.length ? ' ' + warnings.join(' ') : ''),
+                warnings.length ? 'warning' : 'success',
               );
+              if (warnings.length) {
+                var guidance = document.createElement('a');
+                guidance.href =
+                  'https://assemblyline.suffolklitlab.org/docs/components/ALKiln/setup/';
+                guidance.textContent = 'ALKiln workflow setup guide';
+                guidance.target = '_blank';
+                guidance.rel = 'noopener';
+                var statusElement = document.getElementById(
+                  'github-publish-status',
+                );
+                if (statusElement) {
+                  statusElement.appendChild(document.createTextNode(' '));
+                  statusElement.appendChild(guidance);
+                }
+              }
               if (submit) submit.disabled = false;
             },
           );

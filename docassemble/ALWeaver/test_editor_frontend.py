@@ -38,6 +38,15 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_github_partial_publish_shows_warning_and_setup_guidance(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn("warnings.length ? 'warning' : 'success'", source)
+        self.assertIn("guidance.textContent = 'ALKiln workflow setup guide'", source)
+        self.assertIn(
+            "https://assemblyline.suffolklitlab.org/docs/components/ALKiln/setup/",
+            source,
+        )
+
     def test_attachment_controls_support_questions_and_standalone_blocks(self):
         editor = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("data-edit-attachment-mappings", editor)

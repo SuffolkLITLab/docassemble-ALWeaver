@@ -109,6 +109,7 @@ from .docassemble_compat import (
     get_flask_app,
     get_github_publish_owners,
     get_github_repository_snapshot,
+    github_authorization_url,
     normalize_github_repository_url,
     get_native_github_integration,
     get_redis_client,
@@ -1549,6 +1550,15 @@ def editor_api_projects() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/github/authorize", methods=["GET"])
+def editor_github_authorize() -> Response:
+    """Connect GitHub, including permission to publish ALKiln workflows."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    return cast(Response, redirect(github_authorization_url()))
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/status", methods=["GET"])
 def editor_api_github_status() -> Response:
     """Report whether Docassemble's native GitHub publisher is ready."""
@@ -1579,6 +1589,8 @@ def editor_api_github_status() -> Response:
                 }
             )
         status = get_native_github_integration(uid)
+        if status.get("enabled"):
+            status["configure_url"] = url_for("editor_github_authorize")
         owners: List[Dict[str, Any]] = []
         if status.get("enabled") and status.get("connected"):
             try:
@@ -8977,6 +8989,8 @@ def _complete_github_publish_job(
             "commit_sha": committed["sha"],
             "files_committed": committed["files"],
             "commit_url": f"{canonical_url}/commit/{committed['sha']}",
+            "warnings": committed.get("warnings", []),
+            "skipped_workflows": committed.get("skipped_workflows", []),
         }
         _update_job_state(
             GITHUB_PUBLISH_JOB,
