@@ -12,6 +12,7 @@ import json
 import os
 import posixpath
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -22,7 +23,7 @@ import threading
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 from urllib.parse import quote, urlparse
 
-from flask import Response, jsonify, url_for
+from flask import Response, jsonify, session, url_for
 
 
 class DocassembleCompatibilityError(RuntimeError):
@@ -783,6 +784,43 @@ def _github_authorized_http(*, user_id: Optional[int] = None) -> Any:
     return credentials.authorize(httplib2.Http())
 
 
+def github_authorization_url() -> str:
+    """Request workflow access using Docassemble's existing OAuth callback.
+
+    Native Docassemble requests repo access but omits workflow access. The
+    editor also publishes ALKiln workflows, which need this additional scope.
+    Keep the native state validation and credential storage, and do not discard
+    the working credentials before the user approves the new authorization.
+    """
+    app = get_flask_app()
+    if not app.config.get("USE_GITHUB") or not app.config.get("ENABLE_PLAYGROUND"):
+        raise DocassembleCompatibilityError(
+            "GitHub integration and the Playground must be enabled on this server"
+        )
+    configure_url = _first_endpoint_url(
+        ("develop.github_configure", "github_configure")
+    )
+    if not configure_url:
+        raise DocassembleCompatibilityError(
+            "Docassemble's GitHub callback is unavailable"
+        )
+    get_flow = _first_webapp_attr(
+        (
+            ("docassemble.webapp.develop.helpers", "get_github_flow"),
+            ("docassemble.webapp.server", "get_github_flow"),
+        ),
+        "its GitHub OAuth flow",
+    )
+    flow = get_flow()
+    scopes = flow.scope.split() if isinstance(flow.scope, str) else list(flow.scope)
+    flow.scope = " ".join(dict.fromkeys([*scopes, "workflow"]))
+    state = secrets.token_urlsafe(32)
+    session["github_next"] = json.dumps(
+        {"state": state, "path": configure_url, "arguments": {}}
+    )
+    return str(flow.step1_get_authorize_url(state=state))
+
+
 def _github_json_request(
     http: Any, url: str, method: str = "GET", body: Optional[Dict[str, Any]] = None
 ) -> Tuple[Any, Any]:
@@ -804,7 +842,7 @@ def _github_json_request(
 
 def _github_error_message(payload: Any, fallback: str) -> str:
     if isinstance(payload, dict) and payload.get("message"):
-        return str(payload["message"])
+        return f"{fallback}: {payload['message']}"
     return fallback
 
 
@@ -1338,9 +1376,61 @@ def publish_github_package(
         # author deleted or renamed in the Playground behind forever, which is
         # not what the native ``git add .`` publisher did.
         report("Creating the package tree.", 88)
+        warnings: List[str] = []
+        skipped_workflows: List[str] = []
         response, tree = _github_json_request(
             http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
         )
+        if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
+            if int(response.get("status", 0)) in {403, 404} and any(
+                entry["path"].startswith(".github/workflows/") for entry in tree_entries
+            ):
+                # GitHub can hide workflow permission failures behind a 404.
+                # Retry once without workflow changes. A standalone tree must
+                # retain the parent's workflows or this would delete them.
+                skipped_workflows = [
+                    entry["path"]
+                    for entry in tree_entries
+                    if entry["path"].startswith(".github/workflows/")
+                ]
+                tree_entries = [
+                    entry
+                    for entry in tree_entries
+                    if not entry["path"].startswith(".github/workflows/")
+                ]
+                if parent_sha:
+                    prior_response, prior_tree = _github_json_request(
+                        http, f"{repository_path}/git/trees/{parent_sha}?recursive=1"
+                    )
+                    if (
+                        int(prior_response.get("status", 0)) != 200
+                        or not isinstance(prior_tree, dict)
+                        or not isinstance(prior_tree.get("tree"), list)
+                        or prior_tree.get("truncated")
+                    ):
+                        raise DocassembleCompatibilityError(
+                            "GitHub rejected workflow changes, and Weaver could not "
+                            "read the existing workflows safely. No commit was published."
+                        )
+                    tree_entries.extend(
+                        {key: entry[key] for key in ("path", "mode", "type", "sha")}
+                        for entry in prior_tree["tree"]
+                        if entry.get("type") != "tree"
+                        and str(entry.get("path", "")).startswith(".github/workflows/")
+                    )
+                report(
+                    "Publishing other files while preserving existing workflows.", 90
+                )
+                response, tree = _github_json_request(
+                    http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
+                )
+                warnings.append(
+                    "GitHub rejected the workflow changes. The other project files "
+                    "were published and existing workflows were preserved. Add or "
+                    "update .github/workflows/run_interview_tests.yml manually using "
+                    "the ALKiln setup guide, or use Configure GitHub to grant workflow "
+                    "access and publish again."
+                )
         if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
             raise DocassembleCompatibilityError(
                 _github_error_message(tree, "GitHub could not create the package tree")
@@ -1397,7 +1487,15 @@ def publish_github_package(
             raise DocassembleCompatibilityError(
                 _github_error_message(updated_ref, "GitHub could not update the branch")
             )
-        return {"sha": commit_sha, "branch": branch, "files": len(files)}
+        result: Dict[str, Any] = {
+            "sha": commit_sha,
+            "branch": branch,
+            "files": len(tree_entries),
+        }
+        if warnings:
+            result["warnings"] = warnings
+            result["skipped_workflows"] = skipped_workflows
+        return result
     finally:
         shutil.rmtree(package_directory, ignore_errors=True)
 

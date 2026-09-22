@@ -13,7 +13,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, session
 from jinja2 import DebugUndefined
 
 from . import docassemble_compat
@@ -596,6 +596,72 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertFalse(status["enabled"])
         self.assertFalse(status["connected"])
 
+    def test_workflow_authorization_uses_native_callback_state_on_both_layouts(self):
+        for layout in ("1.9.x", "1.10.x"):
+            with self.subTest(layout=layout):
+                app = self._app_for_layout(layout)
+                app.secret_key = "test-only"
+                app.config["ENABLE_PLAYGROUND"] = True
+                endpoint = (
+                    "develop.github_configure"
+                    if layout == "1.10.x"
+                    else "github_configure"
+                )
+                app.add_url_rule(
+                    "/github_configure",
+                    endpoint=endpoint,
+                    view_func=lambda: "configure",
+                )
+                states = []
+                flow = types.SimpleNamespace(
+                    scope="repo admin:public_key read:user user:email read:org",
+                    step1_get_authorize_url=lambda state: states.append(state)
+                    or "https://github.com/login/oauth/authorize",
+                )
+                with (
+                    app.test_request_context("/al/editor/github/authorize"),
+                    patch.object(docassemble_compat, "get_flask_app", return_value=app),
+                    patch.object(
+                        docassemble_compat,
+                        "_first_webapp_attr",
+                        return_value=lambda: flow,
+                    ),
+                ):
+                    url = docassemble_compat.github_authorization_url()
+                    next_step = json.loads(session["github_next"])
+                    self.assertEqual(
+                        next_step,
+                        {
+                            "state": states[0],
+                            "path": "/github_configure",
+                            "arguments": {},
+                        },
+                    )
+                    self.assertGreaterEqual(len(states[0]), 32)
+                    self.assertEqual(url, "https://github.com/login/oauth/authorize")
+                    self.assertEqual(
+                        set(flow.scope.split()),
+                        {
+                            "repo",
+                            "admin:public_key",
+                            "read:user",
+                            "user:email",
+                            "read:org",
+                            "workflow",
+                        },
+                    )
+                    docassemble_compat.github_authorization_url()
+                    self.assertNotEqual(states[0], states[1])
+                    self.assertEqual(flow.scope.split().count("workflow"), 1)
+
+    def test_github_errors_keep_operation_context(self):
+        self.assertEqual(
+            docassemble_compat._github_error_message(
+                {"message": "Not Found"}, "GitHub could not create the package tree"
+            ),
+            "GitHub could not create the package tree: Not Found",
+        )
+
     def test_publish_owners_include_personal_account_and_paginated_orgs(self):
         class FakeHttp:
             def __init__(self):
@@ -845,6 +911,119 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(http.calls[-1][2]["ref"], "refs/heads/main")
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
+
+    def test_workflow_tree_rejection_preserves_existing_workflows_and_commits_other_files(
+        self,
+    ):
+        builder, staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self, fail_retry=False, truncated=False, missing_parent=False):
+                self.trees = []
+                self.fail_retry = fail_retry
+                self.truncated = truncated
+                self.updated = False
+                self.missing_parent = missing_parent
+
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("?recursive=1"):
+                    return {"status": "200"}, json.dumps(
+                        {
+                            "truncated": self.truncated,
+                            "tree": [
+                                {
+                                    "path": ".github/workflows/test.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "existing-workflow",
+                                },
+                                {
+                                    "path": ".github/workflows/other.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "other-workflow",
+                                },
+                                {
+                                    "path": "deleted.txt",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "deleted",
+                                },
+                            ],
+                        }
+                    ).encode()
+                if method == "GET":
+                    if self.missing_parent:
+                        return {"status": "404"}, b'{"message": "Not Found"}'
+                    return {"status": "200"}, b'{"object": {"sha": "parent"}}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob"}'
+                if url.endswith("/git/trees"):
+                    self.trees.append(json.loads(body)["tree"])
+                    if len(self.trees) == 2 and not self.fail_retry:
+                        return {"status": "201"}, b'{"sha": "tree"}'
+                    return {
+                        "status": "404",
+                        "x-oauth-scopes": "repo, read:org",
+                    }, b'{"message": "Not Found"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit"}'
+                if url.endswith("/git/refs"):
+                    self.updated = True
+                    return {"status": "201"}, b"{}"
+                if method == "PATCH":
+                    self.updated = True
+                    return {"status": "200"}, b"{}"
+                raise AssertionError(url)
+
+        http = FakeHttp()
+        result = self._publish(
+            http,
+            builder,
+            extra_repository_files={".github/workflows/test.yml": "name: Test\n"},
+        )
+        self.assertTrue(http.updated)
+        self.assertEqual(result["files"], 3)
+        self.assertEqual(result["skipped_workflows"], [".github/workflows/test.yml"])
+        self.assertIn("other project files were published", result["warnings"][0])
+        entries = {entry["path"]: entry["sha"] for entry in http.trees[1]}
+        self.assertEqual(
+            entries,
+            {
+                "README.md": "blob",
+                ".github/workflows/test.yml": "existing-workflow",
+                ".github/workflows/other.yml": "other-workflow",
+            },
+        )
+        self.assertFalse(Path(staging[0]).exists())
+        http = FakeHttp(missing_parent=True)
+        result = self._publish(
+            http,
+            builder,
+            extra_repository_files={".github/workflows/test.yml": "name: Test\n"},
+        )
+        self.assertTrue(http.updated)
+        self.assertEqual(result["files"], 1)
+        self.assertEqual([entry["path"] for entry in http.trees[1]], ["README.md"])
+        self.assertTrue(result["warnings"])
+        for http in (FakeHttp(fail_retry=True), FakeHttp(truncated=True)):
+            with self.subTest(fail_retry=http.fail_retry, truncated=http.truncated):
+                with self.assertRaises(
+                    docassemble_compat.DocassembleCompatibilityError
+                ):
+                    self._publish(
+                        http,
+                        builder,
+                        extra_repository_files={
+                            ".github/workflows/test.yml": "name: Test\n"
+                        },
+                    )
+                self.assertFalse(http.updated)
+        with self.assertRaisesRegex(
+            docassemble_compat.DocassembleCompatibilityError,
+            "GitHub could not create the package tree: Not Found",
+        ):
+            self._publish(FakeHttp(), builder)
 
     def test_publish_github_package_can_add_github_only_files(self):
         builder, _staging = self._fake_package_builder()

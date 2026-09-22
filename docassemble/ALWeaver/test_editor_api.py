@@ -229,6 +229,30 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_github_authorization_requires_editor_access(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=False),
+            patch.object(api_editor, "github_authorization_url") as authorize,
+        ):
+            with api_editor.app.test_request_context("/al/editor/github/authorize"):
+                response = api_editor.editor_github_authorize()
+        self.assertEqual(response.status_code, 401)
+        authorize.assert_not_called()
+
+    def test_github_authorization_redirects_to_native_oauth_flow(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(
+                api_editor,
+                "github_authorization_url",
+                return_value="https://github.com/login/oauth/authorize?scope=repo+workflow",
+            ),
+        ):
+            with api_editor.app.test_request_context("/al/editor/github/authorize"):
+                response = api_editor.editor_github_authorize()
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("scope=repo+workflow", response.location)
+
     def test_expression_parser_requires_editor_authentication(self):
         with patch.object(api_editor, "_editor_auth_check", return_value=False):
             response = api_editor.app.test_client().post(
@@ -384,6 +408,7 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertFalse(data["connected"])
         self.assertFalse(data["organizations_enabled"])
         self.assertEqual(data["owners"], [])
+        self.assertEqual(data["configure_url"], "/al/editor/github/authorize")
 
     MANIFEST_PATH = "/playground/packages/Housing/docassemble.HousingForms"
     MANIFEST_INFO = {
@@ -561,7 +586,12 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(
                 api_editor,
                 "publish_github_package",
-                return_value={"sha": "commit-sha", "files": 12},
+                return_value={
+                    "sha": "commit-sha",
+                    "files": 12,
+                    "warnings": ["Workflow changes skipped."],
+                    "skipped_workflows": [".github/workflows/test.yml"],
+                },
             ) as publish,
         ):
             result = api_editor._complete_github_publish_job(
@@ -588,6 +618,8 @@ class TestEditorGithubApi(unittest.TestCase):
 
         self.assertEqual(result["commit_sha"], "commit-sha")
         self.assertEqual(result["files_committed"], 12)
+        self.assertEqual(result["warnings"], ["Workflow changes skipped."])
+        self.assertEqual(result["skipped_workflows"], [".github/workflows/test.yml"])
         self.assertTrue(result["repository_created"])
         self.assertEqual(
             result["commit_url"],
