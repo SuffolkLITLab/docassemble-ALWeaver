@@ -53,6 +53,27 @@ The API uses docassemble's API key authentication via `api_verify()`.
 The `POST` endpoint defaults to synchronous behavior, and supports optional
 asynchronous execution with `mode=async` (or `async=true`).
 
+## GitHub permissions for publishing workflows
+
+Publishing to GitHub uses Docassemble's GitHub connection. Weaver also writes
+ALKiln test workflows under `.github/workflows/`, and GitHub refuses those
+files unless the connection may change workflows. Without that permission the
+other files still publish, existing workflows are kept, and the publish dialog
+says which of the fixes below is needed.
+
+- **OAuth App** (Docassemble's usual setup): the token needs the `workflow`
+  scope as well as `repo`. Docassemble's own GitHub page does not ask for it;
+  connect through **Configure GitHub** in Weaver's publish dialog, which does.
+  If an organization restricts third-party access, it must also approve the
+  OAuth App.
+- **GitHub App**: scopes are ignored. In the App's settings, set the
+  repository permissions **Contents** and **Workflows** to *Read and write*
+  (and **Administration** to *Read and write* if Weaver should create
+  repositories). Install the App on every account or organization people
+  publish to. After changing permissions, an owner of each installation must
+  accept the updated permissions under *Settings → Applications → Installed
+  GitHub Apps*; until then the old permissions still apply.
+
 ## Celery worker configuration
 
 Uploaded-document project generation in the graphical editor, importing a

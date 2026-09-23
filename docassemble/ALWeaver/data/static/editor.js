@@ -2777,11 +2777,69 @@
     });
   }
 
+  var githubWorkflowAccessByOwner = {};
+
+  function githubWorkflowAccessLink(access) {
+    var labels = {
+      reconnect: 'Reconnect GitHub',
+      approve: 'Review the App permissions',
+      install: 'Install the GitHub App',
+    };
+    var href = access.url;
+    if (access.action === 'reconnect') {
+      var configure = document.getElementById('github-configure-link');
+      href = configure && configure.href;
+    }
+    if (!href || !labels[access.action]) return null;
+    var link = document.createElement('a');
+    link.href = href;
+    link.textContent = labels[access.action];
+    if (access.action !== 'reconnect') {
+      link.target = '_blank';
+      link.rel = 'noopener';
+    }
+    return link;
+  }
+
+  function appendGithubWorkflowAccessLink(element, access) {
+    var link = access && githubWorkflowAccessLink(access);
+    if (!element || !link) return;
+    element.appendChild(document.createTextNode(' '));
+    element.appendChild(link);
+  }
+
+  function showGithubWorkflowAccess() {
+    var notice = document.getElementById('github-workflow-access');
+    var ownerSelect = document.getElementById('github-owner');
+    if (!notice) return;
+    var access = ownerSelect
+      ? githubWorkflowAccessByOwner[ownerSelect.value]
+      : null;
+    notice.replaceChildren();
+    if (
+      !access ||
+      !access.message ||
+      access.status === 'granted' ||
+      access.status === 'unknown'
+    ) {
+      notice.classList.add('d-none');
+      return;
+    }
+    notice.textContent =
+      'Workflows cannot be published to this account. ' +
+      access.message +
+      ' Everything else still publishes.';
+    appendGithubWorkflowAccessLink(notice, access);
+    notice.classList.remove('d-none');
+  }
+
   function applyGithubIntegrationStatus(data) {
     var submit = document.getElementById('github-publish-submit');
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
+    githubWorkflowAccessByOwner = {};
+    showGithubWorkflowAccess();
     if (ownerSelect && !(data && data.enabled && data.connected)) {
       // Accounts only load once GitHub is connected; don't claim otherwise.
       ownerSelect.replaceChildren();
@@ -2824,6 +2882,7 @@
     if (ownerSelect) {
       ownerSelect.replaceChildren();
       (data.owners || []).forEach(function (owner) {
+        githubWorkflowAccessByOwner[owner.login] = owner.workflow_access;
         var option = document.createElement('option');
         option.value = owner.login;
         option.textContent =
@@ -2834,6 +2893,7 @@
       });
       ownerSelect.disabled = !(data.owners && data.owners.length);
     }
+    showGithubWorkflowAccess();
     if (!data.owners || !data.owners.length) {
       setGithubPublishStatus(
         'GitHub did not return an account or organization that can own the repository.',
@@ -2964,6 +3024,8 @@
         var ownerSelect = document.getElementById('github-owner');
         if (submit) submit.disabled = true;
         if (configure) configure.classList.add('d-none');
+        githubWorkflowAccessByOwner = {};
+        showGithubWorkflowAccess();
         if (repositoryLink) repositoryLink.classList.add('d-none');
         if (commitLink) commitLink.classList.add('d-none');
         if (ownerSelect) {
@@ -3014,6 +3076,9 @@
     var form = document.getElementById('github-publish-form');
     if (!form) return;
     initGithubRepositorySettings();
+    var ownerSelect = document.getElementById('github-owner');
+    if (ownerSelect)
+      ownerSelect.addEventListener('change', showGithubWorkflowAccess);
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (!state.project) return;
@@ -3086,6 +3151,10 @@
                   'github-publish-status',
                 );
                 if (statusElement) {
+                  appendGithubWorkflowAccessLink(
+                    statusElement,
+                    result.workflow_access,
+                  );
                   statusElement.appendChild(document.createTextNode(' '));
                   statusElement.appendChild(guidance);
                 }
