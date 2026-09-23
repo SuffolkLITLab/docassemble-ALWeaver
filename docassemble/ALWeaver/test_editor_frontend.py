@@ -47,6 +47,32 @@ class TestEditorFrontend(unittest.TestCase):
             source,
         )
 
+    def test_github_modal_manages_workflows_and_pyproject(self):
+        root = Path(__file__).parent / "data"
+        collector = _TemplateCollector()
+        collector.feed((root / "templates/editor.html").read_text())
+        for element_id in (
+            "github-tab-workflows",
+            "github-workflows-list",
+            "github-tab-dependencies",
+            "github-dependency-input",
+            "github-pyproject-source",
+            "github-pyproject-save",
+        ):
+            self.assertIn(element_id, collector.ids)
+        editor = (root / "static/editor.js").read_text()
+        self.assertIn("'/api/github/repository-config", editor)
+        # Turning on a workflow that opens its editor asks before discarding
+        # unsaved edits in another one.
+        self.assertIn(
+            "Discard your changes to the open workflow to edit this one?", editor
+        )
+        # An open editor's edits are saved before the publish reads settings.
+        self.assertLess(
+            editor.index("saveDirtyGithubEditors()\n        .then"),
+            editor.index("return apiPost('/api/github/publish'"),
+        )
+
     def test_attachment_controls_support_questions_and_standalone_blocks(self):
         editor = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("data-edit-attachment-mappings", editor)

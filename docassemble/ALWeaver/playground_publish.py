@@ -130,6 +130,7 @@ def prepare_project_github_package(
     author_name: str = "",
     author_email: str = "",
     github_url: Optional[str] = None,
+    dependencies: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Create/update the package manifest consumed by Docassemble's publisher.
 
@@ -167,7 +168,12 @@ def prepare_project_github_package(
 
     manifest: Dict[str, Any] = dict(existing)
     manifest.update(files)
-    manifest.setdefault("dependencies", [])
+    if dependencies is not None:
+        # Keeps Docassemble's own Packages page and setup.py in step with the
+        # pyproject.toml Weaver publishes.
+        manifest["dependencies"] = list(dependencies)
+    else:
+        manifest.setdefault("dependencies", [])
     manifest.setdefault("description", f"A docassemble project for {project_name}.")
     manifest.setdefault("license", "MIT License")
     manifest.setdefault(

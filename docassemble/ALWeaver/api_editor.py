@@ -315,8 +315,15 @@ from .playground_publish import (
     record_project_github_sync,
     rename_project,
 )
+from .github_repository import (
+    PYPROJECT_PATH,
+    adopt_repository_snapshot,
+    repository_config_view,
+    repository_dependency_names,
+    repository_publish_files,
+    update_repository_config,
+)
 from .kiln_tests import (
-    DEFAULT_ALKILN_WORKFLOW,
     MANAGED_IT_RUNS_FILENAME,
     create_kiln_feature,
     create_kiln_feature_from_json,
@@ -1649,6 +1656,88 @@ def editor_api_github_status() -> Response:
         )
 
 
+def _repository_config_package(project: str, raw_package: Any) -> str:
+    if str(raw_package or "").strip():
+        return normalize_github_package_name(raw_package)
+    sync = find_project_github_sync(user_id=_current_user_id(), project_name=project)
+    if sync:
+        return str(sync["package"])
+    return normalize_github_package_name(
+        normalize_project_name(project, fallback="WeaverProject")
+    )
+
+
+def _repository_config_author() -> Dict[str, str]:
+    # Publishing stamps the current user into the manifest, so the preview
+    # shows the pyproject.toml that publish will actually write.
+    return {
+        "author_name": _editor_user_designator(),
+        "author_email": str(getattr(current_user, "email", "") or "").strip(),
+    }
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/github/repository-config", methods=["GET", "POST"])
+def editor_api_github_repository_config() -> Response:
+    """Read or change the workflows and pyproject.toml a publish writes.
+
+    A POST carries one ``operation`` so each toggle or editor save is applied
+    against the stored settings rather than a stale copy from the browser.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        if request.method == "POST":
+            post_data = request.get_json(silent=True) or {}
+            project = _normalize_project(post_data.get("project"))
+            package = _repository_config_package(project, post_data.get("package"))
+            view = update_repository_config(
+                uid,
+                project,
+                package,
+                post_data.get("operation"),
+                manifest_overrides=_repository_config_author(),
+            )
+        else:
+            project = _normalize_project(request.args.get("project"))
+            package = _repository_config_package(project, request.args.get("package"))
+            view = repository_config_view(
+                uid, project, package, manifest_overrides=_repository_config_author()
+            )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "package": package,
+                    "pyproject_path": PYPROJECT_PATH,
+                    **view,
+                },
+            }
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub repository settings error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/publish", methods=["POST"])
 def editor_api_github_publish() -> Response:
     """Prepare a Playground package and queue the commit to GitHub.
@@ -1740,6 +1829,7 @@ def editor_api_github_publish() -> Response:
             author_name=author_name,
             author_email=author_email,
             github_url=repository_url,
+            dependencies=repository_dependency_names(uid, project, package),
         )
         queued = _start_github_publish_job(
             uid=uid,
@@ -1909,6 +1999,17 @@ def editor_api_github_pull() -> Response:
                 },
                 409,
             )
+        adopt_repository_snapshot(
+            uid,
+            project,
+            sync["package"],
+            remote["files"],
+            # With a recorded sync point, only files changed on GitHub since
+            # then are taken; when nothing moved, nothing is. A manifest from
+            # before sync points were recorded has nothing to compare
+            # against, so the repository is taken as on an import.
+            base["files"] if sync.get("commit") else None,
+        )
         _reconcile_project_modules(uid, project)
         return jsonify(
             {
@@ -8935,6 +9036,10 @@ def _complete_github_publish_job(
             package_name=package,
         )
 
+        repository_files = repository_publish_files(
+            uid, project, package, manifest=package_info
+        )
+
         def report(message: str, percent: int) -> None:
             # publish_github_package reports on its own 0-100 scale; the
             # repository check already accounted for the first tenth.
@@ -8960,14 +9065,9 @@ def _complete_github_publish_job(
             manifest_path=manifest_path,
             default_branch=str(github_repository.get("default_branch") or ""),
             on_progress=report,
-            extra_repository_files=(
-                {".github/workflows/run_interview_tests.yml": DEFAULT_ALKILN_WORKFLOW}
-                if any(
-                    str(name).lower().endswith(".feature")
-                    for name in package_info.get("sources_files", [])
-                )
-                else None
-            ),
+            extra_repository_files=repository_files["files"],
+            preserved_path_prefixes=(".github/",),
+            managed_paths=repository_files["managed_paths"],
         )
         record_project_github_sync(
             user_id=uid,
@@ -9175,6 +9275,9 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             )
             imported = import_github_snapshot(
                 user_id=uid, project_name=project_name, snapshot=snapshot
+            )
+            adopt_repository_snapshot(
+                uid, project_name, imported["package"], snapshot["files"]
             )
         except Exception:
             # A failed import should not leave an empty, misleading project in

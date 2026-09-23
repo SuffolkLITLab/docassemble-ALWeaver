@@ -30,6 +30,7 @@ node_modules/
 dist/**
 .codex
 .creds
+docs/
 
 # Local Python resolver lockfile
 uv.lock

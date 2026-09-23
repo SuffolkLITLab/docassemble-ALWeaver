@@ -5,29 +5,6 @@ from typing import Any, Dict, Optional
 MANAGED_IT_RUNS_FILENAME = "weaver_it_runs.feature"
 ACCESSIBILITY_ALL_STEP = "I check all pages for accessibility issues"
 
-DEFAULT_ALKILN_WORKFLOW = """name: ALKiln v5 tests
-
-on:
-  push:
-  workflow_dispatch:
-    inputs:
-      tags:
-        description: Optional ALKiln tag expression
-        default: ''
-
-jobs:
-  interview-testing:
-    runs-on: ubuntu-latest
-    name: Run interview tests
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use ALKiln to run tests
-        uses: SuffolkLITLab/ALKiln@v5
-        with:
-          SERVER_URL: ${{ secrets.SERVER_URL }}
-          DOCASSEMBLE_DEVELOPER_API_KEY: ${{ secrets.DOCASSEMBLE_DEVELOPER_API_KEY }}
-"""
-
 
 def default_feature_filename(interview_filename: str) -> str:
     """Return the reserved filename for Weaver's additive smoke test."""

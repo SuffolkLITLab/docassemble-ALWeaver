@@ -214,7 +214,7 @@
 <!-- Native Docassemble GitHub publishing -->
 <div class="modal fade" id="github-publish-modal" tabindex="-1"
      aria-labelledby="github-publish-title">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -223,6 +223,26 @@
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+      <ul class="nav nav-tabs px-3 pt-2" id="github-publish-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="github-tab-publish-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-publish" type="button" role="tab"
+                  aria-controls="github-tab-publish" aria-selected="true">Publish</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="github-tab-workflows-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-workflows" type="button" role="tab"
+                  aria-controls="github-tab-workflows" aria-selected="false">Workflows</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="github-tab-dependencies-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-dependencies" type="button" role="tab"
+                  aria-controls="github-tab-dependencies" aria-selected="false">Dependencies</button>
+        </li>
+      </ul>
+      <div class="tab-content">
+      <div class="tab-pane fade show active" id="github-tab-publish" role="tabpanel"
+           aria-labelledby="github-tab-publish-button" tabindex="0">
       <form id="github-publish-form">
         <div class="modal-body">
           <div class="alert alert-secondary py-2" id="github-publish-status"
@@ -254,7 +274,7 @@
             <input class="form-control" id="github-commit-message" name="commit_message"
                    value="Update from Weaver" autocomplete="off" maxlength="500" required>
           </div>
-          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included. Weaver uses Docassemble's GitHub connection to create the commit and push it to the selected repository.</p>
+          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included, along with the workflows and <code>pyproject.toml</code> set in the other tabs. Weaver uses Docassemble's GitHub connection to create the commit and push it to the selected repository.</p>
         </div>
         <div class="modal-footer justify-content-between">
           <a class="btn btn-sm btn-outline-secondary d-none" id="github-configure-link">Configure GitHub</a>
@@ -270,6 +290,53 @@
           </div>
         </div>
       </form>
+      </div>
+      <div class="tab-pane fade" id="github-tab-workflows" role="tabpanel"
+           aria-labelledby="github-tab-workflows-button" tabindex="0">
+        <div class="modal-body">
+          <div class="alert py-2 d-none" id="github-workflows-status" role="status" aria-live="polite"></div>
+          <p class="small text-muted">Weaver adds these checks to <code>.github/workflows</code> each time you publish. Turning one off removes it from the repository. Workflows you add on GitHub yourself are left alone. <a href="https://assemblyline.suffolklitlab.org/docs/automated_quality_checks/github_actions" target="_blank" rel="noopener">About these checks</a></p>
+          <div id="github-workflows-list" class="list-group">
+            <div class="list-group-item small text-muted">Loading workflows&hellip;</div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="github-tab-dependencies" role="tabpanel"
+           aria-labelledby="github-tab-dependencies-button" tabindex="0">
+        <div class="modal-body">
+          <div class="alert py-2 d-none" id="github-dependencies-status" role="status" aria-live="polite"></div>
+          <p class="small text-muted">ALKiln's test server, and any server that installs this package, installs these packages first. Weaver lists the packages your interviews include; add any others your code needs. Each one must be published on PyPI or GitHub.</p>
+          <div id="github-dependencies-missing"></div>
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr><th scope="col">Package</th><th scope="col">Why it is listed</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody id="github-dependencies-list">
+              <tr><td colspan="3" class="small text-muted">Loading dependencies&hellip;</td></tr>
+            </tbody>
+          </table>
+          <form id="github-dependency-form" class="mb-4">
+            <label class="form-label" for="github-dependency-input">Add a dependency</label>
+            <div class="input-group">
+              <input class="form-control font-monospace" id="github-dependency-input"
+                     autocomplete="off" maxlength="300" required>
+              <button type="submit" class="btn btn-outline-primary">Add</button>
+            </div>
+            <div class="form-text">A package name with an optional version, for example <code>docassemble.ALToolbox&gt;=0.9</code>, or a GitHub repository URL, for example <code>https://github.com/SuffolkLITLab/docassemble-MassAccess</code>. Add <code>/tree/</code> and a branch name to pin a branch. The repository must be public for ALKiln's test server to install it.</div>
+          </form>
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <h6 class="mb-0" id="github-pyproject-heading"><code>pyproject.toml</code></h6>
+            <span class="badge text-bg-secondary" id="github-pyproject-mode"></span>
+          </div>
+          <p class="small text-muted mb-2" id="github-pyproject-help"></p>
+          <div class="editor-source-container github-file-source" id="github-pyproject-source"></div>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-primary" id="github-pyproject-save" disabled>Save <code class="text-reset">pyproject.toml</code></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="github-pyproject-reset">Use the generated file</button>
+          </div>
+        </div>
+      </div>
+      </div>
     </div>
   </div>
 </div>

@@ -1396,6 +1396,11 @@ body {
   max-height: 100%;
 }
 
+/* Workflow and pyproject.toml editors in the GitHub modal. */
+.github-file-source {
+  height: 320px;
+}
+
 .editor-source-container .cm-scroller {
   overflow: auto;
   overscroll-behavior: contain;
