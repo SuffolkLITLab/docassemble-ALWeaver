@@ -1206,6 +1206,184 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
     return owners
 
 
+WORKFLOW_ACCESS_GRANTED = "granted"
+WORKFLOW_ACCESS_UNKNOWN = "unknown"
+WORKFLOW_ACCESS_MISSING_SCOPE = "missing_scope"
+WORKFLOW_ACCESS_APP_NOT_INSTALLED = "app_not_installed"
+WORKFLOW_ACCESS_APP_PENDING_APPROVAL = "app_pending_approval"
+WORKFLOW_ACCESS_APP_MISSING_PERMISSION = "app_missing_permission"
+
+
+def _workflow_access(
+    status: str, message: str = "", action: str = "", url: str = ""
+) -> Dict[str, str]:
+    return {"status": status, "message": message, "action": action, "url": url}
+
+
+def _github_user_installations(http: Any) -> Optional[List[Dict[str, Any]]]:
+    """List the GitHub App installations a user token can use, or None.
+
+    Only a GitHub App user token may call this endpoint; an OAuth App token
+    gets a 403, which is how the caller tells the two kinds apart.
+    """
+    installations: List[Dict[str, Any]] = []
+    url: Optional[str] = "https://api.github.com/user/installations?per_page=100"
+    while url:
+        response, payload = _github_json_request(http, url)
+        if int(response.get("status", 0)) != 200 or not isinstance(payload, dict):
+            return None
+        installations.extend(
+            entry
+            for entry in payload.get("installations") or []
+            if isinstance(entry, dict)
+        )
+        link_header = str(response.get("link") or "")
+        next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
+        url = next_match.group(1) if next_match else None
+    return installations
+
+
+def get_github_workflow_access(
+    owners: Sequence[str], *, user_id: Optional[int] = None, http: Any = None
+) -> Dict[str, Any]:
+    """Explain whether the GitHub connection can write ``.github/workflows``.
+
+    GitHub rejects workflow files unless the token may change workflows, and
+    it reports that as a bare 403 or 404. What "may" means depends on how the
+    server connects to GitHub:
+
+    * An OAuth App token needs the ``workflow`` scope, which only Weaver's own
+      Configure GitHub link requests; reconnecting through it fixes this.
+    * A GitHub App ignores scopes. The App needs the Workflows (write)
+      repository permission, it must be installed on the owning account, and
+      every installation has to accept a permission change before it applies.
+
+    Returns ``{"token_type": ..., "owners": {login: access}}`` where each
+    access has ``status``, ``message``, ``action`` and ``url``. Anything that
+    cannot be determined is ``unknown`` rather than an error, so a failed
+    check never blocks publishing.
+    """
+    unknown = _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    result: Dict[str, Any] = {
+        "token_type": "unknown",
+        "owners": {owner: dict(unknown) for owner in owners},
+    }
+    if http is None:
+        http = _github_authorized_http(user_id=user_id)
+    response, _user = _github_json_request(http, "https://api.github.com/user")
+    if int(response.get("status", 0)) != 200:
+        return result
+    scope_header = response.get("x-oauth-scopes")
+    scopes = {
+        scope.strip() for scope in str(scope_header or "").split(",") if scope.strip()
+    }
+    installations = None if scopes else _github_user_installations(http)
+
+    if installations is None:
+        if scope_header is None:
+            return result
+        result["token_type"] = "oauth_app"
+        if "workflow" in scopes:
+            access = _workflow_access(WORKFLOW_ACCESS_GRANTED)
+        else:
+            access = _workflow_access(
+                WORKFLOW_ACCESS_MISSING_SCOPE,
+                "The GitHub connection was made without permission to change "
+                "workflows. Use Configure GitHub to reconnect and approve "
+                "workflow access.",
+                "reconnect",
+            )
+        result["owners"] = {owner: dict(access) for owner in owners}
+        return result
+
+    result["token_type"] = "github_app"
+    by_account = {
+        str((entry.get("account") or {}).get("login") or "").lower(): entry
+        for entry in installations
+    }
+    app_slug = next(
+        (
+            str(entry.get("app_slug"))
+            for entry in installations
+            if entry.get("app_slug")
+        ),
+        "",
+    )
+    app_permissions: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def requested_permissions(slug: str) -> Optional[Dict[str, Any]]:
+        if slug not in app_permissions:
+            response, app = _github_json_request(
+                http, f"https://api.github.com/apps/{quote(slug, safe='')}"
+            )
+            permissions = app.get("permissions") if isinstance(app, dict) else None
+            app_permissions[slug] = (
+                permissions
+                if int(response.get("status", 0)) == 200
+                and isinstance(permissions, dict)
+                else None
+            )
+        return app_permissions[slug]
+
+    for owner in owners:
+        installation = by_account.get(owner.lower())
+        if installation is None:
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_NOT_INSTALLED,
+                f"The GitHub App this server uses is not installed on {owner}, "
+                "so it cannot publish there. Install the App on that account "
+                "and give it access to the repository, then publish again.",
+                "install",
+                (
+                    f"https://github.com/apps/{quote(app_slug, safe='')}"
+                    "/installations/new"
+                    if app_slug
+                    else ""
+                ),
+            )
+            continue
+        granted = installation.get("permissions") or {}
+        if granted.get("workflows") == "write":
+            result["owners"][owner] = _workflow_access(WORKFLOW_ACCESS_GRANTED)
+            continue
+        slug = str(installation.get("app_slug") or app_slug)
+        requested = requested_permissions(slug) if slug else None
+        if requested is not None and requested.get("workflows") == "write":
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_PENDING_APPROVAL,
+                f"The GitHub App asks for permission to change workflows, but "
+                f"{owner} has not approved that request yet. An owner of "
+                f"{owner} must review and accept the App's updated permissions "
+                "in its GitHub settings.",
+                "approve",
+                str(installation.get("html_url") or ""),
+            )
+        else:
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_MISSING_PERMISSION,
+                "The GitHub App this server uses cannot change workflows. A "
+                "server administrator must set the App's Workflows repository "
+                "permission to Read and write, and each account that installed "
+                "it must then accept the updated permissions.",
+                "admin",
+            )
+    return result
+
+
+def _diagnose_workflow_rejection(http: Any, owner: str) -> Dict[str, str]:
+    """Say why GitHub refused workflow files, without failing the publish."""
+    try:
+        access = get_github_workflow_access([owner], http=http)["owners"][owner]
+    except Exception:
+        # The publish already succeeded without workflows; a failed diagnosis
+        # only costs the specific explanation.
+        return _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    if access.get("status") == WORKFLOW_ACCESS_GRANTED:
+        # The permission is there, so GitHub refused for another reason.
+        return _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    return access
+
+
 def ensure_github_repository(
     *,
     owner: str,
@@ -1572,6 +1750,7 @@ def publish_github_package(
         report("Creating the package tree.", 88)
         warnings: List[str] = []
         skipped_workflows: List[str] = []
+        workflow_access: Dict[str, str] = {}
         response, tree = _github_json_request(
             http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
         )
@@ -1613,11 +1792,15 @@ def publish_github_package(
                 response, tree = _github_json_request(
                     http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
                 )
+                workflow_access = _diagnose_workflow_rejection(http, str(owner))
+                reason = workflow_access.get("message") or (
+                    "Use Configure GitHub to grant workflow access and publish "
+                    "again, or add the workflows manually using the ALKiln "
+                    "setup guide."
+                )
                 warnings.append(
                     "GitHub rejected the workflow changes. The other project files "
-                    "were published and existing workflows were preserved. Use "
-                    "Configure GitHub to grant workflow access and publish again, or "
-                    "add the workflows manually using the ALKiln setup guide."
+                    f"were published and existing workflows were preserved. {reason}"
                 )
         if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
             raise DocassembleCompatibilityError(
@@ -1683,6 +1866,7 @@ def publish_github_package(
         if warnings:
             result["warnings"] = warnings
             result["skipped_workflows"] = skipped_workflows
+            result["workflow_access"] = workflow_access
         return result
     finally:
         shutil.rmtree(package_directory, ignore_errors=True)

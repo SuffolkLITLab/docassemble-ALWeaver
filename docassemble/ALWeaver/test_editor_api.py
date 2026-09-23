@@ -416,6 +416,61 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(data["owners"], [])
         self.assertEqual(data["configure_url"], "/al/editor/github/authorize")
 
+    def test_status_marks_each_owner_with_its_workflow_access(self):
+        access = {
+            "token_type": "github_app",
+            "owners": {
+                "ada": {"status": "granted", "message": "", "action": "", "url": ""},
+                "LegalAid": {
+                    "status": "app_not_installed",
+                    "message": "Not installed.",
+                    "action": "install",
+                    "url": "https://github.com/apps/da/installations/new",
+                },
+            },
+        }
+        for check in ({"return_value": access}, {"side_effect": RuntimeError("x")}):
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "get_native_github_integration",
+                    return_value={
+                        "enabled": True,
+                        "connected": True,
+                        "organizations_enabled": True,
+                    },
+                ),
+                patch.object(
+                    api_editor,
+                    "get_github_publish_owners",
+                    return_value=[
+                        {"login": "ada", "type": "user"},
+                        {"login": "LegalAid", "type": "organization"},
+                    ],
+                ),
+                patch.object(api_editor, "get_github_workflow_access", **check),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/github/status?project=Housing"
+                ):
+                    response = api_editor.editor_api_github_status()
+            self.assertEqual(response.status_code, 200)
+            owners = {
+                owner["login"]: owner for owner in response.get_json()["data"]["owners"]
+            }
+            if "return_value" in check:
+                self.assertEqual(
+                    owners["LegalAid"]["workflow_access"]["status"],
+                    "app_not_installed",
+                )
+                self.assertEqual(owners["ada"]["workflow_access"]["status"], "granted")
+            else:
+                # A failed check must not hide the owners or fail the dialog.
+                self.assertEqual(set(owners), {"ada", "LegalAid"})
+                self.assertNotIn("workflow_access", owners["ada"])
+
     MANIFEST_PATH = "/playground/packages/Housing/docassemble.HousingForms"
     MANIFEST_INFO = {
         "interview_files": ["main.yml"],

@@ -1589,6 +1589,141 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertFalse(Path(staging_directories[0]).exists())
 
 
+class RoutedGithubHttp:
+    """Answer GitHub API requests from a URL-path table."""
+
+    def __init__(self, routes):
+        self.routes = routes
+        self.calls = []
+
+    def request(self, url, method, headers=None, body=None):
+        path = url.replace("https://api.github.com", "").split("?")[0]
+        self.calls.append(path)
+        if path not in self.routes:
+            return {"status": "404"}, b'{"message": "Not Found"}'
+        response, payload = self.routes[path]
+        return dict(response), json.dumps(payload).encode()
+
+
+class TestGithubWorkflowAccess(unittest.TestCase):
+    def _access(self, routes, owners=("ada", "LegalAid")):
+        http = RoutedGithubHttp(routes)
+        return docassemble_compat.get_github_workflow_access(list(owners), http=http)
+
+    @staticmethod
+    def _installation(login, workflows=None, slug="da-weaver"):
+        permissions = {"contents": "write", "metadata": "read"}
+        if workflows:
+            permissions["workflows"] = workflows
+        return {
+            "account": {"login": login},
+            "app_slug": slug,
+            "permissions": permissions,
+            "html_url": f"https://github.com/settings/installations/{login}",
+        }
+
+    def test_oauth_token_with_workflow_scope_is_granted(self):
+        result = self._access(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, workflow"}, {})}
+        )
+        self.assertEqual(result["token_type"], "oauth_app")
+        self.assertEqual(
+            {access["status"] for access in result["owners"].values()}, {"granted"}
+        )
+
+    def test_oauth_token_without_workflow_scope_asks_to_reconnect(self):
+        result = self._access(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, read:org"}, {})}
+        )
+        access = result["owners"]["LegalAid"]
+        self.assertEqual(access["status"], "missing_scope")
+        self.assertEqual(access["action"], "reconnect")
+        self.assertIn("Configure GitHub", access["message"])
+
+    def test_github_app_reports_each_owner_separately(self):
+        result = self._access(
+            {
+                "/user": ({"status": "200"}, {}),
+                "/user/installations": (
+                    {"status": "200"},
+                    {"installations": [self._installation("ada", "write")]},
+                ),
+            },
+            owners=("ada", "CourtForms"),
+        )
+        self.assertEqual(result["token_type"], "github_app")
+        self.assertEqual(result["owners"]["ada"]["status"], "granted")
+        missing = result["owners"]["CourtForms"]
+        self.assertEqual(missing["status"], "app_not_installed")
+        self.assertEqual(
+            missing["url"], "https://github.com/apps/da-weaver/installations/new"
+        )
+
+    def test_github_app_distinguishes_unapproved_update_from_missing_permission(self):
+        installations = {
+            "installations": [
+                self._installation("ada"),
+                self._installation("LegalAid", "read"),
+            ]
+        }
+        for app_permissions, expected, action in (
+            ({"workflows": "write"}, "app_pending_approval", "approve"),
+            ({"contents": "write"}, "app_missing_permission", "admin"),
+        ):
+            with self.subTest(expected=expected):
+                http = RoutedGithubHttp(
+                    {
+                        "/user": ({"status": "200", "x-oauth-scopes": ""}, {}),
+                        "/user/installations": ({"status": "200"}, installations),
+                        "/apps/da-weaver": (
+                            {"status": "200"},
+                            {"permissions": app_permissions},
+                        ),
+                    }
+                )
+                result = docassemble_compat.get_github_workflow_access(
+                    ["ada", "LegalAid"], http=http
+                )
+                for owner in ("ada", "LegalAid"):
+                    self.assertEqual(result["owners"][owner]["status"], expected)
+                    self.assertEqual(result["owners"][owner]["action"], action)
+                # The App's own permissions are looked up once, not per owner.
+                self.assertEqual(http.calls.count("/apps/da-weaver"), 1)
+                self.assertEqual(
+                    result["owners"]["LegalAid"]["url"],
+                    (
+                        "https://github.com/settings/installations/LegalAid"
+                        if action == "approve"
+                        else ""
+                    ),
+                )
+
+    def test_unreadable_connection_is_unknown_rather_than_an_error(self):
+        result = self._access({})
+        self.assertEqual(result["token_type"], "unknown")
+        self.assertEqual(
+            {access["status"] for access in result["owners"].values()}, {"unknown"}
+        )
+
+    def test_rejected_publish_explains_the_missing_scope(self):
+        http = RoutedGithubHttp(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo"}, {})}
+        )
+        access = docassemble_compat._diagnose_workflow_rejection(http, "LegalAid")
+        self.assertEqual(access["status"], "missing_scope")
+        granted = RoutedGithubHttp(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, workflow"}, {})}
+        )
+        # With the permission in place the rejection has another cause, so the
+        # generic advice is kept rather than a wrong diagnosis.
+        self.assertEqual(
+            docassemble_compat._diagnose_workflow_rejection(granted, "LegalAid")[
+                "status"
+            ],
+            "unknown",
+        )
+
+
 class TestDocassembleSourceCompatibility(unittest.TestCase):
     def test_private_webapp_imports_are_isolated_to_compatibility_module(self):
         package_dir = Path(__file__).resolve().parent

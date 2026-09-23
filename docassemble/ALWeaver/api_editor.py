@@ -108,6 +108,7 @@ from .docassemble_compat import (
     get_csrf,
     get_flask_app,
     get_github_publish_owners,
+    get_github_workflow_access,
     get_github_repository_snapshot,
     github_authorization_url,
     normalize_github_repository_url,
@@ -1566,6 +1567,24 @@ def editor_github_authorize() -> Response:
     return cast(Response, redirect(github_authorization_url()))
 
 
+def _attach_workflow_access(uid: int, owners: List[Dict[str, Any]]) -> None:
+    """Say per owner whether publishing can include ALKiln workflows.
+
+    GitHub only reveals a missing workflow permission by rejecting the
+    commit, so the dialog checks up front and names the fix. A failed check
+    leaves the owners unmarked; the publish itself still handles rejection.
+    """
+    try:
+        access = get_github_workflow_access(
+            [str(owner["login"]) for owner in owners], user_id=uid
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub workflow access check failed: {exc!r}", "warning")
+        return
+    for owner in owners:
+        owner["workflow_access"] = access["owners"].get(str(owner["login"]))
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/status", methods=["GET"])
 def editor_api_github_status() -> Response:
     """Report whether Docassemble's native GitHub publisher is ready."""
@@ -1621,6 +1640,8 @@ def editor_api_github_status() -> Response:
                     "warning",
                 )
                 status.update({"connected": False, "organizations_enabled": False})
+        if owners:
+            _attach_workflow_access(uid, owners)
         status["owners"] = owners
         status.update(
             {
@@ -9091,6 +9112,7 @@ def _complete_github_publish_job(
             "commit_url": f"{canonical_url}/commit/{committed['sha']}",
             "warnings": committed.get("warnings", []),
             "skipped_workflows": committed.get("skipped_workflows", []),
+            "workflow_access": committed.get("workflow_access"),
         }
         _update_job_state(
             GITHUB_PUBLISH_JOB,
