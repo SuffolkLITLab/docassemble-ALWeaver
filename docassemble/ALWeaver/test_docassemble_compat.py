@@ -766,6 +766,179 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(requested_keys, ["da:github:userid:7"])
         self.assertEqual(parsed_values, ['{"access_token": "worker-token"}'])
 
+    def test_expired_github_token_is_refreshed_as_json_and_saved(self):
+        """oauth2client cannot parse GitHub's default form-encoded refresh."""
+
+        class FakeCredentials:
+            access_token_expired = True
+            invalid = False
+            access_token = "old-access"
+            refresh_token = "old-refresh"
+            token_uri = "https://github.com/login/oauth/access_token"
+            client_id = "client"
+            client_secret = "secret"
+            token_expiry = None
+
+            def to_json(self):
+                return json.dumps(
+                    {
+                        "access_token": self.access_token,
+                        "refresh_token": self.refresh_token,
+                    }
+                )
+
+            def authorize(self, http):
+                return ("authorized", self.access_token)
+
+        class FakeHttp:
+            calls = []
+
+            def __init__(self, status="200", payload=None):
+                self.status = status
+                self.payload = payload
+
+            def request(self, url, method, headers=None, body=None):
+                FakeHttp.calls.append((url, method, headers, body))
+                return {"status": self.status}, json.dumps(self.payload).encode()
+
+        class FakeRedis:
+            def __init__(self):
+                self.saved = {}
+
+            def get(self, key):
+                return self.saved.get(
+                    key, b"{}" if "userid" in key and "lock" not in key else None
+                )
+
+            def set(self, key, value, nx=False, ex=None):
+                if nx and key in self.saved:
+                    return False
+                self.saved[key] = value
+                return True
+
+            def delete(self, key):
+                self.saved.pop(key, None)
+
+        credentials = FakeCredentials()
+        redis = FakeRedis()
+        oauth_client = types.SimpleNamespace(
+            Credentials=types.SimpleNamespace(new_from_json=lambda raw: credentials)
+        )
+        renewed = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "expires_in": "28800",
+        }
+        httplib2 = types.SimpleNamespace(Http=lambda: FakeHttp(payload=renewed))
+        modules = {"oauth2client.client": oauth_client, "httplib2": httplib2}
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            result = docassemble_compat._github_authorized_http(user_id=7)
+
+        self.assertEqual(result, ("authorized", "new-access"))
+        url, method, headers, body = FakeHttp.calls[-1]
+        self.assertEqual((url, method), (credentials.token_uri, "POST"))
+        self.assertEqual(headers["Accept"], "application/json")
+        self.assertIn("grant_type=refresh_token", body)
+        self.assertIn("refresh_token=old-refresh", body)
+        # GitHub retires the old refresh token, so the new one must be kept.
+        self.assertEqual(
+            json.loads(redis.saved["da:github:userid:7"]),
+            {"access_token": "new-access", "refresh_token": "new-refresh"},
+        )
+        self.assertIsNotNone(credentials.token_expiry)
+        # The lock is released for the next renewal.
+        self.assertFalse([key for key in redis.saved if "lock" in key])
+
+        credentials.access_token_expired = True
+        httplib2.Http = lambda: FakeHttp(payload={"error": "bad_refresh_token"})
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.GithubCredentialError, "reconnect"
+            ):
+                docassemble_compat._github_authorized_http(user_id=7)
+
+    def test_request_that_waited_for_a_renewal_uses_the_saved_token(self):
+        """Refresh tokens work once; a second refresh would disconnect GitHub."""
+
+        class FakeCredentials:
+            def __init__(self, token, expired):
+                self.access_token = token
+                self.access_token_expired = expired
+                self.invalid = False
+
+            def authorize(self, http):
+                return ("authorized", self.access_token)
+
+        stale = FakeCredentials("old-access", expired=True)
+        renewed_elsewhere = FakeCredentials("new-access", expired=False)
+        loaded = iter([stale, renewed_elsewhere])
+        oauth_client = types.SimpleNamespace(
+            Credentials=types.SimpleNamespace(new_from_json=lambda raw: next(loaded))
+        )
+
+        class NoHttp:
+            def request(self, *args, **kwargs):
+                raise AssertionError("the retired refresh token must not be used")
+
+        class FakeRedis:
+            def __init__(self):
+                self.values = {"da:github:userid:7": b"{}"}
+
+            def get(self, key):
+                return self.values.get(key)
+
+            def set(self, key, value, nx=False, ex=None):
+                if nx and key in self.values:
+                    return False
+                self.values[key] = value
+                return True
+
+            def delete(self, key):
+                self.values.pop(key, None)
+
+        httplib2 = types.SimpleNamespace(Http=NoHttp)
+        modules = {"oauth2client.client": oauth_client, "httplib2": httplib2}
+        redis = FakeRedis()
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            result = docassemble_compat._github_authorized_http(user_id=7)
+        self.assertEqual(result, ("authorized", "new-access"))
+
+        # A renewal that never finishes times out rather than hanging.
+        redis.values["da:github:weaver-refresh-lock:userid:7"] = b"someone-else"
+        loaded = iter([FakeCredentials("old-access", expired=True)])
+        clock = iter([0, 5, 20])
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+            patch.object(docassemble_compat.time, "monotonic", lambda: next(clock)),
+            patch.object(docassemble_compat.time, "sleep", lambda seconds: None),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.GithubCredentialError, "try again"
+            ):
+                docassemble_compat._github_authorized_http(user_id=7)
+        # Someone else's lock is left alone.
+        self.assertEqual(
+            redis.values["da:github:weaver-refresh-lock:userid:7"], b"someone-else"
+        )
+
     def test_missing_organization_repository_is_created_under_that_org(self):
         class FakeHttp:
             def __init__(self):
@@ -1166,6 +1339,96 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             http.calls[-1][2],
             {"ref": "refs/heads/feature/github", "sha": "new-commit-sha"},
         )
+
+    def test_publish_keeps_github_files_weaver_does_not_manage(self):
+        """A workflow added on GitHub survives; one the author turned off goes."""
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self, tree_status="200"):
+                self.calls = []
+                self.tree_status = tree_status
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if url.endswith("?recursive=1"):
+                    return {"status": self.tree_status}, json.dumps(
+                        {
+                            "truncated": False,
+                            "tree": [
+                                {
+                                    "path": ".github/workflows/team_deploy.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "team-deploy",
+                                },
+                                {
+                                    "path": ".github/workflows/hall_monitor.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "turned-off",
+                                },
+                                {
+                                    "path": ".github/workflows/build_and_check.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "stale-copy",
+                                },
+                                {
+                                    "path": "docassemble/HousingForms/old.py",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "deleted-module",
+                                },
+                            ],
+                        }
+                    ).encode()
+                if method == "GET":
+                    return {"status": "200"}, b'{"object": {"sha": "parent"}}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "new-blob"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                if method == "PATCH":
+                    return {"status": "200"}, b"{}"
+                raise AssertionError(url)
+
+        arguments = {
+            "extra_repository_files": {
+                ".github/workflows/build_and_check.yml": "name: Build\njobs: {}\n"
+            },
+            "preserved_path_prefixes": (".github/",),
+            "managed_paths": [
+                ".github/workflows/build_and_check.yml",
+                ".github/workflows/hall_monitor.yml",
+            ],
+        }
+        http = FakeHttp()
+        self._publish(http, builder, **arguments)
+
+        entries = {
+            entry["path"]: entry["sha"]
+            for entry in self._body_for(http, "/git/trees")["tree"]
+        }
+        self.assertEqual(
+            entries,
+            {
+                "README.md": "new-blob",
+                ".github/workflows/build_and_check.yml": "new-blob",
+                ".github/workflows/team_deploy.yml": "team-deploy",
+            },
+        )
+
+        # Publishing blind would delete whatever it could not read.
+        http = FakeHttp(tree_status="500")
+        with self.assertRaisesRegex(
+            docassemble_compat.DocassembleCompatibilityError, "No commit was published"
+        ):
+            self._publish(http, builder, **arguments)
+        self.assertFalse([call for call in http.calls if call[1] == "PATCH"])
 
     def test_publish_github_package_replaces_the_tree_so_deletions_propagate(self):
         """Publishing must not inherit the parent tree.

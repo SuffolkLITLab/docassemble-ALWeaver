@@ -20,7 +20,19 @@ import tempfile
 import tarfile
 import pathlib
 import threading
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+import time
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 from urllib.parse import quote, urlparse
 
 from flask import Response, jsonify, session, url_for
@@ -781,7 +793,127 @@ def _github_authorized_http(*, user_id: Optional[int] = None) -> Any:
             "The GitHub connection has expired; reconnect it in Docassemble"
         )
     httplib2 = importlib.import_module("httplib2")
+    if getattr(credentials, "access_token_expired", False):
+        credentials = _refresh_github_credentials(
+            credentials, httplib2.Http(), user_id=user_id
+        )
     return credentials.authorize(httplib2.Http())
+
+
+def _refresh_github_credentials(
+    credentials: Any, http: Any, *, user_id: Optional[int]
+) -> Any:
+    """Renew an expiring GitHub token and store it where Docassemble keeps it.
+
+    GitHub Apps issue user tokens that last eight hours, with a refresh token.
+    oauth2client can refresh them, but GitHub answers form-encoded unless the
+    request asks for JSON, so oauth2client's own refresh always fails with a
+    JSON parse error and the connection dies after eight hours.
+
+    A refresh token works once, and opening the GitHub dialog alone makes two
+    requests.  The renewal therefore holds a per-user Redis lock and re-reads
+    the stored credential inside it, so a request that waited uses the token
+    the first one saved instead of spending the retired refresh token.
+    Returns the credentials to authorize with.
+    """
+    if user_id is None:
+        from flask_login import current_user
+
+        user_id = getattr(current_user, "id", None)
+    if user_id is None:
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    redis = get_redis_client()
+    key = f"da:github:userid:{int(user_id)}"
+    lock_key = f"da:github:weaver-refresh-lock:userid:{int(user_id)}"
+    lock_token = secrets.token_hex(16)
+    deadline = time.monotonic() + 15
+    while not redis.set(lock_key, lock_token, nx=True, ex=30):
+        if time.monotonic() > deadline:
+            raise GithubCredentialError(
+                "Another request is renewing the GitHub connection; try again"
+            )
+        time.sleep(0.2)
+    try:
+        stored = redis.get(key)
+        if stored is not None:
+            try:
+                oauth_client = importlib.import_module("oauth2client.client")
+                latest = oauth_client.Credentials.new_from_json(
+                    stored.decode("utf-8") if isinstance(stored, bytes) else stored
+                )
+            except (TypeError, ValueError, UnicodeDecodeError, AttributeError):
+                latest = None
+            if latest is not None and not getattr(latest, "invalid", False):
+                if not getattr(latest, "access_token_expired", False):
+                    return latest
+                credentials = latest
+        _renew_github_token(credentials, http)
+        # GitHub has already retired the old refresh token, so the new one
+        # must be saved or the next request fails for good.
+        redis.set(key, credentials.to_json())
+        return credentials
+    finally:
+        held = redis.get(lock_key)
+        if held in (lock_token, lock_token.encode("ascii")):
+            redis.delete(lock_key)
+
+
+def _renew_github_token(credentials: Any, http: Any) -> None:
+    refresh_token = str(getattr(credentials, "refresh_token", "") or "")
+    token_uri = str(getattr(credentials, "token_uri", "") or "")
+    if not refresh_token or not token_uri:
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    from urllib.parse import urlencode
+
+    try:
+        response, content = http.request(
+            token_uri,
+            "POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body=urlencode(
+                {
+                    "client_id": credentials.client_id,
+                    "client_secret": credentials.client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                }
+            ),
+        )
+        payload = json.loads(content.decode("utf-8")) if content else {}
+    except (OSError, AttributeError, UnicodeDecodeError, ValueError) as exc:
+        raise GithubCredentialError(
+            "GitHub could not renew the connection; reconnect it in Docassemble"
+        ) from exc
+    if (
+        int(response.get("status", 0)) != 200
+        or not isinstance(payload, dict)
+        or not payload.get("access_token")
+    ):
+        # A refresh token lasts six months and is single use.
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    import datetime
+
+    credentials.access_token = str(payload["access_token"])
+    credentials.refresh_token = str(payload.get("refresh_token") or refresh_token)
+    expires_in = payload.get("expires_in")
+    credentials.token_expiry = (
+        # oauth2client compares against a naive UTC time.
+        datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        + datetime.timedelta(seconds=int(expires_in))
+        if expires_in
+        else None
+    )
+    credentials.token_response = payload
+    credentials.invalid = False
 
 
 def github_authorization_url() -> str:
@@ -832,7 +964,16 @@ def _github_json_request(
     if body is not None:
         headers["Content-Type"] = "application/json"
         encoded_body = json.dumps(body)
-    response, content = http.request(url, method, headers=headers, body=encoded_body)
+    try:
+        response, content = http.request(
+            url, method, headers=headers, body=encoded_body
+        )
+    except ValueError as exc:
+        # oauth2client refreshes on a 401 mid-request and cannot parse
+        # GitHub's reply; that is a lost connection, not a bad request.
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        ) from exc
     try:
         payload = json.loads(content.decode("utf-8")) if content else None
     except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
@@ -1003,6 +1144,10 @@ def get_github_repository_snapshot(
                         path,
                     )
                     or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
+                    # Weaver keeps its workflow and dependency settings in
+                    # step with these repository files.
+                    or path in {"pyproject.toml", "setup.py"}
+                    or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
                 ):
                     continue
                 if member.size > 25 * 1024 * 1024:
@@ -1144,6 +1289,29 @@ def ensure_github_repository(
     return repo
 
 
+def _github_tree_blobs(
+    http: Any, repository_path: str, commit_sha: str
+) -> Optional[List[Dict[str, str]]]:
+    """Return every file entry on a commit, or ``None`` if it cannot be read whole."""
+    response, tree = _github_json_request(
+        http, f"{repository_path}/git/trees/{commit_sha}?recursive=1"
+    )
+    if (
+        int(response.get("status", 0)) != 200
+        or not isinstance(tree, dict)
+        or not isinstance(tree.get("tree"), list)
+        or tree.get("truncated")
+    ):
+        return None
+    return [
+        {key: str(entry[key]) for key in ("path", "mode", "type", "sha")}
+        for entry in tree["tree"]
+        if isinstance(entry, dict)
+        and entry.get("type") == "blob"
+        and all(key in entry for key in ("path", "mode", "type", "sha"))
+    ]
+
+
 def publish_github_package(
     *,
     owner: str,
@@ -1160,6 +1328,8 @@ def publish_github_package(
     default_branch: str = "",
     on_progress: Optional[Callable[[str, int], None]] = None,
     extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
+    preserved_path_prefixes: Sequence[str] = (),
+    managed_paths: Collection[str] = (),
 ) -> Dict[str, Any]:
     """Commit a generated Playground package through GitHub's Git API.
 
@@ -1176,6 +1346,11 @@ def publish_github_package(
     ``manifest_path`` supplies the modification time Docassemble's package
     builder expects, and ``default_branch`` is the repository's default branch,
     used as the starting point when ``branch`` does not exist yet.
+
+    Files already on the branch under ``preserved_path_prefixes`` survive the
+    commit unless they are in ``managed_paths``, which this publish decides
+    for itself: a workflow someone added on GitHub is kept, while a standard
+    workflow the author turned off is removed.
     """
 
     def report(message: str, percent: int) -> None:
@@ -1374,7 +1549,26 @@ def publish_github_package(
         # file in the package, so posting a standalone tree replaces the branch
         # contents.  Extending the parent tree instead would leave files the
         # author deleted or renamed in the Playground behind forever, which is
-        # not what the native ``git add .`` publisher did.
+        # not what the native ``git add .`` publisher did.  Only the prefixes
+        # the caller names, such as ``.github/``, are carried over.
+        prior_entries: Optional[List[Dict[str, str]]] = None
+        if parent_sha and preserved_path_prefixes:
+            prior_entries = _github_tree_blobs(http, repository_path, parent_sha)
+            if prior_entries is None:
+                raise DocassembleCompatibilityError(
+                    "Weaver could not read the existing repository files, so it "
+                    "could not keep the ones it does not manage. No commit was "
+                    "published."
+                )
+            published_paths = {entry["path"] for entry in tree_entries}
+            managed = set(managed_paths)
+            tree_entries.extend(
+                entry
+                for entry in prior_entries
+                if entry["path"].startswith(tuple(preserved_path_prefixes))
+                and entry["path"] not in published_paths
+                and entry["path"] not in managed
+            )
         report("Creating the package tree.", 88)
         warnings: List[str] = []
         skipped_workflows: List[str] = []
@@ -1399,24 +1593,19 @@ def publish_github_package(
                     if not entry["path"].startswith(".github/workflows/")
                 ]
                 if parent_sha:
-                    prior_response, prior_tree = _github_json_request(
-                        http, f"{repository_path}/git/trees/{parent_sha}?recursive=1"
-                    )
-                    if (
-                        int(prior_response.get("status", 0)) != 200
-                        or not isinstance(prior_tree, dict)
-                        or not isinstance(prior_tree.get("tree"), list)
-                        or prior_tree.get("truncated")
-                    ):
+                    if prior_entries is None:
+                        prior_entries = _github_tree_blobs(
+                            http, repository_path, parent_sha
+                        )
+                    if prior_entries is None:
                         raise DocassembleCompatibilityError(
                             "GitHub rejected workflow changes, and Weaver could not "
                             "read the existing workflows safely. No commit was published."
                         )
                     tree_entries.extend(
-                        {key: entry[key] for key in ("path", "mode", "type", "sha")}
-                        for entry in prior_tree["tree"]
-                        if entry.get("type") != "tree"
-                        and str(entry.get("path", "")).startswith(".github/workflows/")
+                        entry
+                        for entry in prior_entries
+                        if entry["path"].startswith(".github/workflows/")
                     )
                 report(
                     "Publishing other files while preserving existing workflows.", 90
@@ -1426,10 +1615,9 @@ def publish_github_package(
                 )
                 warnings.append(
                     "GitHub rejected the workflow changes. The other project files "
-                    "were published and existing workflows were preserved. Add or "
-                    "update .github/workflows/run_interview_tests.yml manually using "
-                    "the ALKiln setup guide, or use Configure GitHub to grant workflow "
-                    "access and publish again."
+                    "were published and existing workflows were preserved. Use "
+                    "Configure GitHub to grant workflow access and publish again, or "
+                    "add the workflows manually using the ALKiln setup guide."
                 )
         if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
             raise DocassembleCompatibilityError(

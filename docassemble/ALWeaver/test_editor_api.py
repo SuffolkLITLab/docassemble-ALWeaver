@@ -327,6 +327,7 @@ class TestEditorGithubApi(unittest.TestCase):
                 "merge_github_snapshot",
                 return_value={"merged": True, "files": 3, "commit": "remote-sha"},
             ) as merge,
+            patch.object(api_editor, "adopt_repository_snapshot") as adopt,
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/github/pull", method="POST", json={"project": "Housing"}
@@ -338,6 +339,11 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(snapshots.call_args_list[0].kwargs["ref"], "main")
         self.assertEqual(snapshots.call_args_list[1].kwargs["ref"], "base-sha")
         self.assertIs(merge.call_args.kwargs["base_snapshot"], base)
+        # Only workflow and pyproject.toml edits made on GitHub since the base
+        # are taken, so the base files go along.
+        adopt.assert_called_once_with(
+            7, "Housing", "HousingForms", remote["files"], base["files"]
+        )
         self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
 
     def test_pull_reports_conflicts_without_claiming_success(self):
@@ -425,6 +431,42 @@ class TestEditorGithubApi(unittest.TestCase):
         "version": "0.0.1",
     }
 
+    def test_pull_with_no_upstream_change_leaves_local_settings_alone(self):
+        remote = {"sha": "same-sha", "branch": "main", "files": {"a": b"1"}}
+        for commit, expected_base in (("same-sha", remote["files"]), ("", None)):
+            sync = {
+                "package": "HousingForms",
+                "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                "branch": "main",
+                "commit": commit,
+            }
+            with (
+                self.subTest(commit=commit),
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(api_editor, "find_project_github_sync", return_value=sync),
+                patch.object(
+                    api_editor, "get_github_repository_snapshot", return_value=remote
+                ),
+                patch.object(
+                    api_editor,
+                    "merge_github_snapshot",
+                    return_value={"merged": True, "files": 1, "commit": "same-sha"},
+                ),
+                patch.object(api_editor, "adopt_repository_snapshot") as adopt,
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/github/pull",
+                    method="POST",
+                    json={"project": "Housing"},
+                ):
+                    response = api_editor.editor_api_github_pull()
+                self.assertEqual(response.status_code, 200)
+                # A recorded sync point is the base even when GitHub has not
+                # moved, so nothing is taken; only a manifest with no sync
+                # point falls back to taking the repository whole.
+                self.assertEqual(adopt.call_args.args[4], expected_base)
+
     def test_publish_prepares_manifest_and_queues_a_background_commit(self):
         """The request must not hold open the per-file GitHub round trips."""
         prepared = {
@@ -474,6 +516,11 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "ensure_github_repository") as ensure_repository,
             patch.object(api_editor, "publish_github_package") as publish,
             patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+            patch.object(
+                api_editor,
+                "repository_dependency_names",
+                return_value=["docassemble.AssemblyLine"],
+            ),
         ):
             api_editor.current_user.email = "ada@example.com"
             with api_editor.app.test_request_context(
@@ -512,6 +559,7 @@ class TestEditorGithubApi(unittest.TestCase):
             author_name="Ada",
             author_email="ada@example.com",
             github_url="https://github.com/LegalAid/docassemble-HousingForms",
+            dependencies=["docassemble.AssemblyLine"],
         )
         self.assertEqual(
             sent["task_name"],
@@ -593,6 +641,21 @@ class TestEditorGithubApi(unittest.TestCase):
                     "skipped_workflows": [".github/workflows/test.yml"],
                 },
             ) as publish,
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={
+                    "files": {
+                        ".github/workflows/run_interview_tests.yml": "name: ALKiln",
+                        "pyproject.toml": "[project]\n",
+                    },
+                    "managed_paths": [
+                        ".github/workflows/run_interview_tests.yml",
+                        "pyproject.toml",
+                    ],
+                    "dependency_names": [],
+                },
+            ) as repository_files,
         ):
             result = api_editor._complete_github_publish_job(
                 job_id="job-1",
@@ -648,15 +711,19 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(publish_kwargs["default_branch"], "main")
         self.assertEqual(publish_kwargs["branch"], "feature/github")
         self.assertEqual(publish_kwargs["author_email"], "ada@example.com")
-        self.assertIn(
-            ".github/workflows/run_interview_tests.yml",
-            publish_kwargs["extra_repository_files"],
+        # The worker builds the workflows and pyproject.toml from the stored
+        # settings and the manifest it just re-read.
+        repository_files.assert_called_once_with(
+            7, "Housing", "HousingForms", manifest=self.MANIFEST_INFO
         )
-        self.assertIn(
-            "SuffolkLITLab/ALKiln@v5",
-            publish_kwargs["extra_repository_files"][
-                ".github/workflows/run_interview_tests.yml"
-            ],
+        self.assertEqual(
+            publish_kwargs["extra_repository_files"],
+            repository_files.return_value["files"],
+        )
+        self.assertEqual(publish_kwargs["preserved_path_prefixes"], (".github/",))
+        self.assertEqual(
+            publish_kwargs["managed_paths"],
+            repository_files.return_value["managed_paths"],
         )
         self.assertEqual(progressed["message"], "Uploading main.yml (1 of 2).")
         self.assertEqual(progressed["progress"], 55)
@@ -967,8 +1034,13 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(
                 api_editor,
                 "import_github_snapshot",
-                return_value={"filename": "main.yml", "files_imported": 1},
+                return_value={
+                    "package": "PublicForms",
+                    "filename": "main.yml",
+                    "files_imported": 1,
+                },
             ),
+            patch.object(api_editor, "adopt_repository_snapshot"),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/new-project",
@@ -1006,8 +1078,13 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(
                 api_editor,
                 "import_github_snapshot",
-                return_value={"filename": "main.yml", "files_imported": 4},
+                return_value={
+                    "package": "PublicForms",
+                    "filename": "main.yml",
+                    "files_imported": 4,
+                },
             ) as import_snapshot,
+            patch.object(api_editor, "adopt_repository_snapshot") as adopt,
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/new-project",
@@ -1029,6 +1106,9 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
         import_snapshot.assert_called_once_with(
             user_id=7, project_name="PublicForms", snapshot=snapshot
+        )
+        adopt.assert_called_once_with(
+            7, "PublicForms", "PublicForms", snapshot["files"]
         )
 
     def test_save_file_accepts_intentionally_empty_source(self):

@@ -435,7 +435,11 @@
     };
     if (options.onChange) editor.onChange(options.onChange);
     _sourceEditors[containerId] = editor;
-    if (expressionEditor && containerId !== 'expression-modal-source') {
+    if (
+      expressionEditor &&
+      options.expressions !== false &&
+      containerId !== 'expression-modal-source'
+    ) {
       container.classList.add('expression-selectable-source');
       var expressionAction = document.createElement('button');
       expressionAction.type = 'button';
@@ -2778,6 +2782,13 @@
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
+    if (ownerSelect && !(data && data.enabled && data.connected)) {
+      // Accounts only load once GitHub is connected; don't claim otherwise.
+      ownerSelect.replaceChildren();
+      var unavailable = document.createElement('option');
+      unavailable.textContent = 'Connect GitHub to choose an account';
+      ownerSelect.appendChild(unavailable);
+    }
     if (packageInput && data && data.default_package) {
       packageInput.value = data.default_package;
     }
@@ -2988,6 +2999,12 @@
                 : 'Unable to check GitHub integration.',
               'danger',
             );
+          })
+          .then(function () {
+            // Workflows and dependencies do not need a GitHub connection.
+            // Loading after the status check picks up its default package
+            // name, which pyproject.toml is named after.
+            loadGithubRepositoryConfig();
           });
       },
     );
@@ -2996,6 +3013,7 @@
   function initGithubPublishing() {
     var form = document.getElementById('github-publish-form');
     if (!form) return;
+    initGithubRepositorySettings();
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (!state.project) return;
@@ -3009,13 +3027,16 @@
       if (!form.reportValidity()) return;
       if (submit) submit.disabled = true;
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
-      apiPost('/api/github/publish', {
-        project: state.project,
-        owner: ownerSelect ? ownerSelect.value : '',
-        package: packageInput ? packageInput.value : '',
-        branch: branchInput ? branchInput.value : '',
-        commit_message: messageInput ? messageInput.value : '',
-      })
+      saveDirtyGithubEditors()
+        .then(function () {
+          return apiPost('/api/github/publish', {
+            project: state.project,
+            owner: ownerSelect ? ownerSelect.value : '',
+            package: packageInput ? packageInput.value : '',
+            branch: branchInput ? branchInput.value : '',
+            commit_message: messageInput ? messageInput.value : '',
+          });
+        })
         .then(function (res) {
           if (!res.success || !res.data || !res.data.job_url) {
             setGithubPublishStatus(
@@ -3083,6 +3104,602 @@
           if (submit) submit.disabled = false;
         });
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // GitHub repository settings: workflows and pyproject.toml
+  // -------------------------------------------------------------------------
+  // Each toggle or editor save goes to the server as one change, and the
+  // response re-renders both tabs, so the browser never holds settings the
+  // server has not accepted.  Open editors are the only unsaved state.
+  var githubRepoConfig = {
+    data: null,
+    requestId: 0,
+    openWorkflow: null,
+    workflowEditor: null,
+    workflowSaved: '',
+    pyprojectEditor: null,
+    pyprojectSaved: '',
+  };
+
+  function githubRepoPackage() {
+    var input = document.getElementById('github-package-name');
+    return input ? input.value.trim() : '';
+  }
+
+  function setGithubRepoStatus(elementId, message, kind) {
+    var status = document.getElementById(elementId);
+    if (!status) return;
+    if (!message) {
+      status.className = 'alert py-2 d-none';
+      status.textContent = '';
+      return;
+    }
+    status.className = 'alert py-2 alert-' + (kind || 'secondary');
+    status.textContent = message;
+  }
+
+  function githubWorkflowEditorDirty() {
+    return Boolean(
+      githubRepoConfig.workflowEditor &&
+      githubRepoConfig.workflowEditor.getValue() !==
+        githubRepoConfig.workflowSaved,
+    );
+  }
+
+  function githubPyprojectEditorDirty() {
+    return Boolean(
+      githubRepoConfig.pyprojectEditor &&
+      githubRepoConfig.pyprojectEditor.getValue() !==
+        githubRepoConfig.pyprojectSaved,
+    );
+  }
+
+  function disposeGithubRepoEditors() {
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    if (githubRepoConfig.pyprojectEditor)
+      githubRepoConfig.pyprojectEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.pyprojectEditor = null;
+    githubRepoConfig.openWorkflow = null;
+  }
+
+  function loadGithubRepositoryConfig() {
+    if (!state.project) return Promise.resolve(null);
+    var requestId = ++githubRepoConfig.requestId;
+    var query =
+      '/api/github/repository-config?project=' +
+      encodeURIComponent(state.project);
+    if (githubRepoPackage())
+      query += '&package=' + encodeURIComponent(githubRepoPackage());
+    return apiGet(query)
+      .then(function (res) {
+        if (requestId !== githubRepoConfig.requestId) return null;
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to load the GitHub repository settings.',
+          );
+        }
+        renderGithubRepositoryConfig(res.data, { resetEditors: true });
+        return res.data;
+      })
+      .catch(function (error) {
+        if (requestId !== githubRepoConfig.requestId) return null;
+        var message =
+          error && error.message
+            ? error.message
+            : 'Unable to load the GitHub repository settings.';
+        setGithubRepoStatus('github-workflows-status', message, 'danger');
+        setGithubRepoStatus('github-dependencies-status', message, 'danger');
+        return null;
+      });
+  }
+
+  function saveGithubRepositoryChange(operation, statusElementId) {
+    if (!state.project) return Promise.reject(new Error('No project'));
+    ++githubRepoConfig.requestId;
+    return apiPost('/api/github/repository-config', {
+      project: state.project,
+      package: githubRepoPackage(),
+      operation: operation,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        var message =
+          (res.error && res.error.message) || 'Unable to save that change.';
+        setGithubRepoStatus(statusElementId, message, 'danger');
+        throw new Error(message);
+      }
+      setGithubRepoStatus(statusElementId, 'Saved.', 'success');
+      renderGithubRepositoryConfig(res.data, { resetEditors: false });
+      return res.data;
+    });
+  }
+
+  function renderGithubRepositoryConfig(data, options) {
+    githubRepoConfig.data = data;
+    renderGithubWorkflows(data, options);
+    renderGithubDependencies(data, options);
+  }
+
+  function renderGithubWorkflows(data, options) {
+    var list = document.getElementById('github-workflows-list');
+    if (!list) return;
+    var keepOpen =
+      !options.resetEditors && githubRepoConfig.openWorkflow
+        ? githubRepoConfig.openWorkflow
+        : null;
+    // A toggle elsewhere in the list must not throw away unsaved edits.
+    var unsavedText =
+      keepOpen && githubWorkflowEditorDirty()
+        ? githubRepoConfig.workflowEditor.getValue()
+        : null;
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.openWorkflow = null;
+    list.innerHTML = (data.workflows || [])
+      .map(function (workflow) {
+        var toggleId = 'github-workflow-toggle-' + workflow.id;
+        var badges = '';
+        if (workflow.customized)
+          badges += ' <span class="badge text-bg-info fw-normal">Edited</span>';
+        if (!workflow.recommended && !workflow.enabled)
+          badges +=
+            ' <span class="badge text-bg-light border fw-normal">Optional</span>';
+        var secrets = (workflow.secrets || []).length
+          ? '<div class="small mt-1">Needs repository secrets: ' +
+            workflow.secrets
+              .map(function (name) {
+                return '<code>' + esc(name) + '</code>';
+              })
+              .join(', ') +
+            '</div>'
+          : '';
+        var needsEditing = workflow.needs_editing
+          ? '<div class="small mt-1">Replace the example server and email addresses before turning this on.</div>'
+          : '';
+        return (
+          '<div class="list-group-item" data-github-workflow="' +
+          esc(workflow.id) +
+          '">' +
+          '<div class="d-flex gap-3 align-items-start">' +
+          '<div class="form-check form-switch flex-grow-1 mb-0">' +
+          '<input class="form-check-input" type="checkbox" role="switch" id="' +
+          esc(toggleId) +
+          '" data-github-workflow-toggle="' +
+          esc(workflow.id) +
+          '"' +
+          (workflow.enabled ? ' checked' : '') +
+          '>' +
+          '<label class="form-check-label fw-semibold" for="' +
+          esc(toggleId) +
+          '">' +
+          esc(workflow.label) +
+          '</label>' +
+          badges +
+          '<div class="small text-muted">' +
+          esc(workflow.description) +
+          '</div>' +
+          '<div class="small text-muted font-monospace">' +
+          esc(workflow.path) +
+          '</div>' +
+          secrets +
+          needsEditing +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-outline-secondary" data-github-workflow-edit="' +
+          esc(workflow.id) +
+          '" aria-expanded="false">Edit</button>' +
+          '</div>' +
+          '<div class="d-none mt-2" data-github-workflow-editor="' +
+          esc(workflow.id) +
+          '"></div>' +
+          '</div>'
+        );
+      })
+      .join('');
+    if (keepOpen) {
+      openGithubWorkflowEditor(keepOpen);
+      if (unsavedText !== null && githubRepoConfig.workflowEditor)
+        githubRepoConfig.workflowEditor.setValue(unsavedText);
+    }
+  }
+
+  function githubWorkflowById(workflowId) {
+    var workflows = (githubRepoConfig.data || {}).workflows || [];
+    for (var i = 0; i < workflows.length; i++) {
+      if (workflows[i].id === workflowId) return workflows[i];
+    }
+    return null;
+  }
+
+  function closeGithubWorkflowEditor() {
+    var openId = githubRepoConfig.openWorkflow;
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.openWorkflow = null;
+    if (!openId) return;
+    var holder = document.querySelector(
+      '[data-github-workflow-editor="' + openId + '"]',
+    );
+    if (holder) {
+      holder.classList.add('d-none');
+      holder.innerHTML = '';
+    }
+    var button = document.querySelector(
+      '[data-github-workflow-edit="' + openId + '"]',
+    );
+    if (button) button.setAttribute('aria-expanded', 'false');
+  }
+
+  function openGithubWorkflowEditor(workflowId) {
+    var workflow = githubWorkflowById(workflowId);
+    var holder = document.querySelector(
+      '[data-github-workflow-editor="' + workflowId + '"]',
+    );
+    if (!workflow || !holder) return;
+    closeGithubWorkflowEditor();
+    var sourceId = 'github-workflow-source-' + workflowId;
+    holder.innerHTML =
+      '<div class="editor-source-container github-file-source" id="' +
+      esc(sourceId) +
+      '"></div>' +
+      '<div class="d-flex gap-2 mt-2">' +
+      '<button type="button" class="btn btn-sm btn-primary" data-github-workflow-save="' +
+      esc(workflowId) +
+      '" disabled>Save workflow</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary' +
+      (workflow.customized ? '' : ' d-none') +
+      '" data-github-workflow-reset="' +
+      esc(workflowId) +
+      '">Use the standard version</button>' +
+      '<button type="button" class="btn btn-sm btn-link" data-github-workflow-close="' +
+      esc(workflowId) +
+      '">Close</button>' +
+      '</div>';
+    holder.classList.remove('d-none');
+    var saveButton = holder.querySelector('[data-github-workflow-save]');
+    githubRepoConfig.openWorkflow = workflowId;
+    githubRepoConfig.workflowSaved = workflow.content;
+    githubRepoConfig.workflowEditor = createSourceEditor(
+      sourceId,
+      workflow.content,
+      'yaml',
+      {
+        ariaLabel: workflow.path,
+        expressions: false,
+        onChange: function () {
+          if (saveButton) saveButton.disabled = !githubWorkflowEditorDirty();
+        },
+      },
+    );
+    var button = document.querySelector(
+      '[data-github-workflow-edit="' + workflowId + '"]',
+    );
+    if (button) button.setAttribute('aria-expanded', 'true');
+  }
+
+  function saveGithubWorkflowEditor() {
+    var workflowId = githubRepoConfig.openWorkflow;
+    if (!workflowId || !githubRepoConfig.workflowEditor)
+      return Promise.resolve(null);
+    return saveGithubRepositoryChange(
+      {
+        type: 'workflow',
+        id: workflowId,
+        content: githubRepoConfig.workflowEditor.getValue(),
+      },
+      'github-workflows-status',
+    );
+  }
+
+  function renderGithubDependencies(data, options) {
+    var list = document.getElementById('github-dependencies-list');
+    var missing = document.getElementById('github-dependencies-missing');
+    var custom = Boolean(data.pyproject && data.pyproject.custom);
+    if (list) {
+      var rows = (data.dependencies || []).map(function (dependency) {
+        var reason = 'You added it';
+        if (dependency.detected)
+          reason = dependency.user_set
+            ? 'Your interview uses it; you chose the version or source'
+            : 'Your interview uses it';
+        var source = dependency.github
+          ? ' <span class="badge text-bg-dark fw-normal">GitHub</span>'
+          : '';
+        return (
+          '<tr><td><code class="text-break">' +
+          esc(dependency.spec) +
+          '</code>' +
+          source +
+          '</td><td class="small text-muted">' +
+          esc(reason) +
+          '</td><td class="text-end">' +
+          (dependency.removable
+            ? '<button type="button" class="btn btn-sm btn-outline-danger" data-github-dependency-remove="' +
+              esc(dependency.spec) +
+              '" aria-label="Remove ' +
+              esc(dependency.spec) +
+              '">Remove</button>'
+            : '') +
+          '</td></tr>'
+        );
+      });
+      list.innerHTML = rows.length
+        ? rows.join('')
+        : '<tr><td colspan="3" class="small text-muted">No dependencies yet.</td></tr>';
+    }
+    if (missing) {
+      var names = data.missing_dependencies || [];
+      missing.innerHTML = names.length
+        ? '<div class="alert alert-warning py-2 d-flex gap-2 align-items-center justify-content-between">' +
+          '<span>Your interview uses ' +
+          names
+            .map(function (name) {
+              return '<code>' + esc(name) + '</code>';
+            })
+            .join(', ') +
+          ', but your <code>pyproject.toml</code> does not list ' +
+          (names.length === 1 ? 'it' : 'them') +
+          '.</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-dark" data-github-dependency-add-missing>Add</button>' +
+          '</div>'
+        : '';
+    }
+    var mode = document.getElementById('github-pyproject-mode');
+    if (mode) mode.textContent = custom ? 'Edited by you' : 'Generated';
+    var help = document.getElementById('github-pyproject-help');
+    if (help) {
+      help.textContent = custom
+        ? 'Weaver publishes this file as you wrote it. Changing the list above rewrites it, which removes any comments.'
+        : 'Weaver writes this file from the package details and the list above. Edit it to add settings such as [tool.black]; after that, Weaver publishes your version.';
+    }
+    var reset = document.getElementById('github-pyproject-reset');
+    if (reset) reset.classList.toggle('d-none', !custom);
+    var text = (data.pyproject && data.pyproject.text) || '';
+    // Keep what the author is typing unless they asked for a fresh load.
+    if (
+      githubRepoConfig.pyprojectEditor &&
+      !options.resetEditors &&
+      githubPyprojectEditorDirty()
+    ) {
+      githubRepoConfig.pyprojectSaved = text;
+      updateGithubPyprojectSaveButton();
+      return;
+    }
+    githubRepoConfig.pyprojectSaved = text;
+    if (githubRepoConfig.pyprojectEditor) {
+      githubRepoConfig.pyprojectEditor.setValue(text);
+    } else {
+      githubRepoConfig.pyprojectEditor = createSourceEditor(
+        'github-pyproject-source',
+        text,
+        'text',
+        {
+          ariaLabel: 'pyproject.toml',
+          expressions: false,
+          onChange: updateGithubPyprojectSaveButton,
+        },
+      );
+    }
+    updateGithubPyprojectSaveButton();
+  }
+
+  function updateGithubPyprojectSaveButton() {
+    var save = document.getElementById('github-pyproject-save');
+    if (save) save.disabled = !githubPyprojectEditorDirty();
+  }
+
+  function saveGithubPyprojectEditor() {
+    if (!githubRepoConfig.pyprojectEditor) return Promise.resolve(null);
+    return saveGithubRepositoryChange(
+      { type: 'pyproject', text: githubRepoConfig.pyprojectEditor.getValue() },
+      'github-dependencies-status',
+    ).then(function (data) {
+      // The saved text is now the file, so drop the dirty copy.
+      githubRepoConfig.pyprojectEditor.setValue(data.pyproject.text);
+      githubRepoConfig.pyprojectSaved = data.pyproject.text;
+      updateGithubPyprojectSaveButton();
+      return data;
+    });
+  }
+
+  function saveGithubDependencyList(specs) {
+    return saveGithubRepositoryChange(
+      { type: 'dependencies', dependencies: specs },
+      'github-dependencies-status',
+    );
+  }
+
+  function currentGithubDependencySpecs() {
+    return ((githubRepoConfig.data || {}).dependencies || []).map(
+      function (dependency) {
+        return dependency.spec;
+      },
+    );
+  }
+
+  // Publishing with an editor still open would commit the old file, so the
+  // open edits are saved first.
+  function saveDirtyGithubEditors() {
+    var pending = Promise.resolve();
+    if (githubWorkflowEditorDirty())
+      pending = pending.then(saveGithubWorkflowEditor);
+    if (githubPyprojectEditorDirty())
+      pending = pending.then(saveGithubPyprojectEditor);
+    return pending;
+  }
+
+  function initGithubRepositorySettings() {
+    var workflows = document.getElementById('github-workflows-list');
+    if (workflows) {
+      workflows.addEventListener('change', function (event) {
+        var toggle = event.target.closest('[data-github-workflow-toggle]');
+        if (!toggle) return;
+        var workflowId = toggle.getAttribute('data-github-workflow-toggle');
+        var workflow = githubWorkflowById(workflowId);
+        var enabled = toggle.checked;
+        toggle.disabled = true;
+        saveGithubRepositoryChange(
+          { type: 'workflow', id: workflowId, enabled: enabled },
+          'github-workflows-status',
+        )
+          .then(function () {
+            if (!enabled || !workflow || !workflow.needs_editing) return;
+            // Opening this editor closes any other; ask before losing edits.
+            if (
+              githubWorkflowEditorDirty() &&
+              githubRepoConfig.openWorkflow !== workflowId &&
+              !window.confirm(
+                'Discard your changes to the open workflow to edit this one?',
+              )
+            )
+              return;
+            openGithubWorkflowEditor(workflowId);
+          })
+          .catch(function () {
+            toggle.checked = !enabled;
+            toggle.disabled = false;
+          });
+      });
+      workflows.addEventListener('click', function (event) {
+        var edit = event.target.closest('[data-github-workflow-edit]');
+        if (edit) {
+          var workflowId = edit.getAttribute('data-github-workflow-edit');
+          if (githubRepoConfig.openWorkflow === workflowId) {
+            if (
+              githubWorkflowEditorDirty() &&
+              !window.confirm('Discard your changes to this workflow?')
+            )
+              return;
+            closeGithubWorkflowEditor();
+          } else {
+            if (
+              githubWorkflowEditorDirty() &&
+              !window.confirm('Discard your changes to the open workflow?')
+            )
+              return;
+            openGithubWorkflowEditor(workflowId);
+          }
+          return;
+        }
+        if (event.target.closest('[data-github-workflow-save]')) {
+          saveGithubWorkflowEditor().catch(function () {});
+          return;
+        }
+        var reset = event.target.closest('[data-github-workflow-reset]');
+        if (reset) {
+          saveGithubRepositoryChange(
+            {
+              type: 'workflow',
+              id: reset.getAttribute('data-github-workflow-reset'),
+              content: null,
+            },
+            'github-workflows-status',
+          ).catch(function () {});
+          return;
+        }
+        if (event.target.closest('[data-github-workflow-close]')) {
+          if (
+            githubWorkflowEditorDirty() &&
+            !window.confirm('Discard your changes to this workflow?')
+          )
+            return;
+          closeGithubWorkflowEditor();
+        }
+      });
+    }
+
+    var dependencyForm = document.getElementById('github-dependency-form');
+    if (dependencyForm) {
+      dependencyForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var input = document.getElementById('github-dependency-input');
+        var spec = input ? input.value.trim() : '';
+        if (!spec) return;
+        saveGithubDependencyList(currentGithubDependencySpecs().concat([spec]))
+          .then(function () {
+            if (input) input.value = '';
+          })
+          .catch(function () {});
+      });
+    }
+    var dependencyList = document.getElementById('github-dependencies-list');
+    if (dependencyList) {
+      dependencyList.addEventListener('click', function (event) {
+        var remove = event.target.closest('[data-github-dependency-remove]');
+        if (!remove) return;
+        var spec = remove.getAttribute('data-github-dependency-remove');
+        saveGithubDependencyList(
+          currentGithubDependencySpecs().filter(function (candidate) {
+            return candidate !== spec;
+          }),
+        ).catch(function () {});
+      });
+    }
+    var missing = document.getElementById('github-dependencies-missing');
+    if (missing) {
+      missing.addEventListener('click', function (event) {
+        if (!event.target.closest('[data-github-dependency-add-missing]'))
+          return;
+        saveGithubDependencyList(
+          currentGithubDependencySpecs().concat(
+            (githubRepoConfig.data || {}).missing_dependencies || [],
+          ),
+        ).catch(function () {});
+      });
+    }
+    var pyprojectSave = document.getElementById('github-pyproject-save');
+    if (pyprojectSave) {
+      pyprojectSave.addEventListener('click', function () {
+        saveGithubPyprojectEditor().catch(function () {});
+      });
+    }
+    var pyprojectReset = document.getElementById('github-pyproject-reset');
+    if (pyprojectReset) {
+      pyprojectReset.addEventListener('click', function () {
+        if (
+          !window.confirm(
+            'Replace your pyproject.toml with the generated file? Settings you added, such as [tool] sections, will be removed. Your dependencies are kept.',
+          )
+        )
+          return;
+        saveGithubRepositoryChange(
+          { type: 'pyproject', text: null },
+          'github-dependencies-status',
+        )
+          .then(function (data) {
+            githubRepoConfig.pyprojectEditor.setValue(data.pyproject.text);
+            githubRepoConfig.pyprojectSaved = data.pyproject.text;
+            updateGithubPyprojectSaveButton();
+          })
+          .catch(function () {});
+      });
+    }
+    // The package name is the project name in pyproject.toml.
+    var packageInput = document.getElementById('github-package-name');
+    if (packageInput) {
+      packageInput.addEventListener('change', function () {
+        if (githubPyprojectEditorDirty()) return;
+        loadGithubRepositoryConfig();
+      });
+    }
+    var modal = document.getElementById('github-publish-modal');
+    if (modal) {
+      modal.addEventListener('hide.bs.modal', function (event) {
+        if (
+          (githubWorkflowEditorDirty() || githubPyprojectEditorDirty()) &&
+          !window.confirm(
+            'You have unsaved changes to a workflow or pyproject.toml. Close without saving them?',
+          )
+        ) {
+          event.preventDefault();
+        }
+      });
+      modal.addEventListener('hidden.bs.modal', disposeGithubRepoEditors);
+    }
   }
 
   // -------------------------------------------------------------------------
