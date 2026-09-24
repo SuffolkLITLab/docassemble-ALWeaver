@@ -53,7 +53,10 @@
     var yaml = '';
 
     var idInput = document.getElementById('adv-id');
-    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'question_block');
+    // Never fall back to `block.id`: for a block written without an `id:` it
+    // is the parser's invented handle, and saving it would stamp that on.
+    var explicitId = block && block.data && block.data.id != null ? String(block.data.id) : '';
+    var blockId = idInput ? idInput.value : explicitId;
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var qTitle = document.getElementById('q-title');

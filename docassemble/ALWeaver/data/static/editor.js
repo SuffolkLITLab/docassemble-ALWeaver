@@ -7045,10 +7045,8 @@
     var data = (block && block.data) || {};
     var yaml = '';
     var blockIdEl = document.getElementById('review-block-id');
-    var blockId = blockIdEl
-      ? blockIdEl.value.trim()
-      : String(data.id || (block && block.id) || 'review_screen');
-    yaml = appendYamlValue(yaml, 'id', blockId || 'review_screen');
+    var blockId = blockIdEl ? blockIdEl.value.trim() : _explicitBlockId(block);
+    yaml = appendYamlValue(yaml, 'id', blockId);
 
     var eventEl = document.getElementById('review-event');
     var eventText = eventEl
@@ -7332,12 +7330,7 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'code_block';
+    var blockId = idInput ? idInput.value : _explicitBlockId(block);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var codeText = getSourceEditorValue('code-source-editor');
@@ -7604,12 +7597,7 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'objects_block';
+    var blockId = idInput ? idInput.value : _explicitBlockId(block);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     yaml += 'objects:\n';
@@ -7660,6 +7648,15 @@
     return _appendQuestionAdvancedYaml(yaml, block);
   }
 
+  /* The id the author wrote in the block's YAML, or '' when there is none.
+     `block.id` is not that: for a block without an `id:` the parser invents
+     one (`block-3-1a2b3c4d`) so the editor can address it, and showing or
+     saving that would write an id the author never chose. */
+  function _explicitBlockId(block) {
+    var id = block && block.data ? block.data.id : undefined;
+    return id === undefined || id === null ? '' : String(id);
+  }
+
   function syncQuestionMetaToData(blk) {
     if (!blk || blk.type !== 'question') return;
     if (!blk.data) blk.data = {};
@@ -7668,6 +7665,7 @@
     if (idInput) {
       var nextId = idInput.value.trim();
       if (nextId) blk.data.id = nextId;
+      else delete blk.data.id;
     }
 
     var qTitle = document.getElementById('q-title');
@@ -11182,7 +11180,7 @@
         html += '<span class="editor-block-id-label">ID</span>';
         html +=
           '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
-          esc(block.id) +
+          esc(_explicitBlockId(block)) +
           '" placeholder="block_id" autocomplete="off">';
         html +=
           '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
@@ -11755,7 +11753,7 @@
     html += '<span class="editor-block-id-label">ID</span>';
     html +=
       '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' +
-      esc(data.id || block.id || '') +
+      esc(_explicitBlockId(block)) +
       '" autocomplete="off">';
     html += '</div>';
 
@@ -13362,7 +13360,7 @@
           '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
         html +=
           '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' +
-          esc(block.id) +
+          esc(_explicitBlockId(block)) +
           '"></div>';
       }
 

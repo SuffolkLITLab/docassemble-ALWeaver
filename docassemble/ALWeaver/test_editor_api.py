@@ -2997,6 +2997,25 @@ class TestOrderBlockLookup(unittest.TestCase):
         self.assertIn("download", serialize_order_steps(steps["main"]))
         writer.assert_called_once()
 
+    def test_save_block_without_id_stays_selected_and_gains_no_id(self):
+        from .editor_utils import parse_interview_yaml
+
+        self.SOURCE = TestOrderBlockLookup.SOURCE + "---\nquestion: Hi\nfield: hi\n"
+        handle = parse_interview_yaml(self.SOURCE)["blocks"][-1]["id"]
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": handle,
+                "block_yaml": "question: Hi\nfields:\n  - Name: user_name\n",
+                "edit_mode": "graphical",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        saved = parse_interview_yaml(writer.call_args.args[-1])["blocks"][-1]
+        self.assertNotIn("id", saved["data"])
+        self.assertNotEqual(saved["id"], handle)
+        self.assertEqual(response.get_json()["data"]["saved_block_id"], saved["id"])
+
     def test_save_order_without_id_updates_first_order_in_place(self):
         from .editor_utils import parse_interview_yaml, parse_order_code
 

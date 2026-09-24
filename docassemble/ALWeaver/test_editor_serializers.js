@@ -398,3 +398,13 @@ const looped = cond('a');
 looped.has_else = true;
 looped.else_children = [looped];
 assert.deepStrictEqual(conditions(getConditionChain(looped)), ['a']);
+
+// A block written without an `id:` is addressed by the parser's invented
+// handle; saving the form must not stamp that handle into the YAML.
+const idlessBlock = { id: 'block-0-2c0fd4bf', data: { question: 'Hi' } };
+const idlessYaml = serialize('text', [], '', idlessBlock, {'adv-id': {value: ''}});
+assert.ok(!idlessYaml.includes('block-0-2c0fd4bf'), idlessYaml);
+assert.ok(!/^id:/m.test(idlessYaml), idlessYaml);
+// With no ID input on screen, the author's own id is kept, not the handle.
+const namedYaml = serialize('text', [], '', { id: 'block-0-2c0fd4bf', data: { id: 'ask_name' } }, {'adv-id': undefined});
+assert.ok(namedYaml.startsWith('id: ask_name\n'), namedYaml);
