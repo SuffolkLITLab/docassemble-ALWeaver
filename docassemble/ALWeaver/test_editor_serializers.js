@@ -408,3 +408,31 @@ assert.ok(!/^id:/m.test(idlessYaml), idlessYaml);
 // With no ID input on screen, the author's own id is kept, not the handle.
 const namedYaml = serialize('text', [], '', { id: 'block-0-2c0fd4bf', data: { id: 'ask_name' } }, {'adv-id': undefined});
 assert.ok(namedYaml.startsWith('id: ask_name\n'), namedYaml);
+
+function serializeWithGenerator(block, extraValues) {
+  const seen = [];
+  const yaml = serializers.serializeQuestionToYaml(block, {
+    document: makeDocument('text', [], '', extraValues),
+    appendYamlValue,
+    appendYamlBlockValue,
+    fieldTypeSupportsStandaloneContent() { return false; },
+    fieldMethodTypes: [],
+    choiceTypes: [],
+    state: { questionBlockTab: 'screen' },
+    serializeQuestionFieldFromData() { throw new Error('unexpected fallback'); },
+    appendQuestionAdvancedYaml(text) { return text; },
+    generateId(questionText) { seen.push(questionText); return 'question_text'; },
+  });
+  return { yaml, seen };
+}
+// A question saved without an id gets a readable one from its text...
+const generated = serializeWithGenerator(idlessBlock, {'adv-id': {value: '  '}});
+assert.ok(generated.yaml.startsWith('id: question_text\n'), generated.yaml);
+assert.deepStrictEqual(generated.seen, ['Question text']);
+// ...but an id the author wrote, in the box or the YAML, is never replaced.
+const typed = serializeWithGenerator(idlessBlock, {'adv-id': {value: 'my_own_id'}});
+assert.ok(typed.yaml.startsWith('id: my_own_id\n'), typed.yaml);
+assert.deepStrictEqual(typed.seen, []);
+const written = serializeWithGenerator({ id: 'x', data: { id: 'from_yaml' } }, {'adv-id': undefined});
+assert.ok(written.yaml.startsWith('id: from_yaml\n'), written.yaml);
+assert.deepStrictEqual(written.seen, []);

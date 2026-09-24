@@ -7038,6 +7038,9 @@
       state: state,
       serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
       appendQuestionAdvancedYaml: _appendQuestionAdvancedYaml,
+      generateId: function (questionText) {
+        return generateBlockId(questionText, state.blocks, block.id);
+      },
     });
   }
 
