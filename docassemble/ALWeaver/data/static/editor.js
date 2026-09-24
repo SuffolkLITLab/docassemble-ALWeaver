@@ -7049,7 +7049,6 @@
     var yaml = '';
     var blockIdEl = document.getElementById('review-block-id');
     var blockId = blockIdEl ? blockIdEl.value.trim() : _explicitBlockId(block);
-    yaml = appendYamlValue(yaml, 'id', blockId);
 
     var eventEl = document.getElementById('review-event');
     var eventText = eventEl
@@ -7066,6 +7065,19 @@
       'question',
       questionText || 'Review your answers',
     );
+    // Like any question, a review screen saved without an id gets one from
+    // its text; an id the author wrote is kept.
+    yaml =
+      appendYamlValue(
+        '',
+        'id',
+        blockId ||
+          generateBlockId(
+            questionText || 'Review your answers',
+            state.blocks,
+            block && block.id,
+          ),
+      ) + yaml;
 
     var subEl = document.getElementById('review-subquestion');
     var subText = subEl ? subEl.value : String(data.subquestion || '');
@@ -11197,9 +11209,13 @@
         html +=
           '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
           esc(_explicitBlockId(block)) +
-          '" placeholder="block_id" autocomplete="off">';
+          '" autocomplete="off" aria-describedby="adv-id-hint">';
         html +=
           '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+        if (!_explicitBlockId(block)) {
+          html +=
+            '<span class="editor-block-id-hint" id="adv-id-hint">Saving adds one from the question</span>';
+        }
         html += '</div>';
         var eventFieldOpen = Boolean(
           data.event || _questionEventFieldOpen[block.id],
