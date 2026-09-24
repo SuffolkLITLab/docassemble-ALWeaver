@@ -7333,7 +7333,9 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId = idInput ? idInput.value : _explicitBlockId(block);
+    var blockId = String(
+      idInput ? idInput.value : _explicitBlockId(block),
+    ).trim();
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var codeText = getSourceEditorValue('code-source-editor');
@@ -7347,7 +7349,18 @@
         yaml += '  ' + line + '\n';
       });
 
-    return _appendQuestionAdvancedYaml(yaml, block);
+    yaml = _appendQuestionAdvancedYaml(yaml, block);
+    // docassemble tracks a mandatory block by its id, so one the author left
+    // without an id gets one; any other code block's id is decoration.
+    if (!blockId && /^mandatory:/m.test(yaml)) {
+      yaml =
+        appendYamlValue(
+          '',
+          'id',
+          generateBlockId('mandatory code', state.blocks, block.id),
+        ) + yaml;
+    }
+    return yaml;
   }
 
   function _parseObjectEditorExpression(expression) {
