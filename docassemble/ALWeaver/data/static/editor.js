@@ -5842,6 +5842,8 @@
     if (!block || state.questionEditMode !== 'preview') return;
     if (block.type === 'question') {
       syncFieldsToData(block);
+    } else if (block.type === 'code') {
+      syncMandatoryToData(block);
     }
   }
 
@@ -7712,19 +7714,7 @@
       delete blk.data['if'];
     }
 
-    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
-    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatorySwitch || mandatoryBtn) {
-      if (
-        (mandatorySwitch && mandatorySwitch.checked) ||
-        (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
-      )
-        blk.data.mandatory = window.ALWeaverSerializers.enabledExpressionValue(
-          blk.data.mandatory,
-          true,
-        );
-      else delete blk.data.mandatory;
-    }
+    syncMandatoryToData(blk);
 
     var setsInput = document.getElementById('adv-sets');
     if (setsInput) {
@@ -7823,6 +7813,24 @@
     _syncList('adv-depends-on', 'depends on');
     _syncList('adv-undefine', 'undefine');
     _syncList('adv-reconsider', 'reconsider');
+  }
+
+  function syncMandatoryToData(blk) {
+    if (!blk) return;
+    if (!blk.data) blk.data = {};
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
+    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
+    if (mandatorySwitch || mandatoryBtn) {
+      if (
+        (mandatorySwitch && mandatorySwitch.checked) ||
+        (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
+      )
+        blk.data.mandatory = window.ALWeaverSerializers.enabledExpressionValue(
+          blk.data.mandatory,
+          true,
+        );
+      else delete blk.data.mandatory;
+    }
   }
 
   function syncFieldsToData(blk) {
@@ -11107,6 +11115,20 @@
   }
 
   // --- Question block: rich field editor ---
+  function renderMandatorySwitch(data) {
+    var html = '';
+    html +=
+      '<div class="form-check form-switch editor-question-mandatory-switch">';
+    html +=
+      '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' +
+      (Boolean(data.mandatory) ? ' checked' : '') +
+      '>';
+    html +=
+      '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
+    html += '</div>';
+    return html;
+  }
+
   function renderQuestionBlock(block) {
     var data = block.data || {};
     var fields = data.fields || [];
@@ -11159,15 +11181,7 @@
     html +=
       '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     if (isPreview) {
-      html +=
-        '<div class="form-check form-switch editor-question-mandatory-switch">';
-      html +=
-        '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' +
-        (Boolean(data.mandatory) ? ' checked' : '') +
-        '>';
-      html +=
-        '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
-      html += '</div>';
+      html += renderMandatorySwitch(data);
     }
     html += '</div>';
     html += '</div>';
@@ -12034,6 +12048,9 @@
       '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
+    if (state.questionEditMode === 'preview') {
+      html += renderMandatorySwitch(data);
+    }
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
     html +=
