@@ -2930,6 +2930,21 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.accepts(payload)
 
+    def test_question_text_is_required_when_saving(self):
+        for value in ('""', '"   "', "null", "[]"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "Question text is required"):
+                    self.accepts(f"id: q1\nquestion: {value}\nfields: []\n")
+        self.accepts("id: q1\nquestion: What is your name?\nfields: []\n")
+
+    def test_new_question_may_be_inserted_as_an_empty_draft(self):
+        api_editor._validate_block_yaml_payload(
+            'id: q1\nquestion: ""\nfields: []\n', allow_empty_question=True
+        )
+
+    def test_new_interview_starts_with_an_empty_question(self):
+        self.assertIn('question: ""\n', api_editor._default_new_interview_yaml())
+
 
 class TestOrderBlockLookup(unittest.TestCase):
     """`order_blocks` holds document indices, not positions in `blocks`."""
@@ -2996,6 +3011,61 @@ class TestOrderBlockLookup(unittest.TestCase):
         )
         self.assertIn("download", serialize_order_steps(steps["main"]))
         writer.assert_called_once()
+
+    def test_save_question_without_text_does_not_write(self):
+        for block_yaml in (
+            'id: intro\nquestion: ""\nfields: []\n',
+            "id: intro\nfields: []\n",
+        ):
+            with self.subTest(block_yaml=block_yaml):
+                response, writer = self._post_order_edit(
+                    "/al/editor/api/block",
+                    {"block_id": "intro", "block_yaml": block_yaml},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(
+                    "Question text is required",
+                    response.get_json()["error"]["message"],
+                )
+                writer.assert_not_called()
+
+    def test_save_question_turned_into_another_block_type(self):
+        for block_yaml in (
+            "id: intro\ncode: |\n  intro = True\n",
+            "id: intro\nobjects:\n  - user: Individual\n",
+            "id: intro\ntemplate: intro\ncontent: Hello\n",
+        ):
+            with self.subTest(block_yaml=block_yaml):
+                response, writer = self._post_order_edit(
+                    "/al/editor/api/block",
+                    {"block_id": "intro", "block_yaml": block_yaml},
+                )
+                self.assertEqual(response.status_code, 200, response.get_json())
+                writer.assert_called_once()
+
+    def test_save_blank_question_reports_empty_question(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": 'id: intro\nquestion: ""\ncontinue button field: intro\n',
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "empty_question")
+        writer.assert_not_called()
+
+    def test_save_blank_question_requires_explicit_opt_in(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": 'id: intro\nquestion: ""\ncontinue button field: intro\n',
+                "allow_empty_question": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIn('question: ""', writer.call_args.args[-1])
 
     def test_save_block_without_id_stays_selected_and_gains_no_id(self):
         from .editor_utils import parse_interview_yaml

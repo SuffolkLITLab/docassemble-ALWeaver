@@ -93,6 +93,16 @@ assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
 assert.strictEqual(serializers.escapeYamlStr('two\nlines'), '|\n  two\n  lines');
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
 
+assert.strictEqual(
+  serializers.makeNewBlockYaml('question', 123).split('\n')[1],
+  'question: ""',
+);
+const clearedQuestion = serialize('text', [], '',
+  {id: 'question_id', data: {question: 'Old question'}},
+  {'q-title': {value: ''}});
+assert.ok(clearedQuestion.includes('question: ""\n'));
+assert.ok(!clearedQuestion.includes('Old question'));
+
 // Guided conditions/defaults use nested code; JSON-looking literal defaults
 // remain strings. Existing structured conditions also survive unrelated edits.
 const codeMapping = '{"code":"income < limit"}';

@@ -54,6 +54,7 @@
     canvasMode: 'project-selector',
     questionEditMode: 'preview',
     questionBlockTab: 'screen',
+    blankQuestionAllowed: {},
     advancedOpen: false,
     advancedShowMore: false,
     reviewMetaOpen: false,
@@ -211,6 +212,7 @@
     if (!buttons.length) return;
     dirtyState.activate(state.filename, state.selectedBlockId);
     var isDirty =
+      blankQuestionNeedsDecision() ||
       dirtyState.hasDirty(state.filename) ||
       state.sectionDirty ||
       state.assemblyLineSettingsDirty ||
@@ -287,8 +289,50 @@
     );
   }
 
+  function blankQuestionKey(block) {
+    return JSON.stringify([state.project, state.filename, block.id]);
+  }
+
+  function blankQuestionNeedsDecision() {
+    if (state.currentView !== 'interview' || !state.selectedBlockId)
+      return false;
+    var block = getBlockById(state.selectedBlockId);
+    if (!isQuestionEditorBlock(block)) return false;
+    if (
+      state.questionEditMode === 'yaml' &&
+      dirtyState.hasDirty(state.filename)
+    )
+      return false;
+    var titleInput = document.getElementById('q-title');
+    var questionText =
+      titleInput && titleInput.getAttribute('data-block-id') === block.id
+        ? titleInput.value
+        : String((block.data && block.data.question) || '');
+    return (
+      !questionText.trim() &&
+      !state.blankQuestionAllowed[blankQuestionKey(block)]
+    );
+  }
+
+  function setBlankQuestionAllowed(allowed) {
+    var block = state.selectedBlockId && getBlockById(state.selectedBlockId);
+    if (!isQuestionEditorBlock(block)) return;
+    var key = blankQuestionKey(block);
+    if (allowed) state.blankQuestionAllowed[key] = true;
+    else delete state.blankQuestionAllowed[key];
+    var titleInput = document.getElementById('q-title');
+    if (titleInput) {
+      titleInput.required = !allowed;
+      titleInput.setCustomValidity('');
+    }
+    var inlineCheckbox = document.getElementById('q-allow-blank');
+    if (inlineCheckbox) inlineCheckbox.checked = allowed;
+    updateTopbarSaveState();
+  }
+
   function hasUnsavedChanges() {
     return (
+      blankQuestionNeedsDecision() ||
       dirtyState.hasDirty(state.filename) ||
       state.sectionDirty ||
       state.assemblyLineSettingsDirty ||
@@ -9121,6 +9165,24 @@
   }
 
   function saveCurrentBlockIfDirty() {
+    if (blankQuestionNeedsDecision()) {
+      var missingQuestionInput = document.getElementById('q-title');
+      if (!missingQuestionInput && state.questionEditMode === 'preview') {
+        state.questionBlockTab = 'screen';
+        renderCanvas();
+        missingQuestionInput = document.getElementById('q-title');
+      }
+      if (missingQuestionInput) {
+        missingQuestionInput.setCustomValidity(
+          'Add a question label before saving.',
+        );
+        missingQuestionInput.focus();
+        missingQuestionInput.reportValidity();
+      } else {
+        window.alert('Add a question label before saving.');
+      }
+      return Promise.resolve(false);
+    }
     if (!dirtyState.hasDirty(state.filename) || !state.filename)
       return Promise.resolve(true);
     var fileDirtyState = dirtyState.getFileState(state.filename);
@@ -9222,6 +9284,9 @@
       filename: state.filename,
       block_id: originalBlockId,
       block_yaml: yamlVal,
+      allow_empty_question: Boolean(
+        state.blankQuestionAllowed[blankQuestionKey(block)],
+      ),
       edit_mode:
         editingRawOrder || state.questionEditMode !== 'preview'
           ? 'source'
@@ -9243,6 +9308,19 @@
       })
       .catch(function (error) {
         if (isSupersededRequest(error)) return false;
+        // The YAML editor has no label checkbox, so a blank `question:` typed
+        // there is confirmed here instead.
+        if (
+          error &&
+          error.code === 'empty_question' &&
+          !state.blankQuestionAllowed[blankQuestionKey(block)] &&
+          window.confirm(
+            'This question has no label. Save it with the label left blank?',
+          )
+        ) {
+          state.blankQuestionAllowed[blankQuestionKey(block)] = true;
+          return saveCurrentBlockIfDirty();
+        }
         window.alert(
           'Unable to save block: ' +
             String((error && error.message) || error || 'Unknown error'),
@@ -9323,11 +9401,29 @@
     var priorFocus = document.activeElement;
     var message = modalElement.querySelector('#unsaved-changes-message');
     var errorBox = modalElement.querySelector('#unsaved-changes-error');
+    var blankQuestionPrompt = blankQuestionNeedsDecision();
+    var blankQuestionWrap = modalElement.querySelector(
+      '#blank-question-prompt-wrap',
+    );
+    var blankQuestionCheckbox = modalElement.querySelector(
+      '#blank-question-prompt',
+    );
+    var discardButton = modalElement.querySelector(
+      '[data-unsaved-choice="discard"]',
+    );
+    if (blankQuestionWrap)
+      blankQuestionWrap.classList.toggle('d-none', !blankQuestionPrompt);
+    if (blankQuestionCheckbox) blankQuestionCheckbox.checked = false;
+    if (discardButton)
+      discardButton.classList.toggle('d-none', blankQuestionPrompt);
     if (message) {
-      message.textContent =
-        'You have unsaved changes. Save or discard them before you ' +
-        (actionLabel || 'continue') +
-        '.';
+      message.textContent = blankQuestionPrompt
+        ? 'Add a question label before you ' +
+          (actionLabel || 'continue') +
+          ', or check the box to leave it blank.'
+        : 'You have unsaved changes. Save or discard them before you ' +
+          (actionLabel || 'continue') +
+          '.';
     }
     if (errorBox) {
       errorBox.textContent = '';
@@ -9383,6 +9479,16 @@
               settingsDiscarded &&
               documentsDiscarded
             ) {
+              if (blankQuestionNeedsDecision()) {
+                blankQuestionPrompt = true;
+                if (blankQuestionWrap)
+                  blankQuestionWrap.classList.remove('d-none');
+                if (discardButton) discardButton.classList.add('d-none');
+                if (message)
+                  message.textContent =
+                    'Add a question label, or check the box to leave it blank.';
+                return;
+              }
               finish(true);
             } else if (errorBox) {
               errorBox.textContent =
@@ -9391,6 +9497,16 @@
             }
             return;
           }
+
+          if (blankQuestionPrompt && !blankQuestionCheckbox.checked) {
+            if (errorBox) {
+              errorBox.textContent =
+                'Add a question label, or check Leave this question label blank.';
+              errorBox.classList.remove('d-none');
+            }
+            return;
+          }
+          if (blankQuestionPrompt) setBlankQuestionAllowed(true);
 
           setButtonsDisabled(true);
           saveCurrentSectionFileIfDirty()
@@ -11160,6 +11276,13 @@
     var fields = data.fields || [];
     var questionHelpTypes = [];
     var isPreview = state.questionEditMode === 'preview';
+    var blankLabelAllowed = Boolean(
+      state.blankQuestionAllowed[blankQuestionKey(block)],
+    );
+    if (String(data.question || '').trim() && blankLabelAllowed) {
+      delete state.blankQuestionAllowed[blankQuestionKey(block)];
+      blankLabelAllowed = false;
+    }
     var html = '';
 
     // Header bar — matches Code / Objects pattern
@@ -11255,9 +11378,22 @@
         html += '<label class="editor-tiny" for="q-title">Question</label>';
         html += renderMarkdownToolbar('q-title', false);
         html +=
-          '<textarea class="form-control editor-form-control" id="q-title" rows="1">' +
+          '<textarea class="form-control editor-form-control" id="q-title" rows="1" data-block-id="' +
+          esc(block.id) +
+          '"' +
+          (blankLabelAllowed ? '' : ' required') +
+          '>' +
           esc(data.question || '') +
           '</textarea>';
+        html += '<div class="form-check mt-1">';
+        html +=
+          '<input class="form-check-input" type="checkbox" id="q-allow-blank"' +
+          (blankLabelAllowed ? ' checked' : '') +
+          (String(data.question || '').trim() ? ' disabled' : '') +
+          '>';
+        html +=
+          '<label class="form-check-label editor-tiny" for="q-allow-blank">Leave this question label blank</label>';
+        html += '</div>';
         html += '</div>';
 
         // Subquestion — always shown
@@ -17955,10 +18091,17 @@
 
     // Outline insert
     if (outlineInsertBtn) {
-      state.insertAfterBlockId =
-        outlineInsertBtn.getAttribute('data-insert-after-id') || '';
-      var insertModal = getOrCreateBootstrapModal('insert-modal');
-      if (insertModal) insertModal.show();
+      function openInsertModal() {
+        state.insertAfterBlockId =
+          outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+        var insertModal = getOrCreateBootstrapModal('insert-modal');
+        if (insertModal) insertModal.show();
+      }
+      if (
+        deferNavigationForUnsavedChanges('add another block', openInsertModal)
+      )
+        return;
+      openInsertModal();
       return;
     }
 
@@ -20217,6 +20360,13 @@
       target.id === 'order-add-value' ||
       target.id === 'order-add-code'
     ) {
+      if (target.id === 'q-title') {
+        target.setCustomValidity('');
+        var blankCheckbox = document.getElementById('q-allow-blank');
+        if (blankCheckbox)
+          blankCheckbox.disabled = Boolean(target.value.trim());
+        if (target.value.trim()) setBlankQuestionAllowed(false);
+      }
       markInterviewDirty();
       if (target.id && target.id.indexOf('order-') === 0)
         state.orderDirty = true;
@@ -20225,6 +20375,10 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.id === 'q-allow-blank') {
+      setBlankQuestionAllowed(target.checked);
+      return;
+    }
     if (target.id === 'kiln-test-entrypoint') {
       renderKilnYamlFileControls(target.value, selectedKilnYamlFilenames());
       return;
@@ -20767,15 +20921,34 @@
   });
 
   searchInput.addEventListener('input', function () {
-    state.searchQuery = searchInput.value;
-    if (isInterviewView()) {
-      var selected = getBlockById(state.selectedBlockId);
-      if (!selected || !isBlockVisibleInOutline(selected)) {
-        state.selectedBlockId = getDefaultVisibleBlockId();
+    var nextQuery = searchInput.value;
+    var previousQuery = state.searchQuery;
+    state.searchQuery = nextQuery;
+    var selected = getBlockById(state.selectedBlockId);
+    var wouldLeaveBlock =
+      isInterviewView() && selected && !isBlockVisibleInOutline(selected);
+    state.searchQuery = previousQuery;
+    function applySearch() {
+      stashCurrentEditorState();
+      state.searchQuery = nextQuery;
+      searchInput.value = nextQuery;
+      if (isInterviewView()) {
+        var current = getBlockById(state.selectedBlockId);
+        if (!current || !isBlockVisibleInOutline(current)) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+        renderCanvas();
       }
-      renderCanvas();
+      renderOutline();
     }
-    renderOutline();
+    if (
+      wouldLeaveBlock &&
+      deferNavigationForUnsavedChanges('search blocks', applySearch)
+    ) {
+      searchInput.value = previousQuery;
+      return;
+    }
+    applySearch();
   });
 
   // Both the "Show" control and the summary's "Show all" button move the

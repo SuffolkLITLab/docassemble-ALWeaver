@@ -12,6 +12,7 @@ NODE_TESTS = (
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",
     "test_editor_dirty_state.js",
+    "test_editor_question_label_guard.js",
     "test_editor_html.js",
     "test_editor_api_client.js",
     "test_editor_serializers.js",
@@ -86,6 +87,15 @@ class TestEditorFrontend(unittest.TestCase):
                 f'<label class="editor-block-id-label" for="{input_id}">{label}</label>',
                 source,
             )
+
+    def test_question_text_is_required_in_graphical_editor(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        template = (Path(__file__).parent / "data/templates/editor.html").read_text()
+        self.assertIn('id="q-title" rows="1"', source)
+        self.assertIn('id="q-allow-blank"', source)
+        self.assertIn('id="blank-question-prompt"', template)
+        self.assertIn("blankQuestionNeedsDecision() ||", source)
+        self.assertIn("Add a question label before saving.", source)
 
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()

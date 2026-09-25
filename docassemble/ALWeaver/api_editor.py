@@ -729,7 +729,7 @@ def _default_new_interview_yaml() -> str:
         "  title: New interview\n"
         "---\n"
         f"id: question_{uuid.uuid4().hex[:8]}\n"
-        "question: New question\n"
+        'question: ""\n'
     )
 
 
@@ -1431,7 +1431,13 @@ def _ensure_dayamlchecker_valid(yaml_text: str) -> None:
     raise ValueError(f"Generated YAML failed DAYamlChecker validation: {detail_text}")
 
 
-def _validate_block_yaml_payload(block_yaml: str) -> None:
+class EmptyQuestionError(ValueError):
+    """A question block's label is blank and the author has not opted in."""
+
+
+def _validate_block_yaml_payload(
+    block_yaml: str, *, allow_empty_question: bool = False
+) -> None:
     """Validate a single block payload before saving/inserting.
 
     Two shapes look like placeholders but are legitimate documents, and both
@@ -1444,6 +1450,8 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
     What is rejected is an ``id`` with nothing beside it that gives the block a
     type. The id names a block, there is no block there for it to name, and
     docassemble reports "couldn't identify a block type" on the whole file.
+    Insertion may also create an empty question draft; saving that draft must
+    supply question text.
     """
     try:
         parsed = yaml.safe_load(block_yaml)
@@ -1453,6 +1461,15 @@ def _validate_block_yaml_payload(block_yaml: str) -> None:
         return
     if not isinstance(parsed, dict):
         raise ValueError("block_yaml must contain exactly one YAML mapping block")
+
+    if (
+        not allow_empty_question
+        and "question" in parsed
+        and (not isinstance(parsed["question"], str) or not parsed["question"].strip())
+    ):
+        raise EmptyQuestionError(
+            "Question text is required before saving a question block"
+        )
 
     normalized_keys = {
         str(key).strip().lower() for key in parsed.keys() if str(key).strip()
@@ -6918,17 +6935,30 @@ def editor_api_save_block() -> Response:
             raise ValueError("block_id is required")
         if not isinstance(new_yaml, str) or not new_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")
-        _validate_block_yaml_payload(new_yaml)
+        allow_empty_question = post_data.get("allow_empty_question") is True
+        _validate_block_yaml_payload(
+            new_yaml, allow_empty_question=allow_empty_question
+        )
 
         current_content = playground_read_yaml(uid, project, filename)
-        saved_index = next(
+        original_block = next(
             (
-                block["index"]
+                block
                 for block in parse_interview_yaml(current_content)["blocks"]
                 if block["id"] == block_id
             ),
             None,
         )
+        # Dropping `question:` from a question block leaves fields with no
+        # screen to sit on. Turning the block into code, objects, a template
+        # and so on is a legitimate edit, so only an untyped result is refused.
+        if original_block and original_block["type"] == "question":
+            new_blocks = parse_interview_yaml(new_yaml)["blocks"]
+            if new_blocks and new_blocks[0]["type"] == "other":
+                raise ValueError(
+                    "Question text is required before saving a question block"
+                )
+        saved_index = original_block["index"] if original_block else None
         updated_content = update_block_in_yaml(
             current_content,
             block_id,
@@ -6972,11 +7002,16 @@ def editor_api_save_block() -> Response:
         )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
+        error_type = (
+            "empty_question"
+            if isinstance(exc, EmptyQuestionError)
+            else "validation_error"
+        )
         return jsonify_with_status(
             {
                 "success": False,
                 "request_id": request_id,
-                "error": {"type": "validation_error", "message": str(exc)},
+                "error": {"type": error_type, "message": str(exc)},
             },
             status,
         )
@@ -7206,7 +7241,7 @@ def editor_api_insert_block() -> Response:
         block_yaml = post_data.get("block_yaml")
         if not isinstance(block_yaml, str) or not block_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")
-        _validate_block_yaml_payload(block_yaml)
+        _validate_block_yaml_payload(block_yaml, allow_empty_question=True)
 
         current_content = playground_read_yaml(uid, project, filename)
         block_text = block_yaml.strip("\r\n")
