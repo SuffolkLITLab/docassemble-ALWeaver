@@ -52,12 +52,19 @@
     var appendQuestionAdvancedYaml = options.appendQuestionAdvancedYaml;
     var yaml = '';
 
-    var idInput = document.getElementById('adv-id');
-    var blockId = (idInput && idInput.value) ? idInput.value : (block && block.id ? block.id : 'question_block');
-    yaml = appendYamlValue(yaml, 'id', blockId);
-
     var qTitle = document.getElementById('q-title');
     var questionText = qTitle && qTitle.value ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
+
+    var idInput = document.getElementById('adv-id');
+    // Never fall back to `block.id`: for a block written without an `id:` it
+    // is the parser's invented handle (`block-3-1a2b3c4d`). A question the
+    // author left without an id gets a readable one from its text instead;
+    // an id the author wrote is always kept as written.
+    var explicitId = block && block.data && block.data.id != null ? String(block.data.id) : '';
+    var blockId = String(idInput ? idInput.value : explicitId).trim();
+    if (!blockId && typeof options.generateId === 'function') blockId = options.generateId(questionText);
+    yaml = appendYamlValue(yaml, 'id', blockId);
+
     if (questionText) yaml = appendYamlValue(yaml, 'question', questionText);
 
     var qSub = document.getElementById('q-subquestion');
