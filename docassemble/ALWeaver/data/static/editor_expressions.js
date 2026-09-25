@@ -191,9 +191,12 @@
         edits.push({
           start: row.statement_start,
           end: end,
+          text: comments
             .map(function (comment) {
-              return comment.text +
-                (parsed.original.indexOf('\r\n') !== -1 ? '\r\n' : '\n');
+              return (
+                comment.text +
+                (parsed.original.indexOf('\r\n') !== -1 ? '\r\n' : '\n')
+              );
             })
             .join(''),
         });
