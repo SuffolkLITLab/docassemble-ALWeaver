@@ -1431,6 +1431,10 @@ def _ensure_dayamlchecker_valid(yaml_text: str) -> None:
     raise ValueError(f"Generated YAML failed DAYamlChecker validation: {detail_text}")
 
 
+class EmptyQuestionError(ValueError):
+    """A question block's label is blank and the author has not opted in."""
+
+
 def _validate_block_yaml_payload(
     block_yaml: str, *, allow_empty_question: bool = False
 ) -> None:
@@ -1463,7 +1467,9 @@ def _validate_block_yaml_payload(
         and "question" in parsed
         and (not isinstance(parsed["question"], str) or not parsed["question"].strip())
     ):
-        raise ValueError("Question text is required before saving a question block")
+        raise EmptyQuestionError(
+            "Question text is required before saving a question block"
+        )
 
     normalized_keys = {
         str(key).strip().lower() for key in parsed.keys() if str(key).strip()
@@ -6943,13 +6949,15 @@ def editor_api_save_block() -> Response:
             ),
             None,
         )
-        new_block_data = yaml.safe_load(new_yaml) or {}
-        if (
-            original_block
-            and original_block["type"] == "question"
-            and "question" not in new_block_data
-        ):
-            raise ValueError("Question text is required before saving a question block")
+        # Dropping `question:` from a question block leaves fields with no
+        # screen to sit on. Turning the block into code, objects, a template
+        # and so on is a legitimate edit, so only an untyped result is refused.
+        if original_block and original_block["type"] == "question":
+            new_blocks = parse_interview_yaml(new_yaml)["blocks"]
+            if new_blocks and new_blocks[0]["type"] == "other":
+                raise ValueError(
+                    "Question text is required before saving a question block"
+                )
         saved_index = original_block["index"] if original_block else None
         updated_content = update_block_in_yaml(
             current_content,
@@ -6994,11 +7002,16 @@ def editor_api_save_block() -> Response:
         )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
+        error_type = (
+            "empty_question"
+            if isinstance(exc, EmptyQuestionError)
+            else "validation_error"
+        )
         return jsonify_with_status(
             {
                 "success": False,
                 "request_id": request_id,
-                "error": {"type": "validation_error", "message": str(exc)},
+                "error": {"type": error_type, "message": str(exc)},
             },
             status,
         )

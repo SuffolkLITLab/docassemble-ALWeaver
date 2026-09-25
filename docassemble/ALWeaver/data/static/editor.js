@@ -297,7 +297,7 @@
     if (state.currentView !== 'interview' || !state.selectedBlockId)
       return false;
     var block = getBlockById(state.selectedBlockId);
-    if (!block || block.type !== 'question') return false;
+    if (!isQuestionEditorBlock(block)) return false;
     if (
       state.questionEditMode === 'yaml' &&
       dirtyState.hasDirty(state.filename)
@@ -316,7 +316,7 @@
 
   function setBlankQuestionAllowed(allowed) {
     var block = state.selectedBlockId && getBlockById(state.selectedBlockId);
-    if (!block || block.type !== 'question') return;
+    if (!isQuestionEditorBlock(block)) return;
     var key = blankQuestionKey(block);
     if (allowed) state.blankQuestionAllowed[key] = true;
     else delete state.blankQuestionAllowed[key];
@@ -9284,9 +9284,9 @@
       filename: state.filename,
       block_id: originalBlockId,
       block_yaml: yamlVal,
-      allow_empty_question:
-        block.type === 'question' &&
-        Boolean(state.blankQuestionAllowed[blankQuestionKey(block)]),
+      allow_empty_question: Boolean(
+        state.blankQuestionAllowed[blankQuestionKey(block)],
+      ),
       edit_mode:
         editingRawOrder || state.questionEditMode !== 'preview'
           ? 'source'
@@ -9308,6 +9308,19 @@
       })
       .catch(function (error) {
         if (isSupersededRequest(error)) return false;
+        // The YAML editor has no label checkbox, so a blank `question:` typed
+        // there is confirmed here instead.
+        if (
+          error &&
+          error.code === 'empty_question' &&
+          !state.blankQuestionAllowed[blankQuestionKey(block)] &&
+          window.confirm(
+            'This question has no label. Save it with the label left blank?',
+          )
+        ) {
+          state.blankQuestionAllowed[blankQuestionKey(block)] = true;
+          return saveCurrentBlockIfDirty();
+        }
         window.alert(
           'Unable to save block: ' +
             String((error && error.message) || error || 'Unknown error'),

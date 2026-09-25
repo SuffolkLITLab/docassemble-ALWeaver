@@ -3029,6 +3029,32 @@ class TestOrderBlockLookup(unittest.TestCase):
                 )
                 writer.assert_not_called()
 
+    def test_save_question_turned_into_another_block_type(self):
+        for block_yaml in (
+            "id: intro\ncode: |\n  intro = True\n",
+            "id: intro\nobjects:\n  - user: Individual\n",
+            "id: intro\ntemplate: intro\ncontent: Hello\n",
+        ):
+            with self.subTest(block_yaml=block_yaml):
+                response, writer = self._post_order_edit(
+                    "/al/editor/api/block",
+                    {"block_id": "intro", "block_yaml": block_yaml},
+                )
+                self.assertEqual(response.status_code, 200, response.get_json())
+                writer.assert_called_once()
+
+    def test_save_blank_question_reports_empty_question(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": 'id: intro\nquestion: ""\ncontinue button field: intro\n',
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "empty_question")
+        writer.assert_not_called()
+
     def test_save_blank_question_requires_explicit_opt_in(self):
         response, writer = self._post_order_edit(
             "/al/editor/api/block",

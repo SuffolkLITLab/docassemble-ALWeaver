@@ -43,7 +43,12 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(
-  ['blankQuestionKey', 'blankQuestionNeedsDecision', 'hasUnsavedChanges']
+  [
+    'isQuestionEditorBlock',
+    'blankQuestionKey',
+    'blankQuestionNeedsDecision',
+    'hasUnsavedChanges',
+  ]
     .map(editorFunction)
     .join('\n'),
   context,
@@ -65,6 +70,12 @@ assert.strictEqual(context.hasUnsavedChanges(), false);
 delete context.state.blankQuestionAllowed[context.blankQuestionKey(block)];
 titleInput.getAttribute = () => 'another-block';
 assert.strictEqual(context.hasUnsavedChanges(), true);
+
+// An attachment block with a `question:` uses the same question editor.
+titleInput.getAttribute = () => 'q1';
+block.type = 'attachment';
+assert.strictEqual(context.hasUnsavedChanges(), true);
+block.type = 'question';
 
 context.state.currentView = 'templates';
 assert.strictEqual(context.hasUnsavedChanges(), false);
