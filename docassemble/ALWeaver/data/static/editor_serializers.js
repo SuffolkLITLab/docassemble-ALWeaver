@@ -53,7 +53,7 @@
     var yaml = '';
 
     var qTitle = document.getElementById('q-title');
-    var questionText = qTitle && qTitle.value ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
+    var questionText = qTitle ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
 
     var idInput = document.getElementById('adv-id');
     // Never fall back to `block.id`: for a block written without an `id:` it
@@ -65,7 +65,9 @@
     if (!blockId && typeof options.generateId === 'function') blockId = options.generateId(questionText);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
-    if (questionText) yaml = appendYamlValue(yaml, 'question', questionText);
+    // Keep the key even when cleared, so the API can reject an empty question.
+    if (String(questionText).trim()) yaml = appendYamlValue(yaml, 'question', questionText);
+    else yaml += 'question: ""\n';
 
     var qSub = document.getElementById('q-subquestion');
     var subquestionText = qSub && qSub.value ? qSub.value : (block && block.data && block.data.subquestion ? String(block.data.subquestion) : '');
@@ -457,7 +459,7 @@
     if (kind === 'question' || kind === 'ai-screen') {
       return (
         'id: question_' + stamp + '\n' +
-        'question: New question\n' +
+        'question: ""\n' +
         'subquestion: |\n' +
         '  \n' +
         'fields:\n' +

@@ -9211,6 +9211,25 @@
       ? getBlockById(state.activeOrderBlockId)
       : getSelectedBlock();
     if (!block) return Promise.resolve(true);
+    if (block.type === 'question' && state.questionEditMode === 'preview') {
+      var questionInput = document.getElementById('q-title');
+      var questionText = questionInput
+        ? questionInput.value
+        : String((block.data && block.data.question) || '');
+      if (!questionText.trim()) {
+        if (!questionInput) {
+          state.questionBlockTab = 'screen';
+          renderCanvas();
+          questionInput = document.getElementById('q-title');
+        }
+        if (questionInput) {
+          questionInput.setCustomValidity('Enter a question before saving.');
+          questionInput.focus();
+          questionInput.reportValidity();
+        }
+        return Promise.resolve(false);
+      }
+    }
     var originalBlockId = block.id;
     if (editingRawOrder) _stashFullYamlContent();
     var yamlVal = editingRawOrder
@@ -11255,7 +11274,7 @@
         html += '<label class="editor-tiny" for="q-title">Question</label>';
         html += renderMarkdownToolbar('q-title', false);
         html +=
-          '<textarea class="form-control editor-form-control" id="q-title" rows="1">' +
+          '<textarea class="form-control editor-form-control" id="q-title" rows="1" required>' +
           esc(data.question || '') +
           '</textarea>';
         html += '</div>';
@@ -20217,6 +20236,7 @@
       target.id === 'order-add-value' ||
       target.id === 'order-add-code'
     ) {
+      if (target.id === 'q-title') target.setCustomValidity('');
       markInterviewDirty();
       if (target.id && target.id.indexOf('order-') === 0)
         state.orderDirty = true;

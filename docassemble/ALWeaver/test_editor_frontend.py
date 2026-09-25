@@ -87,6 +87,11 @@ class TestEditorFrontend(unittest.TestCase):
                 source,
             )
 
+    def test_question_text_is_required_in_graphical_editor(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn('id="q-title" rows="1" required', source)
+        self.assertIn("Enter a question before saving.", source)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)
