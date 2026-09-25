@@ -38,6 +38,28 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_code_and_question_blocks_share_mandatory_switch(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        for name in ("renderQuestionBlock", "renderCodeBlock"):
+            renderer = source.split(f"  function {name}(block) {{", 1)[1]
+            renderer = renderer.split("\n  function ", 1)[0]
+            self.assertIn("renderMandatorySwitch(data)", renderer)
+        self.assertEqual(source.count('id="adv-mandatory-switch"'), 1)
+
+    def test_code_block_mandatory_switch_survives_canvas_redraw(self):
+        # Toggles like "Advanced options" stash editor state, then redraw the
+        # canvas from block.data; code blocks must stash the switch too.
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        stash = source.split("  function stashCurrentEditorState() {", 1)[1]
+        stash = stash.split("\n  function ", 1)[0]
+        self.assertRegex(
+            stash,
+            r"block\.type === 'code'\) \{\s*syncMandatoryToData\(block\);",
+        )
+        sync_meta = source.split("  function syncQuestionMetaToData(blk) {", 1)[1]
+        sync_meta = sync_meta.split("\n  function ", 1)[0]
+        self.assertIn("syncMandatoryToData(blk);", sync_meta)
+
     def test_question_id_and_event_inputs_have_visible_labels(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         for input_id, label in (("adv-id", "ID"), ("adv-event", "Event")):
