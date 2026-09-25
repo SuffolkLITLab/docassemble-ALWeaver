@@ -164,7 +164,61 @@
       edits.push({ start: before.start, end: before.end, text: replacement });
     }
     visit(row.originalTree, row.tree);
+    if (row.originalTarget !== undefined && row.target !== row.originalTarget)
+      edits.push({
+        start: row.target_start,
+        end: row.target_end,
+        text: row.target,
+      });
     return edits;
+  }
+
+  // Always patch against the original ranges, including after repeated edits.
+  function codeSource(parsed) {
+    var chars = Array.from(parsed.original);
+    var edits = [];
+    var added = [];
+    parsed.rows.forEach(function (row) {
+      if (row.deleted) {
+        if (row.added) return;
+        var end = row.statement_end;
+        var tail = chars.slice(end).join('');
+        var separator = /^[ \t]*;[ \t]*/.exec(tail);
+        if (separator) end += Array.from(separator[0]).length;
+        var comments = (parsed.comments || []).filter(function (comment) {
+          return comment.start >= row.statement_start && comment.start < end;
+        });
+        edits.push({
+          start: row.statement_start,
+          end: end,
+          text: comments
+            .map(function (comment) {
+              return comment.text + '\n';
+            })
+            .join(''),
+        });
+      } else if (row.added) added.push(row.target + ' = ' + python(row.tree));
+      else if (row.edited)
+        edits = edits.concat(codeChanges(row, parsed.comments || []));
+    });
+    edits
+      .sort(function (a, b) {
+        return b.start - a.start;
+      })
+      .forEach(function (edit) {
+        chars.splice(
+          edit.start,
+          edit.end - edit.start,
+          ...Array.from(edit.text),
+        );
+      });
+    var result = chars.join('');
+    if (added.length) {
+      var newline = parsed.original.indexOf('\r\n') !== -1 ? '\r\n' : '\n';
+      if (result && !/[\r\n]$/.test(result)) result += newline;
+      result += added.join(newline) + newline;
+    }
+    return result;
   }
 
   function el(tag, cls, text) {
@@ -696,8 +750,15 @@
     function render() {
       body.replaceChildren();
       var rows =
-        options.context === 'code' ? parsed.rows : [{ tree: parsed.tree }];
+        options.context === 'code'
+          ? parsed.rows.filter(function (row) {
+              return !row.deleted;
+            })
+          : [{ tree: parsed.tree }];
       var comments = parsed.comments || [];
+      var originalRows = rows.filter(function (row) {
+        return !row.added;
+      });
       if (options.context === 'code') {
         var columns = el('div', 'expression-columns');
         columns.append(
@@ -711,9 +772,9 @@
         var section = el(
           'section',
           'expression-assignment' +
-            (row.target ? ' expression-definition' : ''),
+            (options.context === 'code' ? ' expression-definition' : ''),
         );
-        if (row.target) {
+        if (options.context === 'code') {
           var firstOperand = row.tree,
             headerDepth = 0;
           while (firstOperand.args && firstOperand.args.length) {
@@ -744,7 +805,25 @@
               );
             });
           var target = el('div', 'expression-target');
-          target.appendChild(el('code', '', row.target));
+          var targetInput = el(
+            'input',
+            'form-control form-control-sm font-monospace',
+          );
+          targetInput.value = row.target;
+          targetInput.setAttribute(
+            'aria-label',
+            'Assignment variable ' + (index + 1),
+          );
+          targetInput.placeholder = 'Variable to define';
+          function rename(value) {
+            row.target = value;
+            section.setAttribute('aria-label', 'Define ' + value);
+            change();
+          }
+          targetInput.addEventListener('input', function () {
+            rename(targetInput.value);
+          });
+          target.appendChild(picker(targetInput, catalog.variables, rename));
           var equals = el('span', 'expression-equals', '=');
           equals.setAttribute('aria-label', 'is defined as');
           section.append(target, equals);
@@ -753,41 +832,8 @@
         function change() {
           row.edited = true;
           var next;
-          if (options.context === 'code') {
-            var chars = Array.from(parsed.original);
-            var edits = [];
-            parsed.rows.forEach(function (entry) {
-              if (!entry.edited) return;
-              var innerComments = comments.filter(function (comment) {
-                return (
-                  comment.start >= entry.start && comment.start < entry.end
-                );
-              });
-              edits = edits.concat(
-                innerComments.length
-                  ? codeChanges(entry, comments)
-                  : [
-                      {
-                        start: entry.start,
-                        end: entry.end,
-                        text: python(entry.tree),
-                      },
-                    ],
-              );
-            });
-            edits
-              .sort(function (a, b) {
-                return b.start - a.start;
-              })
-              .forEach(function (edit) {
-                chars.splice(
-                  edit.start,
-                  edit.end - edit.start,
-                  ...Array.from(edit.text),
-                );
-              });
-            next = chars.join('');
-          } else next = python(row.tree);
+          if (options.context === 'code') next = codeSource(parsed);
+          else next = python(row.tree);
           source.setValue(next);
           preview.textContent = next;
         }
@@ -816,19 +862,41 @@
               return (
                 comment.line >= row.line &&
                 comment.line <= row.end_line &&
-                (!rows[index + 1] || comment.start < rows[index + 1].start)
+                (!rows[index + 1] ||
+                  rows[index + 1].added ||
+                  comment.start < rows[index + 1].start)
               );
             })
             .forEach(function (comment) {
               value.appendChild(el('div', 'expression-comment', comment.text));
             });
         section.appendChild(value);
+        if (options.context === 'code') {
+          var remove = button('Delete assignment', function () {
+            row.deleted = true;
+            source.setValue(codeSource(parsed));
+            render();
+            var remaining = body.querySelectorAll(
+              '.expression-delete-assignment',
+            );
+            var focus =
+              remaining[Math.min(index, remaining.length - 1)] ||
+              body.querySelector('.expression-add-assignment');
+            if (focus) focus.focus();
+          });
+          remove.classList.add('expression-delete-assignment');
+          remove.setAttribute('aria-label', 'Delete assignment ' + (index + 1));
+          value.appendChild(remove);
+        }
         body.appendChild(section);
       });
-      if (options.context === 'code' && rows.length)
+      if (options.context === 'code')
         comments
           .filter(function (comment) {
-            return comment.line > rows[rows.length - 1].end_line;
+            return (
+              !originalRows.length ||
+              comment.line > originalRows[originalRows.length - 1].end_line
+            );
           })
           .forEach(function (comment) {
             body.appendChild(
@@ -839,6 +907,37 @@
               ),
             );
           });
+      if (options.context === 'code') {
+        body.appendChild(
+          button('Add assignment', function () {
+            var name = 'new_variable',
+              suffix = 2;
+            var names = catalog.variables().map(function (item) {
+              return typeof item === 'string' ? item : item.name;
+            });
+            names = names.concat(
+              rows.map(function (row) {
+                return row.target;
+              }),
+            );
+            while (names.indexOf(name) !== -1)
+              name = 'new_variable_' + suffix++;
+            parsed.rows.push({
+              target: name,
+              tree: fresh('none'),
+              added: true,
+            });
+            source.setValue(codeSource(parsed));
+            render();
+            var inputs = body.querySelectorAll('.expression-target input');
+            inputs[inputs.length - 1].focus();
+            inputs[inputs.length - 1].select();
+          }),
+        );
+      }
+      var addButton = body.lastElementChild;
+      if (options.context === 'code' && addButton)
+        addButton.classList.add('expression-add-assignment');
       preview.textContent = source.getValue();
     }
     async function inspect() {
@@ -863,6 +962,7 @@
           parsed.original = before;
           (parsed.rows || []).forEach(function (row) {
             row.originalTree = JSON.parse(JSON.stringify(row.tree));
+            row.originalTarget = row.target;
           });
           render();
           show(true);
@@ -1088,6 +1188,7 @@
     fresh: fresh,
     changeType: changeType,
     codeChanges: codeChanges,
+    codeSource: codeSource,
     mount: mount,
     install: install,
   };

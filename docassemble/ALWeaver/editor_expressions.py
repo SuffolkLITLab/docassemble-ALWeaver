@@ -211,17 +211,29 @@ def parse_expression(source, context="value"):
             expr = statement.value
             rows.append(
                 {
+                    "statement_start": _offset(
+                        source, statement.lineno, statement.col_offset
+                    ),
+                    "statement_end": _offset(
+                        source, statement.end_lineno, statement.end_col_offset
+                    ),
                     "target": ast.get_source_segment(source, statement.targets[0]),
+                    "target_start": _offset(
+                        source,
+                        statement.targets[0].lineno,
+                        statement.targets[0].col_offset,
+                    ),
+                    "target_end": _offset(
+                        source,
+                        statement.targets[0].end_lineno,
+                        statement.targets[0].end_col_offset,
+                    ),
                     "tree": _tree(expr, source),
                     "start": _offset(source, expr.lineno, expr.col_offset),
                     "end": _offset(source, expr.end_lineno, expr.end_col_offset),
                     "line": statement.lineno,
                     "end_line": statement.end_lineno,
                 }
-            )
-        if not rows:
-            raise ValueError(
-                "Enter an assignment in Python to use guided code editing."
             )
         return {
             "supported": True,

@@ -70,10 +70,26 @@ class TestExpressions(unittest.TestCase):
             "a = b = 2",
             "x += 1",
             "a = 2\nf()",
-            "",
             "a = [x for x in values]",
         ):
             self.assertFalse(parse_expression(source, "code")["supported"])
+
+    def test_empty_code_can_start_in_guided_mode(self):
+        for source in ("", "\n", "# Add calculations here\n"):
+            parsed = parse_expression(source, "code")
+            self.assertTrue(parsed["supported"])
+            self.assertEqual(parsed["rows"], [])
+
+    def test_assignment_target_ranges(self):
+        source = '# 😀 heading\ncafé = "é"; people[i].name.first = "Hello"\n'
+        rows = parse_expression(source, "code")["rows"]
+        for row in rows:
+            self.assertEqual(
+                source[row["target_start"] : row["target_end"]], row["target"]
+            )
+        self.assertEqual(
+            [row["target"] for row in rows], ["café", "people[i].name.first"]
+        )
 
     def test_code_comments_are_supported_and_exposed_without_changing_ranges(self):
         source = "# heading\ncafé = (\n  1 # first\n  + 2\n) # trailing\n# footer\n"
@@ -136,6 +152,100 @@ process.stdin.on("end", () => {
                 ast.dump(ast.parse(changed["structural"]).body[0].value),
                 "Name(id='replacement', ctx=Load())",
             )
+
+    def test_repeated_assignment_edits_preserve_source(self):
+        source = "# 😀 heading\r\ncafé  = (1 +  2)  # keep\r\nother = 'text'\r\n"
+        parsed = parse_expression(source, "code")
+        completed = subprocess.run(
+            [
+                "node",
+                "-e",
+                """
+const e = require('./data/static/editor_expressions.js');
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const {source, parsed} = JSON.parse(input);
+  parsed.original = source;
+  parsed.rows.forEach(row => {
+    row.originalTarget = row.target;
+    row.originalTree = JSON.parse(JSON.stringify(row.tree));
+  });
+  const row = parsed.rows[0];
+  row.edited = true;
+  row.target = 'people[i].name.first';
+  const renamed = e.codeSource(parsed);
+  row.tree.args[1].value = '30';
+  const revised = e.codeSource(parsed);
+  row.target = 'café';
+  row.tree.args[1].value = '2';
+  const reverted = e.codeSource(parsed);
+  parsed.rows.push({target: 'total', tree: e.fresh('number'), added: true});
+  const added = e.codeSource(parsed);
+  parsed.rows[2].target = 'result';
+  parsed.rows[2].tree.value = '42';
+  const editedNew = e.codeSource(parsed);
+  process.stdout.write(JSON.stringify({renamed, revised, reverted, added, editedNew}));
+});""",
+            ],
+            input=json.dumps({"source": source, "parsed": parsed}),
+            text=True,
+            capture_output=True,
+            check=True,
+            cwd=Path(__file__).parent,
+        )
+        result = json.loads(completed.stdout)
+        self.assertEqual(
+            result["renamed"], source.replace("café", "people[i].name.first")
+        )
+        self.assertEqual(result["revised"], result["renamed"].replace("2)", "30)"))
+        self.assertEqual(result["reverted"], source)
+        self.assertEqual(result["added"], source + "total = 0\r\n")
+        self.assertEqual(result["editedNew"], source + "result = 42\r\n")
+        for value in result.values():
+            ast.parse(value)
+
+    def test_delete_assignments_preserves_other_source_and_comments(self):
+        cases = [
+            (
+                "# heading\ncafé = (1 + 2) # tail\nother = 3\n",
+                [0],
+                "# heading\n # tail\nother = 3\n",
+            ),
+            ("a = 1; b = 2; c = 3\n", [1], "a = 1; c = 3\n"),
+            ("a = 1; b = 2\n", [0, 1], "\n"),
+            ("a = (\n  1 # inside\n + 2\n)\n", [0], "# inside\n\n"),
+            ("(a) = ((1))\n", [0], "\n"),
+        ]
+        for source, deleted, expected in cases:
+            with self.subTest(source=source):
+                parsed = parse_expression(source, "code")
+                completed = subprocess.run(
+                    [
+                        "node",
+                        "-e",
+                        """
+const e = require('./data/static/editor_expressions.js');
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const {source, parsed, deleted} = JSON.parse(input);
+  parsed.original = source;
+  deleted.forEach(index => { parsed.rows[index].deleted = true; });
+  parsed.rows.push({target: 'discard', tree: e.fresh('none'), added: true, deleted: true});
+  process.stdout.write(e.codeSource(parsed));
+});""",
+                    ],
+                    input=json.dumps(
+                        {"source": source, "parsed": parsed, "deleted": deleted}
+                    ),
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                    cwd=Path(__file__).parent,
+                )
+                self.assertEqual(completed.stdout, expected)
+                self.assertTrue(parse_expression(completed.stdout, "code")["supported"])
 
     def test_unicode_offsets_and_source_ranges(self):
         source = 'café = "😀"\nresult = café + "é"\n'

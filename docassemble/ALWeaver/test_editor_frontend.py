@@ -38,6 +38,25 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_new_code_block_opens_in_expression_editor(self):
+        from .editor_expressions import parse_expression
+        import yaml
+
+        completed = subprocess.run(
+            [
+                "node",
+                "-e",
+                "process.stdout.write(require('./data/static/editor_serializers.js').makeNewBlockYaml('code', 123));",
+            ],
+            cwd=Path(__file__).parent,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        code = yaml.safe_load(completed.stdout)["code"]
+        self.assertTrue(parse_expression(code, "code")["supported"])
+        self.assertEqual(parse_expression(code, "code")["rows"], [])
+
     def test_code_and_question_blocks_share_mandatory_switch(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         for name in ("renderQuestionBlock", "renderCodeBlock"):
