@@ -145,6 +145,10 @@ async function main() {
     await page.locator("#editor-app").waitFor({ state: "visible", timeout: 30_000 });
 
     // Open a real Playground interview and its file-backed editing areas.
+    await page.locator('#project-select option[value="default"]').waitFor({
+      state: "attached",
+      timeout: 30_000,
+    });
     await selectOption(page, "#project-select", "default", "project");
     await page.locator('#file-select option[value="editor_accessibility.yml"]').waitFor({
       state: "attached",
