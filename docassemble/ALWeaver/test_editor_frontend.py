@@ -60,6 +60,14 @@ class TestEditorFrontend(unittest.TestCase):
         sync_meta = sync_meta.split("\n  function ", 1)[0]
         self.assertIn("syncMandatoryToData(blk);", sync_meta)
 
+    def test_question_id_and_event_inputs_have_visible_labels(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        for input_id, label in (("adv-id", "ID"), ("adv-event", "Event")):
+            self.assertIn(
+                f'<label class="editor-block-id-label" for="{input_id}">{label}</label>',
+                source,
+            )
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)

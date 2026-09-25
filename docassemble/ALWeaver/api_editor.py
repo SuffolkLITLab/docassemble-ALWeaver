@@ -6921,6 +6921,14 @@ def editor_api_save_block() -> Response:
         _validate_block_yaml_payload(new_yaml)
 
         current_content = playground_read_yaml(uid, project, filename)
+        saved_index = next(
+            (
+                block["index"]
+                for block in parse_interview_yaml(current_content)["blocks"]
+                if block["id"] == block_id
+            ),
+            None,
+        )
         updated_content = update_block_in_yaml(
             current_content,
             block_id,
@@ -6932,6 +6940,16 @@ def editor_api_save_block() -> Response:
         playground_write_yaml(uid, project, filename, updated_content)
 
         model = parse_interview_yaml(updated_content)
+        # A block without an `id:` is addressed by a content hash, which the
+        # edit just changed; find it again by position so it stays selected.
+        saved_block_id = next(
+            (
+                block["id"]
+                for block in model["blocks"]
+                if saved_index is not None and block["index"] == saved_index
+            ),
+            block_id,
+        )
         order_step_map, order_steps = _order_steps_from_model(model)
         return jsonify(
             {
@@ -6948,7 +6966,7 @@ def editor_api_save_block() -> Response:
                     "order_steps": order_steps,
                     "order_step_map": order_step_map,
                     "raw_yaml": updated_content,
-                    "saved_block_id": block_id,
+                    "saved_block_id": saved_block_id,
                 },
             }
         )

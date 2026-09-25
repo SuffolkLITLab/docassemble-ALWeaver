@@ -7040,6 +7040,9 @@
       state: state,
       serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
       appendQuestionAdvancedYaml: _appendQuestionAdvancedYaml,
+      generateId: function (questionText) {
+        return generateBlockId(questionText, state.blocks, block.id);
+      },
     });
   }
 
@@ -7047,10 +7050,7 @@
     var data = (block && block.data) || {};
     var yaml = '';
     var blockIdEl = document.getElementById('review-block-id');
-    var blockId = blockIdEl
-      ? blockIdEl.value.trim()
-      : String(data.id || (block && block.id) || 'review_screen');
-    yaml = appendYamlValue(yaml, 'id', blockId || 'review_screen');
+    var blockId = blockIdEl ? blockIdEl.value.trim() : _explicitBlockId(block);
 
     var eventEl = document.getElementById('review-event');
     var eventText = eventEl
@@ -7067,6 +7067,19 @@
       'question',
       questionText || 'Review your answers',
     );
+    // Like any question, a review screen saved without an id gets one from
+    // its text; an id the author wrote is kept.
+    yaml =
+      appendYamlValue(
+        '',
+        'id',
+        blockId ||
+          generateBlockId(
+            questionText || 'Review your answers',
+            state.blocks,
+            block && block.id,
+          ),
+      ) + yaml;
 
     var subEl = document.getElementById('review-subquestion');
     var subText = subEl ? subEl.value : String(data.subquestion || '');
@@ -7334,12 +7347,9 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'code_block';
+    var blockId = String(
+      idInput ? idInput.value : _explicitBlockId(block),
+    ).trim();
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var codeText = getSourceEditorValue('code-source-editor');
@@ -7353,7 +7363,18 @@
         yaml += '  ' + line + '\n';
       });
 
-    return _appendQuestionAdvancedYaml(yaml, block);
+    yaml = _appendQuestionAdvancedYaml(yaml, block);
+    // docassemble tracks a mandatory block by its id, so one the author left
+    // without an id gets one; any other code block's id is decoration.
+    if (!blockId && /^mandatory:/m.test(yaml)) {
+      yaml =
+        appendYamlValue(
+          '',
+          'id',
+          generateBlockId('mandatory code', state.blocks, block.id),
+        ) + yaml;
+    }
+    return yaml;
   }
 
   function _parseObjectEditorExpression(expression) {
@@ -7606,12 +7627,7 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'objects_block';
+    var blockId = idInput ? idInput.value : _explicitBlockId(block);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     yaml += 'objects:\n';
@@ -7662,6 +7678,15 @@
     return _appendQuestionAdvancedYaml(yaml, block);
   }
 
+  /* The id the author wrote in the block's YAML, or '' when there is none.
+     `block.id` is not that: for a block without an `id:` the parser invents
+     one (`block-3-1a2b3c4d`) so the editor can address it, and showing or
+     saving that would write an id the author never chose. */
+  function _explicitBlockId(block) {
+    var id = block && block.data ? block.data.id : undefined;
+    return id === undefined || id === null ? '' : String(id);
+  }
+
   function syncQuestionMetaToData(blk) {
     if (!blk || blk.type !== 'question') return;
     if (!blk.data) blk.data = {};
@@ -7670,6 +7695,7 @@
     if (idInput) {
       var nextId = idInput.value.trim();
       if (nextId) blk.data.id = nextId;
+      else delete blk.data.id;
     }
 
     var qTitle = document.getElementById('q-title');
@@ -11193,20 +11219,25 @@
 
         // Block ID — always visible at top
         html += '<div class="editor-block-id-row">';
-        html += '<span class="editor-block-id-label">ID</span>';
+        html += '<label class="editor-block-id-label" for="adv-id">ID</label>';
         html +=
           '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
-          esc(block.id) +
-          '" placeholder="block_id" autocomplete="off">';
+          esc(_explicitBlockId(block)) +
+          '" autocomplete="off" aria-describedby="adv-id-hint">';
         html +=
           '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+        if (!_explicitBlockId(block)) {
+          html +=
+            '<span class="editor-block-id-hint" id="adv-id-hint">Saving adds one from the question</span>';
+        }
         html += '</div>';
         var eventFieldOpen = Boolean(
           data.event || _questionEventFieldOpen[block.id],
         );
         if (eventFieldOpen) {
           html += '<div class="editor-block-id-row editor-question-event-row">';
-          html += '<span class="editor-block-id-label">Event</span>';
+          html +=
+            '<label class="editor-block-id-label" for="adv-event">Event</label>';
           html +=
             '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' +
             esc(String(data.event || '')) +
@@ -11769,7 +11800,7 @@
     html += '<span class="editor-block-id-label">ID</span>';
     html +=
       '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' +
-      esc(data.id || block.id || '') +
+      esc(_explicitBlockId(block)) +
       '" autocomplete="off">';
     html += '</div>';
 
@@ -13379,7 +13410,7 @@
           '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
         html +=
           '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' +
-          esc(block.id) +
+          esc(_explicitBlockId(block)) +
           '"></div>';
       }
 
