@@ -3,7 +3,11 @@
 from typing import Any, Dict, Mapping, Optional
 
 from .api_utils import generate_interview_from_bytes
-from .docassemble_compat import background_context as bg_context, get_worker_app
+from .docassemble_compat import (
+    background_context as bg_context,
+    get_worker_app,
+    github_publish_context,
+)
 
 workerapp = get_worker_app()
 
@@ -85,7 +89,7 @@ def weaver_editor_github_publish_task(
     and ref, so a template-heavy project makes far more GitHub round trips than
     a web request should hold open.
     """
-    with bg_context():
+    with github_publish_context():
         from .api_editor import _complete_github_publish_job
 
         return _complete_github_publish_job(

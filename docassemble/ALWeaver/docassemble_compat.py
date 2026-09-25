@@ -548,6 +548,37 @@ def background_context() -> AbstractContextManager[Any]:
     return context_factory()
 
 
+@contextmanager
+def github_publish_context():
+    """Provide Flask context without initializing the interview server.
+
+    On 1.9, native ``bg_context`` imports webapp.server and copies/scans all
+    Playground modules. Concurrent worker startups can lose a file during that
+    scan, leaving Flask initialized but the server import incomplete. The next
+    task retries it and fails registering ``flask_user`` a second time (#1086).
+
+    GitHub publishing uses explicit user IDs, Redis credentials, and SavedFile;
+    it needs neither interview execution nor request preprocessing. Use the
+    existing application and leave server initialization to Docassemble.
+    """
+    from docassemble.base.config import daconfig
+
+    try:
+        from docassemble.base.thread_context import empty_globals, global_context
+    except ImportError:
+        # 1.9 uses threading.local; 1.10 replaced this reset with a context.
+        _base_functions().reset_local_variables()
+        context = nullcontext()
+    else:
+        context = global_context(empty_globals())
+    app = get_flask_app()
+    url_root = daconfig.get("url root", "http://localhost") + daconfig.get("root", "/")
+    with context, app.app_context(), app.test_request_context(
+        base_url=url_root, path="/interview"
+    ):
+        yield
+
+
 def _optional_webapp_attr(candidates: Sequence[Tuple[str, str]]) -> Any:
     """Like :func:`_first_webapp_attr` but returns ``None`` instead of raising.
 
