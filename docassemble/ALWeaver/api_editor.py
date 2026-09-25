@@ -6929,7 +6929,10 @@ def editor_api_save_block() -> Response:
             raise ValueError("block_id is required")
         if not isinstance(new_yaml, str) or not new_yaml.strip():
             raise ValueError("block_yaml must be a non-empty YAML string")
-        _validate_block_yaml_payload(new_yaml)
+        allow_empty_question = post_data.get("allow_empty_question") is True
+        _validate_block_yaml_payload(
+            new_yaml, allow_empty_question=allow_empty_question
+        )
 
         current_content = playground_read_yaml(uid, project, filename)
         original_block = next(

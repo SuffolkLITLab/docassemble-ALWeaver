@@ -3029,6 +3029,18 @@ class TestOrderBlockLookup(unittest.TestCase):
                 )
                 writer.assert_not_called()
 
+    def test_save_blank_question_requires_explicit_opt_in(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/block",
+            {
+                "block_id": "intro",
+                "block_yaml": 'id: intro\nquestion: ""\ncontinue button field: intro\n',
+                "allow_empty_question": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIn('question: ""', writer.call_args.args[-1])
+
     def test_save_block_without_id_stays_selected_and_gains_no_id(self):
         from .editor_utils import parse_interview_yaml
 
