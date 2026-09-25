@@ -4910,10 +4910,9 @@ body {
   border-radius: 5px;
   background: var(--editor-bg);
 }
-.expression-target code {
+.expression-target input {
   color: var(--editor-primary);
   font-size: 13px;
-  overflow-wrap: anywhere;
 }
 .expression-equals {
   text-align: center;

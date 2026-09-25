@@ -468,8 +468,7 @@
       return (
         'id: code_' + stamp + '\n' +
         'code: |\n' +
-        '  # Write Python here\n' +
-        '  pass\n'
+        '  # Define variables with the expression editor or write Python here.\n'
       );
     }
     if (kind === 'objects') {
