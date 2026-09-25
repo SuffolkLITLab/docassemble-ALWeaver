@@ -11205,7 +11205,7 @@
 
         // Block ID — always visible at top
         html += '<div class="editor-block-id-row">';
-        html += '<span class="editor-block-id-label">ID</span>';
+        html += '<label class="editor-block-id-label" for="adv-id">ID</label>';
         html +=
           '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
           esc(_explicitBlockId(block)) +
@@ -11222,7 +11222,8 @@
         );
         if (eventFieldOpen) {
           html += '<div class="editor-block-id-row editor-question-event-row">';
-          html += '<span class="editor-block-id-label">Event</span>';
+          html +=
+            '<label class="editor-block-id-label" for="adv-event">Event</label>';
           html +=
             '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' +
             esc(String(data.event || '')) +
