@@ -673,6 +673,9 @@ def _extract_variable(block: Dict[str, Any], block_type: str) -> Optional[str]:
     if csf:
         return str(csf) if not isinstance(csf, list) else str(csf[0]) if csf else None
     if block_type == BLOCK_TYPE_QUESTION:
+        for key in ("signature", "yesno", "noyes", "yesnomaybe", "noyesmaybe", "field"):
+            if isinstance(block.get(key), str) and block[key]:
+                return block[key]
         fields = block.get("fields")
         if isinstance(fields, list) and fields:
             first = fields[0]
@@ -1050,8 +1053,8 @@ def _merge_changed_mapping_values(
     """Patch only semantically changed values in a graphical block edit.
 
     This keeps comments, anchors, quote choices and scalar styles on unchanged
-    properties.  It is deliberately limited to edits with the same top-level
-    keys; structural changes fall back to exact document-body replacement.
+    properties. Top-level additions and removals also use exact source ranges,
+    so clearing a signature caption or migrating a legacy field keeps siblings.
     """
     try:
         original = yaml.safe_load(original_body)
@@ -1067,8 +1070,6 @@ def _merge_changed_mapping_values(
             {"id": edited["id"]}, sort_keys=False, width=10**9, allow_unicode=True
         )
         return _merge_changed_mapping_values(id_line + original_body, edited_body)
-    if set(original.keys()) != set(edited.keys()):
-        return None
     original_ranges = _mapping_value_ranges(original_body)
     edited_ranges = _mapping_value_ranges(edited_body)
     if set(original_ranges) != set(original) or set(edited_ranges) != set(edited):
@@ -1155,13 +1156,61 @@ def _merge_changed_mapping_values(
             replacement += "\n"
         operations.append((start, end, replacement))
 
+    removed = set(original) - set(edited)
+    added = set(edited) - set(original)
+    if removed or added:
+        # Flow mappings, complex keys and aliases can share ranges; the final
+        # semantic check below also guards against unsafe narrow patches.
+        if original_root.flow_style or edited_root.flow_style:
+            return None
+        if not all(isinstance(key, str) for key in set(original) | set(edited)):
+            return None
+
+        def property_end(body: str, value: yaml.Node) -> int:
+            end = true_end(value)
+            if end and body[end - 1] in "\r\n":
+                return end
+            newline = body.find("\n", end)
+            return len(body) if newline < 0 else newline + 1
+
+        for key_node, value_node in original_root.value:
+            if key_node.value in removed:
+                operations.append(
+                    (
+                        key_node.start_mark.index,
+                        property_end(original_body, value_node),
+                        "",
+                    )
+                )
+        additions = []
+        for key_node, value_node in edited_root.value:
+            if key_node.value in added:
+                additions.append(
+                    edited_body[
+                        key_node.start_mark.index : property_end(
+                            edited_body, value_node
+                        )
+                    ].rstrip("\r\n")
+                )
+        if additions:
+            prefix = "" if original_body.endswith("\n") else "\n"
+            operations.append(
+                (
+                    len(original_body),
+                    len(original_body),
+                    prefix + "\n".join(additions) + "\n",
+                )
+            )
+
     for key in original:
+        if key in removed:
+            continue
         if normalized_graphical_value(
             str(key), original[key]
         ) == normalized_graphical_value(str(key), edited[key]):
             continue
         if (
-            key == "fields"
+            key in ("fields", "buttons", "choices", "dropdown", "combobox")
             and isinstance(original_nodes[key], yaml.SequenceNode)
             and isinstance(edited_nodes[key], yaml.SequenceNode)
             and len(original[key]) == len(edited[key])
@@ -1173,14 +1222,33 @@ def _merge_changed_mapping_values(
                 edited[key],
             ):
                 if normalized_graphical_value(
-                    "fields", [old_value]
-                ) != normalized_graphical_value("fields", [new_value]):
+                    key, [old_value]
+                ) != normalized_graphical_value(key, [new_value]):
                     patch_field_value(old_node, new_node, old_value, new_value)
             continue
         start, end = original_ranges[str(key)]
         edited_start, edited_end = edited_ranges[str(key)]
         replacement = edited_body[edited_start:edited_end]
         original_fragment = original_body[start:end]
+        if (
+            isinstance(edited_nodes[key], yaml.ScalarNode)
+            and edited_nodes[key].style in ("|", ">")
+            and re.match(r"^[|>][1-9]?\+", replacement)
+            and replacement.endswith(("\r", "\n"))
+            and not original_fragment.endswith(("\r", "\n"))
+        ):
+            # A plain/quoted scalar excludes its line ending from the range,
+            # while a block scalar includes it. Reuse that ending only once:
+            # an extra blank line changes the value of a keep-chomp (|+) block.
+            tail = re.match(
+                r"([ \t]*(?:#[^\r\n]*)?)(\r\n|\n|\r|$)", original_body[end:]
+            )
+            if tail:
+                end += tail.end()
+                comment = tail.group(1).strip()
+                if comment:
+                    header, separator, body = replacement.partition("\n")
+                    replacement = header.rstrip("\r") + " " + comment + separator + body
         if original_fragment.endswith("\r\n") and not replacement.endswith(
             ("\r", "\n")
         ):
@@ -1202,10 +1270,14 @@ def _merge_changed_mapping_values(
     # replacement path instead of producing invalid or semantically wrong YAML.
     try:
         updated_data = yaml.safe_load(updated)
-        if not isinstance(updated_data, dict) or any(
-            normalized_graphical_value(str(key), updated_data.get(key))
-            != normalized_graphical_value(str(key), edited[key])
-            for key in edited
+        if (
+            not isinstance(updated_data, dict)
+            or set(updated_data) != set(edited)
+            or any(
+                normalized_graphical_value(str(key), updated_data.get(key))
+                != normalized_graphical_value(str(key), edited[key])
+                for key in edited
+            )
         ):
             return None
     except yaml.YAMLError:
@@ -1232,7 +1304,11 @@ def update_block_in_yaml(
     range.  Other documents and separators are never serialized again.
     """
     _block, start, end, original_body = _unique_block_document(full_yaml, block_id)
-    edited_body = new_block_yaml.strip("\r\n")
+    edited_body = (
+        new_block_yaml.lstrip("\r\n")
+        if preserve_unchanged_annotations
+        else new_block_yaml.strip("\r\n")
+    )
     replacement: Optional[str] = None
     if preserve_unchanged_annotations:
         # The question controls do not serialize attachments. Retain their
@@ -1257,15 +1333,21 @@ def update_block_in_yaml(
                         if index + 1 < len(original_node.value)
                         else len(original_body)
                     )
-                    edited_body += "\n" + original_body[
-                        key.start_mark.index : property_end
-                    ].rstrip("\r\n")
+                    edited_body += (
+                        "" if edited_body.endswith(("\r", "\n")) else "\n"
+                    ) + original_body[key.start_mark.index : property_end].rstrip(
+                        "\r\n"
+                    )
         replacement = _merge_changed_mapping_values(original_body, edited_body)
     if replacement is None:
         leading_len = len(original_body) - len(original_body.lstrip("\r\n"))
         trailing_len = len(original_body) - len(original_body.rstrip("\r\n"))
         leading = original_body[:leading_len]
         trailing = original_body[-trailing_len:] if trailing_len else ""
+        # Graphical text may end in a keep-chomp literal scalar. Its trailing
+        # newlines are part of the value, not padding to strip or duplicate.
+        if preserve_unchanged_annotations and edited_body.endswith(("\r", "\n")):
+            trailing = ""
         replacement = leading + edited_body + trailing
     return _replace_document_body(full_yaml, start, end, replacement)
 
