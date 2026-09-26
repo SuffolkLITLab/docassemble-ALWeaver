@@ -5,9 +5,10 @@ const path = require('path');
 const editorSource = fs.readFileSync(path.join(__dirname, 'data/static/editor.js'), 'utf8');
 const syncSource = editorSource.slice(editorSource.indexOf('  function syncQuestionMetaToData('), editorSource.indexOf('  function syncFieldsToData('));
 const controls = {};
-const syncQuestion = new Function('document', 'window', syncSource + '\nreturn syncQuestionMetaToData;')(
+const syncQuestion = new Function('document', 'window', 'isQuestionEditorBlock', syncSource + '\nreturn syncQuestionMetaToData;')(
   { getElementById: id => controls[id] || null },
   { ALWeaverSerializers: require('./data/static/editor_serializers.js') },
+  block => block && block.type === 'question',
 );
 const question = {type: 'question', data: {if: 'eligible', mandatory: 'run_question'}};
 syncQuestion(question);

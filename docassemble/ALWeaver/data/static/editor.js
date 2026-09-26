@@ -2426,7 +2426,7 @@
     if (argsInput) argsInput.value = parts.join(', ');
     var block = getSelectedBlock();
     if (block && block.type === 'question') {
-      syncFieldsToData(block);
+      if (syncFieldsToData(block) === false) return false;
       markInterviewDirty('set-al-field-method-options:' + context.fieldIndex);
     }
     closeBootstrapModal('al-field-method-modal');
@@ -5884,8 +5884,8 @@
     }
     var block = getSelectedBlock();
     if (!block || state.questionEditMode !== 'preview') return;
-    if (block.type === 'question') {
-      syncFieldsToData(block);
+    if (isQuestionEditorBlock(block)) {
+      if (syncFieldsToData(block) === false) return false;
     } else if (block.type === 'code') {
       syncMandatoryToData(block);
     }
@@ -6547,6 +6547,10 @@
 
   var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
 
+  function appendYamlText(yaml, key, value) {
+    return window.ALWeaverSerializers.appendYamlText(yaml, key, value);
+  }
+
   function appendYamlValue(yaml, key, value) {
     if (value === undefined || value === null) return yaml;
     var text = String(value).trim();
@@ -6963,8 +6967,10 @@
     }
 
     var helpValue = _textValue('adv-help', 'help');
-    if (helpValue.trim()) {
-      yaml = appendYamlValue(yaml, 'help', helpValue);
+    if (data.help && typeof data.help === 'object') {
+      yaml += 'help: ' + JSON.stringify(data.help) + '\n';
+    } else if (helpValue.trim()) {
+      yaml = appendYamlText(yaml, 'help', helpValue);
     }
 
     var audioValue = _textValue('adv-audio', 'audio');
@@ -6984,12 +6990,12 @@
 
     var scriptValue = _textValue('adv-script', 'script');
     if (scriptValue.trim()) {
-      yaml = appendYamlValue(yaml, 'script', scriptValue);
+      yaml = appendYamlText(yaml, 'script', scriptValue);
     }
 
     var cssValue = _textValue('adv-css', 'css');
     if (cssValue.trim()) {
-      yaml = appendYamlValue(yaml, 'css', cssValue);
+      yaml = appendYamlText(yaml, 'css', cssValue);
     }
 
     var languageValue = _textValue('adv-language', 'language');
@@ -7059,7 +7065,7 @@
       'validation code',
     );
     if (validationCodeValue.trim()) {
-      yaml = appendYamlValue(yaml, 'validation code', validationCodeValue);
+      yaml = appendYamlText(yaml, 'validation code', validationCodeValue);
     }
 
     var commentValue = _textValue('adv-comment', 'comment');
@@ -7073,7 +7079,7 @@
   function serializeQuestionBlockToYaml(block) {
     // Keep generated ALIndividual helper calls and their question-level sets
     // modifier in sync immediately before serialization.
-    syncFieldsToData(block);
+    if (syncFieldsToData(block) === false) return '';
     return window.ALWeaverSerializers.serializeQuestionToYaml(block, {
       document: document,
       appendYamlValue: appendYamlValue,
@@ -7084,6 +7090,19 @@
       state: state,
       serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
       appendQuestionAdvancedYaml: _appendQuestionAdvancedYaml,
+      questionModifierKeys: QUESTION_MODIFIER_KEYS.filter(function (key) {
+        return (
+          [
+            'terms',
+            'auto terms',
+            'segment',
+            'breadcrumb',
+            'supersedes',
+            'action buttons',
+            'tabular',
+          ].indexOf(key) === -1
+        );
+      }),
       generateId: function (questionText) {
         return generateBlockId(questionText, state.blocks, block.id);
       },
@@ -7731,9 +7750,23 @@
     return id === undefined || id === null ? '' : String(id);
   }
 
+  var _screenValidationMessage = '';
+
   function syncQuestionMetaToData(blk) {
-    if (!blk || blk.type !== 'question') return;
-    if (!blk.data) blk.data = {};
+    if (!isQuestionEditorBlock(blk)) return;
+    try {
+      var screenData = window.ALWeaverSerializers.readScreenControls(
+        blk.data || {},
+        document,
+      );
+    } catch (error) {
+      _screenValidationMessage =
+        error.message || 'Check the screen settings before continuing.';
+      window.alert(_screenValidationMessage);
+      return false;
+    }
+    _screenValidationMessage = '';
+    blk.data = screenData;
 
     var idInput = document.getElementById('adv-id');
     if (idInput) {
@@ -7837,9 +7870,16 @@
     // Extended advanced fields (show more)
     function _syncSimple(id, key) {
       var el = document.getElementById(id);
-      if (!el) return;
-      var v = String(el.value || '').trim();
-      if (v) blk.data[key] = v;
+      if (!el || el.readOnly) return;
+      var raw = String(el.value || '');
+      var v = raw.trim();
+      if (v)
+        blk.data[key] =
+          ['help', 'script', 'css', 'comment', 'validation code'].indexOf(
+            key,
+          ) !== -1
+            ? raw
+            : v;
       else delete blk.data[key];
     }
     function _syncList(id, key) {
@@ -7904,14 +7944,19 @@
   }
 
   function syncFieldsToData(blk) {
-    if (!blk || blk.type !== 'question') return;
+    if (!isQuestionEditorBlock(blk)) return;
     var rows = document.querySelectorAll('.editor-field-row');
     var previousGeneratedSets =
       (blk.data && blk.data._editor_al_generated_sets) ||
       _generatedALFieldSets((blk.data && blk.data.fields) || []);
-    syncQuestionMetaToData(blk);
+    if (syncQuestionMetaToData(blk) === false) return false;
+    if (window.ALWeaverSerializers.questionScreenType(blk.data) !== 'fields')
+      return;
     if (rows.length === 0) {
-      if (state.questionBlockTab === 'screen') {
+      if (
+        state.questionBlockTab === 'screen' &&
+        window.ALWeaverSerializers.questionScreenType(blk.data) === 'fields'
+      ) {
         blk.data.fields = [];
       }
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -9275,9 +9320,15 @@
     if (!block) return Promise.resolve(true);
     var originalBlockId = block.id;
     if (editingRawOrder) _stashFullYamlContent();
-    var yamlVal = editingRawOrder
-      ? state.fullYamlStash.order
-      : getBlockYamlForSave(block);
+    var yamlVal;
+    try {
+      yamlVal = editingRawOrder
+        ? state.fullYamlStash.order
+        : getBlockYamlForSave(block);
+    } catch (error) {
+      window.alert(error.message || 'Check the screen settings before saving.');
+      return Promise.resolve(false);
+    }
     if (!yamlVal) return Promise.resolve(false);
     return apiPost('/api/block', {
       project: state.project,
@@ -9391,7 +9442,7 @@
   }
 
   function promptAndSaveUnsavedChanges(actionLabel) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false) return Promise.resolve(false);
     if (!hasUnsavedChanges()) return Promise.resolve(true);
     var modalElement = document.getElementById('unsaved-changes-modal');
     var modal = getOrCreateBootstrapModal('unsaved-changes-modal');
@@ -9560,7 +9611,7 @@
   var _pendingNavigationDismissal = null;
 
   function deferNavigationForUnsavedChanges(actionLabel, action) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false) return true;
     if (!hasUnsavedChanges()) return false;
     // Clicking through tabs quickly stacks several navigations behind one
     // prompt. Keep only the most recent one: it is the tab the user actually
@@ -9672,7 +9723,8 @@
   // consume this; neither may fall back to the saved file behind the
   // developer's back, so an unmappable buffer throws instead.
   function describeWorkingSource(orderDirtyMessage) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false)
+      throw new Error(_screenValidationMessage);
     var fileState = dirtyState.getFileState(state.filename);
     var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
     var hasDirtyBlocks = Boolean(
@@ -9718,6 +9770,10 @@
         options.blockReplacements[blockId] = isActiveBlock
           ? getBlockYamlForSave(block)
           : block.yaml;
+        if (!options.blockReplacements[blockId])
+          throw new Error(
+            _screenValidationMessage || 'Could not prepare the screen source.',
+          );
       });
     }
 
@@ -10944,7 +11000,11 @@
    * author has typed into the editor but not yet saved. */
   function _screenPreviewData(block, notes) {
     if (block.type === 'question') {
-      if (state.questionEditMode === 'preview') syncFieldsToData(block);
+      if (
+        state.questionEditMode === 'preview' &&
+        syncFieldsToData(block) === false
+      )
+        return null;
       return block.data || {};
     }
     if (block.type === 'review') {
@@ -10988,6 +11048,7 @@
       );
     }
     var previewData = _screenPreviewData(block, notes);
+    if (previewData === null) return;
 
     var resolved = _screenPreviewContext();
     // Docassemble puts labels to the left of fields unless the interview's
@@ -11271,9 +11332,185 @@
     return html;
   }
 
+  function renderScreenControls(data, kind) {
+    var html =
+      '<div class="editor-section-legend mt-3">' +
+      (kind === 'signature' ? 'Signature' : 'Other screen: ' + esc(kind)) +
+      '</div>';
+    function textControl(key, label, multiline, hint) {
+      var id = 'screen-' + key.replace(/ /g, '-');
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="' +
+        id +
+        '">' +
+        esc(label) +
+        '</label>';
+      if (multiline) html += renderMarkdownToolbar(id, false);
+      html +=
+        '<textarea class="form-control editor-form-control" data-screen-control id="' +
+        id +
+        '" rows="' +
+        (multiline ? 3 : 1) +
+        '">' +
+        esc(data[key] == null ? '' : String(data[key])) +
+        '</textarea>';
+      if (hint) html += '<div class="text-muted small">' + esc(hint) + '</div>';
+      html += '</div>';
+    }
+    if (kind === 'signature') {
+      textControl(
+        'signature',
+        'Signature variable',
+        false,
+        'The DAFile variable that stores the signature, such as users[0].signature or x.signature.',
+      );
+      textControl('under', 'Text below the signature', true);
+      textControl(
+        'pen color',
+        'Pen color',
+        false,
+        'Optional CSS color or Mako expression. Defaults to black.',
+      );
+      var computed =
+        typeof data.required !== 'undefined' &&
+        typeof data.required !== 'boolean';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="screen-required">Require a signature</label>';
+      html +=
+        '<select class="form-select editor-form-control" data-screen-control id="screen-required"' +
+        (computed ? ' disabled' : '') +
+        '>';
+      [
+        ['', 'Default (required)'],
+        ['true', 'Required'],
+        ['false', 'Allow a blank signature'],
+      ].forEach(function (entry) {
+        html +=
+          '<option value="' +
+          entry[0] +
+          '"' +
+          (String(data.required === undefined ? '' : data.required) === entry[0]
+            ? ' selected'
+            : '') +
+          '>' +
+          entry[1] +
+          '</option>';
+      });
+      if (computed)
+        html +=
+          '<option selected>Expression: ' +
+          esc(String(data.required)) +
+          '</option>';
+      html += '</select>';
+      if (computed)
+        html +=
+          '<div class="text-muted small">Edit this expression in YAML.</div>';
+      html += '</div>';
+      html +=
+        '<p class="text-muted small">AssemblyLine already provides a generic signature screen. Use a custom screen when you need different wording or behavior.</p>';
+      return html;
+    }
+    if (['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].indexOf(kind) !== -1) {
+      textControl(kind, 'Answer variable', false);
+      html +=
+        '<p class="text-muted small">These standalone buttons use a different layout. For new screens, we recommend a regular question with a yes/no field.</p>';
+    } else {
+      textControl(
+        'field',
+        kind === 'field' ? 'Continue variable' : 'Answer variable',
+        false,
+        kind === 'buttons'
+          ? 'Leave empty for buttons that run actions, such as restart or exit.'
+          : '',
+      );
+      if (Array.isArray(data[kind])) {
+        data[kind].forEach(function (item, index) {
+          var desc = window.ALWeaverSerializers.screenChoice(item);
+          html += '<div class="border rounded p-2 mb-2">';
+          if (desc.computed) {
+            html +=
+              '<p class="small mb-0">Choices generated by code. Edit the expression in YAML.</p>';
+          } else {
+            var complex = desc.value !== null && typeof desc.value === 'object';
+            var type = desc.value === null ? 'null' : typeof desc.value;
+            html +=
+              '<label class="editor-tiny" for="screen-choice-label-' +
+              index +
+              '">Label</label>';
+            html +=
+              '<textarea class="form-control editor-form-control" data-screen-control rows="1" id="screen-choice-label-' +
+              index +
+              '">' +
+              esc(desc.label) +
+              '</textarea>';
+            html +=
+              '<label class="editor-tiny" for="screen-choice-value-' +
+              index +
+              '">Value or action</label>';
+            html +=
+              '<textarea class="form-control editor-form-control" data-screen-control rows="1" id="screen-choice-value-' +
+              index +
+              '"' +
+              (complex ? ' readonly' : '') +
+              '>' +
+              esc(complex ? JSON.stringify(desc.value) : String(desc.value)) +
+              '</textarea>';
+            html +=
+              '<label class="editor-tiny" for="screen-choice-type-' +
+              index +
+              '">Value type</label>';
+            html +=
+              '<select class="form-select editor-form-control" data-screen-control id="screen-choice-type-' +
+              index +
+              '"' +
+              (complex ? ' disabled' : '') +
+              '>';
+            [
+              ['string', 'Text'],
+              ['boolean', 'Boolean (true or false)'],
+              ['number', 'Number'],
+              ['null', 'None'],
+              ['object', 'Action (edit in YAML)'],
+            ].forEach(function (entry) {
+              if (entry[0] === 'object' && !complex) return;
+              html +=
+                '<option value="' +
+                entry[0] +
+                '"' +
+                (type === entry[0] ? ' selected' : '') +
+                '>' +
+                entry[1] +
+                '</option>';
+            });
+            html += '</select>';
+            if (complex)
+              html +=
+                '<div class="text-muted small">Edit nested actions in YAML. Label edits preserve the action.</div>';
+          }
+          html +=
+            '<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-screen-remove-choice="' +
+            index +
+            '">Remove choice</button></div>';
+        });
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-primary" id="screen-add-choice">Add choice</button>';
+      } else if (kind !== 'field') {
+        html +=
+          '<p class="text-muted small">Choices generated by code. Edit the expression in YAML.</p>';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'under'))
+      textControl('under', 'Text below the controls', true);
+    return html;
+  }
+
   function renderQuestionBlock(block) {
-    var data = block.data || {};
+    var data = window.ALWeaverSerializers.normalizeQuestionData(
+      block.data || {},
+    );
+    block.data = data;
     var fields = data.fields || [];
+    var screenType = window.ALWeaverSerializers.questionScreenType(data);
     var questionHelpTypes = [];
     var isPreview = state.questionEditMode === 'preview';
     var blankLabelAllowed = Boolean(
@@ -11424,8 +11661,10 @@
           html += '</div>';
         }
 
-        // Fields section — merged into same card
-        if (fields.length > 0) {
+        // A standalone screen has its own answer controls.
+        if (screenType !== 'fields') {
+          html += renderScreenControls(data, screenType);
+        } else if (fields.length > 0) {
           html += '<div class="editor-section-legend mt-3">Fields</div>';
           html += '<div class="editor-field-grid-header">';
           html +=
@@ -11798,6 +12037,12 @@
       if (qTitle) _initAutoResize(qTitle, 36);
       var qSub = document.getElementById('q-subquestion');
       if (qSub) _initAutoResize(qSub, 120);
+      var helpInput = document.getElementById('adv-help');
+      if (helpInput && data.help && typeof data.help === 'object') {
+        helpInput.value = JSON.stringify(data.help, null, 2);
+        helpInput.readOnly = true;
+        helpInput.title = 'Edit structured help in YAML.';
+      }
       document
         .querySelectorAll('[data-field-prop="label"]')
         .forEach(function (ta) {
@@ -17814,7 +18059,7 @@
     if (topTab) {
       var nextView = topTab.getAttribute('data-view');
       function changeTopView() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.currentView = nextView;
         setActiveTopTab(topTab);
         if (state.currentView === 'interview') {
@@ -17846,7 +18091,7 @@
     if (projectCardBtn) {
       var cardProject = projectCardBtn.getAttribute('data-project-card');
       function openCardProject() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         openProject(cardProject);
       }
       if (
@@ -17963,7 +18208,7 @@
           })
         )
           return;
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.selectedBlockId = nextBlockId;
         dirtyState.setActiveBlock(nextBlockId);
         state.canvasMode = 'question';
@@ -18331,7 +18576,7 @@
         )
       )
         return;
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
     }
@@ -18339,7 +18584,7 @@
     // Top action buttons
     if (uiAction === 'open-project-selector') {
       function showProjectSelector() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'project-selector';
         state.currentView = 'interview';
         var interviewTab0 = document.querySelector(
@@ -18801,7 +19046,7 @@
 
     if (target.id === 'btn-new-project') {
       function showNewProject() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'new-project';
         state.currentView = 'interview';
         var interviewTab1 = document.querySelector(
@@ -18822,7 +19067,7 @@
     }
     if (uiAction === 'open-full-yaml') {
       function toggleFullYaml() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         _stashFullYamlContent();
         state.canvasMode =
           state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
@@ -18841,7 +19086,7 @@
     if (uiAction === 'open-assemblyline-settings') {
       if (!state.project || !state.filename) return;
       function openAssemblyLineSettings() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'assemblyline-settings';
         state.currentView = 'interview';
         renderCanvas();
@@ -18918,7 +19163,7 @@
     if (uiAction === 'open-runtime-inspector') {
       if (!state.project || !state.filename) return;
       function openRuntimeInspector() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'runtime-inspector';
         state.currentView = 'interview';
         renderCanvas();
@@ -18949,7 +19194,7 @@
       return;
     }
     if (uiAction === 'open-interview-flow-report') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       openInterviewFlowReport();
       return;
     }
@@ -19004,7 +19249,7 @@
     if (target.id === 'add-question-event') {
       var eventBlock = getSelectedBlock();
       if (eventBlock && eventBlock.type === 'question') {
-        syncFieldsToData(eventBlock);
+        if (syncFieldsToData(eventBlock) === false) return false;
         _questionEventFieldOpen[eventBlock.id] = true;
         markInterviewDirty();
         renderCanvas();
@@ -19020,7 +19265,7 @@
       if (removeEventBlock && removeEventBlock.type === 'question') {
         var eventInput = document.getElementById('adv-event');
         if (eventInput) eventInput.value = '';
-        syncFieldsToData(removeEventBlock);
+        if (syncFieldsToData(removeEventBlock) === false) return false;
         delete _questionEventFieldOpen[removeEventBlock.id];
         markInterviewDirty();
         renderCanvas();
@@ -19078,7 +19323,7 @@
         !state.filename
       )
         return;
-      syncFieldsToData(questionBlock);
+      if (syncFieldsToData(questionBlock) === false) return false;
       var screenInstruction = window.prompt(
         'Optional guidance for this screen (leave blank for auto-draft):',
         '',
@@ -19128,7 +19373,7 @@
         !state.filename
       )
         return;
-      syncFieldsToData(currentQuestionBlock);
+      if (syncFieldsToData(currentQuestionBlock) === false) return false;
       _setButtonLoading('ai-generate-fields', true, 'Generating...');
       apiPost('/api/ai/generate-fields', {
         project: state.project,
@@ -19243,7 +19488,12 @@
         return;
       }
       if (qMode === 'preview') {
-        stashCurrentEditorState();
+        try {
+          if (stashCurrentEditorState() === false) return;
+        } catch (error) {
+          window.alert(error.message);
+          return;
+        }
         if (qTab === 'screen' || qTab === 'options')
           state.questionBlockTab = qTab;
         renderCanvas();
@@ -19274,7 +19524,7 @@
       var tabFi = parseInt(target.getAttribute('data-field-idx'), 10);
       var tabBlock = getSelectedBlock();
       if (tabBlock && tabBlock.type === 'question') {
-        syncFieldsToData(tabBlock);
+        if (syncFieldsToData(tabBlock) === false) return false;
         markInterviewDirty();
       }
       _fieldSettingsTabs[tabFi] =
@@ -19288,7 +19538,7 @@
       var nextType = target.getAttribute('data-field-datatype') || 'text';
       var typeBlock = getSelectedBlock();
       if (typeBlock && typeBlock.type === 'question') {
-        syncFieldsToData(typeBlock);
+        if (syncFieldsToData(typeBlock) === false) return false;
         if (
           typeBlock.data &&
           Array.isArray(typeBlock.data.fields) &&
@@ -19351,7 +19601,7 @@
     }
 
     if (target.id === 'toggle-advanced') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.advancedOpen = !state.advancedOpen;
       renderCanvas();
       return;
@@ -19359,7 +19609,7 @@
 
     // Advanced show more toggle
     if (target.id === 'adv-show-more') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.advancedShowMore = !state.advancedShowMore;
       renderCanvas();
       return;
@@ -19493,6 +19743,7 @@
       if (!block) return;
       var originalBlockId = block.id;
       var yamlVal = getBlockYamlForSave(block);
+      if (!yamlVal) return;
 
       apiPost('/api/block', {
         project: state.project,
@@ -19646,7 +19897,7 @@
     }
     if (target.id === 'order-to-raw') {
       function openRawOrder() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state._prevCanvasMode = 'order-builder';
         state.canvasMode = 'full-yaml';
         state.fullYamlTab = 'order';
@@ -19661,7 +19912,7 @@
     }
     if (target.id === 'order-back-to-code') {
       function returnToOrderCode() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         if (state.activeOrderBlockId)
           state.selectedBlockId = state.activeOrderBlockId;
         dirtyState.setActiveBlock(state.selectedBlockId);
@@ -19831,10 +20082,34 @@
     }
 
     // Add field
+    var screenRemove = target.closest('[data-screen-remove-choice]');
+    if (target.id === 'screen-add-choice' || screenRemove) {
+      var screenBlock = getSelectedBlock();
+      if (!screenBlock) return;
+      try {
+        if (syncQuestionMetaToData(screenBlock) === false) return false;
+      } catch (error) {
+        window.alert(error.message);
+        return;
+      }
+      var kind = window.ALWeaverSerializers.questionScreenType(
+        screenBlock.data,
+      );
+      if (!Array.isArray(screenBlock.data[kind])) return;
+      if (screenRemove)
+        screenBlock.data[kind].splice(
+          Number(screenRemove.getAttribute('data-screen-remove-choice')),
+          1,
+        );
+      else screenBlock.data[kind].push({ 'New choice': 'new_value' });
+      markInterviewDirty();
+      renderCanvas();
+      return;
+    }
     if (target.id === 'add-field-btn') {
       var blk = getSelectedBlock();
       if (blk && blk.data) {
-        syncFieldsToData(blk);
+        if (syncFieldsToData(blk) === false) return false;
         if (!blk.data.fields) blk.data.fields = [];
         blk.data.fields.push({ label: 'New field', field: 'new_variable' });
         _openFieldModsPanels = {};
@@ -19849,7 +20124,7 @@
       var fi = parseInt(removeFieldBtn.getAttribute('data-remove-field'), 10);
       var blk2 = getSelectedBlock();
       if (blk2 && blk2.data && blk2.data.fields) {
-        syncFieldsToData(blk2);
+        if (syncFieldsToData(blk2) === false) return false;
         blk2.data.fields.splice(fi, 1);
         _syncGeneratedALFieldSets(blk2);
         _openFieldModsPanels = {};
@@ -20331,6 +20606,7 @@
       target.matches('.editor-obj-input') ||
       target.id === 'q-title' ||
       target.id === 'q-subquestion' ||
+      target.matches('[data-screen-control]') ||
       target.id === 'adv-id' ||
       target.id === 'adv-if' ||
       target.id === 'adv-continue-field' ||
@@ -20375,6 +20651,10 @@
 
   document.addEventListener('change', function (e) {
     var target = e.target;
+    if (target.matches('[data-screen-control]')) {
+      markInterviewDirty();
+      return;
+    }
     if (target.id === 'q-allow-blank') {
       setBlankQuestionAllowed(target.checked);
       return;
@@ -20530,7 +20810,7 @@
     if (target.matches('[data-field-prop="type"]')) {
       var blk = getSelectedBlock();
       if (blk) {
-        syncFieldsToData(blk);
+        if (syncFieldsToData(blk) === false) return false;
         markInterviewDirty('set-field-type');
         renderCanvas();
       }
@@ -20539,7 +20819,7 @@
     if (target.id === 'adv-enable-if') {
       var blk2 = getSelectedBlock();
       if (blk2) {
-        syncFieldsToData(blk2);
+        if (syncFieldsToData(blk2) === false) return false;
         markInterviewDirty('set-enable-if');
         renderCanvas();
       }
@@ -20878,7 +21158,7 @@
     var nextProject = projectSelect.value;
     function changeProject() {
       projectSelect.value = nextProject;
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.project = nextProject || null;
       state.selectedBlockId = null;
       dirtyState.activate(null, null);
@@ -20904,7 +21184,7 @@
     var nextFilename = fileSelect.value;
     function changeFile() {
       fileSelect.value = nextFilename;
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.filename = nextFilename;
       state.selectedBlockId = null;
       dirtyState.activate(state.filename, null);
@@ -20929,7 +21209,7 @@
       isInterviewView() && selected && !isBlockVisibleInOutline(selected);
     state.searchQuery = previousQuery;
     function applySearch() {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.searchQuery = nextQuery;
       searchInput.value = nextQuery;
       if (isInterviewView()) {
@@ -20959,7 +21239,7 @@
   function applyOutlineFilter(jump, keepSelection) {
     if (jump === state.jumpTarget) return;
     function changeJumpTarget() {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.jumpTarget = jump;
       state.canvasMode = 'question';
       if (keepSelection) {
@@ -21078,7 +21358,11 @@
   window.addEventListener('resize', hideTypeaheadMenu);
   document.addEventListener('scroll', hideTypeaheadMenu, true);
   window.addEventListener('beforeunload', function (e) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false) {
+      e.preventDefault();
+      e.returnValue = '';
+      return;
+    }
     if (!dirtyState.hasDirty(state.filename) && !state.sectionDirty) return;
     e.preventDefault();
     e.returnValue = '';

@@ -1125,7 +1125,9 @@
             Object.prototype.hasOwnProperty.call(item, 'value')) {
           return { label: String(item.label), value: String(item.value) };
         }
-        var key = Object.keys(item)[0];
+        var key = Object.keys(item).find(function (name) {
+          return ['url', 'image', 'help', 'default', 'color', 'css class', 'show if'].indexOf(name) === -1;
+        });
         var value = item[key];
         if (value && typeof value === 'object') return { label: String(key), value: String(key) };
         return { label: String(key), value: String(value) };
@@ -2047,10 +2049,45 @@
     return { html: html, notes: notes, itemCount: items.length };
   }
 
+  function renderSignature(block, opts) {
+    var report = {};
+    var context = opts.interview || null;
+    var notes = ['The signature pad is a visual preview. Signatures are collected in the running interview.'];
+    var color = String(block['pen color'] || 'black').trim();
+    if (!/^(#[\da-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([\d\s.,%+-]+\))$/i.test(color)) {
+      color = 'black';
+      notes.push('The pen color is evaluated in the running interview; this preview uses black.');
+    }
+    var title = renderInlineMarkdown(block.question || 'Sign your name', report, context);
+    var continueLabel = esc(block['continue button label'] || opts.continueButtonLabel || 'Continue');
+    var continueColor = esc(block['continue button color'] || opts.continueButtonColor || 'primary');
+    var html = '<div class="dasigpage" id="dasigpage">';
+    html += '<div class="d-block d-sm-none bg-body-tertiary p-2"><div class="d-flex justify-content-between align-items-center gap-2"><button type="button" class="btn btn-sm btn-warning dasigclear">Clear</button><div id="dasigtitle">' + title + '</div><button type="button" class="btn btn-sm btn-' + continueColor + ' dasigsave">' + continueLabel + '</button></div></div>';
+    html += '<div class="dasigtoppart"><div class="da-page-header d-none d-sm-block"><h1 class="h3" id="daMainQuestion">' + title + '</h1></div></div>';
+    if (block.subquestion) html += '<div class="dasigmidpart da-subquestion">' + renderMarkdown(block.subquestion, report, context) + '</div>';
+    html += '<div id="dasigcontent" role="img" aria-label="Signature pad' + (block.required === false ? ' (optional)' : '') + '" style="border:1px solid #aaa;min-height:180px;height:35vh;max-height:350px;position:relative;background:white">';
+    html += '<svg aria-hidden="true" viewBox="0 0 400 150" style="width:100%;height:100%;position:absolute"><path d="M60 110 C130 10 70 30 85 100 S120 80 130 100 Q150 50 145 105 Q180 60 173 103 Q230 55 210 100 Q245 70 260 92 L310 82" fill="none" stroke="' + esc(color) + '" stroke-width="2"/><path d="M30 130 H370" stroke="#aaa"/></svg></div>';
+    html += '<div class="dasigbottompart">' + (block.under ? renderMarkdown(block.under, report, context) : '') + '</div>';
+    html += '<div class="da-button-set d-none d-sm-block da-signature"><div class="dasigbuttons mt-3">';
+    if (opts.showBackButton !== false) html += '<button type="button" class="btn btn-link daquestionbackbutton">' + esc(opts.backButtonLabel || DEFAULT_BACK_BUTTON_LABEL) + '</button>';
+    html += '<button type="button" class="btn btn-' + continueColor + ' btn-da dasigsave">' + continueLabel + '</button> <button type="button" class="btn btn-warning btn-da dasigclear">Clear</button></div></div>';
+    if (block.help) html += '<div class="dahelp">' + renderMarkdown(block.help, report, context) + '</div>';
+    html += '</div>';
+    Object.keys(PLACEHOLDER_NOTES).forEach(function (key) {
+      if ((report.placeholders || []).indexOf(key) !== -1) notes.push(PLACEHOLDER_NOTES[key]);
+    });
+    return { html: html, notes: notes.concat(opts.notes || []), fieldCount: 1 };
+  }
+
   function renderQuestion(data, options) {
     var opts = options || {};
     var block = data || {};
-    var described = describeFields(block.fields);
+    if (Object.prototype.hasOwnProperty.call(block, 'signature')) return renderSignature(block, opts);
+    var choiceKind = ['choices', 'dropdown', 'combobox'].find(function (key) { return Object.prototype.hasOwnProperty.call(block, key); });
+    var booleanKind = ['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].find(function (key) { return Object.prototype.hasOwnProperty.call(block, key); });
+    var previewFields = block.fields;
+    if (choiceKind) previewFields = [{ label: '', field: block.field || '', datatype: choiceKind === 'choices' ? 'radio' : choiceKind, choices: block[choiceKind] }];
+    var described = describeFields(previewFields);
     var notes = described.notes.slice();
     var buttonColor = opts.continueButtonColor || 'primary';
     var report = {};
@@ -2085,16 +2122,34 @@
         'title="Go back to the previous question"><i class="fa-solid fa-chevron-left me-1"></i>' +
         esc(opts.backButtonLabel || DEFAULT_BACK_BUTTON_LABEL) + '</button>';
     }
-    html += '<button class="btn btn-' + esc(buttonColor) + ' btn-da" type="submit">' +
-      esc(block['continue button label'] || opts.continueButtonLabel || 'Continue') + '</button>';
+    if (booleanKind) {
+      ['Yes', 'No'].concat(booleanKind.indexOf('maybe') !== -1 ? ["I don’t know"] : []).forEach(function (label) {
+        html += '<button type="button" class="btn btn-primary btn-da">' + esc(label) + '</button> ';
+      });
+    } else if (Object.prototype.hasOwnProperty.call(block, 'buttons')) {
+      if (Array.isArray(block.buttons)) block.buttons.forEach(function (item) {
+        if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'code')) {
+          notes.push('Additional buttons are generated by code in the running interview.');
+          return;
+        }
+        var entry = choiceEntries([item])[0];
+        var color = item && typeof item === 'object' && /^(primary|secondary|success|danger|warning|info|light|dark|link)$/.test(item.color) ? item.color : 'primary';
+        html += '<button type="button" class="btn btn-' + color + ' btn-da">' + renderInlineMarkdown(entry.label, report, context) + '</button> ';
+      });
+      else notes.push('Buttons are generated by code in the running interview.');
+    } else {
+      html += '<button class="btn btn-' + esc(buttonColor) + ' btn-da" type="submit">' +
+        esc(block['continue button label'] || opts.continueButtonLabel || 'Continue') + '</button>';
+    }
     html += '</fieldset>';
     html += '</form>';
+    if (block.under) html += '<div class="daundertext">' + renderMarkdown(block.under, report, context) + '</div>';
     if (block.help) {
       html += '<div class="dahelp"><h2 class="h4">Help</h2>' + renderMarkdown(block.help, report, context) + '</div>';
     }
     html += '</div>';
 
-    if (!described.fields.length && !String(block.subquestion || '').trim()) {
+    if (!booleanKind && !Object.prototype.hasOwnProperty.call(block, 'buttons') && !described.fields.length && !String(block.subquestion || '').trim()) {
       notes.push('This screen has no fields, so only the question text and Continue button are shown.');
     }
     (report.placeholders || []).forEach(function (kind) {
