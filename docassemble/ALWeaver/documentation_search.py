@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from html import unescape
 import json
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -89,7 +89,7 @@ def _breadcrumbs(hit: Dict[str, Any]) -> List[str]:
     return rows
 
 
-def _normalize_hit(hit: Any) -> Dict[str, Any] | None:
+def _normalize_hit(hit: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(hit, dict):
         return None
     url = _official_url(hit.get("url") or hit.get("url_without_anchor"))
