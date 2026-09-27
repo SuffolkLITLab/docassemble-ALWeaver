@@ -3,8 +3,9 @@
 const assert = require('assert');
 const { createModuleRestartController } = require('./data/static/editor_module_restart.js');
 
-function makeController(policy, restartAllowed = true) {
+function makeController(policy, restartAllowed = true, restartStatus = 'completed') {
   const calls = { state: 0, restart: 0, status: 0 };
+  let elapsed = 0;
   const api = {
     get: async (path) => {
       if (path.startsWith('/api/server/restart-state')) {
@@ -20,7 +21,7 @@ function makeController(policy, restartAllowed = true) {
         };
       }
       calls.status += 1;
-      return { data: { status: 'completed' } };
+      return { data: { status: restartStatus } };
     },
     post: async () => {
       calls.restart += 1;
@@ -35,7 +36,10 @@ function makeController(policy, restartAllowed = true) {
       window: { setTimeout: (callback) => callback() },
       getProject: () => 'matrix_pkg02',
       sleep: async () => {},
-      now: () => 0,
+      now: () => {
+        elapsed += 60000;
+        return elapsed;
+      },
     }),
   };
 }
@@ -55,13 +59,22 @@ function makeController(policy, restartAllowed = true) {
   const autoBlocked = makeController('auto', false);
   assert.strictEqual(
     await autoBlocked.controller.ensureModulesLoaded('run'),
-    true,
+    false,
   );
   assert.strictEqual(
     autoBlocked.calls.restart,
     0,
     'auto policy cannot invoke a restart when the server disallows it',
   );
+
+  const autoNotReady = makeController('auto', true, 'working');
+  assert.strictEqual(
+    await autoNotReady.controller.ensureModulesLoaded('run'),
+    false,
+    'auto policy must not launch while the module copy is not ready',
+  );
+  assert.strictEqual(autoNotReady.calls.restart, 1);
+  assert.ok(autoNotReady.calls.status > 0);
 
   // In a headless shell without the modal, prompt mode must fail open for the
   // pending action without silently starting a server-wide restart.
