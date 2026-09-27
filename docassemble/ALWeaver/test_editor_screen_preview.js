@@ -401,8 +401,8 @@ function fieldLabels(fields) {
 }
 
 {
-  // Scripts are the exception: the preview frame shares an origin with the
-  // editor, so author JavaScript is left out and the omission is reported.
+  // Scripts are the exception: the opaque-origin preview leaves author
+  // JavaScript out, and srcdoc is stripped to prevent nested-frame escapes.
   const rendered = preview.renderQuestion({
     question: 'Q',
     subquestion: '<div class="alert">Hi<script>parent.location="/gone"</script></div>',
@@ -414,6 +414,10 @@ function fieldLabels(fields) {
 
   const handler = preview.sanitizeHtml('<div onclick="steal()" class="a">x</div>');
   assert.strictEqual(handler, '<div class="a">x</div>');
+  const nestedFrame = preview.sanitizeHtml(
+    '<iframe srcdoc="&lt;script&gt;window.top.steal()&lt;/script&gt;"></iframe>'
+  );
+  assert.ok(!nestedFrame.includes('srcdoc='));
   assert.strictEqual(preview.sanitizeHtml('<a href="javascript:evil()">x</a>'), '<a href="">x</a>');
 }
 

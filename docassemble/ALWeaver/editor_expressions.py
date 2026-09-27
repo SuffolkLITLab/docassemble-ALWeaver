@@ -23,6 +23,8 @@ OPERATORS = {
     ast.LtE: "<=",
     ast.Gt: ">",
     ast.GtE: ">=",
+    ast.Is: "is",
+    ast.IsNot: "is not",
     ast.In: "in",
     ast.NotIn: "not in",
     ast.Add: "+",

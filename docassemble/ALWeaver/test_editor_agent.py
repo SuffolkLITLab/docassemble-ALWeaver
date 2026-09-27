@@ -197,6 +197,40 @@ class TestModelSelection(unittest.TestCase):
 
 
 class TestHappyPath(AgentLoopTestCase):
+    def test_invalid_tool_step_is_diagnosed_and_a_later_valid_step_is_retained(self):
+        result, _llm = self.run_turn(
+            [
+                {
+                    "action": "tool",
+                    "tool": "replace_question",
+                    "arguments": {"block_id": "intro"},
+                },
+                {
+                    "action": "tool",
+                    "tool": "replace_question",
+                    "arguments": {
+                        "block_id": "intro",
+                        "question": {"question": "Updated welcome"},
+                    },
+                },
+                {"action": "final", "summary": "Updated the welcome screen."},
+            ]
+        )
+
+        tool_results = [
+            event for event in result.turn.events if event.get("type") == "tool_result"
+        ]
+        self.assertEqual(
+            [event.get("reason") for event in tool_results],
+            ["invalid_arguments", None],
+        )
+        self.assertEqual(tool_results[0].get("status"), "rejected")
+        self.assertTrue(tool_results[0].get("message"))
+        self.assertEqual(tool_results[1].get("status"), "success")
+        self.assertEqual(result.status, "ready")
+        self.assertTrue(result.candidate.changed)
+        self.assertIn("Updated welcome", result.candidate.raw_source)
+
     def test_a_valid_tool_sequence_produces_an_applicable_candidate(self):
         result, llm = self.run_turn(
             [

@@ -941,6 +941,9 @@ class TestAutoDraftFinalScreen(_TestAutoDraftBase):
         from .editor_utils import parse_interview_yaml
 
         _result, source = self._generate(["rent_amount"], include_download_screen=False)
+        self.assertIn("review and submit your answers", source)
+        self.assertIn("A copy of your answers will be saved.", source)
+        self.assertNotIn("download your completed form", source)
         model = parse_interview_yaml(source)
         orders = [
             b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]

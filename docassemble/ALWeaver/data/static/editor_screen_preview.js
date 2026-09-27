@@ -44,13 +44,14 @@
 
   /* Docassemble's Markdown lets raw HTML through, and interviews lean on that
    * for Bootstrap alerts, cards and the like, so the preview passes it through
-   * too. Scripts and inline event handlers are the exception: the preview frame
-   * shares an origin with the editor, and an author debugging a screen should
-   * not be able to reach into their own unsaved work by accident. */
+   * too. Scripts, inline event handlers, and srcdoc attributes are the
+   * exception. The preview frame has an opaque origin, and an author debugging
+   * a screen should not be able to reach into their unsaved work. */
   var SCRIPT_PATTERNS = [
     /<script\b[\s\S]*?<\/script\s*>/gi,
     /<script\b[^>]*>/gi,
     /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+    /\ssrcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
   ];
 
   function sanitizeHtml(html, report) {

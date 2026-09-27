@@ -168,7 +168,7 @@ from .editor_modules import (
     unpublish_module,
     validate_module_filename,
 )
-from .project_filenames import safe_project_filename
+from .project_filenames import safe_project_filename, unique_project_filenames
 from .assemblyline_settings import read_settings, update_settings
 from .question_library import (
     attribute_references,
@@ -192,6 +192,7 @@ try:
         inserted_block_id_by_position,
         is_comment_only_yaml,
         parse_interview_yaml,
+        _safe_load_interview_document,
         metadata_source_slice,
         parse_order_code,
         playground_get_variables,
@@ -958,6 +959,8 @@ def _write_source_content(
     updated_content: str,
     post_data: Dict[str, Any],
     request_id: str,
+    *,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> Optional[Response]:
     """Recheck the base revision and write under a per-file distributed lock."""
     try:
@@ -978,7 +981,9 @@ def _write_source_content(
             # an explicit `id`. The checker reports these as errors, but the
             # editor has stable fallback block handles for them and must not
             # force an otherwise-valid source into draft mode.
-            diagnostics = _validate_source_text(updated_content, filename)
+            diagnostics = _validate_source_text(
+                updated_content, filename, parsed_model=parsed_model
+            )
             blocking_diagnostics = [
                 item
                 for item in diagnostics
@@ -996,6 +1001,33 @@ def _write_source_content(
                     == "metadata block is missing common CourtFormsOnline publishing fields: can_I_use_this_form"
                 )
             ]
+            depth_limited = any(
+                item.get("source") == "yaml-parser"
+                and item.get("message")
+                == "YAML nesting exceeds the supported validation depth."
+                for item in blocking_diagnostics
+            )
+            if depth_limited:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "validation_error",
+                            "code": "yaml_nesting_too_deep",
+                            "message": (
+                                "This YAML is nested beyond the supported depth and "
+                                "cannot be saved as an interview."
+                            ),
+                            "details": {
+                                "diagnostics": diagnostics,
+                                "blocking_count": len(blocking_diagnostics),
+                                "summary": _lint_summary_for_findings(diagnostics),
+                            },
+                        },
+                    },
+                    422,
+                )
             if blocking_diagnostics and post_data.get("save_as_draft") is not True:
                 summary = _lint_summary_for_findings(diagnostics)
                 return jsonify_with_status(
@@ -1941,7 +1973,11 @@ def _validate_block_yaml_payload(
     supply question text.
     """
     try:
-        parsed = yaml.safe_load(block_yaml)
+        parsed = _safe_load_interview_document(block_yaml)
+    except RecursionError as exc:
+        raise ValueError(
+            "YAML nesting exceeds the supported validation depth."
+        ) from exc
     except yaml.YAMLError as exc:
         raise ValueError(f"Invalid YAML: {exc}") from exc
     if parsed is None and is_comment_only_yaml(block_yaml):
@@ -7734,12 +7770,9 @@ def editor_api_save_block() -> Response:
         )
 
         current_content = playground_read_yaml(uid, project, filename)
+        current_model = parse_interview_yaml(current_content)
         original_block = next(
-            (
-                block
-                for block in parse_interview_yaml(current_content)["blocks"]
-                if block["id"] == block_id
-            ),
+            (block for block in current_model["blocks"] if block["id"] == block_id),
             None,
         )
         # Dropping `question:` from a question block leaves fields with no
@@ -7759,14 +7792,21 @@ def editor_api_save_block() -> Response:
             preserve_unchanged_annotations=(
                 str(post_data.get("edit_mode") or "").strip().lower() == "graphical"
             ),
+            parsed_model=current_model,
         )
+        model = parse_interview_yaml(updated_content)
         conflict = _write_source_content(
-            uid, project, filename, updated_content, post_data, request_id
+            uid,
+            project,
+            filename,
+            updated_content,
+            post_data,
+            request_id,
+            parsed_model=model,
         )
         if conflict is not None:
             return conflict
 
-        model = parse_interview_yaml(updated_content)
         # A block without an `id:` is addressed by a content hash, which the
         # edit just changed; find it again by position so it stays selected.
         saved_block_id = next(
@@ -9410,6 +9450,10 @@ JOB_TERMINAL_STATES = {
     "expired",
 }
 NEW_PROJECT_TERMINAL_STATES = JOB_TERMINAL_STATES
+# Celery can start a task before the API process persists its returned task id
+# beside the initial job record. Give that write a short grace period so a
+# fast task is not misreported as expired by its first status poll.
+JOB_CELERY_TASK_ID_GRACE_SECONDS = 30
 
 
 def _editor_async_is_configured() -> bool:
@@ -9703,6 +9747,7 @@ def _complete_new_project_upload_job(
             generated_from=result["generated_from"],
             uploaded_count=result["uploaded_count"],
             result=result,
+            error=None,
             progress=100,
             finished_at=time.time(),
         )
@@ -9757,6 +9802,7 @@ def _start_new_project_upload_job(
         "input_revision": None,
         "project": project_name,
         "request_id": request_id,
+        "celery_task_id": job_id,
         "generated_from": uploaded_files[0].get("filename") if uploaded_files else None,
         "uploaded_count": len(uploaded_files),
         # The generated YAML refers to the template by the name the project
@@ -9771,8 +9817,9 @@ def _start_new_project_upload_job(
     }
     _store_new_project_job_state(job_id, initial_state)
     try:
-        task = workerapp.send_task(
+        workerapp.send_task(
             NEW_PROJECT_CELERY_TASK,
+            task_id=job_id,
             kwargs={
                 "job_id": job_id,
                 "uid": uid,
@@ -9798,7 +9845,6 @@ def _start_new_project_upload_job(
             },
         )
         raise
-    _update_new_project_job_state(job_id, celery_task_id=task.id)
     return {
         "job_id": job_id,
         "job_url": f"{EDITOR_BASE_PATH}/api/new-project/jobs/{job_id}",
@@ -9824,6 +9870,14 @@ def _reconcile_job_state(
         return state
     celery_task_id = state.get("celery_task_id")
     if not celery_task_id:
+        queued_at = state.get("queued_at")
+        if queued_at is not None:
+            try:
+                queue_age = max(0.0, time.time() - float(queued_at))
+            except (TypeError, ValueError):
+                queue_age = JOB_CELERY_TASK_ID_GRACE_SECONDS
+            if queue_age < JOB_CELERY_TASK_ID_GRACE_SECONDS:
+                return state
         return _update_job_state(
             kind,
             job_id,
@@ -9850,6 +9904,7 @@ def _reconcile_job_state(
             progress=100,
             finished_at=time.time(),
             result=task_value if isinstance(task_value, dict) else state.get("result"),
+            error=None,
         )
     if celery_state == "FAILURE":
         task_error = getattr(task_result, "result", None)
@@ -10291,6 +10346,7 @@ def _complete_github_publish_job(
                 f"{owner}/{repository} on {branch}."
             ),
             result=result,
+            error=None,
             progress=100,
             finished_at=time.time(),
         )
@@ -10353,6 +10409,7 @@ def _start_github_publish_job(
         "expected_remote_sha": expected_remote_sha,
         "expected_source_revision": expected_source_revision,
         "request_id": request_id,
+        "celery_task_id": job_id,
         "queued_at": time.time(),
         "started_at": None,
         "finished_at": None,
@@ -10362,8 +10419,9 @@ def _start_github_publish_job(
     }
     _store_job_state(GITHUB_PUBLISH_JOB, job_id, initial_state)
     try:
-        task = workerapp.send_task(
+        workerapp.send_task(
             GITHUB_PUBLISH_CELERY_TASK,
+            task_id=job_id,
             kwargs={
                 "job_id": job_id,
                 "uid": uid,
@@ -10395,7 +10453,6 @@ def _start_github_publish_job(
             },
         )
         raise
-    _update_job_state(GITHUB_PUBLISH_JOB, job_id, celery_task_id=task.id)
     return {
         "job_id": job_id,
         "job_url": f"{EDITOR_BASE_PATH}/api/github/publish/jobs/{job_id}",
@@ -10534,6 +10591,16 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "subquestion: |\n"
             "  This interview was created with the Docassemble editor.\n"
             "continue button field: intro_screen\n"
+            "---\n"
+            "mandatory: True\n"
+            "code: |\n"
+            "  intro_screen\n"
+            "  blank_project_complete\n"
+            "---\n"
+            "event: blank_project_complete\n"
+            "question: Interview ready\n"
+            "subquestion: |\n"
+            "  This blank interview is ready for you to edit.\n"
         )
 
     # Write starter YAML. There is no document to name it after, so a blank
@@ -10673,7 +10740,6 @@ def _new_project_from_uploads(
             f"normalize_field_names={normalize_field_names}",
             "info",
         )
-        renamed_uploads: List[Dict[str, str]] = []
         for file_storage in uploaded_files:
             filename = file_storage.filename or ""
             content_bytes = file_storage.read()
@@ -10687,20 +10753,10 @@ def _new_project_from_uploads(
             )
             validate_document_content(safe_name, content_bytes)
             requested_name = os.path.basename(str(filename).strip())
-            if safe_name != requested_name:
-                renamed_uploads.append(
-                    {
-                        "from": requested_name,
-                        "to": safe_name,
-                        "reason": "unsupported_characters",
-                        "message": _renamed_file_message(
-                            requested_name, safe_name, "unsupported_characters"
-                        ),
-                    }
-                )
             uploaded_payloads.append(
                 {
                     "filename": safe_name,
+                    "requested_filename": requested_name,
                     "content_bytes": content_bytes,
                     "mimetype": mimetype,
                 }
@@ -10708,6 +10764,35 @@ def _new_project_from_uploads(
 
         if not uploaded_payloads:
             raise ValueError("No valid files were uploaded.")
+
+        renamed_uploads: List[Dict[str, str]] = []
+        unique_names = unique_project_filenames(
+            [str(payload["filename"]) for payload in uploaded_payloads]
+        )
+        for payload, unique_name in zip(uploaded_payloads, unique_names):
+            normalized_name = str(payload["filename"])
+            requested_name = str(payload.pop("requested_filename"))
+            payload["filename"] = unique_name
+            if unique_name == requested_name:
+                continue
+            if unique_name != normalized_name:
+                reason = "name_collision"
+                message = (
+                    f"{requested_name} was saved as {unique_name} because its "
+                    "normalized filename conflicts with another uploaded file. "
+                    f"Refer to it as {unique_name} in your interview."
+                )
+            else:
+                reason = "unsupported_characters"
+                message = _renamed_file_message(requested_name, unique_name, reason)
+            renamed_uploads.append(
+                {
+                    "from": requested_name,
+                    "to": unique_name,
+                    "reason": reason,
+                    "message": message,
+                }
+            )
 
         interview_overrides: Dict[str, Any] = {
             "enable_navigation": enable_navigation,
@@ -11016,6 +11101,7 @@ def _complete_template_import_job(
             message=f"Read {template_filename}.",
             progress=100,
             result=result,
+            error=None,
             finished_at=time.time(),
         )
         return result
@@ -11114,6 +11200,7 @@ def editor_api_import_template() -> Response:
             ),
             "filename": interview_filename,
             "request_id": request_id,
+            "celery_task_id": job_id,
             "queued_at": time.time(),
             "started_at": None,
             "finished_at": None,
@@ -11122,8 +11209,9 @@ def editor_api_import_template() -> Response:
             "error": None,
         }
         _store_job_state(TEMPLATE_IMPORT_JOB, job_id, initial_state)
-        task = workerapp.send_task(
+        workerapp.send_task(
             TEMPLATE_IMPORT_CELERY_TASK,
+            task_id=job_id,
             kwargs={
                 "job_id": job_id,
                 "uid": uid,
@@ -11134,7 +11222,6 @@ def editor_api_import_template() -> Response:
                 "request_id": request_id,
             },
         )
-        _update_job_state(TEMPLATE_IMPORT_JOB, job_id, celery_task_id=task.id)
         return jsonify_with_status(
             {
                 "success": True,

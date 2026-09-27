@@ -265,42 +265,87 @@ def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]
 
 def _yaml_stream_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
     try:
-        list(yaml.compose_all(raw_yaml))
-    except yaml.MarkedYAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        line_number = getattr(mark, "line", None)
-        column_number = getattr(mark, "column", None)
-        line_number = line_number + 1 if isinstance(line_number, int) else None
-        column_number = column_number + 1 if isinstance(column_number, int) else 1
-        message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
-        return [
-            {
-                "level": SEVERITY_ERROR,
-                "severity": SEVERITY_ERROR,
-                "message": message,
-                "filename": filename,
-                "line_number": line_number,
-                "source_range": source_range_for_line(
-                    raw_yaml, line_number, column_number
-                ),
-                "yaml_path": None,
-                "source": "yaml-parser",
-            }
-        ]
-    except yaml.YAMLError as exc:
-        return [
-            {
-                "level": SEVERITY_ERROR,
-                "severity": SEVERITY_ERROR,
-                "message": str(exc).strip() or "Invalid YAML syntax",
-                "filename": filename,
-                "line_number": None,
-                "source_range": None,
-                "yaml_path": None,
-                "source": "yaml-parser",
-            }
-        ]
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        documents = list(yaml.compose_all(raw_yaml, Loader=loader))
+    except yaml.YAMLError:
+        # The C and Python safe loaders accept the same language, but PyYAML
+        # formats some syntax-error messages differently. Re-run only failures
+        # through the Python parser to preserve the editor's existing message
+        # and source-range contract.
+        try:
+            documents = list(yaml.compose_all(raw_yaml))
+        except yaml.MarkedYAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            line_number = getattr(mark, "line", None)
+            column_number = getattr(mark, "column", None)
+            line_number = line_number + 1 if isinstance(line_number, int) else None
+            column_number = column_number + 1 if isinstance(column_number, int) else 1
+            message = str(getattr(exc, "problem", "") or "Invalid YAML syntax").strip()
+            return [
+                {
+                    "level": SEVERITY_ERROR,
+                    "severity": SEVERITY_ERROR,
+                    "message": message,
+                    "filename": filename,
+                    "line_number": line_number,
+                    "source_range": source_range_for_line(
+                        raw_yaml, line_number, column_number
+                    ),
+                    "yaml_path": None,
+                    "source": "yaml-parser",
+                }
+            ]
+        except yaml.YAMLError as exc:
+            return [
+                {
+                    "level": SEVERITY_ERROR,
+                    "severity": SEVERITY_ERROR,
+                    "message": str(exc).strip() or "Invalid YAML syntax",
+                    "filename": filename,
+                    "line_number": None,
+                    "source_range": None,
+                    "yaml_path": None,
+                    "source": "yaml-parser",
+                }
+            ]
+    if _yaml_nodes_exceed_supported_depth(documents):
+        return [_yaml_nesting_depth_finding(filename)]
     return []
+
+
+def _yaml_nesting_depth_finding(filename: str) -> Dict[str, Any]:
+    return {
+        "level": SEVERITY_ERROR,
+        "severity": SEVERITY_ERROR,
+        "message": "YAML nesting exceeds the supported validation depth.",
+        "filename": filename,
+        "line_number": None,
+        "source_range": None,
+        "yaml_path": None,
+        "source": "yaml-parser",
+    }
+
+
+def _yaml_nodes_exceed_supported_depth(documents: List[Any]) -> bool:
+    """Bound YAML collection nesting without recursively walking parser nodes."""
+    pending = [(document, 0) for document in documents]
+    deepest_seen: Dict[int, int] = {}
+    while pending:
+        node, depth = pending.pop()
+        if depth > 100:
+            return True
+        identity = id(node)
+        if deepest_seen.get(identity, -1) >= depth:
+            continue
+        deepest_seen[identity] = depth
+        value = getattr(node, "value", None)
+        if isinstance(value, list):
+            for child in value:
+                if isinstance(child, tuple):
+                    pending.extend((part, depth + 1) for part in child)
+                else:
+                    pending.append((child, depth + 1))
+    return False
 
 
 def _dedupe(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -319,16 +364,33 @@ def _dedupe(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
-def validate_source_text(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
+def validate_source_text(
+    raw_yaml: str,
+    filename: str,
+    *,
+    parsed_model: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """Validate exactly ``raw_yaml`` and return Weaver-owned diagnostics."""
     from .editor_utils import parse_interview_yaml
 
-    findings = _yaml_stream_findings(raw_yaml, filename)
-    findings.extend(dayamlchecker_findings(raw_yaml, filename))
-    model = parse_interview_yaml(raw_yaml)
-    return annotate_lint_findings(
-        _dedupe(findings), model.get("blocks", []), source_name="unsaved-source"
-    )
+    try:
+        model = parsed_model or parse_interview_yaml(raw_yaml)
+        findings = _yaml_stream_findings(raw_yaml, filename)
+        if not any(
+            item.get("source") == "yaml-parser"
+            and item.get("message")
+            == "YAML nesting exceeds the supported validation depth."
+            for item in findings
+        ):
+            findings.extend(dayamlchecker_findings(raw_yaml, filename))
+        return annotate_lint_findings(
+            _dedupe(findings), model.get("blocks", []), source_name="unsaved-source"
+        )
+    except RecursionError:
+        # YAML can be syntactically valid yet exceed Python's safe recursion
+        # depth while parsing or linting. Keep this bounded input failure in
+        # the normal diagnostic contract so validation never becomes a 500.
+        return [_yaml_nesting_depth_finding(filename)]
 
 
 def _document_diagnostic_to_dict(diagnostic: Any, filename: str) -> Dict[str, Any]:

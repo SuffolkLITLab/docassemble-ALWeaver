@@ -92,6 +92,48 @@ _METADATA_DOCUMENT_TYPES = {
 _YAML_DOCUMENT_SEPARATOR_RE = re.compile(
     r"(?m)^---[ \t]*(?:#[^\r\n]*)?(?:\r\n|\n|\r|$)"
 )
+_FAST_SAFE_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+MAX_EDITOR_YAML_NESTING_DEPTH = 100
+
+
+def _yaml_value_exceeds_supported_depth(value: Any) -> bool:
+    """Check parsed YAML depth iteratively, without recursive Python calls."""
+    pending = [(value, 0)]
+    deepest_seen: Dict[int, int] = {}
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_EDITOR_YAML_NESTING_DEPTH:
+            return True
+        if not isinstance(current, (dict, list, tuple)):
+            continue
+        identity = id(current)
+        if deepest_seen.get(identity, -1) >= depth:
+            continue
+        deepest_seen[identity] = depth
+        if isinstance(current, dict):
+            for key, item in current.items():
+                pending.append((key, depth + 1))
+                pending.append((item, depth + 1))
+        else:
+            pending.extend((item, depth + 1) for item in current)
+    return False
+
+
+def _safe_load_interview_document(raw_yaml: str) -> Any:
+    """Load one interview document with the safe C parser when available."""
+    try:
+        if _FAST_SAFE_YAML_LOADER is yaml.SafeLoader:
+            loaded = yaml.safe_load(raw_yaml)
+        else:
+            loaded = yaml.load(raw_yaml, Loader=_FAST_SAFE_YAML_LOADER)
+    except RecursionError as exc:
+        raise yaml.YAMLError(
+            "YAML nesting exceeds the supported validation depth."
+        ) from exc
+    if _yaml_value_exceeds_supported_depth(loaded):
+        raise yaml.YAMLError("YAML nesting exceeds the supported validation depth.")
+    return loaded
+
 
 _BLOCK_KEY_ORDER = [
     "metadata",
@@ -723,9 +765,9 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
     segments: List[Dict[str, Any]] = []
     body_start = 0
+    start_line = 1
     for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
         body = raw_yaml[body_start : separator.start()]
-        start_line = raw_yaml.count("\n", 0, body_start) + 1
         segments.append(
             {
                 "start_line": start_line,
@@ -733,9 +775,12 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
                 "text": body,
             }
         )
+        # Advance once over this segment and its separator. Counting every
+        # prefix from the beginning for each document made a large interview
+        # quadratic in its total source length.
+        start_line += raw_yaml.count("\n", body_start, separator.end())
         body_start = separator.end()
     body = raw_yaml[body_start:]
-    start_line = raw_yaml.count("\n", 0, body_start) + 1
     segments.append(
         {
             "start_line": start_line,
@@ -761,7 +806,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if is_comment_only_yaml(segment_text_raw):
             uncommented = _uncomment_yaml_block(segment_text)
             try:
-                parsed_commented = yaml.safe_load(uncommented)
+                parsed_commented = _safe_load_interview_document(uncommented)
             except yaml.YAMLError:
                 parsed_commented = None
             if not isinstance(parsed_commented, dict):
@@ -812,7 +857,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             continue
 
         try:
-            doc = yaml.safe_load(segment_text_raw)
+            doc = _safe_load_interview_document(segment_text_raw)
         except yaml.YAMLError:
             blocks.append(
                 {
@@ -836,8 +881,17 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if not isinstance(doc, dict):
             doc = {"_raw": str(doc)}
 
-        block_type = _detect_block_type(doc)
-        block_id = _stable_block_id(i, doc)
+        try:
+            block_type = _detect_block_type(doc)
+            block_id = _stable_block_id(i, doc)
+        except RecursionError:
+            # A parser can materialize a very deeply nested mapping, but stable
+            # ID serialization and downstream editor rendering are still
+            # bounded by Python's recursion limit. Keep its raw source editable
+            # as an unparseable block instead of failing the entire file load.
+            doc = {"_unparseable": True, "_raw": segment_text}
+            block_type = BLOCK_TYPE_OTHER
+            block_id = _stable_block_id(i, doc)
         editor_objects = (
             _build_editor_objects(doc.get("objects")) if "objects" in doc else []
         )
@@ -1008,12 +1062,15 @@ def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
 
 
 def _unique_block_document(
-    full_yaml: str, block_id: str
+    full_yaml: str,
+    block_id: str,
+    *,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], int, int, str]:
     """Return one block and its exact document-body source range."""
     matches = [
         block
-        for block in parse_interview_yaml(full_yaml)["blocks"]
+        for block in (parsed_model or parse_interview_yaml(full_yaml))["blocks"]
         if block["id"] == block_id
     ]
     if not matches:
@@ -1300,13 +1357,16 @@ def update_block_in_yaml(
     new_block_yaml: str,
     *,
     preserve_unchanged_annotations: bool = False,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Replace a single block in a full interview YAML by its id.
 
     Locates the block matching *block_id* and replaces only its exact source
     range.  Other documents and separators are never serialized again.
     """
-    _block, start, end, original_body = _unique_block_document(full_yaml, block_id)
+    _block, start, end, original_body = _unique_block_document(
+        full_yaml, block_id, parsed_model=parsed_model
+    )
     edited_body = (
         new_block_yaml.lstrip("\r\n")
         if preserve_unchanged_annotations

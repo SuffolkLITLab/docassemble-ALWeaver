@@ -1493,7 +1493,10 @@
         ? state.orderStepMap[nextOrderBlockId]
         : data.order_steps || [],
     );
-    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId;
+    state.selectedBlockId =
+      options.selectedBlockId ||
+      data.inserted_block_id ||
+      state.selectedBlockId;
     if (
       !state.selectedBlockId ||
       !getBlockById(state.selectedBlockId) ||
@@ -1527,6 +1530,13 @@
     renderOutline();
     renderCanvas();
     runCurrentValidationCheck();
+  }
+
+  function refreshAfterBlockSave(data, originalBlockId, savedBlockId) {
+    refreshFromFileResponse(data, {
+      savedBlockId: originalBlockId,
+      selectedBlockId: savedBlockId,
+    });
   }
 
   // Applying an assistant candidate replaces the working buffer only.
@@ -9375,8 +9385,8 @@
     return false;
   }
 
-  function getBlockLintFindings(blockId) {
-    var block = getBlockById(blockId);
+  function getBlockLintFindings(blockId, block) {
+    block = block || getBlockById(blockId);
     if (!block) return [];
     return (state.validationErrors || []).filter(function (finding) {
       return _findingsMatchBlock(finding, block);
@@ -9424,12 +9434,13 @@
     var html = '';
     html +=
       '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
-    blocks.forEach(function (block) {
+    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      var block = blocks[blockIndex];
       var active = state.selectedBlockId === block.id;
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
       var tc = typeClass(displayType);
-      var lintFindings = getBlockLintFindings(block.id);
+      var lintFindings = getBlockLintFindings(block.id, block);
       var lintClass = lintFindings.length
         ? ' ' + getBlockLintFeedbackClass(lintFindings)
         : '';
@@ -9487,7 +9498,7 @@
       html += '</div>';
       html +=
         '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
-      html += getBlockMenuHtml(block, blocks.indexOf(block), blocks.length);
+      html += getBlockMenuHtml(block, blockIndex, blocks.length);
       html += '</div></div>';
       html +=
         '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' +
@@ -9495,7 +9506,7 @@
         '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' +
         esc(block.title) +
         '</span></button></div>';
-    });
+    }
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -9812,10 +9823,7 @@
           return false;
         }
         var keepBlockId = res.data.saved_block_id || originalBlockId;
-        refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-        state.selectedBlockId = keepBlockId;
-        renderOutline();
-        renderCanvas();
+        refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
         return !dirtyState.hasDirty(state.filename);
       })
       .catch(function (error) {
@@ -20341,10 +20349,7 @@
       }).then(function (res) {
         if (res.success && res.data) {
           var keepBlockId = res.data.saved_block_id || originalBlockId;
-          refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-          state.selectedBlockId = keepBlockId;
-          renderOutline();
-          renderCanvas();
+          refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
           return;
         }
         window.alert(

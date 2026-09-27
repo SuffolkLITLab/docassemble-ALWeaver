@@ -2,7 +2,7 @@ from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
 from .review_screen import build_review_entries, table_edit_attributes
-from .project_filenames import safe_project_filename
+from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
@@ -3072,6 +3072,13 @@ Predicted form_type: {{FORM_TYPE}}
 Predicted role: {{ROLE}}
 """.strip(),
             )
+            if not getattr(self, "include_download_screen", True):
+                prompt_template += (
+                    "\n\nThis is a data-only survey with no downloadable form. "
+                    "Do not say that the user can download a completed form. "
+                    "Explain that the user can review and submit answers, which "
+                    "will be saved."
+                )
             prompt = (
                 prompt_template.replace("{{TITLE}}", str(self.title))
                 .replace("{{FORM_TYPE}}", str(form_type))
@@ -3929,13 +3936,18 @@ Rules:
             if getattr(self, "court_related", True)
             else "your request"
         )
+        completion_text = (
+            "When you are finished, you can review your answers and download your completed form."
+            if getattr(self, "include_download_screen", True)
+            else "When you are finished, you can review and submit your answers. A copy of your answers will be saved."
+        )
         return (
             f"This interview will help you {action}.\n\n"
             "Before you get started, gather any information you have about:\n\n"
             f"1. The people or organizations named in the {title_text}.\n"
             f"1. Important dates, addresses, and contact information for {role_text}.\n"
             "1. Any papers, notices, or records that you may need to refer to.\n\n"
-            "When you are finished, you can review your answers and download your completed form."
+            + completion_text
         )
 
     def _guess_role(self, title: str):
@@ -7251,21 +7263,16 @@ def _resolve_template_inputs(
             raise FileNotFoundError(f"Template file not found: {candidate.path}")
         candidates.append(candidate)
 
-    resolved: List[TemplateInput] = []
-    used_names: Set[str] = set()
-    for candidate in candidates:
-        name = safe_project_filename(
-            str(candidate.exact_name or os.path.basename(candidate.path)),
-            default_stem="template",
-        )
-        stem, extension = os.path.splitext(name)
-        counter = 1
-        while name in used_names:
-            counter += 1
-            name = f"{stem}_{counter}{extension}"
-        used_names.add(name)
-        resolved.append(TemplateInput(path=candidate.path, exact_name=name))
-    return resolved
+    names = unique_project_filenames(
+        [
+            str(candidate.exact_name or os.path.basename(candidate.path))
+            for candidate in candidates
+        ]
+    )
+    return [
+        TemplateInput(path=candidate.path, exact_name=name)
+        for candidate, name in zip(candidates, names)
+    ]
 
 
 def generate_interview_from_path(
@@ -7368,6 +7375,9 @@ def generate_interview_from_path(
         dependency_jurisdiction = dependency_jurisdiction.rsplit("+", 1)[-1]
 
     interview = DAInterview()
+    # The default getting-started copy and optional LLM metadata are generated
+    # during auto assignment, so expose the output mode before that work starts.
+    interview.include_download_screen = bool(include_download_screen)
     interview.auto_assign_attributes(
         input_file=da_file,
         title=title,

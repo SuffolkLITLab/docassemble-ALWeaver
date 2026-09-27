@@ -197,6 +197,14 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
 
+    def test_screen_preview_sandbox_does_not_share_editor_origin(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        preview_frame = template.split('id="screen-preview-frame"', 1)[1].split(">", 1)[
+            0
+        ]
+        self.assertIn('sandbox="allow-scripts"', preview_frame)
+        self.assertNotIn("allow-same-origin", preview_frame)
+
     def test_transient_tools_are_closed_by_editor_navigation(self):
         """A late debugger poll and an open assistant must not undo navigation."""
         editor = (self.package_dir / "data/static/editor.js").read_text()

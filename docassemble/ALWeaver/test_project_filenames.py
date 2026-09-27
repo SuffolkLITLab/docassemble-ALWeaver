@@ -3,7 +3,11 @@
 import re
 import unittest
 
-from .project_filenames import is_safe_project_filename, safe_project_filename
+from .project_filenames import (
+    is_safe_project_filename,
+    safe_project_filename,
+    unique_project_filenames,
+)
 
 # What Docassemble strips out of a Playground template reference before it goes
 # looking for the file: `package_template_filename` in
@@ -65,6 +69,14 @@ class TestSafeProjectFilename(unittest.TestCase):
             safe = safe_project_filename(filename)
             self.assertEqual(DOCASSEMBLE_PLAYGROUND_STRIP.sub("", safe), safe)
             self.assertNotIn(" ", safe)
+
+    def test_names_that_normalize_to_the_same_path_get_stable_suffixes(self):
+        self.assertEqual(
+            unique_project_filenames(
+                ["petition.pdf", "petition.docx", "demand (1).docx", "demand_1_.docx"]
+            ),
+            ["petition.pdf", "petition.docx", "demand_1.docx", "demand_1_2.docx"],
+        )
 
 
 if __name__ == "__main__":

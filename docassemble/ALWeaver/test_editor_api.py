@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from flask import Flask, jsonify
 from werkzeug.datastructures import FileStorage
+from .project_filenames import safe_project_filename
 
 
 class _TestRedisLock:
@@ -112,6 +113,7 @@ def _load_api_editor_for_tests():
             "blocks": [],
             "metadata_blocks": [],
         },
+        "_safe_load_interview_document": lambda raw: __import__("yaml").safe_load(raw),
         "metadata_source_slice": lambda *args, **kwargs: "",
         "parse_order_code": lambda *args, **kwargs: {},
         "playground_get_variables": lambda *args, **kwargs: {},
@@ -652,9 +654,10 @@ class TestEditorGithubApi(unittest.TestCase):
         }
         sent = {}
 
-        def fake_send_task(task_name, kwargs=None):
+        def fake_send_task(task_name, kwargs=None, **options):
             sent["task_name"] = task_name
             sent["kwargs"] = kwargs
+            sent["options"] = options
             return types.SimpleNamespace(id="celery-task-1")
 
         with (
@@ -750,7 +753,7 @@ class TestEditorGithubApi(unittest.TestCase):
             ):
                 response = api_editor.editor_api_github_publish()
 
-        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.status_code, 202, response.get_json())
         payload = response.get_json()
         self.assertEqual(payload["status"], "queued")
         data = payload["data"]
@@ -798,6 +801,7 @@ class TestEditorGithubApi(unittest.TestCase):
                 "expected_source_revision": "source-digest",
             },
         )
+        self.assertEqual(sent["options"]["task_id"], payload["job_id"])
 
     def test_publish_refuses_when_celery_is_not_configured(self):
         with (
@@ -873,6 +877,17 @@ class TestEditorGithubApi(unittest.TestCase):
                 },
             ) as repository_files,
         ):
+            api_editor._store_job_state(
+                api_editor.GITHUB_PUBLISH_JOB,
+                "job-1",
+                {
+                    "status": "queued",
+                    "error": {
+                        "type": "job_expired",
+                        "message": "stale transient error",
+                    },
+                },
+            )
             result = api_editor._complete_github_publish_job(
                 job_id="job-1",
                 uid=7,
@@ -905,6 +920,7 @@ class TestEditorGithubApi(unittest.TestCase):
             "https://github.com/LegalAid/docassemble-HousingForms/commit/commit-sha",
         )
         self.assertEqual(state["status"], "succeeded")
+        self.assertIsNone(state.get("error"))
         self.assertEqual(state["progress"], 100)
         self.assertEqual(state["result"], result)
 
@@ -1772,6 +1788,121 @@ class TestEditorApiFileCreation(unittest.TestCase):
         mock_validate.assert_called_once_with(submitted, "test.yml")
         mock_saved_variable_check.assert_not_called()
 
+    def test_validate_source_handles_yaml_beyond_recursion_depth(self):
+        from .editor_utils import parse_interview_yaml
+
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/validate-source",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "raw_yaml": deep_yaml,
+                },
+            ):
+                response = api_editor.editor_api_validate_source()
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        diagnostic = response.get_json()["data"]["diagnostics"][0]
+        self.assertEqual(diagnostic["level"], "error")
+        self.assertEqual(diagnostic["source"], "yaml-parser")
+        self.assertIn("supported validation depth", diagnostic["message"])
+
+    def test_get_file_loads_deep_yaml_as_recoverable_unparseable_block(self):
+        from .editor_utils import parse_interview_yaml
+
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=deep_yaml),
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file?project=default&filename=deep.yml",
+                method="GET",
+            ):
+                response = api_editor.editor_api_get_file()
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(
+            response.get_json()["data"]["blocks"][0]["title"], "Unparseable block"
+        )
+
+    def test_block_save_rejects_deep_yaml_with_bounded_error(self):
+        from .editor_utils import _safe_load_interview_document
+
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_safe_load_interview_document",
+                wraps=_safe_load_interview_document,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/block",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "block_id": "deep",
+                    "block_yaml": deep_yaml,
+                },
+            ):
+                response = api_editor.editor_api_save_block()
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertIn(
+            "supported validation depth",
+            response.get_json()["error"]["message"],
+        )
+
+    def test_deep_yaml_cannot_be_saved_even_as_a_draft(self):
+        from .editor_agent_validation import validate_source_text
+
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "_validate_source_text", wraps=validate_source_text
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "content": deep_yaml,
+                    "expected_revision": api_editor.source_revision(saved),
+                    "save_as_draft": True,
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 422, response.get_json())
+        self.assertEqual(response.get_json()["error"]["code"], "yaml_nesting_too_deep")
+        mock_write.assert_not_called()
+
     def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
         model = {
             "blocks": [],
@@ -1848,7 +1979,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
 
         payload = response.get_json()
         self.assertTrue(payload["success"])
-        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.status_code, 202, response.get_json())
         self.assertEqual(payload["status"], "queued")
         self.assertEqual(payload["job_id"], "job-123")
         self.assertEqual(payload["job_url"], "/al/editor/api/new-project/jobs/job-123")
@@ -1981,14 +2112,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(result["state"]["status"], "queued")
         self.assertEqual(result["state"]["owner_user_id"], 7)
         self.assertEqual(result["state"]["operation_type"], "new_project_upload")
+        self.assertEqual(result["state"]["celery_task_id"], result["job_id"])
         mock_store.assert_called_once()
         mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.kwargs["task_id"], result["job_id"])
         self.assertEqual(
             mock_send.call_args.kwargs["kwargs"]["job_id"], result["job_id"]
         )
-        mock_update.assert_called_once_with(
-            result["job_id"], celery_task_id="celery-task-1"
-        )
+        mock_update.assert_not_called()
 
     def test_metadata_save_preserves_unrelated_source_exactly(self):
         from . import editor_utils as real_editor_utils
@@ -2129,12 +2260,22 @@ class TestEditorJobReconciliation(unittest.TestCase):
         return result, update
 
     def test_success_persists_task_result_and_terminal_progress(self):
-        result, update = self.reconcile("SUCCESS", task_result={"project": "Synthetic"})
+        state = {
+            "status": "queued",
+            "stage": "queued",
+            "celery_task_id": "synthetic-task-id",
+            "queued_at": 100,
+            "error": {"type": "job_expired", "message": "stale transient error"},
+        }
+        result, update = self.reconcile(
+            "SUCCESS", task_result={"project": "Synthetic"}, initial=state
+        )
         self.assertEqual(result["status"], "succeeded")
         self.assertEqual(result["stage"], "done")
         self.assertEqual(result["progress"], 100)
         self.assertEqual(result["result"], {"project": "Synthetic"})
         self.assertIsNotNone(result["finished_at"])
+        self.assertIsNone(result["error"])
         update.assert_called_once()
 
     def test_worker_crash_becomes_structured_failure(self):
@@ -2163,6 +2304,17 @@ class TestEditorJobReconciliation(unittest.TestCase):
             result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
         self.assertEqual(result["status"], "expired")
         self.assertEqual(result["error"]["type"], "job_expired")
+
+    def test_missing_celery_task_id_waits_through_the_enqueue_race_window(self):
+        state = {
+            "status": "queued",
+            "stage": "queued",
+            "queued_at": api_editor.time.time(),
+        }
+        with patch.object(api_editor, "_update_job_state") as update:
+            result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
+        self.assertEqual(result, state)
+        update.assert_not_called()
 
     def test_active_and_delayed_states_remain_nonterminal(self):
         running, _ = self.reconcile("STARTED")
@@ -2252,6 +2404,10 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                 response = api_editor._new_project_from_template(7, "req-1")
         self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
         self.assertEqual(mock_write.call_args.args[2], "main.yml")
+        starter_yaml = mock_write.call_args.args[3]
+        self.assertIn("blank_project_complete", starter_yaml)
+        self.assertIn("event: blank_project_complete", starter_yaml)
+        self.assertIn("question: Interview ready", starter_yaml)
 
     def test_blank_project_creates_a_default_test_unless_disabled(self):
         with (
@@ -2831,6 +2987,7 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
         self.assertEqual(
             mock_send.call_args.kwargs["kwargs"]["template_filename"], "affidavit.pdf"
         )
+        self.assertEqual(mock_send.call_args.kwargs["task_id"], body["job_id"])
 
     def test_applying_against_a_changed_interview_is_a_conflict(self):
         with (
@@ -4767,6 +4924,68 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                 data["renamed_files"][0]["from"], "demand letter (final).docx"
             )
             self.assertEqual(data["renamed_files"][0]["to"], "demand_letter_final.docx")
+
+    def test_new_project_collision_notices_match_stored_template_names(self):
+        uploads = [
+            FileStorage(stream=BytesIO(b"pdf"), filename="petition.pdf"),
+            FileStorage(stream=BytesIO(b"docx"), filename="petition.docx"),
+            FileStorage(stream=BytesIO(b"first"), filename="demand (1).docx"),
+            FileStorage(stream=BytesIO(b"second"), filename="demand_1_.docx"),
+        ]
+
+        def validate_upload(**kwargs):
+            filename = safe_project_filename(kwargs["filename"])
+            return filename, os.path.splitext(filename)[1].lower()
+
+        with (
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Collision"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(
+                api_editor, "validate_upload_metadata", side_effect=validate_upload
+            ),
+            patch.object(api_editor, "validate_document_content"),
+            patch.object(
+                api_editor,
+                "_start_new_project_upload_job",
+                return_value={
+                    "job_id": "test-job",
+                    "job_url": "/job/test-job",
+                    "state": {"status": "queued"},
+                },
+            ) as start_job,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                data={"project_name": "Collision"},
+            ):
+                response = api_editor._new_project_from_uploads(7, "req-1", uploads)
+
+        self.assertEqual(response.status_code, 202, response.get_json())
+        stored_names = [
+            upload["filename"]
+            for upload in start_job.call_args.kwargs["uploaded_files"]
+        ]
+        self.assertEqual(
+            stored_names,
+            ["petition.pdf", "petition.docx", "demand_1.docx", "demand_1_2.docx"],
+        )
+        renamed = start_job.call_args.kwargs["renamed_files"]
+        self.assertEqual(
+            [(entry["from"], entry["to"]) for entry in renamed],
+            [
+                ("demand (1).docx", "demand_1.docx"),
+                ("demand_1_.docx", "demand_1_2.docx"),
+            ],
+        )
+        self.assertEqual(renamed[1]["reason"], "name_collision")
+        self.assertIn("demand_1_2.docx", renamed[1]["message"])
 
     def test_importing_an_older_template_renames_it_first(self):
         with tempfile.TemporaryDirectory() as tmpdir:
