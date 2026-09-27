@@ -226,7 +226,11 @@ kept. Rejected mutations return structured diagnostics to the model and leave th
 candidate at its last valid revision, so candidate validity is monotonic. Only
 low-risk tools and a small set of deliberately implemented medium-risk ones are
 registered; blocks that `source_document.py` marks unsupported are readable but
-never rewritten. Runtime tools require `WEAVER_ENABLE_RUNTIME_INSPECTOR`, wrap
+never rewritten. The read-only `search_documentation` tool queries the public
+Algolia DocSearch index already used by the AssemblyLine documentation site;
+query length, result count and excerpts are bounded, only official documentation
+URLs are returned, and the result is labelled untrusted reference data before it
+is replayed to the model. Runtime tools require `WEAVER_ENABLE_RUNTIME_INSPECTOR`, wrap
 the existing allowlisted `al_weaver.inspect_*` actions, and label their results
 `observed_runtime` so the model cannot present a static prediction — or a seeded
 scenario fixture — as observed behaviour.
@@ -418,6 +422,7 @@ kinds of interviews that the Weaver can produce.
 - `editor_agent_validation.py` is the one whole-candidate validator, plus the diagnostic normalisation the editor's error drawer consumes
 - `editor_agent_models.py` holds the agent session, candidate, turn and tool-result records and their owner-scoped Redis persistence
 - `editor_agent_tools.py` is the semantic tool registry — the security and accuracy boundary for everything the model can do
+- `documentation_search.py` is the bounded client for the public AssemblyLine Algolia DocSearch index used by the assistant's read-only documentation lookup
 - `editor_agent_repair.py` deterministically fixes missing and duplicate block ids so a mechanical problem does not stop the assistant from starting
 - `editor_agent_rename.py` classifies every appearance of a variable name and renames only the references it can positively recognise
 - `editor_agent_context.py` assembles the compact interview context a turn is given, fencing untrusted reference material
