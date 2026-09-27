@@ -113,6 +113,18 @@ scenario seeding, and back navigation. Set `weaver: {runtime inspector: false}`
 owner-scoped target sessions and a fixed read-only `al_weaver.inspect_*` action
 allowlist; Docassemble remains the only interview runtime.
 
+## Editing assistant data handling
+
+Before a developer sends a request to the graphical editing assistant, Weaver
+discloses that the request and relevant interview source may be sent to the
+configured model provider. Configure model access only with a provider
+approved for the source material handled on that Docassemble server. Weaver
+stores assistant chat in an owner-scoped session for up to two hours after its
+last update, and progress details for up to 30 minutes after their last update.
+These Weaver-side expiry periods do not describe the model provider's data
+handling or retention; administrators should consult the provider's applicable
+terms and configuration separately.
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.

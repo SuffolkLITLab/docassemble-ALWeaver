@@ -203,6 +203,10 @@ async function main() {
 
     // Project-wide search dialog and its result state.
     await page.locator("#btn-project-search").click();
+    await page.locator("#project-search-modal").waitFor({ state: "visible" });
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector("#project-search-modal")).opacity === "1"
+    );
     blockingViolations = blockingViolations.concat(
       await audit(page, "project search dialog")
     );

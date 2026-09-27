@@ -157,6 +157,23 @@ const READY_TURN = TURN_STARTED;
     },
   });
   assert.strictEqual(harness.calls.length, 0, 'no session is created before the first message');
+  const privacyNotice = findAll(
+    harness.container,
+    (node) => node.className === 'editor-agent-privacy-notice',
+  )[0];
+  assert.ok(privacyNotice, 'the assistant explains data handling before use');
+  assert.strictEqual(privacyNotice.attributes.role, 'note');
+  assert.match(privacyNotice.textContent, /request and relevant interview source may be sent/);
+  assert.match(privacyNotice.textContent, /configured model provider/);
+  assert.match(privacyNotice.textContent, /owner-scoped chat for up to 2 hours/);
+  assert.match(privacyNotice.textContent, /progress details for up to 30 minutes/);
+  assert.match(privacyNotice.textContent, /does not show the provider’s retention terms/);
+  const renderedNodes = findAll(harness.container, () => true);
+  const composerInput = findAll(harness.container, (node) => node.tagName === 'textarea')[0];
+  assert.ok(
+    renderedNodes.indexOf(privacyNotice) < renderedNodes.indexOf(composerInput),
+    'the disclosure appears before the message composer',
+  );
 
   harness.chat.send('Add a children screen').then(() => {
     const created = harness.calls[0];

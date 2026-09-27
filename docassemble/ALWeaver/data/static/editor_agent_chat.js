@@ -787,6 +787,19 @@
       );
       panel.appendChild(status);
 
+      var privacyNotice = element(
+        'p',
+        'editor-agent-privacy-notice',
+        'Before you send: your request and relevant interview source may be sent ' +
+          'to the configured model provider. Weaver stores this owner-scoped ' +
+          'chat for up to 2 hours after its last update and progress details for ' +
+          'up to 30 minutes after their last update. Ask your administrator ' +
+          'about provider data handling; Weaver does not show the provider’s ' +
+          'retention terms here.',
+      );
+      privacyNotice.setAttribute('role', 'note');
+      panel.appendChild(privacyNotice);
+
       var log = element('div', 'editor-agent-transcript');
       log.setAttribute('role', 'log');
       log.setAttribute('aria-live', 'polite');
