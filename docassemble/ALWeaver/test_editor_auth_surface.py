@@ -1,3 +1,5 @@
+# do not pre-load
+
 """Exercise the authorization boundary on every editor API route."""
 
 import re
