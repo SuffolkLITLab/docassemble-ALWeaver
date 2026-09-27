@@ -90,7 +90,7 @@ assert.strictEqual(serializers.escapeYamlStr(false), 'false');
 assert.strictEqual(serializers.escapeYamlStr(null), null);
 assert.strictEqual(serializers.escapeYamlStr(undefined), undefined);
 assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
-assert.strictEqual(serializers.escapeYamlStr('two\nlines'), '|\n  two\n  lines');
+assert.strictEqual(serializers.escapeYamlStr('two\nlines'), JSON.stringify('two\nlines'));
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
 
 assert.strictEqual(
@@ -446,3 +446,45 @@ assert.deepStrictEqual(typed.seen, []);
 const written = serializeWithGenerator({ id: 'x', data: { id: 'from_yaml' } }, {'adv-id': undefined});
 assert.ok(written.yaml.startsWith('id: from_yaml\n'), written.yaml);
 assert.deepStrictEqual(written.seen, []);
+
+// Workbook B05/B06: parse emitted YAML, including multiline nested labels and
+// YAML 1.1 implicit scalars. The production server uses PyYAML.
+const { spawnSync } = require('child_process');
+function parseYaml(text) {
+  const result = spawnSync(process.env.PYTHON || 'python', ['-c',
+    'import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))'], {input: text, encoding: 'utf8'});
+  assert.strictEqual(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+const literals = ['Yes', 'No', 'on', 'off', 'null', '~', '001', '1e3', '2026-09-26', '.inf', 'two\nlines', '-', '?', 'a\\b'];
+for (const value of literals) {
+  assert.strictEqual(parseYaml('value: ' + serializers.escapeYamlStr(value)).value, value);
+}
+const multilineDocument = makeDocument('text', []);
+const multilineRow = multilineDocument.querySelectorAll('.editor-field-row')[0];
+const originalQuery = multilineRow.querySelector;
+multilineRow.querySelector = (selector) => selector === '[data-field-prop="label"]' ? {value: 'First line\nSecond line'} : originalQuery(selector);
+const multilineYaml = serializers.serializeQuestionToYaml({data: {}}, {
+  document: multilineDocument, appendYamlValue, appendYamlBlockValue,
+  fieldTypeSupportsStandaloneContent: () => false, choiceTypes: [], state: {},
+  appendQuestionAdvancedYaml: (yaml) => yaml,
+});
+assert.strictEqual(parseYaml(multilineYaml).fields[0].label, 'First line\nSecond line');
+const mapped = [{'Human label': 'machine_code'}, {'No': false}, 0, null, {'label': 'Detailed', 'value': 7, 'help': 'Keep metadata'}];
+assert.deepStrictEqual(serializers.readFieldChoices(serializers.fieldChoicesText(mapped)), mapped);
+const mappedYaml = serialize('radio', [], '', {data: {fields: [{choices: mapped}]}}, {
+  'field-choices-0': {value: serializers.fieldChoicesText(mapped)},
+});
+assert.deepStrictEqual(parseYaml(mappedYaml).fields[0].choices, mapped);
+assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
+  'field-choices-0': {value: literals.filter(v => !v.includes('\n')).join('\n')},
+})).fields[0].choices, literals.filter(v => !v.includes('\n')));
+assert.throws(() => serializers.readFieldChoices('[invalid'), /valid JSON array/);
+const cleared = serialize('text', [], '', {data: {subquestion: 'Old text'}});
+assert.strictEqual(parseYaml(cleared).subquestion, '');
+for (const choices of [[], [' leading ', '', 'trailing\n'], ['[literal]', 'ordinary']]) {
+  assert.deepStrictEqual(serializers.readFieldChoices(serializers.fieldChoicesText(choices)), choices);
+  assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
+    'field-choices-0': {value: serializers.fieldChoicesText(choices)},
+  })).fields[0].choices, choices);
+}

@@ -584,6 +584,13 @@
   function readExpressionModifier(input, original) {
     var value = input ? input.value.trim() : '';
     if (
+      original !== undefined &&
+      original !== null &&
+      typeof original !== 'string' &&
+      String(original) === value
+    )
+      return original;
+    if (
       value &&
       ((original && typeof original === 'object') ||
         (input.dataset && input.dataset.expressionMapping === 'true'))
@@ -6208,7 +6215,7 @@
   function _normalizeObjectClassName(classText) {
     var raw = String(classText || '').trim();
     if (!raw) return '';
-    return raw.split('.', 1)[0].split('(', 1)[0].trim();
+    return raw.split('(', 1)[0].trim().split('.').pop();
   }
 
   function _isDaListLikeClass(className) {
@@ -6254,13 +6261,7 @@
     listLikeGroupKeys.forEach(function (key) {
       (state.symbolCatalog.groups[key] || []).forEach(function (name) {
         var cleanName = String(name || '').trim();
-        if (
-          !cleanName ||
-          cleanName.indexOf('.') !== -1 ||
-          cleanName.indexOf('[') !== -1 ||
-          seen[cleanName]
-        )
-          return;
+        if (!cleanName || seen[cleanName]) return;
         seen[cleanName] = true;
         out.push({
           variable: cleanName,
@@ -6289,26 +6290,20 @@
       var gatherChoices = getGatherListCandidates();
       html +=
         '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
-      if (gatherChoices.length) {
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-gather-list" list="order-gather-candidates" placeholder="household[i].jobs">' +
+        '<datalist id="order-gather-candidates">';
+      gatherChoices.forEach(function (entry) {
         html +=
-          '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
-        gatherChoices.forEach(function (entry) {
-          html +=
-            '<option value="' +
-            esc(entry.variable) +
-            '">' +
-            esc(entry.variable + ' (' + entry.className + ')') +
-            '</option>';
-        });
-        html += '</select>';
-        html +=
-          '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
-      } else {
-        html +=
-          '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
-      }
-      html += '</div>';
-      if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
+          '<option value="' +
+          esc(entry.variable) +
+          '">' +
+          esc(entry.className) +
+          '</option>';
+      });
+      html +=
+        '</datalist><div class="editor-tiny mt-2">Select a known list or enter a custom or nested list variable. Indexed and generic targets require a matching loop or generic context in Python.</div></div>';
+      if (saveBtn) saveBtn.disabled = false;
     } else if (kind === 'condition') {
       html +=
         '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
@@ -6426,7 +6421,12 @@
       var prefix = new Array(indent + 1).join(' ');
       if (step.kind === 'section')
         lines.push(
-          prefix + "nav.set_section('" + String(step.value || '') + "')",
+          prefix +
+            (step.call === 'set_parts'
+              ? 'set_parts(subtitle='
+              : 'nav.set_section(') +
+            JSON.stringify(String(step.value || '')) +
+            ')',
         );
       else if (step.kind === 'progress')
         lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
@@ -6555,7 +6555,24 @@
     if (value === undefined || value === null) return yaml;
     var text = String(value).trim();
     if (!text) return yaml;
-    return yaml + key + ': ' + escapeYamlStr(text) + '\n';
+    var typed = text;
+    if (
+      ['progress', 'reload'].indexOf(key) !== -1 &&
+      Number.isFinite(Number(text))
+    )
+      typed = Number(text);
+    if (
+      [
+        'hide continue button',
+        'disable continue button',
+        'prevent going back',
+        'back button',
+        'scan for variables',
+      ].indexOf(key) !== -1 &&
+      /^(true|false)$/i.test(text)
+    )
+      typed = text.toLowerCase() === 'true';
+    return yaml + key + ': ' + escapeYamlStr(typed) + '\n';
   }
 
   function appendYamlListValue(yaml, key, value) {
@@ -7289,8 +7306,7 @@
       if (Array.isArray(field.choices) && field.choices.length) {
         yaml += '    choices:\n';
         field.choices.forEach(function (choice) {
-          var choiceText = String(choice || '').trim();
-          if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
         });
       }
       if (field.code) {
@@ -7373,8 +7389,7 @@
     if (hasChoices) {
       yaml += '    choices:\n';
       field.choices.forEach(function (choice) {
-        var choiceText = String(choice || '').trim();
-        if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+        yaml += '      - ' + JSON.stringify(choice) + '\n';
       });
     }
     if (hasCode) {
@@ -7962,6 +7977,24 @@
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
       return;
     }
+    // Validate all structured options before changing the in-memory fields.
+    try {
+      rows.forEach(function (row, index) {
+        var idx = row.getAttribute('data-field-idx') || String(index);
+        var choices = document.getElementById('field-choices-' + idx);
+        if (
+          choices &&
+          CHOICE_TYPES.indexOf(
+            row.querySelector('[data-field-prop="type"]').value,
+          ) !== -1
+        ) {
+          window.ALWeaverSerializers.readFieldChoices(choices.value);
+        }
+      });
+    } catch (error) {
+      window.alert(error.message);
+      return false;
+    }
     var previousFields = blk.data.fields || [];
     blk.data.fields = [];
     for (var i = 0; i < rows.length; i++) {
@@ -8057,12 +8090,9 @@
       if (variable) fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
-        fieldObj.choices = choicesEl.value
-          .split('\n')
-          .map(function (c) {
-            return c.trim();
-          })
-          .filter(Boolean);
+        fieldObj.choices = window.ALWeaverSerializers.readFieldChoices(
+          choicesEl.value,
+        );
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
       var fieldRequired = serializedRequiredValue(requiredExpression);
@@ -11701,15 +11731,9 @@
                 varName = String(f.field || '');
                 dtype = f.datatype || f.input_type || 'text';
                 if (f.choices && Array.isArray(f.choices)) {
-                  choices = f.choices
-                    .map(function (c) {
-                      if (typeof c === 'object') {
-                        var ck = Object.keys(c);
-                        return ck[0] + ': ' + c[ck[0]];
-                      }
-                      return String(c);
-                    })
-                    .join('\n');
+                  choices = window.ALWeaverSerializers.fieldChoicesText(
+                    f.choices,
+                  );
                 }
                 if (f.code)
                   codeExpr =
@@ -11759,30 +11783,18 @@
                       varName = val.variable || val.name || firstKey;
                       dtype = val.datatype || val.input_type || 'text';
                       if (val.choices && Array.isArray(val.choices)) {
-                        choices = val.choices
-                          .map(function (c) {
-                            if (typeof c === 'object') {
-                              var ck = Object.keys(c);
-                              return ck[0] + ': ' + c[ck[0]];
-                            }
-                            return String(c);
-                          })
-                          .join('\n');
+                        choices = window.ALWeaverSerializers.fieldChoicesText(
+                          val.choices,
+                        );
                       }
                     }
                   }
                   if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
                   if (f.input_type && dtype === 'text') dtype = f.input_type;
                   if (!choices && f.choices && Array.isArray(f.choices)) {
-                    choices = f.choices
-                      .map(function (c) {
-                        if (typeof c === 'object') {
-                          var ck = Object.keys(c);
-                          return ck[0] + ': ' + c[ck[0]];
-                        }
-                        return String(c);
-                      })
-                      .join('\n');
+                    choices = window.ALWeaverSerializers.fieldChoicesText(
+                      f.choices,
+                    );
                   }
                   var _codeSource =
                     f.code ||
@@ -11844,9 +11856,9 @@
                 '</textarea>';
             } else {
               html +=
-                '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' +
+                '<textarea class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" aria-label="Field label" title="Right-click for insert tools" rows="1">' +
                 esc(label) +
-                '">';
+                '</textarea>';
             }
             html += _renderFieldTypeDropdown(fi, dtype);
             if (isALMethodType)
@@ -11950,7 +11962,7 @@
               html +=
                 '<label class="editor-tiny" for="field-choices-' +
                 fi +
-                '">Options (one per line)</label>';
+                '">Options (one per line, or JSON array for labels and typed values)</label>';
               html +=
                 '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
                 fi +
@@ -13010,7 +13022,7 @@
       if (CHOICE_TYPES.indexOf(dtype) === -1) {
         out += row(
           'field-choices-' + fi,
-          'choices (one per line)',
+          'choices (one per line, or JSON array)',
           '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
             fi +
             '" rows="3">' +
@@ -21104,7 +21116,18 @@
         newStep.summary = invokeVal;
       } else if (kind === 'gather') {
         var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
-        if (!gatherVar) return;
+        if (
+          !/^[A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[(?:\d+|[A-Za-z_]\w*)\]))*$/.test(
+            gatherVar,
+          )
+        ) {
+          gatherEl.setCustomValidity(
+            'Enter a list variable such as household[i].jobs.',
+          );
+          gatherEl.reportValidity();
+          return;
+        }
+        gatherEl.setCustomValidity('');
         newStep.invoke = gatherVar + '.gather()';
         newStep.summary = 'Gather ' + gatherVar + ' list';
       } else if (kind === 'condition') {

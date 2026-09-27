@@ -7,6 +7,7 @@ for reading/writing interview files.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import os
@@ -1314,6 +1315,31 @@ def update_block_in_yaml(
         # The question controls do not serialize attachments. Retain their
         # exact source when saving a question carrying one or more documents.
         original_data = _block.get("data") or {}
+
+        visited: set[int] = set()
+
+        def has_nontext_keys(value: Any) -> bool:
+            if isinstance(value, (dict, list)):
+                if id(value) in visited:
+                    return False
+                visited.add(id(value))
+            if isinstance(value, dict):
+                return any(
+                    not isinstance(key, str) or has_nontext_keys(item)
+                    for key, item in value.items()
+                )
+            if isinstance(value, list):
+                return any(has_nontext_keys(item) for item in value)
+            return False
+
+        # JSON object keys cannot carry YAML boolean/numeric key types. The
+        # browser therefore cannot safely round-trip these mappings.
+        if has_nontext_keys(original_data):
+            raise ValueError(
+                "This block contains non-text YAML mapping keys (for example, "
+                "unquoted Yes/No labels). Edit it in YAML mode, or quote the "
+                "labels there before using graphical controls."
+            )
         edited_data = yaml.safe_load(edited_body)
         if (
             "question" in original_data
@@ -1649,6 +1675,72 @@ def _join_continuation_lines(lines: list) -> list:
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
+    """Expose only losslessly understood statements to the guided order editor.
+
+    AST statement boundaries keep unsupported suites and continuations intact.
+    Comments, unusual formatting and unsupported syntax remain editable as raw
+    Python. A candidate must reproduce the exact source and Python AST before
+    it can be represented by guided controls.
+    """
+
+    def raw(source: str) -> Dict[str, Any]:
+        return {
+            "kind": STEP_RAW,
+            "label": "Raw Python",
+            "summary": source[:80],
+            "code": source,
+        }
+
+    try:
+        body = ast.parse(code).body
+    except SyntaxError:
+        return [dict(raw(code), id="step-1")]
+    lines = code.split("\n")
+    steps: List[Dict[str, Any]] = []
+    cursor = 0
+    for node in body:
+        start = (
+            min(
+                [node.lineno]
+                + [item.lineno for item in getattr(node, "decorator_list", [])]
+            )
+            - 1
+        )
+        end = node.end_lineno or node.lineno
+        # Semicolon-separated statements share a physical line: preserve the
+        # whole source rather than duplicating or slicing that line incorrectly.
+        if start < cursor:
+            steps = [raw(code)]
+            break
+        if start > cursor:
+            steps.append(raw("\n".join(lines[cursor:start])))
+        source = "\n".join(lines[start:end])
+        candidate = _parse_simple_order_code(source)
+        rendered = serialize_order_steps(candidate)
+        try:
+            equivalent = ast.dump(ast.parse(rendered)) == ast.dump(ast.parse(source))
+        except SyntaxError:
+            equivalent = False
+        steps.extend(candidate if equivalent and rendered == source else [raw(source)])
+        cursor = end
+    else:
+        if cursor < len(lines):
+            steps.append(raw("\n".join(lines[cursor:])))
+    counter = 0
+
+    def assign_ids(items: Sequence[Dict[str, Any]]) -> None:
+        nonlocal counter
+        for item in items:
+            counter += 1
+            item["id"] = f"step-{counter}"
+            assign_ids(item.get("children") or [])
+            assign_ids(item.get("else_children") or [])
+
+    assign_ids(steps)
+    return steps
+
+
+def _parse_simple_order_code(code: str) -> List[Dict[str, Any]]:
     """Parse a mandatory code block's body into structured order steps.
 
     Recognises:
@@ -1686,6 +1778,7 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
                 "label": "Start section",
                 "summary": f"Set section to {m.group(1)}",
                 "value": m.group(1),
+                "call": "set_parts",
             }
 
         m = _RE_NAV_SET_SECTION.search(stripped_line)
@@ -1927,7 +2020,10 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
                 value = step.get("value", "")
-                lines.append(f"{prefix}nav.set_section('{value}')")
+                if step.get("call") == "set_parts":
+                    lines.append(f"{prefix}set_parts(subtitle={value!r})")
+                else:
+                    lines.append(f"{prefix}nav.set_section({value!r})")
             elif kind == STEP_PROGRESS:
                 value = step.get("value", "0")
                 lines.append(f"{prefix}set_progress({value})")
@@ -1941,7 +2037,7 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
                 _append_condition(step, indent, "if")
             elif kind == STEP_RAW:
                 code = step.get("code", "")
-                for raw_line in str(code).splitlines() or [""]:
+                for raw_line in str(code).split("\n"):
                     lines.append(f"{prefix}{raw_line}")
 
     _append_steps(steps, 0)

@@ -9,12 +9,12 @@
 
   function escapeYamlStr(str) {
     if (str === undefined || str === null) return str;
-    str = String(str);
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (/[:\#\{\}\[\],&*!>|'"%@`]/.test(str) || str.trim() !== str || str === '') {
-      return '"' + str.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    if (typeof str !== 'string') return JSON.stringify(str);
+    // JSON strings are valid YAML scalars at every nesting depth. Quote text
+    // that YAML 1.1 could resolve as a boolean, null, number, date or key.
+    if (/[:\#\{\}\[\],&*!>|'"%@`\\\n\r\t]/.test(str) || str.trim() !== str || str === '' ||
+        /^(?:[-?:](?:\s|$)|~$|(?:y|n|yes|no|true|false|on|off|null)$|[-+.]?\d|[-+]?\.(?:inf|nan)$)/i.test(str)) {
+      return JSON.stringify(str);
     }
     return str;
   }
@@ -117,6 +117,35 @@
     return data;
   }
 
+  function fieldChoicesText(choices) {
+    if (!Array.isArray(choices)) return '';
+    // Typed/mapped choices use an explicit structured form, never a lossy
+    // label: value projection. Plain text remains convenient for simple lists.
+    if (!choices.length || choices.some(function (choice) { return typeof choice !== 'string' || !choice || choice.trim() !== choice || /[\r\n]/.test(choice); }) ||
+        (choices.length && choices[0].trim().startsWith('['))) return JSON.stringify(choices, null, 2);
+    return choices.join('\n');
+  }
+
+  function readFieldChoices(text) {
+    if (text.trim().startsWith('[')) {
+      var choices;
+      try { choices = JSON.parse(text); } catch (_) { throw new Error('Options beginning with [ must be a valid JSON array.'); }
+      if (!Array.isArray(choices)) throw new Error('Options must be an array.');
+      return choices;
+    }
+    return text.split('\n').map(function (choice) { return choice.trim(); }).filter(Boolean);
+  }
+
+  function appendFieldChoices(yaml, text) {
+    var choices = readFieldChoices(text);
+    if (!choices.length) return yaml + '    choices: []\n';
+    yaml += '    choices:\n';
+    choices.forEach(function (choice) {
+      yaml += '      - ' + (typeof choice === 'string' ? escapeYamlStr(choice) : JSON.stringify(choice)) + '\n';
+    });
+    return yaml;
+  }
+
   function serializeQuestionToYaml(block, options) {
     var document = options.document;
     var screenData = readScreenControls((block && block.data) || {}, document);
@@ -139,6 +168,9 @@
       if (key === 'default' && appliedExpression && input.dataset.expressionWrapper === '') return '    default: ' + JSON.stringify(value) + '\n';
       if (['validate', 'disabled', 'exclude', 'accept', 'rows', 'maximum image size', 'persistent', 'private', 'object labeler', 'address autocomplete', 'label above field', 'floating label'].indexOf(key) !== -1 && (appliedExpression || (originalField && typeof originalField[key] === 'string'))) {
         return '    ' + key + ': ' + JSON.stringify(value) + '\n';
+      }
+      if (originalField && originalField[key] !== undefined && typeof originalField[key] !== 'string' && String(originalField[key]) === value) {
+        return '    ' + key + ': ' + JSON.stringify(originalField[key]) + '\n';
       }
       return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
     }
@@ -222,10 +254,7 @@
         if (isStandaloneType) {
           yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
           if (hasChoices) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function (choice) {
-              if (choice.trim()) yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-            });
+            yaml = appendFieldChoices(yaml, choicesEl.value);
           }
           if (hasCodeExpr) {
             var standaloneCode = codeEl.value.trim();
@@ -247,10 +276,7 @@
         }
         if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
         if (hasChoices) {
-          yaml += '    choices:\n';
-          choicesEl.value.split('\n').forEach(function (choice) {
-            if (choice.trim()) yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-          });
+          yaml = appendFieldChoices(yaml, choicesEl.value);
         }
         if (hasCodeExpr) {
           var codeText = codeEl.value.trim();
@@ -649,6 +675,8 @@
 
   return {
     enabledExpressionValue: enabledExpressionValue,
+    fieldChoicesText: fieldChoicesText,
+    readFieldChoices: readFieldChoices,
     escapeYamlStr: escapeYamlStr,
     appendYamlText: appendYamlText,
     serializeQuestionToYaml: serializeQuestionToYaml,
