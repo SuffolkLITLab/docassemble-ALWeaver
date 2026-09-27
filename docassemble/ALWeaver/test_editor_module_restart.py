@@ -195,12 +195,29 @@ class TestPendingRestartState(unittest.TestCase):
         )
 
     def test_a_restart_from_anywhere_clears_the_flag(self):
-        # The stock Playground, a package install, or our own restart all move
-        # START_TIME forward, and any of them loads the module.
+        # A newer process clears a flag when its module copy is verified.
         mark_modules_dirty(self.redis, 7, "default", "util.py", server_start_time=100.0)
         self.assertIsNone(
-            read_modules_dirty(self.redis, 7, "default", server_start_time=200.0)
+            read_modules_dirty(
+                self.redis,
+                7,
+                "default",
+                server_start_time=200.0,
+                copy_ready=lambda _state: True,
+            )
         )
+
+    def test_restart_does_not_clear_a_failed_module_copy(self):
+        mark_modules_dirty(self.redis, 7, "default", "util.py", server_start_time=100.0)
+        state = read_modules_dirty(
+            self.redis,
+            7,
+            "default",
+            server_start_time=200.0,
+            copy_ready=lambda _state: False,
+        )
+        self.assertEqual(state["files"][0]["filename"], "util.py")
+        self.assertIn("da:weaver:modules_dirty:7:default", self.redis.values)
 
     def test_projects_do_not_share_a_flag(self):
         mark_modules_dirty(self.redis, 7, "Housing", "util.py", server_start_time=100.0)
@@ -519,6 +536,41 @@ class TestRestartApi(unittest.TestCase):
         self.assertTrue(data["restart_allowed"])
         self.assertEqual(data["disruption_seconds"], [10, 30])
 
+    def test_restart_state_waits_for_saved_module_bytes_after_server_start(self):
+        with tempfile.TemporaryDirectory() as root:
+            storage = os.path.join(root, "storage")
+            packages = os.path.join(root, "packages")
+            installed = module_package_directory(packages, 7, "default")
+            os.makedirs(storage)
+            os.makedirs(installed)
+            with open(os.path.join(storage, "util.py"), "w") as module_file:
+                module_file.write("VALUE = 'v2'\n")
+            with open(os.path.join(installed, "util.py"), "w") as module_file:
+                module_file.write("VALUE = 'v1'\n")
+            mark_modules_dirty(
+                self.redis, 7, "default", "util.py", server_start_time=100.0
+            )
+            with (
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(None, storage),
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=packages
+                ),
+            ):
+                self.assertTrue(
+                    api_editor._restart_state_payload(7, "default")["pending"]
+                )
+                with open(os.path.join(installed, "util.py"), "w") as module_file:
+                    module_file.write("VALUE = 'v2'\n")
+                self.assertFalse(
+                    api_editor._restart_state_payload(7, "default")["pending"]
+                )
+
     def test_a_read_only_server_explains_itself_instead_of_offering_a_restart(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -566,7 +618,7 @@ class TestRestartApi(unittest.TestCase):
         self.assertEqual(record["module_manifest"], manifest)
         self.assertEqual(record["user_id"], 7)
         self.assertEqual(record["project"], "default")
-        self.assertNotIn("da:weaver:modules_dirty:7:default", self.redis.values)
+        self.assertIn("da:weaver:modules_dirty:7:default", self.redis.values)
 
     def test_a_server_that_may_not_restart_refuses_with_the_reason(self):
         with (

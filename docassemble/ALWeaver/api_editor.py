@@ -5012,7 +5012,19 @@ def _restart_capability() -> Dict[str, Any]:
 def _pending_module_changes(uid: int, project: str) -> Optional[Dict[str, Any]]:
     try:
         return read_modules_dirty(
-            r, uid, project, server_start_time=server_start_time()
+            r,
+            uid,
+            project,
+            server_start_time=server_start_time(),
+            copy_ready=lambda state: _restart_module_copy_ready(
+                {
+                    "user_id": uid,
+                    "project": project,
+                    "module_manifest": _restart_module_manifest(
+                        uid, project, pending=state
+                    ),
+                }
+            ),
         )
     except Exception as exc:  # a broken flag must not break the editor
         log(f"ALWeaver editor: could not read pending module state: {exc!r}", "error")
@@ -5049,7 +5061,9 @@ def _restart_state_payload(uid: int, project: str) -> Dict[str, Any]:
     }
 
 
-def _restart_module_manifest(uid: int, project: str) -> Dict[str, Any]:
+def _restart_module_manifest(
+    uid: int, project: str, *, pending: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Capture the module files the next server process must publish.
 
     Docassemble rebuilds Playground packages during startup. The HTTP process
@@ -5068,7 +5082,8 @@ def _restart_module_manifest(uid: int, project: str) -> Dict[str, Any]:
         with open(os.path.join(directory, filename), "rb") as module_file:
             expected[filename] = hashlib.sha256(module_file.read()).hexdigest()
 
-    pending = _pending_module_changes(uid, project) or {}
+    if pending is None:
+        pending = _pending_module_changes(uid, project) or {}
     removed = sorted(
         {
             entry["filename"]
@@ -8008,7 +8023,6 @@ def editor_api_restart_server() -> Response:
         pipe.expire(restart_status_key(task_id), 3600)
         pipe.execute()
         restart_docassemble()
-        clear_modules_dirty(r, uid, project)
         return jsonify(
             {
                 "success": True,
