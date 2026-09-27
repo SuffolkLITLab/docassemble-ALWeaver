@@ -1092,6 +1092,49 @@ class TestEditorGithubApi(unittest.TestCase):
         prepare.assert_not_called()
 
 
+class TestEditorFilesApi(unittest.TestCase):
+    def test_unavailable_project_returns_path_free_not_found(self):
+        private_path = "/var/lib/docassemble/playground/42/private-project"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_list_yaml_files",
+                side_effect=FileNotFoundError(private_path),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/files?project=private-project"
+            ):
+                response = api_editor.editor_api_files()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["type"], "not_found")
+        self.assertNotIn(private_path, response.get_data(as_text=True))
+        self.assertNotIn("private-project", response.get_data(as_text=True))
+
+    def test_owner_can_list_project_files(self):
+        files = [{"filename": "main.yml", "label": "main.yml"}]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_list_yaml_files", return_value=files
+            ) as list_files,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/files?project=owned-project"
+            ):
+                response = api_editor.editor_api_files()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["files"], files)
+        list_files.assert_called_once_with(7, "owned-project")
+
+
 class TestEditorProjectSearchApi(unittest.TestCase):
     def test_search_names_binary_and_oversized_files_it_cannot_inspect(self):
         with (

@@ -56,6 +56,29 @@
 
   function sanitizeHtml(html, report) {
     var out = String(html === undefined || html === null ? '' : html);
+    // A sandboxed preview has an opaque origin, but its `allow-scripts` flag
+    // is needed by the formatter plugins. Raw HTML could therefore create a
+    // nested data/about iframe (or object/embed document) and run script in
+    // that child, or use CSS selectors and external URLs to leak rendered
+    // form values, even though the parent editor remains cross-origin
+    // isolated. Drop those active-content sources; Bootstrap classes and
+    // ordinary semantic markup remain available.
+    out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/<style\b[^>]*>|<\/style\s*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/<\/?(?:iframe|object|embed|link|base)\b[^>]*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
     SCRIPT_PATTERNS.forEach(function (pattern) {
       out = out.replace(pattern, function () {
         if (report) report.scriptRemoved = true;
@@ -2044,7 +2067,7 @@
       if (PLACEHOLDER_NOTES[kind]) notes.push(kind && PLACEHOLDER_NOTES[kind]);
     });
     if (report.scriptRemoved) {
-      notes.push('Your HTML is rendered as HTML, but <script> tags and inline event handlers were left out of the preview. The running interview still executes them.');
+      notes.push('Some active HTML was left out of the preview, including scripts, inline event handlers, embedded frames, or user-defined CSS. The running interview may render this content differently.');
     }
     (opts.notes || []).forEach(function (note) { notes.push(note); });
     return { html: html, notes: notes, itemCount: items.length };
@@ -2157,7 +2180,7 @@
       if (PLACEHOLDER_NOTES[kind]) notes.push(PLACEHOLDER_NOTES[kind]);
     });
     if (report.scriptRemoved) {
-      notes.push('Your HTML is rendered as HTML, but <script> tags and inline event handlers were left out of the preview. The running interview still executes them.');
+      notes.push('Some active HTML was left out of the preview, including scripts, inline event handlers, embedded frames, or user-defined CSS. The running interview may render this content differently.');
     }
     (opts.notes || []).forEach(function (note) { notes.push(note); });
     return {

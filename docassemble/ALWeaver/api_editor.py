@@ -2868,13 +2868,34 @@ def editor_api_files() -> Response:
             },
             400,
         )
-    except Exception as exc:
-        log(f"ALWeaver editor: files error: {exc!r}", "error")
+    except FileNotFoundError:
+        # Playground raises this both for absent projects and projects the
+        # current user cannot access. Keep the response deliberately generic:
+        # exception text may include a private server-side filesystem path.
         return jsonify_with_status(
             {
                 "success": False,
                 "request_id": request_id,
-                "error": {"type": "server_error", "message": str(exc)},
+                "error": {
+                    "type": "not_found",
+                    "message": "Project not found or unavailable.",
+                },
+            },
+            404,
+        )
+    except Exception as exc:
+        log(
+            f"ALWeaver editor: files error ({type(exc).__name__}) request_id={request_id}",
+            "error",
+        )
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "message": "Unable to list project files.",
+                },
             },
             500,
         )
