@@ -164,6 +164,35 @@ const modifierYaml = serialize('text', modifierKeys);
 modifierKeys.forEach((key) => {
   assert.ok(modifierYaml.includes('    ' + key + ': modifier_value\n'), key);
 });
+assert.strictEqual(serializers.fieldModifierYamlValue('check others', 'True'), 'true');
+assert.strictEqual(serializers.fieldModifierYamlValue('check others', 'False'), 'false');
+assert.strictEqual(serializers.fieldModifierYamlValue('uncheck others', 'True'), 'true');
+assert.ok(serialize('checkboxes', [{ key: 'check others', value: 'True' }]).includes('    check others: true\n'));
+assert.ok(serialize('checkboxes', [{ key: 'check others', value: 'False' }]).includes('    check others: false\n'));
+assert.ok(!serialize('checkboxes', [{ key: 'check others', value: '' }]).includes('check others:'));
+const syncedCheckOthers = serialize(
+  'checkboxes',
+  [{ key: 'check others', value: 'False' }],
+  '',
+  { id: 'question_id', data: { fields: [{ 'check others': 'False' }] } },
+);
+assert.ok(syncedCheckOthers.includes('    check others: false\n'));
+const syncedUncheckOthers = serialize(
+  'checkboxes',
+  [{ key: 'uncheck others', value: 'True' }],
+  '',
+  { id: 'question_id', data: { fields: [{ 'uncheck others': 'True' }] } },
+);
+assert.ok(syncedUncheckOthers.includes('    uncheck others: true\n'));
+for (const key of ['disable others', 'shuffle']) {
+  const syncedFalse = serialize(
+    'checkboxes',
+    [{ key, value: 'False' }],
+    '',
+    { id: 'question_id', data: { fields: [{ [key]: 'False' }] } },
+  );
+  assert.ok(syncedFalse.includes('    ' + key + ': false\n'), syncedFalse);
+}
 
 // ---------------------------------------------------------------------------
 // ALPeopleList quantity — "Setting the number of people in a group"
@@ -541,6 +570,34 @@ for (const [key, value, expected] of [
 ]) {
   assert.deepStrictEqual(parseYaml(serialize('text', [{key, value}])).fields[0][key], expected);
   assert.deepStrictEqual(parseYaml('value: ' + serializers.fieldModifierYamlValue(key, value)).value, expected);
+}
+const syncedDisableOthersList = serialize(
+  'text',
+  [{ key: 'disable others', value: '["other"]' }],
+  '',
+  {
+    id: 'question_id',
+    data: { fields: [{ 'disable others': ['other'] }] },
+  },
+);
+assert.deepStrictEqual(
+  parseYaml(syncedDisableOthersList).fields[0]['disable others'],
+  ['other'],
+);
+for (const key of ['check others', 'uncheck others']) {
+  const syncedYesNoList = serialize(
+    'yesno',
+    [{ key, value: '["first_choice", "second_choice"]' }],
+    '',
+    {
+      id: 'question_id',
+      data: { fields: [{ [key]: ['first_choice', 'second_choice'] }] },
+    },
+  );
+  assert.deepStrictEqual(
+    parseYaml(syncedYesNoList).fields[0][key],
+    ['first_choice', 'second_choice'],
+  );
 }
 for (const label of ['True', 'False', 'yes', 'no', '001']) {
   assert.strictEqual(parseYaml('value: '+serializers.escapeYamlStr(label)).value, label);

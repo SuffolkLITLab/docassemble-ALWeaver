@@ -180,18 +180,18 @@
   function fieldModifierYamlValue(key, value) {
     if (typeof value !== 'string') return JSON.stringify(value);
     var text = value.trim();
-    if (['shuffle', 'disable others', 'uncheck others', 'none of the above', 'all of the above'].indexOf(key) !== -1 && /^(true|false)$/i.test(text)) {
+    if (['shuffle', 'disable others', 'uncheck others', 'check others', 'none of the above', 'all of the above'].indexOf(key) !== -1 && /^(true|false)$/i.test(text)) {
       return text.toLowerCase();
     }
     if (['min', 'max', 'minlength', 'maxlength', 'step'].indexOf(key) !== -1 && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) {
       return JSON.stringify(Number(text));
     }
-    // disable others also accepts a list of variable names.
-    if (key === 'disable others' && text.startsWith('[')) {
+    // These modifiers accept lists of variable names as well as booleans.
+    if (['disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 && text.startsWith('[')) {
       var names;
-      try { names = JSON.parse(text); } catch (_) { throw new Error('disable others must be True, False, or a JSON array of variable names.'); }
+      try { names = JSON.parse(text); } catch (_) { throw new Error(key + ' must be True, False, or a JSON array of variable names.'); }
       if (!Array.isArray(names) || names.some(function (name) { return typeof name !== 'string'; })) {
-        throw new Error('disable others must be True, False, or a JSON array of variable names.');
+        throw new Error(key + ' must be True, False, or a JSON array of variable names.');
       }
       return JSON.stringify(names);
     }
@@ -209,6 +209,12 @@
       var wasMapping = originalField && originalField[key] && typeof originalField[key] === 'object';
       var appliedMapping = input && input.dataset && input.dataset.expressionMapping === 'true';
       var appliedExpression = input && input.dataset && input.dataset.expressionApplied === 'true';
+      if (
+        ['shuffle', 'disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 &&
+        /^(true|false)$/i.test(String(value).trim())
+      ) {
+        return '    ' + key + ': ' + String(value).trim().toLowerCase() + '\n';
+      }
       if ((wasMapping || appliedMapping) && ['show if', 'hide if', 'enable if', 'disable if', 'default'].indexOf(key) !== -1) {
         try {
           var structured = JSON.parse(value);

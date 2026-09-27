@@ -13552,6 +13552,91 @@
     function renderLogicTab() {
       var out = '';
       var requiredExpression = requiredExpressionValue(fmods.required);
+      var normalizedDatatype = String(dtype || 'text').toLowerCase();
+      var yesNoModifierTypes = ['yesno', 'yesnowide', 'noyes', 'noyeswide'];
+      var disableOthersUnsupportedTypes = [
+        'file',
+        'files',
+        'range',
+        'multiselect',
+        'checkboxes',
+        'camera',
+        'user',
+        'environment',
+        'camcorder',
+        'microphone',
+        'object_multiselect',
+        'object_checkboxes',
+      ];
+
+      function sourceOnlyModifierNotice(key, note) {
+        var value = fmods[key];
+        if (value === undefined) return '';
+        var renderedValue =
+          typeof value === 'string' ? value : JSON.stringify(value);
+        var message = note
+          ? esc(note) + ': <code>' + esc(renderedValue) + '</code>.'
+          : 'is not supported for ' +
+            esc(String(dtype || 'text').replace(/_/g, ' ')) +
+            '; the source value <code>' +
+            esc(renderedValue) +
+            '</code> is preserved.';
+        return (
+          '<div class="editor-tiny text-warning-emphasis mt-1" data-source-only-fmod="' +
+          esc(key) +
+          '">' +
+          esc(key) +
+          ' ' +
+          message +
+          ' Edit it in Full YAML.' +
+          '</div>'
+        );
+      }
+
+      function isBooleanModifierValue(value) {
+        return (
+          typeof value === 'boolean' ||
+          (typeof value === 'string' && /^(true|false)$/i.test(value.trim()))
+        );
+      }
+
+      function isDisableOthersList(value) {
+        if (Array.isArray(value)) return true;
+        if (typeof value !== 'string') return false;
+        try {
+          return Array.isArray(JSON.parse(value));
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function modifierOrNotice(key, id, supported) {
+        var value = fmods[key];
+        if (!supported) return sourceOnlyModifierNotice(key);
+        if (value !== undefined && !isBooleanModifierValue(value))
+          return sourceOnlyModifierNotice(key, 'list value is preserved');
+        return choiceBooleanModifier(key, id);
+      }
+
+      function choiceBooleanModifier(key, id) {
+        var current = String(fmods[key]).toLowerCase();
+        return row(
+          id,
+          key,
+          '<select class="form-select editor-form-control" id="' +
+            id +
+            '" data-fmod="' +
+            esc(key) +
+            '" data-field-idx="' +
+            fi +
+            '"><option value="">(default)</option><option value="True"' +
+            (current === 'true' ? ' selected' : '') +
+            '>Yes</option><option value="False"' +
+            (current === 'false' ? ' selected' : '') +
+            '>No</option></select>',
+        );
+      }
+
       out += row(
         'field-required-expression-' + fi,
         'Required when (Python; leave blank to use Required toggle)',
@@ -13673,38 +13758,42 @@
           esc(String(fmods.exclude || '')) +
           '">',
       );
-      out += pairRow(
-        '<div><label class="editor-tiny" for="fmod-nota-' +
-          fi +
-          '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' +
-          fi +
-          '" data-fmod="none of the above" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            String(
-              fmods['none of the above'] !== undefined
-                ? fmods['none of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
-        '<div><label class="editor-tiny" for="fmod-aota-' +
-          fi +
-          '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' +
-          fi +
-          '" data-fmod="all of the above" data-field-idx="' +
+      var supportsNoneOfAbove =
+        ['checkboxes', 'object_checkboxes', 'object_radio'].indexOf(
+          normalizedDatatype,
+        ) !== -1;
+      var supportsAllOfAbove =
+        ['checkboxes', 'object_checkboxes'].indexOf(normalizedDatatype) !== -1;
+      function choiceLabelModifier(key, id, supported) {
+        if (!supported) return sourceOnlyModifierNotice(key);
+        return (
+          '<div><label class="editor-tiny" for="' +
+          id +
+          '">' +
+          esc(key) +
+          '</label><input class="form-control editor-form-control" id="' +
+          id +
+          '" data-fmod="' +
+          esc(key) +
+          '" data-field-idx="' +
           fi +
           '" value="' +
-          esc(
-            String(
-              fmods['all of the above'] !== undefined
-                ? fmods['all of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
+          esc(String(fmods[key] !== undefined ? fmods[key] : '')) +
+          '"></div>'
+        );
+      }
+      var noneOfAboveControl = choiceLabelModifier(
+        'none of the above',
+        'fmod-nota-' + fi,
+        supportsNoneOfAbove,
       );
+      var allOfAboveControl = choiceLabelModifier(
+        'all of the above',
+        'fmod-aota-' + fi,
+        supportsAllOfAbove,
+      );
+      if (noneOfAboveControl || allOfAboveControl)
+        out += pairRow(noneOfAboveControl, allOfAboveControl);
       out += row(
         'fmod-shuffle-' + fi,
         'shuffle',
@@ -13718,23 +13807,49 @@
           (String(fmods.shuffle).toLowerCase() === 'false' ? ' selected' : '') +
           '>No</option></select>',
       );
-      out += row(
-        'fmod-disableothers-' + fi,
-        'disable others',
-        '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
-          fi +
-          '" data-fmod="disable others" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            typeof fmods['disable others'] === 'boolean'
-              ? String(fmods['disable others'])
-              : String(fmods['disable others'] || ''),
-          ) +
-          '">',
-        null,
-        'True, or a list of variable names.',
+      var uncheckOthersControl = modifierOrNotice(
+        'uncheck others',
+        'fmod-uncheckothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
       );
+      var checkOthersControl = modifierOrNotice(
+        'check others',
+        'fmod-checkothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
+      );
+      if (uncheckOthersControl || checkOthersControl)
+        out += pairRow(uncheckOthersControl, checkOthersControl);
+      if (disableOthersUnsupportedTypes.indexOf(normalizedDatatype) === -1) {
+        var disableOthersValue = fmods['disable others'];
+        if (
+          disableOthersValue === undefined ||
+          isBooleanModifierValue(disableOthersValue) ||
+          isDisableOthersList(disableOthersValue)
+        ) {
+          var disableOthersText = Array.isArray(disableOthersValue)
+            ? JSON.stringify(disableOthersValue)
+            : disableOthersValue === undefined || disableOthersValue === null
+              ? ''
+              : String(disableOthersValue);
+          out += row(
+            'fmod-disableothers-' + fi,
+            'disable others',
+            '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
+              fi +
+              '" data-fmod="disable others" data-field-idx="' +
+              fi +
+              '" value="' +
+              esc(disableOthersText) +
+              '">',
+            null,
+            'True, or a list of variable names.',
+          );
+        } else {
+          out += sourceOnlyModifierNotice('disable others');
+        }
+      } else {
+        out += sourceOnlyModifierNotice('disable others');
+      }
       return out;
     }
 
@@ -17547,6 +17662,36 @@
         '</div>';
     });
 
+    var mappingChanges = analysis.mapping_changes || {};
+    var mappingLabels = {
+      added: 'Added template fields',
+      removed: 'Removed template fields',
+      retained: 'Retained template fields',
+    };
+    var hasMappingChanges = Object.keys(mappingLabels).some(function (key) {
+      return (mappingChanges[key] || []).length > 0;
+    });
+    if (analysis.already_imported && hasMappingChanges) {
+      html +=
+        '<div class="alert alert-info py-2 small" id="template-import-mapping-diff">' +
+        '<strong>Field mapping changes in the revised template</strong><ul class="mb-0 mt-1">';
+      Object.keys(mappingLabels).forEach(function (key) {
+        var fields = mappingChanges[key] || [];
+        if (!fields.length) return;
+        html +=
+          '<li><strong>' +
+          esc(mappingLabels[key]) +
+          ':</strong> ' +
+          fields
+            .map(function (name) {
+              return '<code>' + esc(name) + '</code>';
+            })
+            .join(', ') +
+          '</li>';
+      });
+      html += '</ul></div>';
+    }
+
     var candidates = templateImportCandidates(analysis);
     if (!candidates.length && !(analysis.bundle_additions || []).length) {
       html +=
@@ -17584,6 +17729,18 @@
         html +=
           '<div class="editor-tiny text-muted">' +
           esc(candidate.variables.join(', ')) +
+          '</div>';
+      }
+      if (candidate.supporting_blocks.length) {
+        html +=
+          '<div class="editor-tiny text-muted">Also adds required supporting template(s): ' +
+          esc(
+            candidate.supporting_blocks
+              .map(function (block) {
+                return block.title;
+              })
+              .join(', '),
+          ) +
           '</div>';
       }
       html +=
@@ -17647,6 +17804,7 @@
         variables: block.variables || [],
         replaces_block_id: block.replaces_block_id || null,
         recommended: block.recommended !== false,
+        supporting_blocks: block.supporting_blocks || [],
       });
     }
     push('document_object', analysis.document_object);
@@ -17779,6 +17937,9 @@
             }
           : candidate.yaml,
       );
+      candidate.supporting_blocks.forEach(function (supporting) {
+        blocks.push(supporting.yaml);
+      });
     });
     var bundles = [];
     (analysis.bundle_additions || []).forEach(function (addition, index) {
@@ -21344,6 +21505,90 @@
         isInterviewView()
       )
         return;
+      if (state.currentView === 'templates') {
+        var selectedUploads = Array.prototype.slice.call(target.files);
+        var existingTemplate =
+          selectedUploads.length === 1
+            ? getSectionFiles('templates').find(function (item) {
+                return item.filename === selectedUploads[0].name;
+              })
+            : null;
+        if (existingTemplate) {
+          var templateFile = selectedUploads[0];
+          if (!existingTemplate.revision) {
+            window.alert(
+              'We could not verify the current template revision. Refresh the template list and try again.',
+            );
+            target.value = '';
+            return;
+          }
+          var replaceConfirmed = window.confirm(
+            'Replace the existing template file "' +
+              existingTemplate.filename +
+              '"? The interview YAML and authored questions stay as they are. After replacement, re-read the template to review mapping changes before applying them.',
+          );
+          if (!replaceConfirmed) {
+            target.value = '';
+            return;
+          }
+          var revisionForm = new FormData();
+          revisionForm.append('project', state.project);
+          revisionForm.append('filename', existingTemplate.filename);
+          revisionForm.append('expected_revision', existingTemplate.revision);
+          revisionForm.append('confirm_replace', 'true');
+          revisionForm.append('file', templateFile, templateFile.name);
+          apiUpload('/api/template/revise', revisionForm)
+            .then(function (res) {
+              if (!res.success) {
+                showApiError(
+                  res.error || { message: 'Template replacement failed.' },
+                );
+                return;
+              }
+              state.sectionSelectedFile.templates = existingTemplate.filename;
+              state.sectionDirty = false;
+              var backupName =
+                res.data && res.data.backup_filename
+                  ? res.data.backup_filename
+                  : 'the prior template backup';
+              var backupRevision =
+                res.data && res.data.backup_revision
+                  ? res.data.backup_revision
+                  : 'unavailable';
+              window.alert(
+                'Template replaced. The original bytes are preserved as "' +
+                  backupName +
+                  '" in this project’s Templates folder (SHA-256: ' +
+                  backupRevision +
+                  '). Re-read the template to review its mapping changes; to restore, download the backup and upload it as a confirmed replacement.',
+              );
+              loadSectionFiles('templates');
+            })
+            .catch(function (error) {
+              showApiError({
+                message: error.message || 'Template replacement failed.',
+              });
+            })
+            .finally(function () {
+              target.value = '';
+            });
+          return;
+        }
+        if (
+          selectedUploads.length > 1 &&
+          selectedUploads.some(function (file) {
+            return getSectionFiles('templates').some(function (item) {
+              return item.filename === file.name;
+            });
+          })
+        ) {
+          window.alert(
+            'Select a single existing template when replacing it. New templates can still be uploaded together.',
+          );
+          target.value = '';
+          return;
+        }
+      }
       var formData = new FormData();
       formData.append('project', state.project);
       formData.append('section', getSectionFromView(state.currentView));

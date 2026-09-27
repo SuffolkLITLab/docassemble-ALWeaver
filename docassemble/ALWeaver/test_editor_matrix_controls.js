@@ -17,6 +17,14 @@ const context = {
     ],
     symbolCatalog: { groups: { lists: ['x.incomes', 'people[i].jobs'] } },
   },
+  _openFieldModsPanels: { 0: true },
+  _fieldSettingsTabs: {},
+  CHOICE_TYPES: ['checkboxes'],
+  FIELD_TYPES: ['checkboxes'],
+  _fieldTypeSupportsStandaloneContent: () => false,
+  expressionFieldValue: (value) => (value === undefined ? '' : String(value)),
+  requiredExpressionValue: () => '',
+  renderSymbolDatalist: () => '',
   document: { getElementById: (id) => (id === 'order-add-body' ? body : save) },
   esc: String,
   escapeYamlStr: serializers.escapeYamlStr,
@@ -98,6 +106,129 @@ assert.strictEqual(
   ),
   'ALPeopleList',
 );
+
+const fieldPanelStart = source.indexOf('  function _renderFieldModsPanel(');
+vm.runInContext(
+  source.slice(fieldPanelStart, source.indexOf('\n  }\n', fieldPanelStart) + 5),
+  context,
+);
+const choicePanel = context._renderFieldModsPanel(
+  0,
+  {
+    'check others': true,
+    'uncheck others': false,
+    'disable others': false,
+  },
+  'checkboxes',
+  ['Alpha', 'Beta'],
+  '',
+  'show if',
+  '',
+);
+assert.ok(choicePanel.includes('data-fmod="none of the above"'));
+assert.ok(choicePanel.includes('data-fmod="all of the above"'));
+assert.ok(!choicePanel.includes('data-fmod="check others"'));
+assert.ok(!choicePanel.includes('data-fmod="uncheck others"'));
+assert.ok(!choicePanel.includes('data-fmod="disable others"'));
+assert.ok(choicePanel.includes('data-source-only-fmod="check others"'));
+assert.ok(choicePanel.includes('data-source-only-fmod="uncheck others"'));
+assert.ok(choicePanel.includes('data-source-only-fmod="disable others"'));
+assert.ok(choicePanel.includes('is not supported for checkboxes'));
+assert.ok(choicePanel.includes('is preserved. Edit it in Full YAML.'));
+
+const yesNoPanel = context._renderFieldModsPanel(
+  0,
+  { 'check others': true, 'uncheck others': false },
+  'yesno',
+  [],
+  '',
+  'show if',
+  '',
+);
+assert.ok(yesNoPanel.includes('data-fmod="check others"'));
+assert.ok(yesNoPanel.includes('data-fmod="uncheck others"'));
+assert.ok(!yesNoPanel.includes('data-fmod="none of the above"'));
+assert.ok(!yesNoPanel.includes('data-fmod="all of the above"'));
+assert.ok(yesNoPanel.includes('data-fmod="disable others"'));
+
+const yesNoListModifierPanel = context._renderFieldModsPanel(
+  0,
+  { 'check others': ['first_choice', 'second_choice'] },
+  'yesno',
+  [],
+  '',
+  'show if',
+  '',
+);
+assert.ok(!yesNoListModifierPanel.includes('data-fmod="check others"'));
+assert.ok(
+  yesNoListModifierPanel.includes(
+    'data-source-only-fmod="check others"',
+  ),
+);
+assert.ok(
+  yesNoListModifierPanel.includes(
+    'list value is preserved:',
+  ),
+);
+
+const disableOthersListPanel = context._renderFieldModsPanel(
+  0,
+  { 'disable others': ['first_choice', 'second_choice'] },
+  'text',
+  [],
+  '',
+  'show if',
+  '',
+);
+assert.ok(
+  disableOthersListPanel.includes(
+    'data-fmod="disable others" data-field-idx="0" value="["first_choice","second_choice"]"',
+  ),
+);
+const disableOthersFalsePanel = context._renderFieldModsPanel(
+  0,
+  { 'disable others': false },
+  'text',
+  [],
+  '',
+  'show if',
+  '',
+);
+assert.ok(
+  disableOthersFalsePanel.includes(
+    'data-fmod="disable others" data-field-idx="0" value="false"',
+  ),
+);
+
+const defaultYesNoPanel = context._renderFieldModsPanel(
+  0,
+  {},
+  'yesno',
+  [],
+  '',
+  'show if',
+  '',
+);
+assert.ok(
+  defaultYesNoPanel.includes('id="fmod-checkothers-0" data-fmod="check others" data-field-idx="0"><option value="">(default)</option><option value="True">Yes</option><option value="False">No'),
+);
+assert.ok(
+  defaultYesNoPanel.includes('id="fmod-uncheckothers-0" data-fmod="uncheck others" data-field-idx="0"><option value="">(default)</option><option value="True">Yes</option><option value="False">No'),
+);
+const defaultChoicePanel = context._renderFieldModsPanel(
+  0,
+  {},
+  'checkboxes',
+  ['Alpha', 'Beta'],
+  '',
+  'show if',
+  '',
+);
+assert.ok(
+  !defaultChoicePanel.includes('data-fmod="check others"'),
+);
+assert.ok(!defaultChoicePanel.includes('data-fmod="uncheck others"'));
 assert.ok(!body.innerHTML.includes('placeholder='));
 assert.ok(body.innerHTML.includes('<code>household[i].jobs</code>'));
 assert.ok(body.innerHTML.includes('aria-describedby="order-gather-help"'));

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from .docassemble_compat import TargetActionResult, TargetSession
 from .runtime_sessions import (
     RUNTIME_SESSION_KEY_PREFIX,
+    RUNTIME_SESSION_EXPIRE_SECONDS,
     create_runtime_record,
     delete_runtime_record,
     load_runtime_record,
@@ -107,6 +108,52 @@ class TestEditorRuntimeApi(unittest.TestCase):
         self.assertNotIn("docassemble_session_id", data)
         create.assert_called_once_with(
             "docassemble.playground7:main.yml", secret=None, url_args=None
+        )
+
+    def test_runtime_inspector_disabled_is_a_feature_disabled_404(self):
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patch.object(api_editor, "_runtime_inspector_enabled", return_value=False),
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "playground_read_yaml") as read_yaml,
+            patch.object(api_editor, "create_target_session") as create_target,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_inspector_disabled"
+        )
+        read_yaml.assert_not_called()
+        create_target.assert_not_called()
+
+    def test_expired_runtime_record_resolves_to_not_found(self):
+        self._record()
+        self.assertEqual(self.redis.expiry, RUNTIME_SESSION_EXPIRE_SECONDS)
+        # Redis removes the record when its configured lifetime elapses.
+        self.redis.delete(RUNTIME_SESSION_KEY_PREFIX + "weaver-session")
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session", method="GET"
+            ):
+                response = api_editor.editor_api_runtime_session("weaver-session")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_session_not_found"
         )
 
     def test_fresh_browser_receives_the_key_used_for_its_target_session(self):

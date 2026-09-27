@@ -453,6 +453,45 @@ class TestBulkModuleWrites(unittest.TestCase):
             read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
         )
 
+    def test_renaming_an_installed_module_moves_it_and_marks_old_name_pending(self):
+        self._write("helper.py", "VALUE = 1\n")
+        self._reconcile()
+        os.rename(
+            os.path.join(self.storage, "helper.py"),
+            os.path.join(self.storage, "renamed_helper.py"),
+        )
+        redis_patch, storage_patch, root_patch, time_patch = self._patched()
+        with redis_patch, storage_patch, root_patch, time_patch:
+            outcome = api_editor._rename_module_file(
+                7, "default", "helper.py", "renamed_helper.py", self.storage
+            )
+
+        self.assertTrue(outcome["restart_required"])
+        self.assertFalse(os.path.exists(self._installed("helper.py")))
+        with open(self._installed("renamed_helper.py"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "VALUE = 1\n")
+        state = read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
+        self.assertEqual(
+            [(entry["filename"], entry["reason"]) for entry in state["files"]],
+            [("helper.py", "renamed")],
+        )
+
+    def test_deleting_an_installed_module_removes_it_and_marks_it_pending(self):
+        self._write("helper.py", "VALUE = 1\n")
+        self._reconcile()
+        os.remove(os.path.join(self.storage, "helper.py"))
+        redis_patch, _storage_patch, root_patch, time_patch = self._patched()
+        with redis_patch, root_patch, time_patch:
+            outcome = api_editor._delete_module_file(7, "default", "helper.py")
+
+        self.assertTrue(outcome["restart_required"])
+        self.assertFalse(os.path.exists(self._installed("helper.py")))
+        state = read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
+        self.assertEqual(
+            [(entry["filename"], entry["reason"]) for entry in state["files"]],
+            [("helper.py", "deleted")],
+        )
+
 
 class TestRestartApi(unittest.TestCase):
     def setUp(self):

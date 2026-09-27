@@ -25,6 +25,7 @@ Provides:
     POST /al/editor/api/ai/generate-fields — draft fields for a question with AI
     POST /al/editor/api/new-project — create a project (optionally via Weaver)
     POST /al/editor/api/template/import — read a template already in a project
+    POST /al/editor/api/template/revise — replace a template after revision confirmation
     GET  /al/editor/api/template/import/jobs/<id> — poll a template import
     POST /al/editor/api/template/apply — add the accepted parts of one to the YAML
     GET  /al/editor/api/template/variable-report/suggestion — its title and filename
@@ -345,6 +346,7 @@ from .kiln_tests import (
 __all__: list = []
 
 EDITOR_BASE_PATH = "/al/editor"
+MAX_TEMPLATE_REPLACEMENT_BYTES = 50 * 1024 * 1024
 
 EDITOR_SECTION_ALIASES: Dict[str, str] = {
     "template": "templates",
@@ -1222,6 +1224,18 @@ def _list_editor_section_files(
             "editable": editable,
             "preview_kind": _preview_kind_for_file(name, editable),
         }
+        if section == "templates" and not editable:
+            try:
+                digest = hashlib.sha256()
+                with open(path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                item["revision"] = digest.hexdigest()
+            except OSError:
+                # A concurrent replacement can make this listing momentarily
+                # stale. The explicit revision endpoint refuses writes without
+                # a hash from the current file.
+                pass
         if editable:
             try:
                 with open(path, "rb") as fh:
@@ -7305,6 +7319,236 @@ def editor_api_delete_file() -> Response:
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/template/revise", methods=["POST"])
+def editor_api_revise_template() -> Response:
+    """Replace a template only when the confirmed original revision matches."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.form.get("project"))
+        filename = _normalize_storage_filename(request.form.get("filename"))
+        expected_revision = request.form.get("expected_revision")
+        if not isinstance(expected_revision, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_revision
+        ):
+            raise ValueError("expected_revision must be a SHA-256 revision")
+        if not parse_bool(request.form.get("confirm_replace"), default=False):
+            raise ValueError("Explicit confirmation is required to replace a template")
+        if os.path.splitext(filename.lower())[1] not in {".pdf", ".docx"}:
+            raise ValueError("Only PDF and DOCX templates can be revised here")
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            raise ValueError("A replacement template file is required")
+        if _normalize_storage_filename(upload.filename) != filename:
+            raise ValueError(
+                "The replacement filename must match the existing template"
+            )
+
+        storage_section = EDITOR_SECTION_TO_STORAGE["templates"]
+        area, directory = _editor_storage_directory(uid, project, storage_section)
+        path = os.path.join(directory, filename)
+        temporary_path: Optional[str] = None
+        backup_path: Optional[str] = None
+        with _source_file_lock(uid, project, filename, "templates"):
+            if not os.path.isfile(path) or os.path.islink(path):
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "not_found",
+                            "code": "template_not_found",
+                            "message": "The template to revise was not found.",
+                        },
+                    },
+                    404,
+                )
+            if os.path.getsize(path) > MAX_TEMPLATE_REPLACEMENT_BYTES:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "file_too_large",
+                            "code": "file_too_large",
+                            "message": "The existing template is too large to replace safely.",
+                        },
+                    },
+                    413,
+                )
+            with open(path, "rb") as fh:
+                original_bytes = fh.read()
+            current_revision = hashlib.sha256(original_bytes).hexdigest()
+            if not hmac.compare_digest(expected_revision, current_revision):
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "revision_conflict",
+                            "code": "revision_conflict",
+                            "message": (
+                                "The template changed since you confirmed the "
+                                "replacement. Reload the file list before retrying."
+                            ),
+                            "expected_revision": expected_revision,
+                            "current_revision": current_revision,
+                        },
+                    },
+                    409,
+                )
+            replacement_bytes = upload.stream.read(MAX_TEMPLATE_REPLACEMENT_BYTES + 1)
+            if len(replacement_bytes) > MAX_TEMPLATE_REPLACEMENT_BYTES:
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "file_too_large",
+                            "code": "file_too_large",
+                            "message": "The replacement template exceeds the 50 MiB limit.",
+                        },
+                    },
+                    413,
+                )
+            if not replacement_bytes:
+                raise ValueError("The replacement template file is empty")
+            # Validate the bounded upload before creating a backup or changing
+            # the referenced file. A malformed replacement must not displace
+            # the last known-good template.
+            try:
+                validate_document_content(filename, replacement_bytes)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from None
+            extension = os.path.splitext(filename)[1]
+            backup_filename = (
+                f"{os.path.splitext(filename)[0]}.alweaver-backup-"
+                f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-"
+                f"{current_revision[:8]}{extension}"
+            )
+            backup_path = os.path.join(directory, backup_filename)
+            if os.path.exists(backup_path):
+                backup_filename = (
+                    f"{os.path.splitext(filename)[0]}.alweaver-backup-"
+                    f"{uuid.uuid4().hex[:12]}-{current_revision[:8]}{extension}"
+                )
+                backup_path = os.path.join(directory, backup_filename)
+            backup_temporary_path: Optional[str] = None
+            replaced = False
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    dir=directory,
+                    prefix=".alweaver-template-backup-",
+                    delete=False,
+                ) as backup:
+                    backup_temporary_path = backup.name
+                    backup.write(original_bytes)
+                    backup.flush()
+                    os.fsync(backup.fileno())
+                os.replace(backup_temporary_path, backup_path)
+                backup_temporary_path = None
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=directory, prefix=".alweaver-template-", delete=False
+                ) as temporary:
+                    temporary_path = temporary.name
+                    temporary.write(replacement_bytes)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                os.replace(temporary_path, path)
+                temporary_path = None
+                replaced = True
+                try:
+                    area.finalize()
+                except Exception:
+                    # Keep the last known-good template if storage finalization
+                    # fails after the atomic rename.
+                    with tempfile.NamedTemporaryFile(
+                        mode="wb",
+                        dir=directory,
+                        prefix=".alweaver-template-rollback-",
+                        delete=False,
+                    ) as backup:
+                        temporary_path = backup.name
+                        backup.write(original_bytes)
+                        backup.flush()
+                        os.fsync(backup.fileno())
+                    os.replace(temporary_path, path)
+                    temporary_path = None
+                    replaced = False
+                    if backup_path and os.path.exists(backup_path):
+                        os.remove(backup_path)
+                    backup_path = None
+                    try:
+                        area.finalize()
+                    except Exception:
+                        log(
+                            "ALWeaver editor: template replacement rollback finalization failed",
+                            "error",
+                        )
+                    raise
+            finally:
+                if temporary_path and os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+                if backup_temporary_path and os.path.exists(backup_temporary_path):
+                    os.remove(backup_temporary_path)
+                if not replaced and backup_path and os.path.exists(backup_path):
+                    os.remove(backup_path)
+
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "original_revision": current_revision,
+                    "revision": hashlib.sha256(replacement_bytes).hexdigest(),
+                    "backup_filename": backup_filename,
+                    "backup_revision": current_revision,
+                    "size": len(replacement_bytes),
+                },
+            }
+        )
+    except SourceWriteLockUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "source_lock_unavailable",
+                    "code": "source_lock_unavailable",
+                    "message": str(exc),
+                },
+            },
+            503,
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: template replacement failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "message": "The template could not be replaced.",
+                },
             },
             500,
         )

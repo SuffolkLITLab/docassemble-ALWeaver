@@ -100,6 +100,24 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("blankQuestionNeedsDecision() ||", source)
         self.assertIn("Add a question label before saving.", source)
 
+    def test_check_and_uncheck_others_have_logic_tab_boolean_controls(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        logic = source.split("    function renderLogicTab() {", 1)[1]
+        logic = logic.split("    function renderHelpTab() {", 1)[0]
+        self.assertIn("'yesno',", logic)
+        self.assertIn("'yesnowide',", logic)
+        self.assertIn("'noyes',", logic)
+        self.assertIn("'noyeswide'", logic)
+        self.assertIn("'object_radio'", logic)
+        self.assertIn("'object_checkboxes'", logic)
+        self.assertIn("modifierOrNotice(", logic)
+        self.assertIn("sourceOnlyModifierNotice(key)", logic)
+        self.assertIn("the source value <code>", logic)
+        self.assertIn("Edit it in Full YAML.", logic)
+        self.assertIn("(default)", logic)
+        self.assertIn(">Yes</option>", logic)
+        self.assertIn(">No</option>", logic)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)
