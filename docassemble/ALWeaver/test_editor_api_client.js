@@ -128,6 +128,33 @@ async function run() {
     message: 'Changed',
   });
 
+  const reportedErrors = [];
+  const draftConfirmationClient = api.createClient({
+    onError: (error) => reportedErrors.push(error),
+    fetchImpl: async () =>
+      jsonResponse(
+        {
+          success: false,
+          error: {
+            type: 'validation_error',
+            code: 'draft_confirmation_required',
+            message: 'Confirm saving this source as a draft.',
+            details: { blocking_count: 1 },
+          },
+        },
+        422,
+      ),
+  });
+  await expectError(draftConfirmationClient.post('/api/file', { content: 'bad' }), {
+    status: 422,
+    code: 'draft_confirmation_required',
+  });
+  assert.deepStrictEqual(
+    reportedErrors,
+    [],
+    'draft confirmation is handled by the save flow without a global error toast',
+  );
+
   const htmlClient = api.createClient({
     fetchImpl: async () =>
       new Response('<html>Error</html>', {

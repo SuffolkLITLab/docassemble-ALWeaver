@@ -2786,7 +2786,39 @@
       filename: state.filename,
       revision: state.revision,
     });
-    return apiClient.post(path, body, options);
+    return apiClient.post(path, body, options).catch(function (error) {
+      if (
+        !error ||
+        error.code !== 'draft_confirmation_required' ||
+        !body ||
+        typeof body !== 'object' ||
+        Array.isArray(body)
+      )
+        throw error;
+      var details = error.details || {};
+      var count = Number(details.blocking_count || 0);
+      var description = count
+        ? count + ' validation error' + (count === 1 ? '' : 's')
+        : 'validation errors';
+      var message =
+        'This source has ' +
+        description +
+        '. Save it as a draft anyway? You can keep editing it; run Check errors before relying on the interview.';
+      if (!window.confirm(message)) {
+        return {
+          success: false,
+          error: {
+            code: 'draft_save_cancelled',
+            message: 'Draft save cancelled; your unsaved changes remain.',
+          },
+        };
+      }
+      return apiClient.post(
+        path,
+        Object.assign({}, body, { save_as_draft: true }),
+        options,
+      );
+    });
   }
 
   function apiDelete(path, body, options) {

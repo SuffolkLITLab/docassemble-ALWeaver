@@ -7536,6 +7536,14 @@ def generate_interview_from_path(
         shutil.copyfile(interview.instructions.path(), next_steps_output_path)
         generated_template_paths.append(next_steps_output_path)
 
+    generation_warnings = interview.all_fields.cross_template_type_warnings()
+    if interview.has_all_unlabeled_pdfs():
+        generation_warnings.append(
+            "No fillable PDF fields were detected. Weaver created a general "
+            "interview scaffold without PDF field mappings; review it and add "
+            "the questions and mappings needed to complete this document."
+        )
+
     return WeaverGenerationResult(
         yaml_text=artifacts.yaml_text,
         yaml_path=yaml_path,
@@ -7545,7 +7553,7 @@ def generate_interview_from_path(
         renames_applied=renames_applied,
         suggested_renames_by_template=suggested_renames_by_template,
         normalized_template_paths=normalized_template_paths,
-        warnings=interview.all_fields.cross_template_type_warnings(),
+        warnings=generation_warnings,
         template_names=[
             str(template_input.exact_name) for template_input in template_inputs
         ],

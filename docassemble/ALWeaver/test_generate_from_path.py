@@ -9,6 +9,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from pypdf import PdfWriter
+
 from . import interview_generator as interview_generator_module
 from .interview_generator import (
     _LocalDAFileAdapter,
@@ -110,6 +112,28 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._run_dayamlchecker(result.yaml_path)
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
+
+    def test_unfillable_pdf_reports_limited_extraction(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "unfillable.pdf")
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with open(pdf_path, "wb") as stream:
+                writer.write(stream)
+
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=os.path.join(tmpdir, "generated"),
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+
+        self.assertTrue(
+            any(
+                "No fillable PDF fields were detected" in warning
+                for warning in result.warnings
+            )
+        )
 
     def test_cross_template_type_guess_mismatch_is_returned_as_warning(self):
         with tempfile.TemporaryDirectory() as tmpdir:

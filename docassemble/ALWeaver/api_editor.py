@@ -150,6 +150,7 @@ workerapp = get_worker_app()
 from .api_utils import (
     generate_interview_from_bytes,
     parse_bool,
+    validate_document_content,
     validate_upload_metadata,
 )
 from .editor_modules import (
@@ -681,19 +682,24 @@ def _normalize_commit_message(raw: Optional[str]) -> str:
     return value
 
 
-def _normalize_filename(raw: Optional[str]) -> str:
-    value = os.path.basename(str(raw or "").strip())
+def _plain_filename(raw: Optional[str], required_message: str) -> str:
+    value = str(raw or "").strip()
     if not value or value in {".", ".."}:
-        raise ValueError("YAML filename is required")
+        raise ValueError(required_message)
+    if "/" in value or "\\" in value:
+        raise ValueError("Filename must not contain a path separator")
+    return value
+
+
+def _normalize_filename(raw: Optional[str]) -> str:
+    value = _plain_filename(raw, "YAML filename is required")
     if not value.lower().endswith((".yml", ".yaml")):
         raise ValueError("File must be a YAML interview")
     return value
 
 
 def _normalize_new_filename(raw: Optional[str]) -> str:
-    value = os.path.basename(str(raw or "").strip())
-    if not value or value in {".", ".."}:
-        raise ValueError("YAML filename is required")
+    value = _plain_filename(raw, "YAML filename is required")
     if "." not in value:
         value = f"{value}.yml"
     if not value.lower().endswith((".yml", ".yaml")):
@@ -726,9 +732,7 @@ def _normalize_generated_filename(raw: Optional[str]) -> str:
 def _normalize_renamed_storage_filename(
     raw: Optional[str], existing_filename: str
 ) -> str:
-    value = os.path.basename(str(raw or "").strip())
-    if not value or value in {".", ".."}:
-        raise ValueError("YAML filename is required")
+    value = _plain_filename(raw, "YAML filename is required")
     if "." not in value:
         existing_ext = os.path.splitext(existing_filename)[1]
         if existing_ext:
@@ -761,10 +765,7 @@ def _normalize_section(raw: Optional[str]) -> str:
 
 
 def _normalize_storage_filename(raw: Optional[str]) -> str:
-    value = os.path.basename(str(raw or "").strip())
-    if not value or value in {".", ".."}:
-        raise ValueError("filename is required")
-    return value
+    return _plain_filename(raw, "filename is required")
 
 
 def _renamed_file_message(requested: str, stored: str, reason: str) -> str:
@@ -973,6 +974,50 @@ def _write_source_content(
                 if current_content == updated_content:
                     return None
                 return conflict
+            # Keep compatibility with valid legacy questions that do not have
+            # an explicit `id`. The checker reports these as errors, but the
+            # editor has stable fallback block handles for them and must not
+            # force an otherwise-valid source into draft mode.
+            diagnostics = _validate_source_text(updated_content, filename)
+            blocking_diagnostics = [
+                item
+                for item in diagnostics
+                if _lint_level_from_severity(item.get("level") or item.get("severity"))
+                == "error"
+                and not (
+                    item.get("source") == "dayamlchecker"
+                    and str(item.get("message") or "").startswith(
+                        "question block is missing an `id`:"
+                    )
+                )
+                and not (
+                    item.get("source") == "dayamlchecker"
+                    and str(item.get("message") or "")
+                    == "metadata block is missing common CourtFormsOnline publishing fields: can_I_use_this_form"
+                )
+            ]
+            if blocking_diagnostics and post_data.get("save_as_draft") is not True:
+                summary = _lint_summary_for_findings(diagnostics)
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "validation_error",
+                            "code": "draft_confirmation_required",
+                            "message": (
+                                "This source has validation errors. Confirm saving it "
+                                "as a draft to keep editing."
+                            ),
+                            "details": {
+                                "diagnostics": diagnostics,
+                                "blocking_count": len(blocking_diagnostics),
+                                "summary": summary,
+                            },
+                        },
+                    },
+                    422,
+                )
             playground_write_yaml(user_id, project, filename, updated_content)
     except SourceWriteLockUnavailable as exc:
         return jsonify_with_status(
@@ -986,6 +1031,22 @@ def _write_source_content(
                 },
             },
             503,
+        )
+    except FileNotFoundError:
+        # A project directory that does not exist beneath the authenticated
+        # user's Playground is indistinguishable from an object they do not
+        # own.  Do not expose the server's storage path in the exception text.
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "not_found",
+                    "code": "interview_file_not_found",
+                    "message": "Interview file not found.",
+                },
+            },
+            404,
         )
     return None
 
@@ -4235,15 +4296,27 @@ def editor_api_get_file() -> Response:
                 },
             }
         )
-    except (ValueError, FileNotFoundError) as exc:
-        status = 404 if isinstance(exc, FileNotFoundError) else 400
+    except FileNotFoundError:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "not_found",
+                    "code": "interview_file_not_found",
+                    "message": "Interview file not found.",
+                },
+            },
+            404,
+        )
+    except ValueError as exc:
         return jsonify_with_status(
             {
                 "success": False,
                 "request_id": request_id,
                 "error": {"type": "validation_error", "message": str(exc)},
             },
-            status,
+            400,
         )
     except Exception as exc:
         log(f"ALWeaver editor: get file error: {exc!r}", "error")
@@ -10581,7 +10654,6 @@ def _new_project_from_uploads(
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
     project_name = next_available_project_name(base_name, [*existing, "default"])
-    create_project(uid, project_name)
 
     debug_requested = str(request.args.get("debug", "")).strip().lower() in {
         "1",
@@ -10613,6 +10685,7 @@ def _new_project_from_uploads(
                 content_bytes=content_bytes,
                 mimetype=mimetype,
             )
+            validate_document_content(safe_name, content_bytes)
             requested_name = os.path.basename(str(filename).strip())
             if safe_name != requested_name:
                 renamed_uploads.append(
@@ -10693,6 +10766,10 @@ def _new_project_from_uploads(
             f"exact_name={uploaded_payloads[0]['filename']!r}",
             "info",
         )
+        # Validate and parse every upload before creating a Playground project.
+        # A bad encrypted or truncated file should produce a clean request
+        # error, not leave an empty project that looks like a partial success.
+        create_project(uid, project_name)
         job_info = _start_new_project_upload_job(
             uid=uid,
             request_id=request_id,

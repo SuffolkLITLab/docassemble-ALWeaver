@@ -113,7 +113,8 @@
       if (
         onError &&
         error.code !== 'stale_response' &&
-        error.code !== 'request_cancelled'
+        error.code !== 'request_cancelled' &&
+        error.code !== 'draft_confirmation_required'
       ) {
         onError(error);
       }
