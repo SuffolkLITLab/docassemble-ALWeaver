@@ -4854,6 +4854,7 @@
             }
           );
         },
+        privacy: (BOOT.features && BOOT.features.assistant_privacy) || {},
         onApply: function (data) {
           applyAgentCandidate(data);
         },

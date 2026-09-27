@@ -125,6 +125,26 @@ These Weaver-side expiry periods do not describe the model provider's data
 handling or retention; administrators should consult the provider's applicable
 terms and configuration separately.
 
+Administrators can show the applicable provider terms in the assistant drawer
+through global Docassemble configuration. For an OpenAI API project using
+standard data controls, for example:
+
+```yaml
+weaver:
+  assistant provider name: OpenAI API
+  assistant model: gpt-5.4-mini
+  assistant provider retention: >-
+    Prompts and responses may be retained in abuse-monitoring logs for up to
+    30 days, unless legally required for longer.
+```
+
+Check the API organization's actual Data controls and agreement before setting
+this text; Modified Abuse Monitoring or Zero Data Retention require different
+wording. If the retention setting is absent, the drawer asks the developer to
+consult an administrator. The configured text is displayed as plain text.
+See [OpenAI API data controls](https://platform.openai.com/docs/guides/your-data)
+for the standard policy and available controls.
+
 ## History
 
 See [the CHANGELOG](CHANGELOG.md) for more information.

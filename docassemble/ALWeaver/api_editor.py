@@ -1813,16 +1813,23 @@ def _editor_feature_bootstrap() -> Dict[str, Any]:
         "blocked_reason": capability["reason"],
         "disruption_seconds": list(RESTART_DISRUPTION_SECONDS),
     }
+    assistant_privacy = {
+        "provider_name": _weaver_text("assistant provider name") or "",
+        "model_name": _weaver_text("assistant model") or "",
+        "provider_retention": _weaver_text("assistant provider retention") or "",
+    }
     return {
         "patch_model": patch_model,
         "runtime_inspector": runtime_inspector,
         "agent_editor": agent_editor,
         "assistant_status": status,
+        "assistant_privacy": assistant_privacy,
         "module_restart": module_restart,
         "patchModel": patch_model,
         "runtimeInspector": runtime_inspector,
         "agentEditor": agent_editor,
         "assistantStatus": status,
+        "assistantPrivacy": assistant_privacy,
         "moduleRestart": module_restart,
     }
 
