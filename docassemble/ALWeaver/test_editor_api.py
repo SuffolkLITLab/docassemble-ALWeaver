@@ -391,10 +391,14 @@ class TestEditorGithubApi(unittest.TestCase):
                 return_value={"README.md": {"content": b"new", "mode": "100644"}},
             ),
             patch.object(
-                api_editor, "get_github_repository_snapshot", side_effect=[missing, missing]
+                api_editor,
+                "get_github_repository_snapshot",
+                side_effect=[missing, missing],
             ) as get_remote,
             patch.object(api_editor, "find_project_github_sync", return_value=None),
-            patch.object(api_editor, "_sign_github_publish_preview", return_value="token"),
+            patch.object(
+                api_editor, "_sign_github_publish_preview", return_value="token"
+            ),
         ):
             api_editor.current_user.email = "ada@example.com"
             with api_editor.app.test_request_context(
@@ -5381,13 +5385,19 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                     "_editor_storage_directory",
                     return_value=(area, tmpdir),
                 ),
-                patch.object(api_editor, "_file_dependency_conflict", return_value=None),
+                patch.object(
+                    api_editor, "_file_dependency_conflict", return_value=None
+                ),
                 patch.object(api_editor, "rename_saved_file") as rename_file,
                 patch.object(api_editor, "delete_saved_file") as delete_file,
             ):
-                listed = api_editor._list_editor_section_files(7, "default", "templates")
+                listed = api_editor._list_editor_section_files(
+                    7, "default", "templates"
+                )
                 revision = next(
-                    item["revision"] for item in listed if item["filename"] == "petition.pdf"
+                    item["revision"]
+                    for item in listed
+                    if item["filename"] == "petition.pdf"
                 )
                 self.assertEqual(revision, hashlib.sha256(binary_pdf).hexdigest())
 
@@ -5418,7 +5428,9 @@ class TestEditorProjectFileNaming(unittest.TestCase):
 
             self.assertEqual(renamed.status_code, 200, renamed.get_data(as_text=True))
             self.assertEqual(deleted.status_code, 200, deleted.get_data(as_text=True))
-            rename_file.assert_called_once_with(area, tmpdir, "petition.pdf", "renamed.pdf")
+            rename_file.assert_called_once_with(
+                area, tmpdir, "petition.pdf", "renamed.pdf"
+            )
             delete_file.assert_called_once_with(area, tmpdir, "petition.pdf")
 
     def test_new_project_collision_notices_match_stored_template_names(self):

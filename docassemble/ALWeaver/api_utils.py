@@ -228,10 +228,10 @@ def validate_document_content(filename: str, content_bytes: bytes) -> None:
                 # document readable without a user password. Accept those by
                 # attempting the empty password before rejecting the upload.
                 try:
-                    decrypted = reader.decrypt("")
+                    can_read = bool(reader.decrypt(""))
                 except Exception:
-                    decrypted = 0
-                if not decrypted:
+                    can_read = False
+                if not can_read:
                     raise WeaverAPIValidationError(
                         "This PDF is password-protected. Remove the password and upload it again."
                     )
