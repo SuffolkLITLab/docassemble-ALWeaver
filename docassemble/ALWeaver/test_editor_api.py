@@ -8,6 +8,7 @@ import importlib
 import importlib.util
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from types import SimpleNamespace
@@ -15,6 +16,28 @@ from unittest.mock import patch
 
 from flask import Flask, jsonify
 from werkzeug.datastructures import FileStorage
+
+
+class _TestRedisLock:
+    _locks: dict[str, threading.RLock] = {}
+    _guard = threading.Lock()
+
+    def __init__(self, name):
+        with self._guard:
+            self._lock = self._locks.setdefault(name, threading.RLock())
+
+    def acquire(self, blocking=True, blocking_timeout=None):
+        if blocking_timeout is None:
+            return self._lock.acquire(blocking=blocking)
+        return self._lock.acquire(blocking=blocking, timeout=blocking_timeout)
+
+    def release(self):
+        self._lock.release()
+
+
+class _TestRedis:
+    def lock(self, name, **_kwargs):
+        return _TestRedisLock(name)
 
 
 def _load_api_editor_for_tests():
@@ -40,7 +63,7 @@ def _load_api_editor_for_tests():
         return response
 
     server_mod.jsonify_with_status = jsonify_with_status
-    server_mod.r = object()
+    server_mod.r = _TestRedis()
 
     worker_common = types.ModuleType("docassemble.webapp.worker_common")
     worker_common.bg_context = nullcontext
@@ -1015,6 +1038,7 @@ class TestEditorProjectSearchApi(unittest.TestCase):
                 api_editor, "validate_candidate_source", return_value=validation
             ),
             patch.object(api_editor, "_commit_project_replacements") as commit,
+            patch.object(api_editor, "_list_editor_section_files", return_value=[]),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/project/replace",
@@ -1063,6 +1087,101 @@ class TestEditorProjectSearchApi(unittest.TestCase):
 
         self.assertEqual(raised.exception.files[0]["filename"], "two.py")
         write.assert_not_called()
+
+
+class TestEditorLiteralFileDependencies(unittest.TestCase):
+    def test_interview_rename_is_refused_when_a_local_include_names_the_file(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=["main.yml"]
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\ninclude:\n  - questions.yml\n",
+            ),
+            patch.object(api_editor, "rename_saved_file") as rename,
+            api_editor.app.test_request_context(
+                "/al/editor/api/file/rename",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "questions.yml",
+                    "new_filename": "renamed_questions.yml",
+                },
+            ),
+        ):
+            response = api_editor.editor_api_rename_file()
+
+        self.assertEqual(response.status_code, 409)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "file_has_references")
+        self.assertEqual(error["dependencies"][0]["filename"], "main.yml")
+        self.assertIn("Update those references first", error["message"])
+        rename.assert_not_called()
+
+    def test_interview_delete_is_refused_when_a_local_include_names_the_file(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=["main.yml"]
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\ninclude:\n  - questions.yml\n",
+            ),
+            patch.object(api_editor, "delete_saved_file") as delete,
+            api_editor.app.test_request_context(
+                "/al/editor/api/file/delete",
+                method="POST",
+                json={"project": "default", "filename": "questions.yml"},
+            ),
+        ):
+            response = api_editor.editor_api_delete_file()
+
+        self.assertEqual(response.status_code, 409)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "file_has_references")
+        self.assertEqual(error["dependencies"][0]["filename"], "main.yml")
+        delete.assert_not_called()
+
+    def test_template_and_module_literal_references_are_reported(self):
+        yaml_files = ["main.yml"]
+        sources = {
+            "main.yml": (
+                "---\nmodules:\n  - helper_module\n"
+                "---\nattachment:\n  docx template file: forms/answer.docx\n"
+            )
+        }
+        with (
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=yaml_files
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda _uid, _project, filename: sources[filename],
+            ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[],
+            ),
+        ):
+            module_refs = api_editor._literal_file_dependencies(
+                7, "default", "modules", "helper_module.py"
+            )
+            template_refs = api_editor._literal_file_dependencies(
+                7, "default", "templates", "answer.docx"
+            )
+
+        self.assertEqual(module_refs[0]["kind"], "module")
+        self.assertEqual(template_refs[0]["kind"], "template")
+        self.assertEqual(template_refs[0]["reference"], "forms/answer.docx")
 
 
 class TestEditorApiFileCreation(unittest.TestCase):
@@ -1519,6 +1638,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(api_editor, "playground_read_yaml", return_value="source"),
+            patch.object(api_editor, "update_settings", return_value="updated source"),
+            patch.object(
+                api_editor,
+                "validate_candidate_source",
+                return_value=types.SimpleNamespace(
+                    blocking=False, diagnostics=[], model=None
+                ),
+            ),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/assemblyline-settings",
@@ -1974,6 +2101,29 @@ class TestEditorNewProjectMultipleUploads(unittest.TestCase):
         self.assertEqual(result["woven_templates"], ["petition.pdf", "affidavit.pdf"])
         self.assertEqual(sorted(written), ["affidavit.pdf", "petition.pdf"])
 
+    def test_generation_warnings_are_kept_in_the_completed_job_result(self):
+        warning = (
+            "The field `shared_answer` appears in multiple templates with "
+            "different inferred types. Review the field type."
+        )
+        result, _generate_kwargs, _written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-petition",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-affidavit",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"warnings": [warning]},
+        )
+
+        self.assertEqual(result["warnings"], [warning])
+
     def test_the_project_stores_the_names_the_yaml_refers_to(self):
         """Two uploads sharing a name are told apart by the generator."""
         _result, _generate_kwargs, written = self._run(
@@ -2106,6 +2256,12 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
                 api_editor, "playground_read_yaml", return_value="---\nobjects: {}\n"
             ),
             patch.object(api_editor, "source_revision", return_value="now"),
+            patch.object(
+                api_editor,
+                "insert_block_in_yaml",
+                side_effect=lambda content, *_args, **_kwargs: content
+                + "\n# candidate",
+            ),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/template/apply",
@@ -2277,7 +2433,14 @@ class TestEditorAttachmentMappingsApi(unittest.TestCase):
 
     def test_stale_revision_and_invalid_updates_do_not_write(self):
         for payload, status in (
-            ({"expected_revision": "stale", "updates": []}, 409),
+            ({"updates": [{"index": 0, "values": {"name": "new_value"}}]}, 400),
+            (
+                {
+                    "expected_revision": "stale",
+                    "updates": [{"index": 0, "values": {"name": "new_value"}}],
+                },
+                409,
+            ),
             ({"expected_revision": "test-revision", "updates": ["invalid"]}, 400),
         ):
             response, write = self._request(payload)
@@ -3140,6 +3303,39 @@ class TestOrderBlockLookup(unittest.TestCase):
         self.assertEqual(list(order_step_map), ["order"])
 
 
+class TestEditorStyleCheckApi(unittest.TestCase):
+    def test_missing_dashboard_is_an_actionable_unavailable_response(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\nid: q\nquestion: Hi\n",
+            ),
+            patch.object(
+                api_editor, "parse_interview_yaml", return_value={"blocks": []}
+            ),
+            patch.object(
+                api_editor,
+                "_run_interview_linter",
+                side_effect=api_editor.ALDashboardUnavailable(
+                    "Running style checks needs the ALDashboard package. Install "
+                    "docassemble.ALDashboard on this server and try again."
+                ),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/weaver/style-check?project=default&filename=main.yml"
+            ):
+                response = api_editor.editor_api_style_check()
+
+        self.assertEqual(response.status_code, 503)
+        error = response.get_json()["error"]
+        self.assertEqual(error["type"], "unavailable")
+        self.assertIn("Install docassemble.ALDashboard", error["message"])
+
+
 class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
     """The two endpoints that lean on ALDashboard at runtime."""
 
@@ -3985,3 +4181,128 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                         7, "Eviction", "demand letter (1).docx"
                     )
             mock_rename.assert_not_called()
+
+
+class TestMatrixRefactorSafety(unittest.TestCase):
+    def test_binary_template_reference_blocks_the_entire_variable_rename(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_project_text_files", return_value=([], [])),
+            patch.object(
+                api_editor, "_project_search_revision", return_value="current"
+            ),
+            patch.object(
+                api_editor,
+                "_binary_template_rename_problems",
+                return_value=["binary.docx contains old_name"],
+            ),
+            patch.object(api_editor, "_commit_project_replacements") as commit,
+            api_editor.app.test_request_context(
+                "/al/editor/api/project/replace",
+                method="POST",
+                json={
+                    "project": "default",
+                    "mode": "variable",
+                    "query": "old_name",
+                    "replacement": "new_name",
+                    "project_revision": "current",
+                },
+            ),
+        ):
+            response = api_editor.editor_api_project_replace()
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("binary.docx", response.get_json()["error"]["message"])
+        commit.assert_not_called()
+
+    def test_partial_write_failure_restores_even_the_failing_file(self):
+        self._check_rollback(False)
+
+    def test_rollback_failure_returns_original_content_for_recovery(self):
+        self._check_rollback(True)
+
+    def _check_rollback(self, fail_restore):
+        contents = {"one.yml": "one original", "two.yml": "two original"}
+        changes = [
+            {
+                "section": "interview",
+                "filename": name,
+                "original": value,
+                "updated": "new content",
+            }
+            for name, value in contents.items()
+        ]
+
+        def write(uid, project, section, filename, content):
+            if filename == "two.yml" and (content == "new content" or fail_restore):
+                contents[filename] = "partially written"
+                raise OSError("injected disk write failure")
+            contents[filename] = content
+
+        with (
+            patch.object(api_editor, "_write_project_text_file", side_effect=write),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                side_effect=lambda uid, project, section, filename: contents[filename],
+            ),
+            self.assertRaises(api_editor.ProjectReplacementWriteError) as raised,
+        ):
+            api_editor._commit_project_replacements_locked(7, "default", changes)
+        self.assertEqual(contents["one.yml"], "one original")
+        if fail_restore:
+            self.assertEqual(
+                raised.exception.recovery,
+                [
+                    {
+                        "section": "interview",
+                        "filename": "two.yml",
+                        "original_content": "two original",
+                    }
+                ],
+            )
+        else:
+            self.assertEqual(contents["two.yml"], "two original")
+            self.assertEqual(raised.exception.recovery, [])
+            self.assertEqual(len(raised.exception.restored), 2)
+
+
+class TestTemplateFieldReadWithoutInterview(unittest.TestCase):
+    def test_docx_fields_can_be_read_without_current_question(self):
+        from docx import Document
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "binary.docx"
+            document = Document()
+            document.add_paragraph("Name: {{ old_name }}")
+            document.add_paragraph("Again: {{ old_name }}")
+            document.save(str(path))
+            self.assertEqual(
+                api_editor._local_template_field_names(str(path)), ["old_name"]
+            )
+            with (
+                patch.object(
+                    api_editor,
+                    "_list_editor_section_files",
+                    return_value=[
+                        {"filename": "binary.docx", "size": path.stat().st_size}
+                    ],
+                ),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(None, directory),
+                ),
+            ):
+                warnings = api_editor._binary_template_rename_problems(
+                    7, "default", "old_name"
+                )
+                self.assertIn("binary.docx contains old_name", warnings[0])
+                self.assertEqual(
+                    api_editor._binary_template_rename_problems(
+                        7, "default", "unrelated"
+                    ),
+                    [],
+                )

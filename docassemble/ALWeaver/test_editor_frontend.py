@@ -109,6 +109,12 @@ class TestEditorFrontend(unittest.TestCase):
             source,
         )
 
+    def test_upload_generation_warnings_are_shown_to_the_author(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn("_newProjectGenerationWarnings(jobData)", source)
+        self.assertIn("_showWarningBanner(", source)
+        self.assertIn("generationWarnings.map(esc).join(' ')", source)
+
     def test_github_modal_manages_workflows_and_pyproject(self):
         root = Path(__file__).parent / "data"
         collector = _TemplateCollector()

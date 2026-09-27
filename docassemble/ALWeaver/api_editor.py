@@ -70,11 +70,12 @@ import textwrap
 import tempfile
 import time
 import uuid
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, cast
 
 import yaml
 from flask import Response, jsonify, redirect, request, url_for
@@ -225,6 +226,7 @@ from .review_screen_sync import (
     generate_review_screen_yaml,
     inferred_objects_document,
     review_screen_identity,
+    review_scope_warnings,
     sync_review_screen,
 )
 from .source_document import (
@@ -406,6 +408,19 @@ EDITOR_SEARCH_FILE_TYPES = {
     "data": "Sources",
 }
 EDITOR_SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+class ProjectReplacementWriteError(RuntimeError):
+    """A replacement batch failed, with verified rollback/recovery information."""
+
+    def __init__(self, restored: List[Dict[str, str]], recovery: List[Dict[str, str]]):
+        self.restored = restored
+        self.recovery = recovery
+        super().__init__(
+            "Replacement failed. Some files could not be restored; use the recovery content and inspect the listed files."
+            if recovery
+            else "Replacement failed. All attempted files were restored to their original content."
+        )
 
 
 class StaleProjectSearchError(ValueError):
@@ -849,8 +864,156 @@ def _build_file_response_data(
         "order_steps": order_steps,
         "order_step_map": order_step_map,
         "raw_yaml": updated_content,
+        "revision": source_revision(updated_content),
         **({"inserted_block_id": inserted_block_id} if inserted_block_id else {}),
     }
+
+
+def _check_expected_source_revision(
+    post_data: Dict[str, Any], current_content: str, request_id: str
+) -> Optional[Response]:
+    """Reject stale writes when a client supplies the revision it edited.
+
+    The revision remains optional for older integrations. The editor always
+    supplies it for source mutations, which prevents two open workspaces from
+    silently overwriting one another.
+    """
+    expected_revision = post_data.get("expected_revision")
+    if expected_revision is None:
+        return None
+    if not isinstance(expected_revision, str) or not expected_revision:
+        raise ValueError("expected_revision must be a non-empty string")
+    current_revision = source_revision(current_content)
+    if expected_revision == current_revision:
+        return None
+    error: Dict[str, Any] = {
+        "type": "revision_conflict",
+        "code": "revision_conflict",
+        "message": "The file changed since you opened it. Reload or resolve the conflict before saving.",
+        "expected_revision": expected_revision,
+        "current_revision": current_revision,
+        "current_raw_yaml": current_content,
+    }
+    base_raw_yaml = post_data.get("base_raw_yaml")
+    if isinstance(base_raw_yaml, str):
+        error["base_raw_yaml"] = base_raw_yaml
+    error["details"] = {
+        key: value
+        for key, value in error.items()
+        if key not in {"type", "code", "message", "details"}
+    }
+    return jsonify_with_status(
+        {"success": False, "request_id": request_id, "error": error}, 409
+    )
+
+
+class SourceWriteLockUnavailable(RuntimeError):
+    """The shared source lock could not be acquired safely."""
+
+
+@contextmanager
+def _source_file_lock(
+    user_id: int, project: str, filename: str, section: str = "interview"
+) -> Iterator[None]:
+    """Serialize project-file commits across Docassemble workers with Redis."""
+    key_material = f"{user_id}\0{project}\0{section}\0{filename}".encode("utf-8")
+    lock_key = "alweaver:editor:source:" + hashlib.sha256(key_material).hexdigest()
+    lock_factory = getattr(r, "lock", None)
+    if callable(lock_factory):
+        try:
+            lock = lock_factory(lock_key, timeout=60, blocking_timeout=30)
+            acquired = lock.acquire(blocking=True, blocking_timeout=30)
+        except Exception as exc:
+            raise SourceWriteLockUnavailable(
+                "The shared source lock service is unavailable."
+            ) from exc
+        if not acquired:
+            raise SourceWriteLockUnavailable(
+                "Timed out waiting for another source save to finish."
+            )
+        try:
+            yield
+        finally:
+            try:
+                lock.release()
+            except Exception as exc:
+                raise SourceWriteLockUnavailable(
+                    "The shared source lock could not be released."
+                ) from exc
+        return
+
+    raise SourceWriteLockUnavailable("The shared source lock service is unavailable.")
+
+
+def _write_source_content(
+    user_id: int,
+    project: str,
+    filename: str,
+    updated_content: str,
+    post_data: Dict[str, Any],
+    request_id: str,
+) -> Optional[Response]:
+    """Recheck the base revision and write under a per-file distributed lock."""
+    try:
+        with _source_file_lock(user_id, project, filename):
+            current_content = playground_read_yaml(user_id, project, filename)
+            conflict = _check_expected_source_revision(
+                post_data, current_content, request_id
+            )
+            if conflict is not None:
+                # A client may lose the response after this exact candidate
+                # committed. Treat a byte-for-byte current source as an
+                # idempotent success, while still rejecting every genuinely
+                # stale candidate so another author's work is preserved.
+                if current_content == updated_content:
+                    return None
+                return conflict
+            playground_write_yaml(user_id, project, filename, updated_content)
+    except SourceWriteLockUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "source_lock_unavailable",
+                    "code": "source_lock_unavailable",
+                    "message": str(exc),
+                },
+            },
+            503,
+        )
+    return None
+
+
+def _section_file_revision_conflict(
+    post_data: Dict[str, Any], current_content: str, request_id: str
+) -> Optional[Response]:
+    expected_revision = post_data.get("expected_revision")
+    if expected_revision is None:
+        return None
+    if not isinstance(expected_revision, str) or not expected_revision:
+        raise ValueError("expected_revision must be a non-empty string")
+    current_revision = source_revision(current_content)
+    if expected_revision == current_revision:
+        return None
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "revision_conflict",
+                "code": "revision_conflict",
+                "message": (
+                    "The file changed since you opened it. Reload or resolve "
+                    "the conflict before saving."
+                ),
+                "expected_revision": expected_revision,
+                "current_revision": current_revision,
+                "current_content": current_content,
+            },
+        },
+        409,
+    )
 
 
 # Diagnostic normalisation and whole-source validation live in
@@ -868,7 +1031,15 @@ _validate_source_text = validate_source_text
 
 
 def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
-    from docassemble.ALDashboard.interview_linter import lint_interview_content
+    try:
+        from docassemble.ALDashboard.interview_linter import (  # type: ignore
+            lint_interview_content,
+        )
+    except Exception as exc:
+        raise ALDashboardUnavailable(
+            "Running style checks needs the ALDashboard package. Install "
+            "docassemble.ALDashboard on this server and try again."
+        ) from exc
 
     return lint_interview_content(raw_yaml, include_llm=include_llm)
 
@@ -938,23 +1109,32 @@ def _list_editor_section_files(
         os.listdir(directory), key=lambda v: (_is_placeholder_file(v), v.lower())
     ):
         path = os.path.join(directory, name)
-        if not os.path.isfile(path):
+        if not os.path.isfile(path) or os.path.islink(path):
             continue
         guessed_mimetype, _enc = mimetypes.guess_type(name)
         mimetype_value = guessed_mimetype or "application/octet-stream"
         editable = _is_text_editable(name, mimetype_value) and not _is_placeholder_file(
             name
         )
-        items.append(
-            {
-                "filename": name,
-                "size": os.path.getsize(path),
-                "modified": int(os.path.getmtime(path)),
-                "mimetype": mimetype_value,
-                "editable": editable,
-                "preview_kind": _preview_kind_for_file(name, editable),
-            }
-        )
+        item: Dict[str, Any] = {
+            "filename": name,
+            "size": os.path.getsize(path),
+            "modified": int(os.path.getmtime(path)),
+            "mimetype": mimetype_value,
+            "editable": editable,
+            "preview_kind": _preview_kind_for_file(name, editable),
+        }
+        if editable:
+            try:
+                with open(path, "rb") as fh:
+                    item["revision"] = source_revision(
+                        fh.read().decode("utf-8", errors="replace")
+                    )
+            except OSError:
+                # The file may have changed during listing. Its later GET
+                # supplies a revision before an edit can be saved.
+                pass
+        items.append(item)
     return items
 
 
@@ -1000,6 +1180,147 @@ def _project_yaml_filenames(user_id: int, project: str) -> List[str]:
     except Exception as exc:
         log(f"ALWeaver editor: could not list project YAML files: {exc!r}", "warning")
         return []
+
+
+def _literal_file_dependencies(
+    user_id: int, project: str, section: str, filename: str
+) -> List[Dict[str, str]]:
+    """Find project-local literal references that a rename/delete would break.
+
+    This deliberately handles only references the editor can prove from source:
+    local YAML includes, YAML ``modules`` declarations, Python imports of a
+    project module, and literal template-file values. Computed Mako/Python
+    references are not guessed at.
+    """
+    normalized_section = section
+    target = os.path.basename(filename)
+    target_stem = os.path.splitext(target)[0]
+    dependencies: List[Dict[str, str]] = []
+
+    def add(source_name: str, reference: str, kind: str) -> None:
+        item = {
+            "filename": source_name,
+            "reference": reference,
+            "kind": kind,
+        }
+        if item not in dependencies:
+            dependencies.append(item)
+
+    def scalar_values(value: Any, parent_key: str = "") -> Iterator[Tuple[str, str]]:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                yield from scalar_values(child, str(key))
+        elif isinstance(value, list):
+            for child in value:
+                yield from scalar_values(child, parent_key)
+        elif isinstance(value, str):
+            yield parent_key, value
+
+    for source_name in _project_yaml_filenames(user_id, project):
+        if normalized_section == "interview" and source_name == filename:
+            continue
+        try:
+            source = playground_read_yaml(user_id, project, source_name)
+            documents = list(yaml.safe_load_all(source))
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            if normalized_section == "interview":
+                include = document.get("include")
+                include_items = [include] if isinstance(include, str) else include
+                if isinstance(include_items, list):
+                    for item in include_items:
+                        literal = str(item or "").strip()
+                        if (
+                            literal == target
+                            and ":" not in literal
+                            and "/" not in literal
+                            and "\\" not in literal
+                        ):
+                            add(source_name, literal, "include")
+            elif normalized_section == "modules":
+                modules = document.get("modules")
+                module_items = [modules] if isinstance(modules, str) else modules
+                if isinstance(module_items, list):
+                    for item in module_items:
+                        literal = str(item or "").strip()
+                        if (
+                            "${" not in literal
+                            and "<%" not in literal
+                            and literal.rsplit(".", 1)[-1] == target_stem
+                        ):
+                            add(source_name, literal, "module")
+            elif normalized_section == "templates":
+                for key, literal_value in scalar_values(document):
+                    literal = literal_value.strip()
+                    if (
+                        "template" in key.lower()
+                        and "${" not in literal
+                        and "<%" not in literal
+                        and os.path.basename(literal.replace("\\", "/")) == target
+                    ):
+                        add(source_name, literal, "template")
+
+    if normalized_section == "modules":
+        for item in _list_editor_section_files(user_id, project, "modules"):
+            source_name = str(item.get("filename") or "")
+            if (
+                not source_name
+                or source_name == filename
+                or not source_name.lower().endswith(".py")
+                or int(item.get("size") or 0) > EDITOR_SEARCH_MAX_FILE_BYTES
+            ):
+                continue
+            try:
+                source = _read_project_text_file(
+                    user_id, project, "modules", source_name
+                )
+                tree = ast.parse(source)
+            except (OSError, SyntaxError, ValueError):
+                continue
+            for node in ast.walk(tree):
+                imported: List[str] = []
+                if isinstance(node, ast.Import):
+                    imported = [alias.name.rsplit(".", 1)[-1] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    imported = [node.module.rsplit(".", 1)[-1] if node.module else ""]
+                    imported.extend(alias.name for alias in node.names)
+                if target_stem in imported:
+                    add(source_name, target_stem, "module import")
+
+    return dependencies
+
+
+def _file_dependency_conflict(
+    user_id: int,
+    project: str,
+    section: str,
+    filename: str,
+    operation: str,
+    request_id: str,
+) -> Optional[Response]:
+    dependencies = _literal_file_dependencies(user_id, project, section, filename)
+    if not dependencies:
+        return None
+    return jsonify_with_status(
+        {
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "type": "dependency_conflict",
+                "code": "file_has_references",
+                "message": (
+                    f"Cannot {operation} {filename} while project files still "
+                    "refer to it. Update those references first, then retry."
+                ),
+                "filename": filename,
+                "dependencies": dependencies,
+            },
+        },
+        409,
+    )
 
 
 def _read_project_text_file(
@@ -1166,6 +1487,56 @@ def _project_text_files(
     return files, skipped
 
 
+def _local_template_field_names(path: str) -> List[str]:
+    """Read fields without constructing a DAStaticFile outside an interview."""
+    if path.lower().endswith(".pdf"):
+        from docassemble.base.pdftk import read_fields
+
+        names = [str(field[0]) for field in (read_fields(path) or [])]
+    else:
+        from docx2python import docx2python
+        from .interview_generator import get_docx_variables
+
+        with docx2python(path) as document:
+            names = [str(name) for name in get_docx_variables(document.text)]
+    return list(dict.fromkeys(names))
+
+
+def _binary_template_rename_problems(
+    user_id: int, project: str, old_name: str
+) -> List[str]:
+    """Refuse a YAML-only refactor that would strand references in a template."""
+    problems = []
+    for item in _list_editor_section_files(user_id, project, "templates"):
+        filename = str(item.get("filename") or "")
+        if not filename.lower().endswith((".docx", ".pdf")):
+            continue
+        try:
+            if int(item.get("size") or 0) > EDITOR_SEARCH_MAX_FILE_BYTES:
+                raise ValueError("template exceeds the inspection size limit")
+            _, directory = _editor_storage_directory(
+                user_id, project, EDITOR_SECTION_TO_STORAGE["templates"]
+            )
+            path = os.path.join(directory, filename)
+            names = _local_template_field_names(path)
+            if any(
+                name == old_name
+                or name.startswith(old_name + ".")
+                or name.startswith(old_name + "[")
+                for name in names
+            ):
+                problems.append(
+                    f"{filename} contains {old_name}. A YAML-only rename cannot update this binary template. "
+                    "Update its fields and references together in source before renaming."
+                )
+        except Exception:
+            problems.append(
+                f"{filename} could not be inspected for references to {old_name}. "
+                "Check the template before renaming; no files have been changed."
+            )
+    return problems
+
+
 def _project_search_revision(files: List[Dict[str, Any]]) -> str:
     manifest = "\n".join(
         f"{item['section']}\0{item['filename']}\0{item['revision']}" for item in files
@@ -1174,6 +1545,23 @@ def _project_search_revision(files: List[Dict[str, Any]]) -> str:
 
 
 def _commit_project_replacements(
+    user_id: int, project: str, changes: List[Dict[str, Any]]
+) -> None:
+    """Lock every interview file in a replacement batch before checking it."""
+    sorted_changes = sorted(
+        changes, key=lambda change: (change["section"], change["filename"])
+    )
+    with ExitStack() as locks:
+        for change in sorted_changes:
+            locks.enter_context(
+                _source_file_lock(
+                    user_id, project, change["filename"], change["section"]
+                )
+            )
+        _commit_project_replacements_locked(user_id, project, changes)
+
+
+def _commit_project_replacements_locked(
     user_id: int, project: str, changes: List[Dict[str, Any]]
 ) -> None:
     """Write a preflighted batch and make a best-effort rollback on failure."""
@@ -1189,9 +1577,11 @@ def _commit_project_replacements(
     if stale_files:
         raise StaleProjectSearchError(stale_files)
 
-    written: List[Dict[str, Any]] = []
+    attempted: List[Dict[str, Any]] = []
     try:
         for change in changes:
+            # A failing write may already have truncated its destination.
+            attempted.append(change)
             _write_project_text_file(
                 user_id,
                 project,
@@ -1199,9 +1589,11 @@ def _commit_project_replacements(
                 change["filename"],
                 change["updated"],
             )
-            written.append(change)
-    except Exception:
-        for change in reversed(written):
+    except Exception as write_exc:
+        restored: List[Dict[str, str]] = []
+        recovery: List[Dict[str, str]] = []
+        for change in reversed(attempted):
+            identity = {"section": change["section"], "filename": change["filename"]}
             try:
                 _write_project_text_file(
                     user_id,
@@ -1210,13 +1602,22 @@ def _commit_project_replacements(
                     change["filename"],
                     change["original"],
                 )
+                if (
+                    _read_project_text_file(
+                        user_id, project, change["section"], change["filename"]
+                    )
+                    != change["original"]
+                ):
+                    raise OSError("Restored content did not match the original")
+                restored.append(identity)
             except Exception as rollback_exc:
+                recovery.append(identity | {"original_content": change["original"]})
                 log(
                     "ALWeaver editor: project replace rollback failed for "
                     f"{change['section']}/{change['filename']}: {rollback_exc!r}",
                     "error",
                 )
-        raise
+        raise ProjectReplacementWriteError(restored, recovery) from write_exc
 
 
 # ---------------------------------------------------------------------------
@@ -2239,6 +2640,7 @@ def editor_api_project_search() -> Response:
         results: List[Dict[str, Any]] = []
         total_matches = 0
         truncated = False
+        warnings: List[str] = []
 
         if mode == "variable":
             from .editor_agent_rename import (
@@ -2258,6 +2660,7 @@ def editor_api_project_search() -> Response:
                 raise ValueError(invalid_replacement)
             if query == replacement:
                 raise ValueError(f"{query} is already named that")
+            warnings = _binary_template_rename_problems(uid, project, query)
             for item in files:
                 analysis = analyze_rename(
                     filename=item["filename"],
@@ -2349,6 +2752,7 @@ def editor_api_project_search() -> Response:
                     "match_count": total_matches,
                     "truncated": truncated,
                     "skipped": skipped,
+                    "warnings": warnings,
                 },
             }
         )
@@ -2439,6 +2843,7 @@ def editor_api_project_replace() -> Response:
             problems: List[str] = [
                 f"{item['filename']} is too large to inspect safely" for item in skipped
             ]
+            problems.extend(_binary_template_rename_problems(uid, project, query))
             diagnostics: List[Dict[str, Any]] = []
             replacement_definitions = [
                 item["filename"]
@@ -2628,6 +3033,35 @@ def editor_api_project_replace() -> Response:
                 },
             }
         )
+    except ProjectReplacementWriteError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "replacement_write_failed",
+                    "message": str(exc),
+                    "details": {
+                        "restored_files": exc.restored,
+                        "recovery_files": exc.recovery,
+                    },
+                },
+            },
+            500,
+        )
+    except SourceWriteLockUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "source_lock_unavailable",
+                    "code": "source_lock_unavailable",
+                    "message": str(exc),
+                },
+            },
+            503,
+        )
     except StaleProjectSearchError as exc:
         return jsonify_with_status(
             {
@@ -2798,6 +3232,7 @@ def editor_api_get_section_file() -> Response:
                     "mimetype": mimetype_value,
                     "editable": True,
                     "content": content,
+                    "revision": source_revision(content),
                 },
             }
         )
@@ -2855,9 +3290,33 @@ def editor_api_save_section_file() -> Response:
             if not force:
                 check_module_syntax(filename, content)
         path = os.path.join(directory, filename)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        area.finalize()
+        try:
+            with _source_file_lock(uid, project, filename, section):
+                current_content = ""
+                if os.path.isfile(path) and not os.path.islink(path):
+                    with open(path, "rb") as fh:
+                        current_content = fh.read().decode("utf-8", errors="replace")
+                conflict = _section_file_revision_conflict(
+                    post_data, current_content, request_id
+                )
+                if conflict is not None:
+                    return conflict
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                area.finalize()
+        except SourceWriteLockUnavailable as exc:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "source_lock_unavailable",
+                        "code": "source_lock_unavailable",
+                        "message": str(exc),
+                    },
+                },
+                503,
+            )
         if section == "modules":
             try:
                 check_module_syntax(filename, content)
@@ -2877,6 +3336,7 @@ def editor_api_save_section_file() -> Response:
             "section": section,
             "filename": filename,
             "size": len(content),
+            "revision": source_revision(content),
         }
         if module_info is not None:
             data["module"] = module_info
@@ -3916,6 +4376,15 @@ def editor_api_style_check() -> Response:
             },
             status,
         )
+    except ALDashboardUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "unavailable", "message": str(exc)},
+            },
+            503,
+        )
     except Exception as exc:
         log(f"ALWeaver editor: style-check error: {exc!r}", "error")
         return jsonify_with_status(
@@ -3942,7 +4411,11 @@ def editor_api_save_file() -> Response:
         content = post_data.get("content")
         if not isinstance(content, str):
             raise ValueError("content must be a YAML string")
-        playground_write_yaml(uid, project, filename, content)
+        conflict = _write_source_content(
+            uid, project, filename, content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         return jsonify(
             {
                 "success": True,
@@ -3951,6 +4424,7 @@ def editor_api_save_file() -> Response:
                     "project": project,
                     "filename": filename,
                     "size": len(content),
+                    "revision": source_revision(content),
                 },
             }
         )
@@ -4562,28 +5036,30 @@ def editor_api_patch_file() -> Response:
         current_content = playground_read_yaml(uid, project, filename)
         current_revision = source_revision(current_content)
         if expected_revision != current_revision:
-            conflict: Dict[str, Any] = {
-                "type": "revision_conflict",
-                "code": "revision_conflict",
-                "message": "The file changed since it was loaded.",
-                "expected_revision": expected_revision,
-                "current_revision": current_revision,
-                "current_raw_yaml": current_content,
-                "base_raw_yaml": base_raw_yaml,
-            }
-            conflict["details"] = {
-                key: value
-                for key, value in conflict.items()
-                if key not in {"type", "code", "message", "details"}
-            }
-            return jsonify_with_status(
-                {
-                    "success": False,
-                    "request_id": request_id,
-                    "error": conflict,
-                },
-                409,
-            )
+            # If the server committed the exact patch but its response was
+            # lost, replaying the same operations against the supplied base is
+            # safe only when that candidate is byte-for-byte current source.
+            if (
+                isinstance(base_raw_yaml, str)
+                and source_revision(base_raw_yaml) == expected_revision
+            ):
+                retried_content, _retried_operations = apply_range_operations(
+                    base_raw_yaml, operations
+                )
+                if retried_content == current_content:
+                    current_content = base_raw_yaml
+                else:
+                    conflict_response = _check_expected_source_revision(
+                        post_data, current_content, request_id
+                    )
+                    assert conflict_response is not None
+                    return conflict_response
+            else:
+                conflict_response = _check_expected_source_revision(
+                    post_data, current_content, request_id
+                )
+                assert conflict_response is not None
+                return conflict_response
 
         updated_content, applied_operations = apply_range_operations(
             current_content, operations
@@ -4612,7 +5088,11 @@ def editor_api_patch_file() -> Response:
 
         model = validation.model or parse_interview_yaml(updated_content)
         source_diff = unified_source_diff(current_content, updated_content, filename)
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         return jsonify(
             {
                 "success": True,
@@ -4679,27 +5159,14 @@ def editor_api_save_metadata() -> Response:
             raise ValueError("expected_revision is required")
 
         current_content = playground_read_yaml(uid, project, filename)
-        current_revision = source_revision(current_content)
-        if expected_revision != current_revision:
-            return jsonify_with_status(
-                {
-                    "success": False,
-                    "request_id": request_id,
-                    "error": {
-                        "type": "revision_conflict",
-                        "code": "revision_conflict",
-                        "message": "The file changed since it was loaded.",
-                        "expected_revision": expected_revision,
-                        "current_revision": current_revision,
-                    },
-                },
-                409,
-            )
-
         updated_content = update_metadata_documents_in_yaml(
             current_content, edited_yaml
         )
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         model = parse_interview_yaml(updated_content)
         return jsonify(
             {
@@ -4903,23 +5370,6 @@ def editor_api_save_assemblyline_settings() -> Response:
             raise ValueError("settings must be an object")
 
         current = playground_read_yaml(uid, project, filename)
-        current_revision = source_revision(current)
-        if current_revision != expected_revision:
-            return jsonify_with_status(
-                {
-                    "success": False,
-                    "request_id": request_id,
-                    "error": {
-                        "type": "revision_conflict",
-                        "code": "revision_conflict",
-                        "message": "The file changed since settings were loaded.",
-                        "expected_revision": expected_revision,
-                        "current_revision": current_revision,
-                    },
-                },
-                409,
-            )
-
         updated = update_settings(current, submitted)
         validation = validate_candidate_source(filename=filename, raw_yaml=updated)
         if validation.blocking:
@@ -4935,7 +5385,11 @@ def editor_api_save_assemblyline_settings() -> Response:
                 },
                 422,
             )
-        playground_write_yaml(uid, project, filename, updated)
+        conflict = _write_source_content(
+            uid, project, filename, updated, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         model = validation.model or parse_interview_yaml(updated)
         data = read_settings(updated)
         data.update(
@@ -5369,7 +5823,7 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
                 },
             }
         )
-    except ValueError as exc:
+    except (ValueError, yaml.YAMLError) as exc:
         return jsonify_with_status(
             {
                 "success": False,
@@ -6444,6 +6898,11 @@ def editor_api_rename_file() -> Response:
         )
         if old_filename == new_filename:
             raise ValueError("New filename must be different")
+        dependency_conflict = _file_dependency_conflict(
+            uid, project, "interview", old_filename, "rename", request_id
+        )
+        if dependency_conflict is not None:
+            return dependency_conflict
         area, directory = _editor_playground_directory(uid, project)
         rename_saved_file(area, directory, old_filename, new_filename)
         return jsonify(
@@ -6490,6 +6949,11 @@ def editor_api_delete_file() -> Response:
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
         filename = _normalize_filename(post_data.get("filename"))
+        dependency_conflict = _file_dependency_conflict(
+            uid, project, "interview", filename, "delete", request_id
+        )
+        if dependency_conflict is not None:
+            return dependency_conflict
         area, directory = _editor_playground_directory(uid, project)
         delete_saved_file(area, directory, filename)
         return jsonify(
@@ -6546,7 +7010,41 @@ def editor_api_rename_section_file() -> Response:
             validate_module_filename(new_filename)
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
-        rename_saved_file(area, directory, old_filename, new_filename)
+        try:
+            with ExitStack() as locks:
+                for lock_filename in sorted({old_filename, new_filename}):
+                    locks.enter_context(
+                        _source_file_lock(uid, project, lock_filename, section)
+                    )
+                old_path = os.path.join(directory, old_filename)
+                if not os.path.isfile(old_path) or os.path.islink(old_path):
+                    raise FileNotFoundError(f"{old_filename} not found")
+                with open(old_path, "rb") as fh:
+                    current_content = fh.read().decode("utf-8", errors="replace")
+                conflict = _section_file_revision_conflict(
+                    post_data, current_content, request_id
+                )
+                if conflict is not None:
+                    return conflict
+                dependency_conflict = _file_dependency_conflict(
+                    uid, project, section, old_filename, "rename", request_id
+                )
+                if dependency_conflict is not None:
+                    return dependency_conflict
+                rename_saved_file(area, directory, old_filename, new_filename)
+        except SourceWriteLockUnavailable as exc:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "source_lock_unavailable",
+                        "code": "source_lock_unavailable",
+                        "message": str(exc),
+                    },
+                },
+                503,
+            )
         data: Dict[str, Any] = {
             "project": project,
             "section": section,
@@ -6619,7 +7117,37 @@ def editor_api_delete_section_file() -> Response:
         filename = _normalize_storage_filename(post_data.get("filename"))
         storage_section = EDITOR_SECTION_TO_STORAGE[section]
         area, directory = _editor_storage_directory(uid, project, storage_section)
-        delete_saved_file(area, directory, filename)
+        try:
+            with _source_file_lock(uid, project, filename, section):
+                path = os.path.join(directory, filename)
+                if not os.path.isfile(path) or os.path.islink(path):
+                    raise FileNotFoundError(f"{filename} not found")
+                with open(path, "rb") as fh:
+                    current_content = fh.read().decode("utf-8", errors="replace")
+                conflict = _section_file_revision_conflict(
+                    post_data, current_content, request_id
+                )
+                if conflict is not None:
+                    return conflict
+                dependency_conflict = _file_dependency_conflict(
+                    uid, project, section, filename, "delete", request_id
+                )
+                if dependency_conflict is not None:
+                    return dependency_conflict
+                delete_saved_file(area, directory, filename)
+        except SourceWriteLockUnavailable as exc:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "source_lock_unavailable",
+                        "code": "source_lock_unavailable",
+                        "message": str(exc),
+                    },
+                },
+                503,
+            )
         data: Dict[str, Any] = {
             "project": project,
             "section": section,
@@ -6967,7 +7495,11 @@ def editor_api_save_block() -> Response:
                 str(post_data.get("edit_mode") or "").strip().lower() == "graphical"
             ),
         )
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         model = parse_interview_yaml(updated_content)
         # A block without an `id:` is addressed by a content hash, which the
@@ -6996,6 +7528,7 @@ def editor_api_save_block() -> Response:
                     "order_steps": order_steps,
                     "order_step_map": order_step_map,
                     "raw_yaml": updated_content,
+                    "revision": source_revision(updated_content),
                     "saved_block_id": saved_block_id,
                 },
             }
@@ -7044,7 +7577,11 @@ def editor_api_delete_block() -> Response:
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = delete_block_from_yaml(current_content, block_id)
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         return jsonify(
             {
@@ -7092,7 +7629,11 @@ def editor_api_comment_block() -> Response:
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = comment_out_block_in_yaml(current_content, block_id)
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         return jsonify(
             {
@@ -7140,7 +7681,11 @@ def editor_api_enable_block() -> Response:
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = enable_commented_block_in_yaml(current_content, block_id)
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         return jsonify(
             {
@@ -7191,7 +7736,11 @@ def editor_api_reorder_blocks() -> Response:
 
         current_content = playground_read_yaml(uid, project, filename)
         updated_content = reorder_blocks_in_yaml(current_content, normalized_block_ids)
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         return jsonify(
             {
@@ -7248,7 +7797,11 @@ def editor_api_insert_block() -> Response:
         updated_content = insert_block_in_yaml(
             current_content, block_text, insert_after_id
         )
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         updated_model = parse_interview_yaml(updated_content)
         inserted_block_id: Optional[str] = None
@@ -7277,6 +7830,7 @@ def editor_api_insert_block() -> Response:
                     ],
                     "order_blocks": updated_model["order_blocks"],
                     "raw_yaml": updated_content,
+                    "revision": source_revision(updated_content),
                     "inserted_block_id": inserted_block_id,
                 },
             }
@@ -7444,7 +7998,11 @@ def editor_api_question_library_insert() -> Response:
             inserted_ids.append(question["question_id"])
 
         if inserted_ids:
-            playground_write_yaml(uid, project, filename, updated_content)
+            conflict = _write_source_content(
+                uid, project, filename, updated_content, post_data, request_id
+            )
+            if conflict is not None:
+                return conflict
 
         data = _build_file_response_data(
             updated_content,
@@ -7626,7 +8184,11 @@ def editor_api_question_library_object() -> Response:
             updated_content = insert_block_in_yaml(
                 content, block_text, insert_after_id or extend_block_id
             )
-        playground_write_yaml(uid, project, filename, updated_content)
+        conflict = _write_source_content(
+            uid, project, filename, updated_content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
 
         data = _build_file_response_data(updated_content, project, filename)
         data["revision"] = source_revision(updated_content)
@@ -7774,7 +8336,11 @@ def editor_api_save_order() -> Response:
             )
             updated = current_content.rstrip() + "\n---\n" + order_yaml + "\n"
 
-        playground_write_yaml(uid, project, filename, updated)
+        conflict = _write_source_content(
+            uid, project, filename, updated, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         return jsonify(
             {
                 "success": True,
@@ -7786,6 +8352,7 @@ def editor_api_save_order() -> Response:
                         target_block.get("id") if target_block else "interview_order"
                     ),
                     "order_yaml": order_yaml,
+                    "revision": source_revision(updated),
                 },
             }
         )
@@ -8209,6 +8776,7 @@ def editor_api_draft_review_screen() -> Response:
             "had_review_screen": bool(identity.get("found")),
             "replaced": False,
             "kept_entries": kept_entries,
+            "warnings": review_scope_warnings(sources, yaml_texts),
             "revision": source_revision(raw_yaml),
         }
         if mode == "sync":
@@ -8827,6 +9395,7 @@ def _complete_new_project_upload_job(
             "generated_template_count": len(generated_paths),
             "renamed_template_count": len(normalized_bytes),
             "test_filename": generated_test,
+            "warnings": list(first_result.get("warnings") or []),
         }
         _update_new_project_job_state(
             job_id,
@@ -10158,23 +10727,6 @@ def editor_api_apply_template_analysis() -> Response:
             raise ValueError("Nothing was selected to add.")
 
         content = playground_read_yaml(uid, project, filename)
-        if source_revision(content) != expected_revision:
-            return jsonify_with_status(
-                {
-                    "success": False,
-                    "request_id": request_id,
-                    "error": {
-                        "type": "revision_conflict",
-                        "code": "revision_conflict",
-                        "message": (
-                            "This interview changed since the template was "
-                            "read. Reload and read it again."
-                        ),
-                    },
-                },
-                409,
-            )
-
         added_block_ids: List[str] = []
         replaced_block_ids: List[str] = []
         taken_ids = {
@@ -10226,7 +10778,11 @@ def editor_api_apply_template_analysis() -> Response:
                 raise ValueError("A bundle change needs a bundle name and elements")
             content = set_bundle_elements(content, bundle_name, elements)
 
-        playground_write_yaml(uid, project, filename, content)
+        conflict = _write_source_content(
+            uid, project, filename, content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         updated_model = parse_interview_yaml(content)
         return jsonify(
             {
@@ -10292,24 +10848,28 @@ def editor_api_attachment_mappings() -> Response:
             raise ValueError("Select a unique attachment block.")
         block = matches[0]
         if "updates" in payload:
-            if payload.get("expected_revision") != source_revision(content):
-                return jsonify_with_status(
-                    {
-                        "success": False,
-                        "request_id": request_id,
-                        "error": {
-                            "type": "revision_conflict",
-                            "message": "This interview changed. Reopen the field editor before saving.",
-                        },
-                    },
-                    409,
-                )
+            expected_revision = payload.get("expected_revision")
+            if not isinstance(expected_revision, str) or not expected_revision:
+                raise ValueError("expected_revision is required")
             if not isinstance(payload["updates"], list):
                 raise ValueError("updates must be a list")
             updated = update_attachment_mappings(block["yaml"], payload["updates"])
             content = update_block_in_yaml(content, block["id"], updated)
-            playground_write_yaml(uid, project, filename, content)
-            return jsonify({"success": True, "request_id": request_id})
+            conflict = _write_source_content(
+                uid, project, filename, content, payload, request_id
+            )
+            if conflict is not None:
+                return conflict
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {
+                        "revision": source_revision(content),
+                        "raw_yaml": content,
+                    },
+                }
+            )
 
         attachments = attachment_mappings(block["yaml"])
         for attachment in attachments:
@@ -10333,17 +10893,7 @@ def editor_api_attachment_mappings() -> Response:
                     raise ValueError("Template is not a local project file.")
                 if not template.lower().endswith((".pdf", ".docx")):
                     raise ValueError("Choose a PDF or DOCX template in YAML mode.")
-                from .interview_generator import _make_static_file_from_path, get_fields
-
-                fields = get_fields(
-                    cast(Any, _make_static_file_from_path(path, filename=template))
-                )
-                attachment["template_fields"] = list(
-                    dict.fromkeys(
-                        str(item[0] if template.lower().endswith(".pdf") else item)
-                        for item in fields
-                    )
-                )
+                attachment["template_fields"] = _local_template_field_names(path)
             except Exception as exc:
                 attachment["warning"] = f"Could not check template fields: {exc}"
         return jsonify(
@@ -10458,23 +11008,6 @@ def editor_api_save_documents() -> Response:
             raise ValueError("Nothing was changed.")
 
         content = playground_read_yaml(uid, project, filename)
-        if source_revision(content) != expected_revision:
-            return jsonify_with_status(
-                {
-                    "success": False,
-                    "request_id": request_id,
-                    "error": {
-                        "type": "revision_conflict",
-                        "code": "revision_conflict",
-                        "message": (
-                            "This interview changed somewhere else. Reload "
-                            "before changing the documents."
-                        ),
-                    },
-                },
-                409,
-            )
-
         for update in bundle_updates:
             if not isinstance(update, dict):
                 raise ValueError("Each bundle change must be an object")
@@ -10505,7 +11038,11 @@ def editor_api_save_documents() -> Response:
                 f"The document changes would invalidate the YAML: {exc}"
             ) from exc
 
-        playground_write_yaml(uid, project, filename, content)
+        conflict = _write_source_content(
+            uid, project, filename, content, post_data, request_id
+        )
+        if conflict is not None:
+            return conflict
         updated_model = parse_interview_yaml(content)
         data = interview_documents(content).to_dict()
         data.update(

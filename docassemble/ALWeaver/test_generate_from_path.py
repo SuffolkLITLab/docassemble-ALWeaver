@@ -111,6 +111,36 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
 
+    def test_cross_template_type_guess_mismatch_is_returned_as_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "form_text.pdf"), "shared_answer", "/Tx"
+            )
+            checkbox_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "form_checkbox.pdf"),
+                "shared_answer",
+                "/Btn",
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=self._offline_cluster_screens,
+            ):
+                result = generate_interview_from_path(
+                    text_path,
+                    additional_templates=[checkbox_path],
+                    output_dir=os.path.join(tmpdir, "output"),
+                    create_package_zip=False,
+                    include_next_steps=False,
+                )
+
+            self.assertEqual(len(result.warnings), 1)
+            warning = result.warnings[0]
+            self.assertIn("shared_answer", warning)
+            self.assertIn("form_text.pdf (text)", warning)
+            self.assertIn("form_checkbox.pdf (yesno)", warning)
+            self.assertIn("rename one field", warning)
+
     def test_a_template_name_with_punctuation_is_renamed_everywhere(self):
         """https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
 
@@ -729,6 +759,36 @@ def _build_pdf_with_fields(pdf_path: str, field_names) -> str:
     return pdf_path
 
 
+def _build_pdf_with_typed_field(pdf_path: str, field_name: str, pdf_type: str) -> str:
+    """Write one AcroForm field with the supplied PDF field type."""
+    import pikepdf
+
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(612, 792))
+    field = pdf.make_indirect(
+        pikepdf.Dictionary(
+            FT=pikepdf.Name(pdf_type),
+            T=pikepdf.String(field_name),
+            Ff=0,
+            Type=pikepdf.Name("/Annot"),
+            Subtype=pikepdf.Name("/Widget"),
+            Rect=pikepdf.Array([50, 700, 300, 716]),
+            F=4,
+            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+        )
+    )
+    page.Annots = pikepdf.Array([field])
+    pdf.Root.AcroForm = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Fields=pikepdf.Array([field]),
+            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+            NeedAppearances=True,
+        )
+    )
+    pdf.save(pdf_path)
+    return pdf_path
+
+
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
@@ -1055,6 +1115,44 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
         )
         self.assertTrue(applied["field_renames_applied"])
         self.assertIn('- "users_name"', applied["yaml_text"])
+
+    def test_cross_template_type_warning_is_in_generation_payload(self):
+        from .api_utils import generate_interview_from_bytes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "api_text.pdf"), "shared_answer", "/Tx"
+            )
+            checkbox_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "api_checkbox.pdf"),
+                "shared_answer",
+                "/Btn",
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=_TestAutoDraftBase._offline_cluster,
+            ):
+                payload = generate_interview_from_bytes(
+                    filename="api_text.pdf",
+                    content_bytes=Path(text_path).read_bytes(),
+                    mimetype="application/pdf",
+                    additional_documents=[
+                        {
+                            "filename": "api_checkbox.pdf",
+                            "content_bytes": Path(checkbox_path).read_bytes(),
+                            "mimetype": "application/pdf",
+                        }
+                    ],
+                    generation_options={
+                        "create_package_zip": False,
+                        "include_next_steps": False,
+                    },
+                )
+
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("shared_answer", payload["warnings"][0])
+        self.assertIn("api_checkbox.pdf (yesno)", payload["warnings"][0])
 
     def test_the_option_survives_the_api_option_parsing(self):
         from .api_utils import coerce_generation_options

@@ -113,6 +113,8 @@ class WeaverGenerationResult:
     #: names, so a caller that keeps the templates has to keep *these* files,
     #: not the originals it handed in.
     normalized_template_paths: Dict[str, str] = field(default_factory=dict)
+    #: Author-facing warnings found while combining the uploaded templates.
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -875,6 +877,7 @@ class DAField(DAObject):
     """
 
     def init(self, **kwargs):
+        self.source_template_types = []
         return super().init(**kwargs)
 
     @property
@@ -1655,11 +1658,37 @@ class DAFieldList(DAList):
                 field_map[field.final_display_var].mark_with_duplicate(
                     field.raw_field_names
                 )
+                field_map[field.final_display_var].source_template_types.extend(
+                    getattr(field, "source_template_types", [])
+                )
                 mark_to_remove.append(idx)
             else:
                 field_map[field.final_display_var] = field
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
+
+    def cross_template_type_warnings(self) -> List[str]:
+        """Warn when same-named fields from different templates infer unlike types."""
+        warnings = []
+        for field in self.elements:
+            sources = getattr(field, "source_template_types", [])
+            by_type: Dict[str, Set[str]] = defaultdict(set)
+            for filename, guessed_type, raw_name in sources:
+                by_type[str(guessed_type)].add(str(filename))
+            if len(by_type) < 2:
+                continue
+            source_details = "; ".join(
+                f"{', '.join(sorted(filenames))} ({guessed_type})"
+                for guessed_type, filenames in sorted(by_type.items())
+            )
+            warnings.append(
+                f"The field `{field.final_display_var}` appears in multiple templates "
+                f"with different inferred types: {source_details}. The generated "
+                "interview uses one question for this shared variable; review the "
+                "field type and rename one field in its source template if they need "
+                "different answers."
+            )
+        return warnings
 
     def merged_fields(self) -> List[DAField]:
         """Fields that more than one differently-named PDF field collapsed into.
@@ -1841,6 +1870,13 @@ class DAFieldList(DAList):
                 ):
                     new_field.pdf_field_type = "/Ch"
                     new_field.mark_type_not_handled()
+                new_field.source_template_types = [
+                    (
+                        str(document.filename),
+                        str(new_field.field_type_guess),
+                        str(pdf_field_name),
+                    )
+                ]
                 if new_field.group == DAFieldGroup.BUILT_IN:
                     new_field.label = new_field.variable_name_guess
         else:
@@ -1861,6 +1897,13 @@ class DAFieldList(DAList):
                     used_as_condition=field in boolean_fields,
                     type_hint=type_hints.get(field),
                 )
+                new_field.source_template_types = [
+                    (
+                        str(document.filename),
+                        str(new_field.field_type_guess),
+                        str(field),
+                    )
+                ]
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
@@ -7502,6 +7545,7 @@ def generate_interview_from_path(
         renames_applied=renames_applied,
         suggested_renames_by_template=suggested_renames_by_template,
         normalized_template_paths=normalized_template_paths,
+        warnings=interview.all_fields.cross_template_type_warnings(),
         template_names=[
             str(template_input.exact_name) for template_input in template_inputs
         ],

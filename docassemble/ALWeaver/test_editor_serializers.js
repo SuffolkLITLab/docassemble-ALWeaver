@@ -476,6 +476,13 @@ const mappedYaml = serialize('radio', [], '', {data: {fields: [{choices: mapped}
   'field-choices-0': {value: serializers.fieldChoicesText(mapped)},
 });
 assert.deepStrictEqual(parseYaml(mappedYaml).fields[0].choices, mapped);
+const objectChoiceExpression = 'people.filter(is_eligible)';
+const objectChoiceExpressionYaml = serialize('object_radio', [], '', {
+  data: {fields: [{choices: objectChoiceExpression}]},
+}, {
+  'field-choices-0': {value: objectChoiceExpression, dataset: {choiceExpression: 'true'}},
+});
+assert.strictEqual(parseYaml(objectChoiceExpressionYaml).fields[0].choices, objectChoiceExpression);
 assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
   'field-choices-0': {value: literals.filter(v => !v.includes('\n')).join('\n')},
 })).fields[0].choices, literals.filter(v => !v.includes('\n')));
@@ -487,4 +494,22 @@ for (const choices of [[], [' leading ', '', 'trailing\n'], ['[literal]', 'ordin
   assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
     'field-choices-0': {value: serializers.fieldChoicesText(choices)},
   })).fields[0].choices, choices);
+}
+
+// Review regression: typed settings must not use the literal-choice encoder.
+for (const [key, value, expected] of [
+  ['shuffle', 'False', false], ['shuffle', 'True', true],
+  ['disable others', 'True', true], ['disable others', 'False', false],
+  ['min', '0', 0], ['max', '10', 10],
+  ['disable others', '["other"]', ['other']],
+]) {
+  assert.deepStrictEqual(parseYaml(serialize('text', [{key, value}])).fields[0][key], expected);
+  assert.deepStrictEqual(parseYaml('value: ' + serializers.fieldModifierYamlValue(key, value)).value, expected);
+}
+for (const label of ['True', 'False', 'yes', 'no', '001']) {
+  assert.strictEqual(parseYaml('value: '+serializers.escapeYamlStr(label)).value, label);
+}
+for (const key of ['none of the above', 'all of the above']) {
+  const saved = serialize('checkboxes', [{key, value: 'False'}], '', {data: {fields: [{[key]: 'False'}]}});
+  assert.strictEqual(parseYaml(saved).fields[0][key], 'False');
 }

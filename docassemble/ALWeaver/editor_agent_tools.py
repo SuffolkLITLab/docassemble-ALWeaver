@@ -848,17 +848,13 @@ def _tool_replace_question(
             return _reject("replace_question", "invalid_fields", error)
 
     block_data = _apply_screen_to_block(located.data, spec, fields)
-    start, end = located.replace_range
-    proposed = _apply_operations(
+    from .editor_utils import update_block_in_yaml
+
+    proposed = update_block_in_yaml(
         context.candidate.raw_source,
-        [
-            {
-                "type": "replace-range",
-                "start": start,
-                "end": end,
-                "text": _serialize_block(block_data),
-            }
-        ],
+        block_id,
+        _serialize_block(block_data),
+        preserve_unchanged_annotations=True,
     )
     return _commit(
         context,
@@ -888,17 +884,13 @@ def _tool_replace_fields(
 
     block_data = located.data
     block_data["fields"] = fields
-    start, end = located.replace_range
-    proposed = _apply_operations(
+    from .editor_utils import update_block_in_yaml
+
+    proposed = update_block_in_yaml(
         context.candidate.raw_source,
-        [
-            {
-                "type": "replace-range",
-                "start": start,
-                "end": end,
-                "text": _serialize_block(block_data),
-            }
-        ],
+        block_id,
+        _serialize_block(block_data),
+        preserve_unchanged_annotations=True,
     )
     return _commit(
         context,

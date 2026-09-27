@@ -112,6 +112,32 @@ class AgentToolTestCase(unittest.TestCase):
         )
 
 
+class TestAgentSourcePreservation(AgentToolTestCase):
+    def test_question_edit_preserves_key_order_comments_and_quotes(self):
+        source = """---
+id: intro
+continue button field: intro  # keep this position
+question: |
+  Original title
+subquestion: 'Keep my quotes'
+# keep trailing note
+---
+mandatory: true
+code: |
+  intro
+"""
+        self.context.candidate = AgentCandidate.from_source(source)
+        result = self.call(
+            "replace_question",
+            {"block_id": "intro", "question": {"question": "Changed title"}},
+        )
+        self.assertEqual(result.status, "success", result)
+        self.assertEqual(
+            self.context.candidate.raw_source,
+            source.replace("Original title", "Changed title"),
+        )
+
+
 class TestToolBoundary(AgentToolTestCase):
     def test_unregistered_tools_cannot_run(self):
         for name in ("eval_python", "shell", "edit_other_file", "delete_project"):

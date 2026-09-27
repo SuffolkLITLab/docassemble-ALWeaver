@@ -10,8 +10,10 @@ from __future__ import annotations
 import ast
 import copy
 import hashlib
+import io
 import os
 import re
+import tokenize
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
@@ -1623,8 +1625,6 @@ STEP_CONDITION = "condition"
 STEP_RAW = "raw"
 
 # Patterns for parsing order code lines
-_RE_SET_PARTS = re.compile(r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)""")
-_RE_NAV_SET_SECTION = re.compile(r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)""")
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
@@ -1678,9 +1678,10 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
     """Expose only losslessly understood statements to the guided order editor.
 
     AST statement boundaries keep unsupported suites and continuations intact.
-    Comments, unusual formatting and unsupported syntax remain editable as raw
-    Python. A candidate must reproduce the exact source and Python AST before
-    it can be represented by guided controls.
+    Guided candidates must reproduce the Python AST, not a particular quoting
+    or indentation style. Keep their original source separately for lossless
+    no-op saves and narrow edits. Unsupported syntax and comments remain raw.
+    Whitespace belongs to neighboring steps rather than empty raw cards.
     """
 
     def raw(source: str) -> Dict[str, Any]:
@@ -1695,6 +1696,8 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         body = ast.parse(code).body
     except SyntaxError:
         return [dict(raw(code), id="step-1")]
+    if not code.strip():
+        return []
     lines = code.split("\n")
     steps: List[Dict[str, Any]] = []
     cursor = 0
@@ -1712,8 +1715,13 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         if start < cursor:
             steps = [raw(code)]
             break
+        prefix = ""
         if start > cursor:
-            steps.append(raw("\n".join(lines[cursor:start])))
+            gap = "\n".join(lines[cursor:start])
+            if gap.strip():
+                steps.append(raw(gap))
+            else:
+                prefix = gap + "\n"
         source = "\n".join(lines[start:end])
         candidate = _parse_simple_order_code(source)
         rendered = serialize_order_steps(candidate)
@@ -1721,11 +1729,33 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
             equivalent = ast.dump(ast.parse(rendered)) == ast.dump(ast.parse(source))
         except SyntaxError:
             equivalent = False
-        steps.extend(candidate if equivalent and rendered == source else [raw(source)])
+        has_comments = any(
+            token.type == tokenize.COMMENT
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        )
+        if (
+            equivalent
+            and len(candidate) == 1
+            and (not has_comments or rendered == source)
+        ):
+            step = candidate[0]
+            if step.get("kind") == STEP_RAW:
+                step = raw(source)
+            else:
+                step["_order_source"] = source
+        else:
+            step = raw(source)
+        if prefix:
+            step["_order_prefix"] = prefix
+        steps.append(step)
         cursor = end
     else:
         if cursor < len(lines):
-            steps.append(raw("\n".join(lines[cursor:])))
+            tail = "\n".join(lines[cursor:])
+            if tail.strip() or not steps:
+                steps.append(raw(tail))
+            else:
+                steps[-1]["_order_suffix"] = "\n" + tail
     counter = 0
 
     def assign_ids(items: Sequence[Dict[str, Any]]) -> None:
@@ -1770,26 +1800,40 @@ def _parse_simple_order_code(code: str) -> List[Dict[str, Any]]:
         return parent_indent + 2
 
     def _parse_line(stripped_line: str, step_id: str) -> Dict[str, Any]:
-        m = _RE_SET_PARTS.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-                "call": "set_parts",
-            }
-
-        m = _RE_NAV_SET_SECTION.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-            }
+        try:
+            expression = ast.parse(stripped_line).body[0]
+        except (SyntaxError, IndexError):
+            expression = None
+        if isinstance(expression, ast.Expr) and isinstance(expression.value, ast.Call):
+            call = expression.value
+            value = None
+            call_name = None
+            if (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "set_parts"
+                and not call.args
+                and len(call.keywords) == 1
+                and call.keywords[0].arg == "subtitle"
+            ):
+                value, call_name = call.keywords[0].value, "set_parts"
+            elif (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "set_section"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "nav"
+                and len(call.args) == 1
+                and not call.keywords
+            ):
+                value, call_name = call.args[0], "nav.set_section"
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return {
+                    "id": step_id,
+                    "kind": STEP_SECTION,
+                    "label": "Start section",
+                    "summary": f"Set section to {value.value}",
+                    "value": value.value,
+                    "call": call_name,
+                }
 
         m = _RE_SET_PROGRESS.search(stripped_line)
         if m:
@@ -1974,7 +2018,97 @@ def _parse_simple_order_code(code: str) -> List[Dict[str, Any]]:
     return parsed_steps
 
 
-def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
+def _patch_order_statement_source(source: str, rendered: str) -> str:
+    """Patch changed AST nodes using UTF-8 offsets; retain untouched formatting.
+
+    When a subtree changes shape (for example adding a branch), replace that
+    subtree. Never use source metadata unless the final AST matches the model.
+    """
+    try:
+        old_tree, new_tree = ast.parse(source), ast.parse(rendered)
+    except SyntaxError:
+        return rendered
+    encoded = source.encode("utf-8")
+    offsets = [0]
+    for line in encoded.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+
+    def patches(old: ast.AST, new: ast.AST) -> Optional[list]:
+        if ast.dump(old) == ast.dump(new):
+            return []
+        edits = []
+        compatible = type(old) is type(new)
+        if compatible:
+            for name, old_value in ast.iter_fields(old):
+                new_value = getattr(new, name)
+                if isinstance(old_value, ast.AST) and isinstance(new_value, ast.AST):
+                    child_edits = patches(old_value, new_value)
+                elif isinstance(old_value, list) and isinstance(new_value, list):
+                    child_edits = []
+                    if len(old_value) != len(new_value):
+                        child_edits = None
+                    else:
+                        for old_child, new_child in zip(old_value, new_value):
+                            if not isinstance(old_child, ast.AST) or not isinstance(
+                                new_child, ast.AST
+                            ):
+                                if old_child != new_child:
+                                    child_edits = None
+                                    break
+                                continue
+                            nested = patches(old_child, new_child)
+                            if nested is None:
+                                child_edits = None
+                                break
+                            child_edits.extend(nested)
+                else:
+                    child_edits = [] if old_value == new_value else None
+                if child_edits is None:
+                    compatible = False
+                    break
+                edits.extend(child_edits)
+        if compatible:
+            return edits
+        replacement = ast.get_source_segment(rendered, new)
+        start_line = getattr(old, "lineno", None)
+        start_column = getattr(old, "col_offset", None)
+        end_line = getattr(old, "end_lineno", None)
+        end_column = getattr(old, "end_col_offset", None)
+        if (
+            replacement is None
+            or not isinstance(start_line, int)
+            or not isinstance(start_column, int)
+            or not isinstance(end_line, int)
+            or not isinstance(end_column, int)
+        ):
+            return None
+        indent = " " * start_column
+        replacement = replacement.replace("\n", "\n" + indent)
+        return [
+            (
+                offsets[start_line - 1] + start_column,
+                offsets[end_line - 1] + end_column,
+                replacement.encode("utf-8"),
+            )
+        ]
+
+    edits = patches(old_tree, new_tree)
+    if edits is None:
+        return rendered
+    for start, end, replacement in sorted(edits, reverse=True):
+        encoded = encoded[:start] + replacement + encoded[end:]
+    result = encoded.decode("utf-8")
+    try:
+        if ast.dump(ast.parse(result)) == ast.dump(new_tree):
+            return result
+    except SyntaxError:
+        pass
+    return rendered
+
+
+def serialize_order_steps(
+    steps: Sequence[Dict[str, Any]], *, _preserve_source: bool = True
+) -> str:
     """Convert structured order steps back into Python code for a mandatory
     code block."""
     lines: List[str] = []
@@ -2017,6 +2151,21 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
     def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
         prefix = " " * indent
         for step in step_list:
+            if _preserve_source and any(
+                key in step
+                for key in ("_order_source", "_order_prefix", "_order_suffix")
+            ):
+                rendered = serialize_order_steps([step], _preserve_source=False)
+                source = step.get("_order_source")
+                if isinstance(source, str):
+                    rendered = _patch_order_statement_source(source, rendered)
+                rendered = (
+                    str(step.get("_order_prefix", ""))
+                    + rendered
+                    + str(step.get("_order_suffix", ""))
+                )
+                lines.extend(prefix + line for line in rendered.split("\n"))
+                continue
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
                 value = step.get("value", "")
@@ -2199,7 +2348,15 @@ def playground_read_yaml(user_id: int, project: str, filename: str) -> str:
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        content = pg.read_file(filename)
+        # Playground.read_file uses universal-newline translation, which turns
+        # CRLF into LF before the source-preserving patcher ever sees it.
+        path = pg.get_file(filename)
+        if path is None:
+            raise FileNotFoundError(
+                f"File {filename!r} not found in project {project!r}"
+            )
+        with open(path, "r", encoding="utf-8", newline="") as source:
+            content = source.read()
     return content or ""
 
 

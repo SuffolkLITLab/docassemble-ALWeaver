@@ -77,6 +77,7 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    sectionFileRevisions: {},
     templatesMode: 'files',
     kilnTests: [],
     kilnManagedFilename: 'weaver_it_runs.feature',
@@ -345,6 +346,16 @@
     return [state.project || '', state.currentView || '', filename].join('::');
   }
 
+  function sectionRevisionFor(view, filename) {
+    var key = [state.project || '', view || '', filename || ''].join('::');
+    if (state.sectionFileRevisions[key]) return state.sectionFileRevisions[key];
+    var files = getSectionFiles(view);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].filename === filename) return files[i].revision || null;
+    }
+    return null;
+  }
+
   function discardSectionChanges() {
     if (!state.sectionDirty) return true;
     var savedContent = state.sectionSavedContent[sectionSnapshotKey()];
@@ -402,9 +413,18 @@
     var container = document.getElementById(containerId);
     if (!container) return null;
     options = options || {};
+    function unavailable(message) {
+      container.innerHTML = '';
+      var alert = document.createElement('div');
+      alert.className = 'alert alert-danger';
+      alert.setAttribute('role', 'alert');
+      alert.textContent = message;
+      container.appendChild(alert);
+      throw new Error(message);
+    }
     if (typeof window.daNewEditor !== 'function') {
-      throw new Error(
-        'CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?',
+      unavailable(
+        'The source editor could not load because the Docassemble CodeMirror bundle is missing. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
@@ -421,8 +441,8 @@
       true,
     );
     if (!bundle || !bundle.ev) {
-      throw new Error(
-        'Docassemble could not initialize its CodeMirror editor.',
+      unavailable(
+        'Docassemble could not initialize the source editor. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     var view = bundle.ev;
@@ -554,6 +574,11 @@
   }
 
   function expressionModifierYamlValue(key, value) {
+    if (
+      typeof value === 'string' &&
+      ['none of the above', 'all of the above'].indexOf(key) !== -1
+    )
+      return escapeYamlStr(value);
     var pythonModifiers = [
       'validate',
       'disabled',
@@ -578,7 +603,7 @@
       if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalar)) return scalar;
       return escapeYamlStr(value);
     }
-    return escapeYamlStr(String(value));
+    return window.ALWeaverSerializers.fieldModifierYamlValue(key, value);
   }
 
   function readExpressionModifier(input, original) {
@@ -681,6 +706,12 @@
       .querySelectorAll('#order-add-code, #order-edit-code')
       .forEach(function (input) {
         input.dataset.expressionContext = 'code';
+      });
+    document
+      .querySelectorAll('textarea[data-choice-expression="true"]')
+      .forEach(function (input) {
+        input.dataset.expressionContext = 'value';
+        input.dataset.expressionWrapper = '';
       });
     // Text/Mako fields need an insertion action: only the selected Python span
     // is edited. Unselected prose and existing template directives stay exact.
@@ -1349,7 +1380,19 @@
     if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal)
       return;
     var instance = bootstrap.Modal.getInstance(modalEl);
-    if (instance) instance.hide();
+    if (!instance) return;
+    instance.hide();
+    // Bootstrap ignores hide() during its opening transition. Fast keyboard
+    // or pointer actions can finish a dialog before that transition ends.
+    if (modalEl.classList.contains('show')) {
+      modalEl.addEventListener(
+        'shown.bs.modal',
+        function () {
+          instance.hide();
+        },
+        { once: true },
+      );
+    }
   }
 
   /* The block templates live in editor_serializers.js so a test can require
@@ -2738,6 +2781,11 @@
   }
 
   function apiPost(path, body, options) {
+    body = window.ALWeaverApiClient.attachExpectedRevision(path, body, {
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    });
     return apiClient.post(path, body, options);
   }
 
@@ -4036,12 +4084,16 @@
         ' will change' +
         (blocking ? '; ' + blocking + ' need manual review' : '') +
         (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') +
+        ((_projectSearchData.warnings || []).length
+          ? '; template references need manual review'
+          : '') +
         (dirty ? '; save editor changes first' : '') +
         (replacementChanged ? '; run Find again for the new name' : '');
       replaceButton.disabled =
         safe === 0 ||
         blocking > 0 ||
         skipped > 0 ||
+        (_projectSearchData.warnings || []).length > 0 ||
         dirty ||
         replacementChanged ||
         Boolean(_projectSearchData.truncated);
@@ -4119,9 +4171,14 @@
             ' ' +
             _projectSearchData.skipped.length +
             ' oversized text file(s) were skipped.';
+        if ((_projectSearchData.warnings || []).length)
+          message += ' ' + _projectSearchData.warnings.join(' ');
         setProjectSearchStatus(
           message,
-          _projectSearchData.truncated ? 'warning' : 'secondary',
+          _projectSearchData.truncated ||
+            (_projectSearchData.warnings || []).length
+            ? 'warning'
+            : 'secondary',
         );
         updateProjectSearchSelection();
       })
@@ -4169,6 +4226,40 @@
       }
     });
     return selections;
+  }
+
+  function showProjectReplacementRecovery(error) {
+    var files = error && error.details && error.details.recovery_files;
+    var status = projectSearchElement('project-search-status');
+    if (!status || !Array.isArray(files) || !files.length) return;
+    var names = document.createElement('p');
+    names.textContent =
+      'Inspect and restore: ' +
+      files
+        .map(function (file) {
+          return file.section + '/' + file.filename;
+        })
+        .join(', ');
+    status.appendChild(names);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-outline-danger';
+    button.textContent = 'Download recovery JSON';
+    button.addEventListener('click', function () {
+      var url = URL.createObjectURL(
+        new Blob([JSON.stringify(files, null, 2)], {
+          type: 'application/json',
+        }),
+      );
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'project-replacement-recovery.json';
+      link.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1000);
+    });
+    status.appendChild(button);
   }
 
   function applyProjectReplacement() {
@@ -4254,6 +4345,7 @@
           (error && error.message) || 'Replacement failed.',
           'danger',
         );
+        showProjectReplacementRecovery(error);
         updateProjectSearchSelection();
       });
   }
@@ -6215,7 +6307,12 @@
   function _normalizeObjectClassName(classText) {
     var raw = String(classText || '').trim();
     if (!raw) return '';
-    return raw.split('(', 1)[0].trim().split('.').pop();
+    return raw
+      .split('(', 1)[0]
+      .trim()
+      .replace(/\.using$/, '')
+      .split('.')
+      .pop();
   }
 
   function _isDaListLikeClass(className) {
@@ -6289,9 +6386,9 @@
     } else if (kind === 'gather') {
       var gatherChoices = getGatherListCandidates();
       html +=
-        '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
+        '<div class="mb-2"><label class="editor-tiny" for="order-add-gather-list">List to gather</label>';
       html +=
-        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-gather-list" list="order-gather-candidates" placeholder="household[i].jobs">' +
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-gather-list" list="order-gather-candidates" aria-describedby="order-gather-help">' +
         '<datalist id="order-gather-candidates">';
       gatherChoices.forEach(function (entry) {
         html +=
@@ -6302,7 +6399,7 @@
           '</option>';
       });
       html +=
-        '</datalist><div class="editor-tiny mt-2">Select a known list or enter a custom or nested list variable. Indexed and generic targets require a matching loop or generic context in Python.</div></div>';
+        '</datalist><div class="editor-tiny mt-2" id="order-gather-help">Select a known list or enter a custom or nested list variable, for example <code>household[i].jobs</code>. Indexed and generic targets require a matching loop or generic context in Python.</div></div>';
       if (saveBtn) saveBtn.disabled = false;
     } else if (kind === 'condition') {
       html +=
@@ -6545,6 +6642,17 @@
     'object_multiselect',
   ];
 
+  function fieldChoiceEditorValue(choices) {
+    if (typeof choices === 'string') return choices;
+    return Array.isArray(choices)
+      ? window.ALWeaverSerializers.fieldChoicesText(choices)
+      : '';
+  }
+
+  function fieldChoicesAreExpression(choices) {
+    return typeof choices === 'string';
+  }
+
   var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
 
   function appendYamlText(yaml, key, value) {
@@ -6568,6 +6676,7 @@
         'prevent going back',
         'back button',
         'scan for variables',
+        'skip undefined',
       ].indexOf(key) !== -1 &&
       /^(true|false)$/i.test(text)
     )
@@ -7303,7 +7412,9 @@
         ': ' +
         escapeYamlStr(String(field[standaloneType] || '')) +
         '\n';
-      if (Array.isArray(field.choices) && field.choices.length) {
+      if (fieldChoicesAreExpression(field.choices) && field.choices.trim()) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else if (Array.isArray(field.choices) && field.choices.length) {
         yaml += '    choices:\n';
         field.choices.forEach(function (choice) {
           yaml += '      - ' + JSON.stringify(choice) + '\n';
@@ -7347,7 +7458,10 @@
     var variable = String(field.field || field.variable || '').trim();
     var datatype =
       String(field.datatype || field.type || 'text').trim() || 'text';
-    var hasChoices = Array.isArray(field.choices) && field.choices.length > 0;
+    var hasChoices =
+      (Array.isArray(field.choices) && field.choices.length > 0) ||
+      (fieldChoicesAreExpression(field.choices) &&
+        Boolean(field.choices.trim()));
     var hasCode = Boolean(field.code && String(field.code).trim());
     var isRequired = !(field.required === false || field.required === 'False');
     var extraMods = [];
@@ -7387,10 +7501,14 @@
     if (datatype && datatype !== 'text')
       yaml += '    datatype: ' + datatype + '\n';
     if (hasChoices) {
-      yaml += '    choices:\n';
-      field.choices.forEach(function (choice) {
-        yaml += '      - ' + JSON.stringify(choice) + '\n';
-      });
+      if (fieldChoicesAreExpression(field.choices)) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else {
+        yaml += '    choices:\n';
+        field.choices.forEach(function (choice) {
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
+        });
+      }
     }
     if (hasCode) {
       var codeText = String(field.code);
@@ -7961,6 +8079,7 @@
   function syncFieldsToData(blk) {
     if (!isQuestionEditorBlock(blk)) return;
     var rows = document.querySelectorAll('.editor-field-row');
+    var previousFields = blk.data.fields || [];
     var previousGeneratedSets =
       (blk.data && blk.data._editor_al_generated_sets) ||
       _generatedALFieldSets((blk.data && blk.data.fields) || []);
@@ -7988,14 +8107,19 @@
             row.querySelector('[data-field-prop="type"]').value,
           ) !== -1
         ) {
-          window.ALWeaverSerializers.readFieldChoices(choices.value);
+          var originalChoices = (previousFields[Number(idx)] || {}).choices;
+          var expressionChoices =
+            choices.dataset.choiceExpression === 'true' ||
+            choices.dataset.expressionApplied === 'true' ||
+            fieldChoicesAreExpression(originalChoices);
+          if (!expressionChoices)
+            window.ALWeaverSerializers.readFieldChoices(choices.value);
         }
       });
     } catch (error) {
       window.alert(error.message);
       return false;
     }
-    var previousFields = blk.data.fields || [];
     blk.data.fields = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
@@ -8090,9 +8214,14 @@
       if (variable) fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
-        fieldObj.choices = window.ALWeaverSerializers.readFieldChoices(
-          choicesEl.value,
-        );
+        var originalChoices = (previousFields[rowIdx] || {}).choices;
+        var expressionChoices =
+          choicesEl.dataset.choiceExpression === 'true' ||
+          choicesEl.dataset.expressionApplied === 'true' ||
+          fieldChoicesAreExpression(originalChoices);
+        fieldObj.choices = expressionChoices
+          ? choicesEl.value.trim()
+          : window.ALWeaverSerializers.readFieldChoices(choicesEl.value);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
       var fieldRequired = serializedRequiredValue(requiredExpression);
@@ -9422,6 +9551,10 @@
       section: sectionForSave,
       filename: sectionFileMeta.filename,
       content: contentVal,
+      expected_revision: sectionRevisionFor(
+        state.currentView,
+        sectionFileMeta.filename,
+      ),
     })
       .then(function (res) {
         if (!res.success) {
@@ -9433,6 +9566,9 @@
         state.sectionDirty = false;
         noteModuleSaveResult(res.data);
         state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
+        if (res.data && res.data.revision) {
+          state.sectionFileRevisions[sectionSnapshotKey()] = res.data.revision;
+        }
         updateTopbarSaveState();
         var saveSectionBtn = document.getElementById('save-section-file');
         if (saveSectionBtn) saveSectionBtn.disabled = true;
@@ -11705,6 +11841,7 @@
               varName = '',
               dtype = 'text',
               choices = '',
+              choicesExpression = false,
               codeExpr = '';
             var contentText = '';
             var methodArgs = '';
@@ -11730,10 +11867,9 @@
                 label = String(f.label || '');
                 varName = String(f.field || '');
                 dtype = f.datatype || f.input_type || 'text';
-                if (f.choices && Array.isArray(f.choices)) {
-                  choices = window.ALWeaverSerializers.fieldChoicesText(
-                    f.choices,
-                  );
+                if (f.choices !== undefined) {
+                  choices = fieldChoiceEditorValue(f.choices);
+                  choicesExpression = fieldChoicesAreExpression(f.choices);
                 }
                 if (f.code)
                   codeExpr =
@@ -11782,8 +11918,9 @@
                     } else if (typeof val === 'object' && val !== null) {
                       varName = val.variable || val.name || firstKey;
                       dtype = val.datatype || val.input_type || 'text';
-                      if (val.choices && Array.isArray(val.choices)) {
-                        choices = window.ALWeaverSerializers.fieldChoicesText(
+                      if (val.choices !== undefined) {
+                        choices = fieldChoiceEditorValue(val.choices);
+                        choicesExpression = fieldChoicesAreExpression(
                           val.choices,
                         );
                       }
@@ -11791,10 +11928,9 @@
                   }
                   if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
                   if (f.input_type && dtype === 'text') dtype = f.input_type;
-                  if (!choices && f.choices && Array.isArray(f.choices)) {
-                    choices = window.ALWeaverSerializers.fieldChoicesText(
-                      f.choices,
-                    );
+                  if (!choices && f.choices !== undefined) {
+                    choices = fieldChoiceEditorValue(f.choices);
+                    choicesExpression = fieldChoicesAreExpression(f.choices);
                   }
                   var _codeSource =
                     f.code ||
@@ -11966,7 +12102,9 @@
               html +=
                 '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
                 fi +
-                '" rows="3">' +
+                '"' +
+                (choicesExpression ? ' data-choice-expression="true"' : '') +
+                ' rows="3">' +
                 esc(String(choices || '')) +
                 '</textarea>';
               html += '</div>';
@@ -13257,8 +13395,10 @@
           '" data-fmod="shuffle" data-field-idx="' +
           fi +
           '"><option value="">(default)</option><option value="True"' +
-          (fmods.shuffle ? ' selected' : '') +
-          '>Yes</option></select>',
+          (String(fmods.shuffle).toLowerCase() === 'true' ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (String(fmods.shuffle).toLowerCase() === 'false' ? ' selected' : '') +
+          '>No</option></select>',
       );
       out += row(
         'fmod-disableothers-' + fi,
@@ -15283,6 +15423,15 @@
     if (nodes.createButton) nodes.createButton.disabled = false;
   }
 
+  function _newProjectGenerationWarnings(jobData) {
+    var result = jobData.result || jobData;
+    return Array.isArray(result.warnings)
+      ? result.warnings.filter(function (warning) {
+          return typeof warning === 'string' && warning.trim();
+        })
+      : [];
+  }
+
   function _pollNewProjectJob(jobUrl, projectName) {
     var attempts = 0;
 
@@ -15361,6 +15510,22 @@
     setTimeout(function () {
       if (banner.parentNode) banner.parentNode.removeChild(banner);
     }, 5000);
+  }
+
+  function _showWarningBanner(message) {
+    var banner = document.createElement('div');
+    banner.className =
+      'alert alert-warning alert-dismissible fade show position-fixed';
+    banner.style.cssText =
+      'top:5rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:700px;';
+    banner.innerHTML =
+      '<span>' +
+      message +
+      '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    document.body.appendChild(banner);
+    setTimeout(function () {
+      if (banner.parentNode) banner.parentNode.removeChild(banner);
+    }, 10000);
   }
 
   // -------------------------------------------------------------------------
@@ -15474,6 +15639,9 @@
             ' lines',
         );
       }
+      (data.warnings || []).forEach(function (warning) {
+        parts.push(String(warning));
+      });
       summary.textContent = parts.join(' \u00b7 ');
     }
     var apply = document.getElementById('review-sync-apply');
@@ -17637,6 +17805,11 @@
             res && res.success && res.data
               ? String(res.data.content || '')
               : '';
+          if (res && res.success && res.data && res.data.revision) {
+            state.sectionFileRevisions[requestedSnapshotKey] =
+              res.data.revision;
+            fileMeta.revision = res.data.revision;
+          }
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
           if (lowerName.endsWith('.py')) language = 'python';
@@ -18718,6 +18891,7 @@
         section: sfSection,
         filename: sfName,
         new_filename: sfNewName,
+        expected_revision: sectionRevisionFor(state.currentView, sfName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18775,6 +18949,7 @@
         project: state.project,
         section: delSection,
         filename: delName,
+        expected_revision: sectionRevisionFor(state.currentView, delName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -19003,6 +19178,10 @@
         section: sectionForRename,
         filename: sectionFileMetaForRename.filename,
         new_filename: renamedSectionFile,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForRename.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -19034,6 +19213,10 @@
         project: state.project,
         section: sectionForDelete,
         filename: sectionFileMetaForDelete.filename,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForDelete.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -20469,6 +20652,14 @@
                       esc(state.project) +
                       '" created successfully.',
                   );
+                  var generationWarnings =
+                    _newProjectGenerationWarnings(jobData);
+                  if (generationWarnings.length) {
+                    _showWarningBanner(
+                      'Review generated interview: ' +
+                        generationWarnings.map(esc).join(' '),
+                    );
+                  }
                   // The generated YAML refers to each template by the name the
                   // project stores it under, which may not be the one uploaded.
                   reportRenamedFiles(

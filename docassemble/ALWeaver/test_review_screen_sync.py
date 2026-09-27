@@ -408,3 +408,148 @@ class TestGeneration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMatrixReviewSafety(unittest.TestCase):
+    def test_sync_retains_authored_table_source_including_filters(self):
+        table = """---
+table: tenants.table
+rows: tenants
+columns:
+  - Amount: currency(row_item.amount)  # custom formatter
+filter: row_item.amount > 0
+edit:
+  - amount
+"""
+        source = "id: review\nevent: review_it\nreview: []\n" + table
+        updated, _ = sync_review_screen(source, NEW_REVIEW)
+        self.assertIn(table, updated)
+        self.assertEqual(updated.count("table: tenants.table"), 1)
+        draft = ensure_revisit_tables(NEW_REVIEW, [table])
+        self.assertNotIn("table: tenants.table", draft)
+        self.assertIn("tenants.revisit", draft)
+
+    def test_custom_review_notes_survive_and_are_not_duplicated(self):
+        source = "id: review\nreview:\n  - note: Keep this explanation\n"
+        draft, kept = carry_over_unmatched_entries("review: []\n", source)
+        self.assertEqual(kept, 1)
+        self.assertIn("Keep this explanation", draft)
+        repeated, kept = carry_over_unmatched_entries(draft, source)
+        self.assertEqual(kept, 0)
+        self.assertEqual(repeated, draft)
+
+    def test_older_dashboard_cannot_add_signature_edit_actions(self):
+        draft = """review:
+  - Edit: users[i].signed_consent
+    button: Sign
+  - Edit: amount
+    button: Amount
+---
+table: users.table
+rows: users
+edit:
+  - name.first
+  - signature
+  - signature_date
+"""
+        with mock.patch.object(
+            review_screen_sync,
+            "_load_dashboard_generator",
+            return_value=lambda *args, **kwargs: draft,
+        ):
+            result = generate_review_screen_yaml(
+                ["signature: users[i].signed_consent\nquestion: Sign\n"]
+            )
+        self.assertNotIn("signed_consent", result)
+        self.assertNotIn("signature", result)
+        self.assertIn("Edit: amount", result)
+        self.assertIn("name.first", result)
+
+    def test_older_dashboard_table_keeps_nested_field_target(self):
+        draft = """review: []
+---
+table: users.table
+rows: users
+columns:
+  - Name: row_item.first if hasattr(row_item, 'first') else ''
+edit:
+  - first
+"""
+        with mock.patch.object(
+            review_screen_sync,
+            "_load_dashboard_generator",
+            return_value=lambda *args, **kwargs: draft,
+        ):
+            result = generate_review_screen_yaml(
+                ["question: Name\nfields:\n  - Name: users[i].name.first\n"]
+            )
+        import yaml
+
+        table = list(yaml.safe_load_all(result))[1]
+        self.assertEqual(table["edit"], ["name.first"])
+        from types import SimpleNamespace
+
+        expression = table["columns"][0]["Name"]
+        self.assertEqual(
+            eval(
+                expression,
+                {"row_item": SimpleNamespace(name=SimpleNamespace(first="Ada"))},
+            ),
+            "Ada",
+        )
+        self.assertEqual(eval(expression, {"row_item": SimpleNamespace()}), "")
+
+    def test_review_sync_keeps_author_settings_and_comments(self):
+        source = """id: review
+subquestion: 'Keep these instructions' # author comment
+skip undefined: false
+review:
+  - Edit: old
+"""
+        result, _ = sync_review_screen(source, "id: review\nreview:\n  - Edit: new\n")
+        self.assertIn(
+            "subquestion: 'Keep these instructions' # author comment\n", result
+        )
+        self.assertIn("skip undefined: false\n", result)
+        self.assertIn("Edit: new", result)
+        self.assertNotIn("Edit: old", result)
+
+    def test_generated_list_review_visible_before_first_revisit(self):
+        draft = "review:\n  - Edit: users.revisit\n    button: Users\n"
+        with mock.patch.object(
+            review_screen_sync,
+            "_load_dashboard_generator",
+            return_value=lambda *args, **kwargs: draft,
+        ):
+            result = generate_review_screen_yaml(
+                ["objects:\n  - users: ALPeopleList\n"]
+            )
+        import yaml
+
+        entry = yaml.safe_load(result)["review"][0]
+        self.assertEqual(entry["Edit"], "users")
+        self.assertEqual(entry["action"], "users.revisit")
+        # A second sync must match the original action, not carry a duplicate.
+        carried, count = carry_over_unmatched_entries(result, draft)
+        self.assertEqual(count, 0)
+        self.assertEqual(carried, result)
+        self.assertIn("users", review_screen_sync._reviewed_list_names(result))
+
+    def test_review_scope_reports_missing_files_and_cycles(self):
+        warnings = review_screen_sync.review_scope_warnings(
+            ["main.yml", "shared.yml"],
+            ["include: [shared.yml, missing.yml]\n", "include: [main.yml]\n"],
+        )
+        self.assertEqual(len(warnings), 2)
+        self.assertIn("missing.yml", warnings[0])
+        self.assertIn("cycle", warnings[1])
+        self.assertEqual(
+            review_screen_sync.review_scope_warnings(
+                ["main.yml", "shared.yml"],
+                [
+                    "include: [shared.yml, 'docassemble.AssemblyLine:assembly_line.yml']\n",
+                    "question: Shared\n",
+                ],
+            ),
+            [],
+        )

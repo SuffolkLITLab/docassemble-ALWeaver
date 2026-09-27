@@ -23,6 +23,45 @@ async function expectError(promise, expected) {
 }
 
 async function run() {
+  const activeFile = {
+    project: 'matrix_sec_project',
+    filename: 'interview.yml',
+    revision: 'revision-current',
+  };
+  const originalWrite = {
+    project: 'matrix_sec_project',
+    filename: 'interview.yml',
+    block_id: 'question',
+  };
+  const guardedWrite = api.attachExpectedRevision(
+    '/api/block',
+    originalWrite,
+    activeFile,
+  );
+  assert.strictEqual(guardedWrite.expected_revision, 'revision-current');
+  assert.strictEqual(originalWrite.expected_revision, undefined);
+  assert.notStrictEqual(guardedWrite, originalWrite);
+  assert.strictEqual(
+    api.attachExpectedRevision(
+      '/api/block',
+      { ...originalWrite, expected_revision: 'explicit-revision' },
+      activeFile,
+    ).expected_revision,
+    'explicit-revision',
+  );
+  assert.strictEqual(
+    api.attachExpectedRevision(
+      '/api/block',
+      { ...originalWrite, filename: 'other.yml' },
+      activeFile,
+    ).expected_revision,
+    undefined,
+  );
+  assert.strictEqual(
+    api.attachExpectedRevision('/api/validate-source', originalWrite, activeFile),
+    originalWrite,
+  );
+
   const requests = [];
   const client = api.createClient({
     baseUrl: '/al/editor',

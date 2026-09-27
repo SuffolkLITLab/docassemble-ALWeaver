@@ -5,6 +5,7 @@
 import json
 import os
 import tempfile
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -24,11 +25,31 @@ from .editor_modules import (
 from .test_editor_api import api_editor
 
 
+class FakeRedisLock:
+    _locks: dict[str, threading.RLock] = {}
+    _guard = threading.Lock()
+
+    def __init__(self, name):
+        with self._guard:
+            self._lock = self._locks.setdefault(name, threading.RLock())
+
+    def acquire(self, blocking=True, blocking_timeout=None):
+        if blocking_timeout is None:
+            return self._lock.acquire(blocking=blocking)
+        return self._lock.acquire(blocking=blocking, timeout=blocking_timeout)
+
+    def release(self):
+        self._lock.release()
+
+
 class FakeRedis:
     """Enough Redis for the dirty flag and the restart-status record."""
 
     def __init__(self):
         self.values = {}
+
+    def lock(self, name, **_kwargs):
+        return FakeRedisLock(name)
 
     def get(self, key):
         return self.values.get(key)

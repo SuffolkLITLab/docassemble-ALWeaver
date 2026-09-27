@@ -200,6 +200,28 @@ class TestEditorRuntimeApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(set_variables.call_args.kwargs["process_objects"])
 
+    def test_invalid_scenario_yaml_is_a_validation_error_without_mutation(self):
+        self._record()
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "set_target_variables") as set_variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables",
+                method="POST",
+                json={"scenario_yaml": "[malformed"},
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "invalid_runtime_variable_request"
+        )
+        set_variables.assert_not_called()
+
     def test_arbitrary_actions_are_rejected(self):
         self._record()
         patches = self._base_patches()

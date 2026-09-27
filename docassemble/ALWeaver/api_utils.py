@@ -275,6 +275,8 @@ def generate_interview_from_bytes(
             payload["additional_input_filenames"] = additional_names
         # The names the generated YAML actually refers to, in bundle order.
         payload["template_filenames"] = list(result.template_names)
+        if result.warnings:
+            payload["warnings"] = list(result.warnings)
         # Report these either way: a caller that did not ask for renaming can
         # show what it would do and offer to run again with it turned on.
         if result.suggested_renames:
