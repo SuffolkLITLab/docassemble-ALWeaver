@@ -5042,6 +5042,81 @@ def _restart_state_payload(uid: int, project: str) -> Dict[str, Any]:
     }
 
 
+def _restart_module_manifest(uid: int, project: str) -> Dict[str, Any]:
+    """Capture the module files the next server process must publish.
+
+    Docassemble rebuilds Playground packages during startup. The HTTP process
+    can be answering requests before that copy is visible, so its start time
+    and Supervisor's reset state alone do not prove a module is ready to run.
+    This small manifest lets the restart poll wait for the actual package
+    files without storing their source in Redis.
+    """
+    _area, directory = _editor_storage_directory(
+        uid, project, EDITOR_SECTION_TO_STORAGE["modules"]
+    )
+    expected: Dict[str, str] = {}
+    for filename in os.listdir(directory):
+        if not MODULE_FILENAME_PATTERN.match(filename):
+            continue
+        with open(os.path.join(directory, filename), "rb") as module_file:
+            expected[filename] = hashlib.sha256(module_file.read()).hexdigest()
+
+    pending = _pending_module_changes(uid, project) or {}
+    removed = sorted(
+        {
+            entry["filename"]
+            for entry in pending.get("files", [])
+            if entry.get("reason") in {"deleted", "renamed"}
+            and entry.get("filename") not in expected
+        }
+    )
+    return {"expected": expected, "removed": removed}
+
+
+def _restart_module_copy_ready(record: Dict[str, Any]) -> bool:
+    """Whether startup copied this restart's saved module state to packages."""
+    manifest = record.get("module_manifest")
+    if not isinstance(manifest, dict):
+        # Older records and restarts unrelated to module edits retain the
+        # original server-start/reset completion semantics.
+        return True
+    try:
+        user_id = int(record["user_id"])
+        project = str(record["project"])
+        package_dir = module_package_directory(
+            full_package_directory(), user_id, project
+        )
+        if not package_dir:
+            return False
+        expected = manifest.get("expected", {})
+        removed = manifest.get("removed", [])
+        if not isinstance(expected, dict) or not isinstance(removed, list):
+            return False
+        for filename, expected_hash in expected.items():
+            if not isinstance(filename, str) or not MODULE_FILENAME_PATTERN.match(
+                filename
+            ):
+                return False
+            path = os.path.join(package_dir, filename)
+            try:
+                with open(path, "rb") as module_file:
+                    actual_hash = hashlib.sha256(module_file.read()).hexdigest()
+            except OSError:
+                return False
+            if actual_hash != expected_hash:
+                return False
+        for filename in removed:
+            if not isinstance(filename, str) or not MODULE_FILENAME_PATTERN.match(
+                filename
+            ):
+                return False
+            if os.path.exists(os.path.join(package_dir, filename)):
+                return False
+        return True
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+
+
 def _save_module_file(
     uid: int, project: str, filename: str, content: str
 ) -> Dict[str, Any]:
@@ -7909,11 +7984,19 @@ def editor_api_restart_server() -> Response:
         uid = _current_user_id()
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
+        module_manifest = _restart_module_manifest(uid, project)
         task_id = uuid.uuid4().hex
         pipe = r.pipeline()
         pipe.set(
             restart_status_key(task_id),
-            json.dumps({"server_start_time": server_start_time()}),
+            json.dumps(
+                {
+                    "server_start_time": server_start_time(),
+                    "user_id": uid,
+                    "project": project,
+                    "module_manifest": module_manifest,
+                }
+            ),
         )
         pipe.expire(restart_status_key(task_id), 3600)
         pipe.execute()
@@ -7988,8 +8071,13 @@ def editor_api_restart_status() -> Response:
             )
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8", "replace")
-        requested_at = float(json.loads(raw).get("server_start_time") or 0)
-        working = server_start_time() <= requested_at or reset_process_is_running()
+        record = json.loads(raw)
+        requested_at = float(record.get("server_start_time") or 0)
+        working = (
+            server_start_time() <= requested_at
+            or reset_process_is_running()
+            or not _restart_module_copy_ready(record)
+        )
         return jsonify(
             {
                 "success": True,

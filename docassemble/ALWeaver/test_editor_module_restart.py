@@ -2,6 +2,7 @@
 
 """Saving Playground Python modules, and the deferred restart that loads them."""
 
+import hashlib
 import json
 import os
 import tempfile
@@ -533,6 +534,7 @@ class TestRestartApi(unittest.TestCase):
 
     def test_restarting_writes_the_polling_record_before_taking_the_server_down(self):
         order = []
+        manifest = {"expected": {"util.py": "abc"}, "removed": []}
 
         def fake_restart():
             order.append(
@@ -547,6 +549,7 @@ class TestRestartApi(unittest.TestCase):
             patch.object(api_editor, "server_start_time", return_value=100.0),
             patch.object(api_editor, "_restarting_is_allowed", return_value=True),
             patch.object(api_editor, "_filesystem_is_read_only", return_value=False),
+            patch.object(api_editor, "_restart_module_manifest", return_value=manifest),
             patch.object(api_editor, "restart_docassemble", side_effect=fake_restart),
         ):
             with self._context(
@@ -559,6 +562,10 @@ class TestRestartApi(unittest.TestCase):
         # The record has to exist before restart_all takes down this worker,
         # or the browser has nothing left to poll.
         self.assertIn("da:restart_status:" + task_id, order[0])
+        record = json.loads(self.redis.values["da:restart_status:" + task_id])
+        self.assertEqual(record["module_manifest"], manifest)
+        self.assertEqual(record["user_id"], 7)
+        self.assertEqual(record["project"], "default")
         self.assertNotIn("da:weaver:modules_dirty:7:default", self.redis.values)
 
     def test_a_server_that_may_not_restart_refuses_with_the_reason(self):
@@ -602,6 +609,103 @@ class TestRestartApi(unittest.TestCase):
         # background workers, so the restart is not finished.
         self.assertEqual(status(200.0, True), "working")
         self.assertEqual(status(200.0, False), "completed")
+
+    def test_restart_status_waits_for_the_rebuilt_module_copy_to_match(self):
+        package_root = tempfile.mkdtemp()
+        installed_dir = module_package_directory(package_root, 7, "default")
+        os.makedirs(installed_dir, exist_ok=True)
+        expected_source = b"VALUE = 'v2'\n"
+        with open(os.path.join(installed_dir, "util.py"), "wb") as module_file:
+            module_file.write(b"VALUE = 'v1'\n")
+        self.redis.values["da:restart_status:copy-race"] = json.dumps(
+            {
+                "server_start_time": 100.0,
+                "user_id": 7,
+                "project": "default",
+                "module_manifest": {
+                    "expected": {
+                        "util.py": hashlib.sha256(expected_source).hexdigest()
+                    },
+                    "removed": [],
+                },
+            }
+        )
+
+        def status():
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor, "reset_process_is_running", return_value=False
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=package_root
+                ),
+            ):
+                with self._context(
+                    "/al/editor/api/server/restart-status?task_id=copy-race"
+                ):
+                    return api_editor.editor_api_restart_status().get_json()["data"][
+                        "status"
+                    ]
+
+        # The new web process answers and reset has ended, but startup has not
+        # yet published the saved module bytes.
+        self.assertEqual(status(), "working")
+        with open(os.path.join(installed_dir, "util.py"), "wb") as module_file:
+            module_file.write(expected_source)
+        self.assertEqual(status(), "completed")
+
+    def test_restart_status_waits_for_renames_and_deletions_to_be_copied(self):
+        package_root = tempfile.mkdtemp()
+        installed_dir = module_package_directory(package_root, 7, "default")
+        os.makedirs(installed_dir, exist_ok=True)
+        renamed_source = b"VALUE = 'renamed'\n"
+        for filename in ("old_name.py", "deleted.py"):
+            with open(os.path.join(installed_dir, filename), "wb") as module_file:
+                module_file.write(b"VALUE = 'stale'\n")
+        with open(os.path.join(installed_dir, "new_name.py"), "wb") as module_file:
+            module_file.write(b"VALUE = 'stale'\n")
+        self.redis.values["da:restart_status:rename-race"] = json.dumps(
+            {
+                "server_start_time": 100.0,
+                "user_id": 7,
+                "project": "default",
+                "module_manifest": {
+                    "expected": {
+                        "new_name.py": hashlib.sha256(renamed_source).hexdigest()
+                    },
+                    "removed": ["old_name.py", "deleted.py"],
+                },
+            }
+        )
+
+        def status():
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor, "reset_process_is_running", return_value=False
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=package_root
+                ),
+            ):
+                with self._context(
+                    "/al/editor/api/server/restart-status?task_id=rename-race"
+                ):
+                    return api_editor.editor_api_restart_status().get_json()["data"][
+                        "status"
+                    ]
+
+        self.assertEqual(status(), "working")
+        with open(os.path.join(installed_dir, "new_name.py"), "wb") as module_file:
+            module_file.write(renamed_source)
+        os.remove(os.path.join(installed_dir, "old_name.py"))
+        os.remove(os.path.join(installed_dir, "deleted.py"))
+        self.assertEqual(status(), "completed")
 
     def test_an_unknown_task_is_reported_rather_than_erroring(self):
         with (
