@@ -2321,6 +2321,69 @@ class TestEditorJobReconciliation(unittest.TestCase):
         self.assertIsNone(result["error"])
         update.assert_called_once()
 
+    def test_success_with_none_task_result_keeps_durable_job_result(self):
+        state = {
+            "status": "running",
+            "stage": "copy_templates",
+            "celery_task_id": "synthetic-task-id",
+            "result": {
+                "project": "Synthetic",
+                "filename": "main.yml",
+                "woven_templates": ["form.pdf"],
+            },
+            "partial_artifacts": ["main.yml", "form.pdf"],
+            "incomplete_artifacts": [],
+        }
+        result, _update = self.reconcile("SUCCESS", task_result=None, initial=state)
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["result"], state["result"])
+        self.assertEqual(result["partial_artifacts"], state["partial_artifacts"])
+        self.assertEqual(result["incomplete_artifacts"], [])
+
+    def test_job_status_api_keeps_durable_result_when_celery_returns_none(self):
+        durable_result = {
+            "project": "Synthetic",
+            "filename": "main.yml",
+            "woven_templates": ["form.pdf"],
+        }
+        state = {
+            "status": "running",
+            "stage": "copy_templates",
+            "owner_user_id": 7,
+            "celery_task_id": "synthetic-task-id",
+            "result": durable_result,
+            "partial_artifacts": ["main.yml", "form.pdf"],
+            "incomplete_artifacts": [],
+        }
+        current_state = dict(state)
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_load_new_project_job_state", return_value=state),
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=types.SimpleNamespace(state="SUCCESS", result=None),
+            ),
+            patch.object(
+                api_editor,
+                "_update_job_state",
+                side_effect=lambda _kind, _job_id, **updates: current_state.update(
+                    updates
+                )
+                or current_state,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project/jobs/synthetic-job"
+            ):
+                response = api_editor.editor_api_new_project_job("synthetic-job")
+
+        payload = response.get_json()
+        self.assertEqual(payload["data"]["status"], "succeeded")
+        self.assertEqual(payload["data"]["result"], durable_result)
+        self.assertEqual(payload["data"]["partial_artifacts"], ["main.yml", "form.pdf"])
+
     def test_worker_crash_becomes_structured_failure(self):
         result, _update = self.reconcile(
             "FAILURE", task_result=RuntimeError("worker died")
@@ -2487,6 +2550,41 @@ class TestEditorNewProjectNaming(unittest.TestCase):
 
 
 class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
+    def test_new_project_failure_log_omits_uploaded_filename_and_exception_path(self):
+        private_marker = "/private/matrix-docs/secret-name.pdf"
+        source_template = {"filename": "secret-name.pdf", "content_bytes": b"%PDF"}
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                side_effect=OSError(f"failed to read {private_marker}"),
+            ),
+            patch.object(api_editor, "log") as log_call,
+        ):
+            with self.assertRaisesRegex(OSError, "failed to read"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=False,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(
+            failed_update["error"],
+            {"type": "server_error", "message": "ALWeaver generation failed."},
+        )
+        logged_text = " ".join(str(call.args[0]) for call in log_call.call_args_list)
+        self.assertNotIn("secret-name.pdf", logged_text)
+        self.assertNotIn(private_marker, logged_text)
+        self.assertIn("exception_type=OSError", logged_text)
+
     def test_failed_managed_test_write_reports_known_incomplete_feature(self):
         source_template = {"filename": "petition.pdf", "content_bytes": b"%PDF"}
         generator_result = {

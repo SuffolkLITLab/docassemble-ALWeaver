@@ -10093,7 +10093,8 @@ def _complete_new_project_upload_job(
         )
         log(
             "ALWeaver editor: background new-project upload failed "
-            f"job_id={job_id} project={project_name} stage={stage}: {exc!r}\n{tb}",
+            f"job_id={job_id} request_id={request_id} stage={stage} "
+            f"exception_type={type(exc).__name__}",
             "error",
         )
         raise
@@ -11169,8 +11170,7 @@ def _new_project_from_uploads(
         log(
             "ALWeaver editor: queueing background project generation "
             f"request_id={request_id} project={project_name} "
-            f"generation_options={sorted(generation_options.keys())} "
-            f"exact_name={uploaded_payloads[0]['filename']!r}",
+            f"generation_options={sorted(generation_options.keys())}",
             "info",
         )
         # Validate and parse every upload before creating a Playground project.

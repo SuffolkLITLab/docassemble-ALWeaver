@@ -52,6 +52,8 @@ def publish_worker(request):
     api_utils.generate_interview_from_bytes = Mock()
     editor = types.ModuleType("docassemble.ALWeaver.api_editor")
     editor._complete_github_publish_job = Mock(return_value={"sha": "commit"})
+    editor._complete_new_project_upload_job = Mock()
+    editor._load_new_project_job_state = Mock()
     native = Mock(side_effect=broken_native_context)
     with (
         patch.dict(
@@ -137,6 +139,52 @@ def test_publish_context_unwinds_after_failure(publish_worker):
     editor._complete_github_publish_job.side_effect = RuntimeError("GitHub unavailable")
     with pytest.raises(RuntimeError, match="GitHub unavailable"):
         publish(worker)
+    native.assert_not_called()
+    assert functions.reset_local_variables.call_count == 1
     assert not has_app_context()
     assert not has_request_context()
-    native.assert_not_called()
+
+
+def new_project(worker):
+    return worker.weaver_editor_new_project_task(
+        job_id="synthetic-job",
+        uid=7,
+        project_name="Synthetic",
+        request_id="synthetic-request",
+        uploaded_files=[{"filename": "private-name.pdf"}],
+        generation_options={},
+        debug_requested=False,
+        create_test=False,
+    )
+
+
+def test_new_project_failure_uses_durable_owner_record_without_returning_exception(
+    publish_worker,
+):
+    worker, _app, editor, _native, _functions = publish_worker
+    marker = "/private/storage/private-name.pdf"
+    editor._complete_new_project_upload_job.side_effect = OSError(marker)
+    editor._load_new_project_job_state.return_value = {
+        "owner_user_id": 7,
+        "status": "failed",
+    }
+
+    result = new_project(worker)
+
+    assert result is None
+    editor._load_new_project_job_state.assert_called_once_with("synthetic-job")
+
+
+def test_new_project_failure_without_terminal_owner_record_is_generic(publish_worker):
+    worker, _app, editor, _native, _functions = publish_worker
+    marker = "/private/storage/private-name.pdf"
+    editor._complete_new_project_upload_job.side_effect = OSError(marker)
+    editor._load_new_project_job_state.return_value = {
+        "owner_user_id": 7,
+        "status": "running",
+    }
+
+    with pytest.raises(RuntimeError, match="ALWeaver generation failed") as exc_info:
+        new_project(worker)
+
+    assert marker not in str(exc_info.value)
