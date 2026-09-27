@@ -178,7 +178,8 @@ class TestSync(unittest.TestCase):
         result, _replaced = sync_review_screen(MAIN_YAML, NEW_REVIEW)
         self.assertEqual(result.count("table: tenants.table"), 1)
         self.assertEqual(result.count("continue button field: tenants.revisit"), 1)
-        self.assertIn("Edit your answers about tenants", result)
+        self.assertIn("  Edit tenants\n", result)
+        self.assertNotIn("Edit your answers about tenants", result)
 
     def test_a_table_the_draft_says_nothing_about_is_the_authors_own(self):
         source = MAIN_YAML + "\n---\ntable: exhibits.table\nrows: exhibits\n"
@@ -411,6 +412,27 @@ if __name__ == "__main__":
 
 
 class TestMatrixReviewSafety(unittest.TestCase):
+    def test_custom_revisit_totals_and_actions_survive_sync_and_include_scope(self):
+        revisit = """---
+# Authored collection workflow
+id: custom tenants
+continue button field: tenants.revisit
+question: 'Edit household'
+subquestion: |
+  ${ tenants.table }
+  Total: ${ currency(sum(p.amount for p in tenants if p.amount > 0)) }
+  ${ action_button_html(url_action('custom_add'), label='Add household member') }
+"""
+        source = "id: review\nevent: review_it\nreview: []\n" + revisit
+        updated, _ = sync_review_screen(source, NEW_REVIEW)
+        self.assertIn(revisit, updated)
+        self.assertEqual(updated.count("continue button field: tenants.revisit"), 1)
+        # An included author-owned screen must not be shadowed in review.yml.
+        draft = ensure_revisit_tables(NEW_REVIEW, [revisit])
+        self.assertNotIn("continue button field: tenants.revisit", draft)
+        # Keeping the custom screen still requires a table if none exists.
+        self.assertIn("table: tenants.table", draft)
+
     def test_sync_retains_authored_table_source_including_filters(self):
         table = """---
 table: tenants.table

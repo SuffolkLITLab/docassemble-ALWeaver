@@ -2435,6 +2435,62 @@ def _al_individual_primitive_groups(model: Dict[str, Any]) -> Dict[str, List[str
     return result
 
 
+def _playground_symbols_without_execution(pg, user_id, project, filename):
+    """Parse the selected project without assembling or running author code."""
+    from docassemble.base.parse import Interview
+
+    try:
+        from docassemble.base.interview_source import InterviewSourceFile
+    except ImportError:  # Docassemble 1.9
+        from docassemble.base.parse import InterviewSourceFile
+
+    path = pg.get_file(filename)
+    if path is None:
+        raise FileNotFoundError(filename)
+    with open(path, encoding="utf-8", newline="") as source_file:
+        content = source_file.read()
+    package = "docassemble.playground" + str(user_id)
+    if project != "default":
+        package += project
+    source = InterviewSourceFile(
+        filepath=path,
+        path=package + ":" + filename,
+        package=package,
+        testing=True,
+    )
+    # String sources cannot append relative includes, even with a directory.
+    source.set_content(content)
+    interview = Interview(source=source)
+    names = set(interview.names_used)
+    fields = set()
+    origins: Dict[str, List[str]] = {}
+    for question in interview.questions_list:
+        question_names = set(getattr(question, "names_used", ()))
+        question_names.update(getattr(question, "mako_names", ()))
+        question_names.update(getattr(question, "fields_used", ()))
+        names.update(question_names)
+        fields.update(getattr(question, "fields_used", ()))
+        origin = str(getattr(getattr(question, "from_source", None), "path", ""))
+        for name in question_names:
+            if origin and origin not in origins.setdefault(str(name), []):
+                origins[str(name)].append(origin)
+    fields.update(interview.questions)
+    names.update(fields)
+    names.difference_update(
+        {"_internal", "url_args", "device_local", "session_local", "user_local"}
+    )
+    return (
+        {
+            "all_names_reduced": names,
+            "fields_used": fields,
+            "names_used": names,
+            "undefined_names": names - fields,
+        },
+        interview_function_catalog(interview),
+        origins,
+    )
+
+
 def playground_get_variables(
     user_id: int, project: str, filename: str
 ) -> Dict[str, Any]:
@@ -2445,22 +2501,12 @@ def playground_get_variables(
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        variable_info = pg.variables_from_file(filename)
-        # Reuse the interview tree the playground just assembled for symbol
-        # discovery. Its module questions include all transitive YAML includes.
-        function_catalog = {}
-        try:
-            try:
-                from docassemble.base.thread_context import this_thread
-            except ImportError:
-                from docassemble.base.functions import this_thread
-
-            function_catalog = interview_function_catalog(this_thread.interview)
-        except Exception:
-            # Optional help must never break variable discovery: the catalog
-            # introspects whatever modules the author's interview imported, so
-            # any failure there leaves the rest of the symbols intact.
-            pass
+        # variables_from_file() creates a default-project Playground internally
+        # and variables_from() assembles it. Neither is safe symbol discovery:
+        # includes resolve in the wrong project and mandatory code may execute.
+        variable_info, function_catalog, variable_origins = (
+            _playground_symbols_without_execution(pg, user_id, project, filename)
+        )
 
     if not isinstance(variable_info, dict):
         variable_info = {}
@@ -2621,6 +2667,7 @@ def playground_get_variables(
         "classes": sorted(classes),
         "functions": sorted(functions),
         "function_catalog": list(function_catalog.values()),
+        "variable_origins": variable_origins,
         "yaml_files": yaml_files,
         "template_files": template_files,
         "static_files": static_files,

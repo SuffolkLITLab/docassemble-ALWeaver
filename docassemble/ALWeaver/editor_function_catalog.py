@@ -7,12 +7,73 @@ The playground's existing variable discovery has already loaded the interview.
 import ast
 import builtins
 import inspect
+from pathlib import Path
 import sys
 
 # Docassemble exposes these implicitly, and `docassemble.base.legal` re-exports
 # util. Each contributes ~200 names and ~150 KB of JSON, so the catalog offers a
 # curated subset instead (see interview_function_catalog).
 IMPLICIT_UTIL_MODULES = ("docassemble.base.util", "docassemble.base.legal")
+
+
+def _module_source_functions(module_name, qualified):
+    """Read declared modules not loaded in this worker without importing them."""
+    if not all(part.isidentifier() for part in module_name.split(".")):
+        return {}
+    relative = Path(*module_name.split("."))
+    candidates = []
+    for root in sys.path:
+        candidates.extend(
+            (
+                Path(root) / relative.with_suffix(".py"),
+                Path(root) / relative / "__init__.py",
+            )
+        )
+    # Namespace packages may have additional search roots outside sys.path.
+    if module_name.startswith("docassemble."):
+        namespace = sys.modules.get("docassemble")
+        tail = Path(*module_name.split(".")[1:])
+        for root in getattr(namespace, "__path__", ()):
+            candidates.extend(
+                (
+                    Path(root) / tail.with_suffix(".py"),
+                    Path(root) / tail / "__init__.py",
+                )
+            )
+    for path in candidates:
+        try:
+            if not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+                continue
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except (OSError, UnicodeError, SyntaxError):
+            continue
+        exports = None
+        for statement in tree.body:
+            if isinstance(statement, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in statement.targets
+            ):
+                try:
+                    exports = ast.literal_eval(statement.value)
+                except (ValueError, TypeError):
+                    exports = []  # Dynamic exports cannot be inferred safely.
+        result = {}
+        for name, info in local_function_catalog(source).items():
+            if not qualified and exports is not None:
+                if name not in exports:
+                    continue
+            elif name.startswith("_"):
+                continue
+            call_name = module_name + "." + name if qualified else name
+            result[call_name] = dict(
+                info,
+                name=call_name,
+                signature=call_name + info["signature"][len(name) :],
+                origin=module_name,
+            )
+        return result
+    return {}
 
 
 def function_help(name, function, origin):
@@ -83,6 +144,7 @@ def interview_function_catalog(interview, modules=None):
     for module_name, qualified in imports:
         module = modules.get(module_name)
         if module is None:
+            catalog.update(_module_source_functions(module_name, qualified))
             continue
         # Even narrowed by __all__, a star import of these adds ~200 entries
         # to every response, which is what the curated list above exists to

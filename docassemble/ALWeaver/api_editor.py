@@ -55,9 +55,12 @@ Provides:
 from __future__ import annotations
 
 import ast
+import base64
+import difflib
 import importlib
 import importlib.resources
 import hashlib
+import hmac
 import json
 import keyword
 import mimetypes
@@ -78,7 +81,7 @@ from urllib.parse import quote
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, cast
 
 import yaml
-from flask import Response, jsonify, redirect, request, url_for
+from flask import Response, current_app, jsonify, redirect, request, url_for
 from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
@@ -111,6 +114,8 @@ from .docassemble_compat import (
     get_github_publish_owners,
     get_github_workflow_access,
     get_github_repository_snapshot,
+    build_github_package_snapshot,
+    github_package_snapshot_revision,
     github_authorization_url,
     normalize_github_repository_url,
     get_native_github_integration,
@@ -1409,6 +1414,15 @@ def _project_interview_yaml(
     return "\n---\n".join(sources)
 
 
+def _kiln_entrypoint_files(user_id: int, project: str, filename: str) -> List[str]:
+    """Default test scope is the selected entrypoint's include closure."""
+    filenames, _texts = collect_interview_yaml_texts(
+        lambda name: playground_read_yaml(user_id, project, name), filename
+    )
+    # Destination detection must see the selected runnable interview last.
+    return [name for name in filenames if name != filename] + [filename]
+
+
 def _write_default_kiln_test(
     user_id: int,
     project: str,
@@ -1419,7 +1433,11 @@ def _write_default_kiln_test(
         (
             yaml_text
             if yaml_text is not None
-            else _project_interview_yaml(user_id, project)
+            else _project_interview_yaml(
+                user_id,
+                project,
+                _kiln_entrypoint_files(user_id, project, interview_filename),
+            )
         ),
         interview_filename=interview_filename,
     )
@@ -1467,6 +1485,13 @@ def _project_text_files(
         for item in _list_editor_section_files(user_id, project, section):
             filename = str(item.get("filename") or "")
             if not item.get("editable"):
+                skipped.append(
+                    {
+                        "section": section,
+                        "filename": filename,
+                        "reason": "binary_or_unsupported",
+                    }
+                )
                 continue
             if int(item.get("size") or 0) > EDITOR_SEARCH_MAX_FILE_BYTES:
                 skipped.append(
@@ -2115,6 +2140,112 @@ def _repository_config_author() -> Dict[str, str]:
     }
 
 
+GITHUB_PUBLISH_PREVIEW_MAX_AGE_SECONDS = 15 * 60
+
+
+def _sign_github_publish_preview(data: Dict[str, Any]) -> str:
+    secret = getattr(app, "secret_key", None)
+    if not secret:
+        raise RuntimeError("This server cannot sign a GitHub publish preview")
+    key = secret if isinstance(secret, bytes) else str(secret).encode("utf-8")
+    body = json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(key, body, hashlib.sha256).digest()
+    return ".".join(
+        (
+            base64.urlsafe_b64encode(body).decode("ascii").rstrip("="),
+            base64.urlsafe_b64encode(signature).decode("ascii").rstrip("="),
+        )
+    )
+
+
+def _verify_github_publish_preview(token: Any) -> Dict[str, Any]:
+    secret = getattr(app, "secret_key", None)
+    if not secret or not isinstance(token, str):
+        raise ValueError("Preview the repository changes before publishing")
+    try:
+        encoded_body, encoded_signature = token.split(".", 1)
+        body = base64.urlsafe_b64decode(encoded_body + "=" * (-len(encoded_body) % 4))
+        signature = base64.urlsafe_b64decode(
+            encoded_signature + "=" * (-len(encoded_signature) % 4)
+        )
+        key = secret if isinstance(secret, bytes) else str(secret).encode("utf-8")
+        expected = hmac.new(key, body, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError
+        data = json.loads(body.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError
+        issued_at = int(data.get("issued_at") or 0)
+        if time.time() - issued_at > GITHUB_PUBLISH_PREVIEW_MAX_AGE_SECONDS:
+            raise ValueError
+        if issued_at > time.time() + 60:
+            raise ValueError
+        return data
+    except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "This GitHub publish preview is invalid or expired. Preview the changes again."
+        ) from exc
+
+
+def _github_publish_diff(
+    local_files: Dict[str, Dict[str, Any]],
+    remote_files: Dict[str, bytes],
+    *,
+    managed_paths: Set[str],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Summarize the complete target tree and return bounded text diffs."""
+    target: Dict[str, bytes] = {
+        path: item["content"] for path, item in local_files.items()
+    }
+    for path, content in remote_files.items():
+        if (
+            path.startswith(".github/")
+            and path not in target
+            and path not in managed_paths
+        ):
+            target[path] = content
+
+    changes: List[Dict[str, Any]] = []
+    names: List[str] = sorted(target)
+    total_diff_chars = 0
+    for path in sorted(set(target) | set(remote_files)):
+        if path not in remote_files:
+            change = "added"
+        elif path not in target:
+            change = "deleted"
+        elif target[path] != remote_files[path]:
+            change = "modified"
+        else:
+            continue
+        item: Dict[str, Any] = {"path": path, "change": change}
+        old = remote_files.get(path, b"")
+        new = target.get(path, b"")
+        try:
+            if b"\0" in old or b"\0" in new:
+                raise UnicodeDecodeError("utf-8", b"\0", 0, 1, "binary")
+            old_text = old.decode("utf-8").splitlines(keepends=True)
+            new_text = new.decode("utf-8").splitlines(keepends=True)
+        except UnicodeDecodeError:
+            item["binary"] = True
+        else:
+            patch_text = "".join(
+                difflib.unified_diff(
+                    old_text,
+                    new_text,
+                    fromfile=f"a/{path}",
+                    tofile=f"b/{path}",
+                    n=3,
+                )
+            )
+            remaining = max(0, 100_000 - total_diff_chars)
+            item["diff"] = patch_text[: min(5_000, remaining)]
+            total_diff_chars += len(item["diff"])
+            if len(patch_text) > len(item["diff"]):
+                item["diff_truncated"] = True
+        changes.append(item)
+    return changes, names
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/repository-config", methods=["GET", "POST"])
 def editor_api_github_repository_config() -> Response:
     """Read or change the workflows and pyproject.toml a publish writes.
@@ -2261,6 +2392,20 @@ def editor_api_github_publish() -> Response:
             )
         repository = f"docassemble-{package}"
         repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
+        preview = _verify_github_publish_preview(post_data.get("preview_token"))
+        if (
+            preview.get("user_id") != uid
+            or preview.get("project") != project
+            or preview.get("package") != package
+            or str(preview.get("owner") or "").casefold()
+            != str(selected_owner["login"]).casefold()
+            or str(preview.get("repository_url") or "").rstrip("/").casefold()
+            != repository_url.rstrip("/").casefold()
+            or preview.get("branch") != branch
+        ):
+            raise ValueError(
+                "The publish target changed after preview. Review the current target before publishing."
+            )
         prepared = prepare_project_github_package(
             user_id=uid,
             project_name=project,
@@ -2270,6 +2415,30 @@ def editor_api_github_publish() -> Response:
             github_url=repository_url,
             dependencies=repository_dependency_names(uid, project, package),
         )
+        package_info, manifest_path = load_project_github_manifest(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+        )
+        repository_files = repository_publish_files(
+            uid, project, package, manifest=package_info
+        )
+        current_snapshot = build_github_package_snapshot(
+            package=package,
+            project=project,
+            user_id=uid,
+            package_info=package_info,
+            author_name=author_name,
+            author_email=author_email,
+            manifest_path=manifest_path,
+            extra_repository_files=repository_files["files"],
+        )
+        if github_package_snapshot_revision(current_snapshot) != preview.get(
+            "source_revision"
+        ):
+            raise ValueError(
+                "The Playground package changed after its publish preview. Preview the current files again."
+            )
         queued = _start_github_publish_job(
             uid=uid,
             request_id=request_id,
@@ -2283,6 +2452,8 @@ def editor_api_github_publish() -> Response:
             branch=branch,
             commit_message=commit_message,
             repository_url=repository_url,
+            expected_remote_sha=str(preview.get("remote_sha") or "") or None,
+            expected_source_revision=str(preview.get("source_revision") or ""),
         )
         return jsonify_with_status(
             {
@@ -5656,7 +5827,7 @@ def editor_api_runtime_create_session() -> Response:
             persist_secret=browser_secret is None,
         )
         store_runtime_record(r, record)
-        return jsonify_with_status(
+        response = jsonify_with_status(
             {
                 "success": True,
                 "request_id": request_id,
@@ -5664,6 +5835,19 @@ def editor_api_runtime_create_session() -> Response:
             },
             201,
         )
+        if browser_secret is None and target.secret:
+            # A fresh editor-only browser may not yet have Docassemble's
+            # session-decryption cookie. The target session was encrypted
+            # with this generated key, so install the same HttpOnly cookie
+            # Docassemble itself sets on its next normal interview response.
+            response.set_cookie(
+                "secret",
+                target.secret,
+                httponly=True,
+                secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
+                samesite=current_app.config.get("SESSION_COOKIE_SAMESITE"),
+            )
+        return response
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -5772,12 +5956,19 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
                 overwrite=bool(post_data.get("overwrite", False)),
                 process_objects=False,
             )
+            seeded_names = {str(name) for name in variables}
+            deleted_names = {str(name) for name in delete}
+            record.seeded_variables = sorted(
+                (set(record.seeded_variables) | seeded_names) - deleted_names
+            )
             append_runtime_event(
                 r,
                 record,
                 "scenario_applied",
                 set_count=len(variables),
                 delete_count=len(delete),
+                seeded_variables=sorted(seeded_names),
+                deleted_variables=sorted(deleted_names),
             )
             return jsonify(
                 {
@@ -5818,6 +6009,7 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
                 "request_id": request_id,
                 "data": {
                     "variables": variables,
+                    "seeded_variables": list(record.seeded_variables),
                     "includes_internal": include_internal,
                     "fact_source": "observed_runtime",
                 },
@@ -8936,6 +9128,8 @@ def editor_api_draft_kiln_test() -> Response:
         requested_test = str(data.get("test_filename") or "").strip()
         if mode not in {"it_runs", "json"}:
             raise ValueError("Unknown ALKiln test creation mode")
+        if mode == "it_runs" and yaml_filenames is None:
+            yaml_filenames = _kiln_entrypoint_files(uid, project, interview_filename)
         test_filename = (
             MANAGED_IT_RUNS_FILENAME
             if mode == "it_runs"
@@ -9022,7 +9216,12 @@ def editor_api_draft_kiln_test() -> Response:
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {"test_filename": test_filename, "mode": mode, **result},
+                "data": {
+                    "test_filename": test_filename,
+                    "mode": mode,
+                    "expected_revision": source_revision(existing),
+                    **result,
+                },
             }
         )
     except (ValueError, FileNotFoundError, RuntimeError) as exc:
@@ -9049,7 +9248,6 @@ def editor_api_apply_kiln_test() -> Response:
         project = _normalize_project(data.get("project"))
         test_filename = _normalize_kiln_test_filename(data.get("test_filename"))
         mode = str(data.get("mode") or "it_runs").strip()
-        existing_tests = _project_kiln_test_filenames(uid, project)
         if mode == "it_runs":
             if test_filename != MANAGED_IT_RUNS_FILENAME:
                 raise ValueError(
@@ -9060,22 +9258,47 @@ def editor_api_apply_kiln_test() -> Response:
                 raise ValueError(
                     f"{MANAGED_IT_RUNS_FILENAME} is reserved for Weaver's managed smoke test"
                 )
-            if test_filename in existing_tests:
-                raise ValueError(
-                    f"{test_filename} already exists. Weaver will not overwrite recorded tests."
-                )
         else:
             raise ValueError("Unknown ALKiln test creation mode")
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ValueError("The generated ALKiln test is empty")
-        _write_project_text_file(uid, project, "data", test_filename, content)
+        with _source_file_lock(uid, project, test_filename, "data"):
+            exists = test_filename in _project_kiln_test_filenames(uid, project)
+            current = (
+                _read_project_text_file(uid, project, "data", test_filename)
+                if exists
+                else ""
+            )
+            if mode == "json" and exists:
+                raise ValueError(
+                    f"{test_filename} already exists. Weaver will not overwrite recorded tests."
+                )
+            if mode == "it_runs":
+                if not data.get("expected_revision"):
+                    raise ValueError(
+                        "Draft the test again before saving; its revision is missing."
+                    )
+                conflict = _section_file_revision_conflict(data, current, request_id)
+                if conflict is not None and current != content:
+                    return conflict
+            if current != content:
+                _write_project_text_file(uid, project, "data", test_filename, content)
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
                 "data": {"test_filename": test_filename},
             }
+        )
+    except SourceWriteLockUnavailable as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "source_lock_unavailable", "message": str(exc)},
+            },
+            503,
         )
     except (ValueError, FileNotFoundError) as exc:
         return jsonify_with_status(
@@ -9620,6 +9843,235 @@ def _reconcile_github_publish_job_state(
     )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/github/publish/preview", methods=["POST"])
+def editor_api_github_publish_preview() -> Response:
+    """Build a read-only file diff for one selected GitHub target."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        package = normalize_github_package_name(post_data.get("package"))
+        owner = str(post_data.get("owner") or "").strip()
+        if not owner:
+            raise ValueError("GitHub owner is required")
+        branch = _normalize_git_branch(post_data.get("branch"))
+        integration = get_native_github_integration(uid)
+        if not integration.get("enabled") or not integration.get("connected"):
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "github_not_connected",
+                        "message": "Connect your GitHub account in Docassemble before previewing a publish.",
+                    },
+                },
+                409,
+            )
+        selected_owner = next(
+            (
+                candidate
+                for candidate in get_github_publish_owners(user_id=uid)
+                if str(candidate.get("login") or "").casefold() == owner.casefold()
+            ),
+            None,
+        )
+        if selected_owner is None:
+            raise ValueError("Choose a GitHub account or organization from the list")
+        if selected_owner.get("type") == "organization" and not integration.get(
+            "organizations_enabled"
+        ):
+            raise ValueError(
+                "Enable organization repository access in Docassemble's GitHub settings first"
+            )
+        author = _repository_config_author()
+        owner = str(selected_owner["login"])
+        repository_url = f"https://github.com/{owner}/docassemble-{package}"
+        prepared = prepare_project_github_package(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+            author_name=author["author_name"],
+            author_email=author["author_email"],
+            github_url=repository_url,
+            dependencies=repository_dependency_names(uid, project, package),
+            persist_manifest=False,
+        )
+        package_info = prepared["manifest"]
+        repository_files = repository_publish_files(
+            uid, project, package, manifest=package_info
+        )
+        local_files = build_github_package_snapshot(
+            package=package,
+            project=project,
+            user_id=uid,
+            package_info=package_info,
+            author_name=author["author_name"],
+            author_email=author["author_email"],
+            manifest_path=prepared["manifest_path"],
+            extra_repository_files=repository_files["files"],
+        )
+        remote = get_github_repository_snapshot(
+            repository_url=repository_url,
+            user_id=uid,
+            ref=branch,
+            allow_missing=True,
+            include_all_files=True,
+        )
+        target_sha = str(remote.get("sha") or "")
+        remote_files = remote.get("files") or {}
+        if remote.get("missing") and remote.get("repository_exists"):
+            default_branch = str(remote.get("default_branch") or "main")
+            base = get_github_repository_snapshot(
+                repository_url=repository_url,
+                user_id=uid,
+                ref=default_branch,
+                include_all_files=True,
+            )
+            target_sha = str(base.get("sha") or "")
+            remote_files = base.get("files") or {}
+        changes, target_files = _github_publish_diff(
+            local_files,
+            {
+                str(path): content
+                for path, content in remote_files.items()
+                if isinstance(path, str) and isinstance(content, bytes)
+            },
+            managed_paths=set(repository_files["managed_paths"]),
+        )
+        sync = find_project_github_sync(user_id=uid, project_name=project)
+        remote_advanced = bool(
+            sync
+            and sync.get("commit")
+            and str(sync.get("repository_url") or "").rstrip("/").casefold()
+            == repository_url.rstrip("/").casefold()
+            and str(sync.get("branch") or "") == branch
+            and target_sha != str(sync["commit"])
+        )
+        source_revision = github_package_snapshot_revision(local_files)
+        preview = {
+            "user_id": uid,
+            "project": project,
+            "package": package,
+            "owner": owner,
+            "repository_url": repository_url,
+            "branch": branch,
+            "source_revision": source_revision,
+            "remote_sha": target_sha,
+            "issued_at": int(time.time()),
+        }
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {
+                    "project": project,
+                    "package": package,
+                    "owner": owner,
+                    "repository_url": repository_url,
+                    "branch": branch,
+                    "remote_sha": target_sha,
+                    "source_revision": source_revision,
+                    "remote_advanced": remote_advanced,
+                    "repository_missing": bool(remote.get("missing")),
+                    "files": target_files,
+                    "changes": changes,
+                    "preview_token": _sign_github_publish_preview(preview),
+                },
+            }
+        )
+    except GithubCredentialError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "github_not_connected", "message": str(exc)},
+            },
+            409,
+        )
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub publish preview error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+def _assert_github_publish_branch_is_current(
+    *,
+    uid: int,
+    project: str,
+    package: str,
+    repository_url: str,
+    branch: str,
+) -> None:
+    """Refuse a publish that would replace commits added since the last sync.
+
+    Publishing replaces the managed repository tree with the current Playground
+    package. If the linked branch advanced after Weaver last synchronized it,
+    doing that would silently discard remote edits. Require an explicit pull and
+    reconciliation before allowing another publish to that same branch.
+    """
+    sync = find_project_github_sync(user_id=uid, project_name=project)
+    if not sync or not sync.get("commit"):
+        return
+    same_target = (
+        str(sync.get("package") or "").casefold() == package.casefold()
+        and str(sync.get("repository_url") or "").rstrip("/").casefold()
+        == repository_url.rstrip("/").casefold()
+        and str(sync.get("branch") or "") == branch
+    )
+    if not same_target:
+        return
+    remote = get_github_repository_snapshot(
+        repository_url=repository_url, user_id=uid, ref=branch
+    )
+    remote_sha = str(remote.get("sha") or "")
+    if remote_sha != str(sync["commit"]):
+        raise ValueError(
+            f"GitHub branch {branch!r} has advanced since this project was last "
+            "synchronized. Pull the remote changes and resolve them in the "
+            "project before publishing again; no files were published."
+        )
+
+
+def _github_publish_preview_parent_sha(
+    *, uid: int, repository_url: str, branch: str
+) -> str:
+    remote = get_github_repository_snapshot(
+        repository_url=repository_url,
+        user_id=uid,
+        ref=branch,
+        allow_missing=True,
+    )
+    if remote.get("missing") and remote.get("repository_exists"):
+        base_branch = str(remote.get("default_branch") or "main")
+        base = get_github_repository_snapshot(
+            repository_url=repository_url,
+            user_id=uid,
+            ref=base_branch,
+            allow_missing=True,
+        )
+        return str(base.get("sha") or "")
+    return str(remote.get("sha") or "")
+
+
 def _complete_github_publish_job(
     *,
     job_id: str,
@@ -9634,6 +10086,8 @@ def _complete_github_publish_job(
     branch: str,
     commit_message: str,
     repository_url: str,
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create the repository if needed and commit the prepared package.
 
@@ -9661,6 +10115,22 @@ def _complete_github_publish_job(
             message=f"Checking {owner}/{repository} on GitHub.",
             progress=10,
         )
+        _assert_github_publish_branch_is_current(
+            uid=uid,
+            project=project,
+            package=package,
+            repository_url=repository_url,
+            branch=branch,
+        )
+        if expected_remote_sha is not None:
+            current_remote_sha = _github_publish_preview_parent_sha(
+                uid=uid, repository_url=repository_url, branch=branch
+            )
+            if current_remote_sha != expected_remote_sha:
+                raise ValueError(
+                    f"GitHub branch {branch!r} changed after the publish preview. "
+                    "Review its latest changes before publishing; no files were committed."
+                )
         github_repository = ensure_github_repository(
             owner=owner,
             repository=repository,
@@ -9711,6 +10181,8 @@ def _complete_github_publish_job(
             extra_repository_files=repository_files["files"],
             preserved_path_prefixes=(".github/",),
             managed_paths=repository_files["managed_paths"],
+            expected_remote_sha=expected_remote_sha,
+            expected_source_revision=expected_source_revision,
         )
         record_project_github_sync(
             user_id=uid,
@@ -9789,6 +10261,8 @@ def _start_github_publish_job(
     branch: str,
     commit_message: str,
     repository_url: str,
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
     initial_state: Dict[str, Any] = {
@@ -9803,6 +10277,8 @@ def _start_github_publish_job(
         "owner": owner,
         "branch": branch,
         "repository_url": repository_url,
+        "expected_remote_sha": expected_remote_sha,
+        "expected_source_revision": expected_source_revision,
         "request_id": request_id,
         "queued_at": time.time(),
         "started_at": None,
@@ -9828,6 +10304,8 @@ def _start_github_publish_job(
                 "branch": branch,
                 "commit_message": commit_message,
                 "repository_url": repository_url,
+                "expected_remote_sha": expected_remote_sha,
+                "expected_source_revision": expected_source_revision,
             },
         )
     except Exception as exc:
@@ -10974,6 +11452,39 @@ def editor_api_documents() -> Response:
         )
 
 
+def _document_removal_references(
+    user_id: int, project: str, filename: str, candidate: str, names: List[str]
+) -> List[Dict[str, Any]]:
+    """Find remaining executable or ambiguous references after a deletion."""
+    from .editor_agent_rename import analyze_rename
+
+    references = []
+    for source_name in dict.fromkeys(
+        [filename] + _project_yaml_filenames(user_id, project)
+    ):
+        content = (
+            candidate
+            if source_name == filename
+            else playground_read_yaml(user_id, project, source_name)
+        )
+        for name in names:
+            analysis = analyze_rename(
+                filename=source_name,
+                raw_yaml=content,
+                old_name=name,
+                new_name="weaver_removed_document_reference",
+            )
+            for occurrence in analysis.safe_occurrences + analysis.blocking_occurrences:
+                references.append(
+                    {
+                        "filename": source_name,
+                        "document": name,
+                        **occurrence.public_dict(),
+                    }
+                )
+    return references
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/documents", methods=["POST"])
 def editor_api_save_documents() -> Response:
     """Reorder an interview's documents, or change what turns them on.
@@ -11008,6 +11519,7 @@ def editor_api_save_documents() -> Response:
             raise ValueError("Nothing was changed.")
 
         content = playground_read_yaml(uid, project, filename)
+        original_content = content
         for update in bundle_updates:
             if not isinstance(update, dict):
                 raise ValueError("Each bundle change must be an object")
@@ -11029,6 +11541,40 @@ def editor_api_save_documents() -> Response:
 
         for name in removals:
             content = remove_document(content, name)
+
+        if removals:
+            references = _document_removal_references(
+                uid, project, filename, content, removals
+            )
+            plan = {
+                "diff": unified_source_diff(original_content, content, filename),
+                "references": references,
+                "removed": removals,
+                "blocked": bool(references),
+                "revision": source_revision(original_content),
+            }
+            if parse_bool(post_data.get("preview"), default=False):
+                return jsonify(
+                    {"success": True, "request_id": request_id, "data": plan}
+                )
+            if references:
+                locations = ", ".join(
+                    f"{item['filename']}:{item['line']} ({item['document']})"
+                    for item in references[:10]
+                )
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "type": "document_has_references",
+                            "message": "Document removal was not saved. Resolve remaining references first: "
+                            + locations,
+                            "details": plan,
+                        },
+                    },
+                    409,
+                )
 
         # Deleting a declaration must not leave an unresolved YAML alias.
         try:

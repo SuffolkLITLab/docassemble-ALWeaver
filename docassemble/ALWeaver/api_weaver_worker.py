@@ -82,6 +82,8 @@ def weaver_editor_github_publish_task(
     branch: str,
     commit_message: str,
     repository_url: str,
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Commit a prepared Playground package to GitHub in the Celery worker.
 
@@ -105,6 +107,8 @@ def weaver_editor_github_publish_task(
             branch=branch,
             commit_message=commit_message,
             repository_url=repository_url,
+            expected_remote_sha=expected_remote_sha,
+            expected_source_revision=expected_source_revision,
         )
 
 

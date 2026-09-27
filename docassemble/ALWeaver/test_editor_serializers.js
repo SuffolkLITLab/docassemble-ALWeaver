@@ -40,8 +40,8 @@ function makeDocument(type, modifiers, methodArgs, extraValues) {
     getAttribute(name) { return name === 'data-field-idx' ? '0' : null; },
     querySelector(selector) {
       if (selector === '[data-field-prop="type"]') return { value: type };
-      if (selector === '[data-field-prop="label"]') return { value: 'Label' };
-      if (selector === '[data-field-prop="variable"]') return { value: 'answer' };
+      if (selector === '[data-field-prop="label"]') return values['field-label-0'] || { value: 'Label' };
+      if (selector === '[data-field-prop="variable"]') return values['field-variable-0'] || { value: 'answer' };
       if (selector === '[data-field-method-args]') return { value: methodArgs || '' };
       return null;
     },
@@ -483,6 +483,42 @@ const objectChoiceExpressionYaml = serialize('object_radio', [], '', {
   'field-choices-0': {value: objectChoiceExpression, dataset: {choiceExpression: 'true'}},
 });
 assert.strictEqual(parseYaml(objectChoiceExpressionYaml).fields[0].choices, objectChoiceExpression);
+const unmodeledFieldValues = {
+  label: 'Name', field: 'name', datatype: 'text',
+  metadata: {source: 'authored', flags: [true, false, 0, null]},
+  'custom directive': {nested: ['one', 2]},
+};
+const unmodeledFieldYaml = serialize('text', [], '', {
+  data: {fields: [unmodeledFieldValues]},
+});
+assert.deepStrictEqual(parseYaml(unmodeledFieldYaml).fields[0].metadata, unmodeledFieldValues.metadata);
+assert.deepStrictEqual(parseYaml(unmodeledFieldYaml).fields[0]['custom directive'], unmodeledFieldValues['custom directive']);
+const renamedCompactField = {
+  Age: 'age', label: 'Applicant age (edited)', field: 'age', datatype: 'integer',
+  validate: 'lambda y: (y >= 0) or validation_error("Age must be nonnegative.", field="age")',
+  metadata: {source: 'authored'},
+};
+const renamedCompactFieldYaml = serialize('text', [], '', {
+  data: {fields: [renamedCompactField]},
+}, {
+  'field-label-0': {value: 'Applicant age (edited)'},
+  'field-variable-0': {value: 'age'},
+});
+const renamedCompactFieldData = parseYaml(renamedCompactFieldYaml).fields[0];
+assert.strictEqual(renamedCompactFieldData['Applicant age (edited)'], 'age');
+assert.ok(!Object.prototype.hasOwnProperty.call(renamedCompactFieldData, 'Age'));
+assert.strictEqual(renamedCompactFieldData.validate, renamedCompactField.validate);
+assert.deepStrictEqual(renamedCompactFieldData.metadata, renamedCompactField.metadata);
+const customDatatype = 'matrix_custom_widget';
+const customDatatypeYaml = serialize(customDatatype, [], '', {
+  data: {fields: [{label: 'Custom', field: 'custom_answer', datatype: customDatatype}]},
+});
+assert.strictEqual(parseYaml(customDatatypeYaml).fields[0].datatype, customDatatype);
+const clearedKnownModifierYaml = serialize('text', [{key: 'help', value: ''}], '', {
+  data: {fields: [{...unmodeledFieldValues, help: 'Remove this supported property'}]},
+});
+assert.ok(!Object.prototype.hasOwnProperty.call(parseYaml(clearedKnownModifierYaml).fields[0], 'help'));
+assert.deepStrictEqual(parseYaml(clearedKnownModifierYaml).fields[0].metadata, unmodeledFieldValues.metadata);
 assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
   'field-choices-0': {value: literals.filter(v => !v.includes('\n')).join('\n')},
 })).fields[0].choices, literals.filter(v => !v.includes('\n')));

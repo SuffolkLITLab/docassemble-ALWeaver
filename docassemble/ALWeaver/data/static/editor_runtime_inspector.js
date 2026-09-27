@@ -137,12 +137,21 @@
     nextQuestion,
     nextVariables,
     nextChanged,
+    seededVariables,
   ) {
     var result = clone(history || []);
     var latest = result.length ? result[result.length - 1] : null;
+    seededVariables = seededVariables || [];
     if (latest && nextChanged.length) {
       latest.answers = nextChanged.map(function (name) {
-        return { name: name, value: clone(nextVariables[name]) };
+        return {
+          name: name,
+          value: clone(nextVariables[name]),
+          provenance:
+            seededVariables.indexOf(name) !== -1
+              ? 'scenario_seeded'
+              : 'observed_runtime',
+        };
       });
     }
     var identity = questionIdentity(nextQuestion);
@@ -183,6 +192,7 @@
     var session = null;
     var question = null;
     var variables = {};
+    var seededVariables = [];
     var changed = [];
     var hasVariableSnapshot = false;
     var steps = [];
@@ -227,6 +237,7 @@
     function resetObservedState() {
       question = null;
       variables = {};
+      seededVariables = [];
       changed = [];
       hasVariableSnapshot = false;
       steps = [];
@@ -264,12 +275,18 @@
       }, 1000);
     }
 
-    function recordObservation(nextQuestion, nextVariables, nextChanged) {
+    function recordObservation(
+      nextQuestion,
+      nextVariables,
+      nextChanged,
+      nextSeededVariables,
+    ) {
       steps = updateStepHistory(
         steps,
         nextQuestion,
         nextVariables,
         nextChanged,
+        nextSeededVariables,
       );
     }
 
@@ -374,13 +391,23 @@
       ])
         .then(function (responses) {
           var nextQuestion = clone((responses[0].data || {}).question || {});
-          var nextVariables = clone((responses[1].data || {}).variables || {});
+          var variableData = responses[1].data || {};
+          var nextVariables = clone(variableData.variables || {});
+          var nextSeededVariables = Array.isArray(variableData.seeded_variables)
+            ? variableData.seeded_variables.map(String)
+            : [];
           var nextChanged = hasVariableSnapshot
             ? changedVariableNames(variables, nextVariables)
             : [];
-          recordObservation(nextQuestion, nextVariables, nextChanged);
+          recordObservation(
+            nextQuestion,
+            nextVariables,
+            nextChanged,
+            nextSeededVariables,
+          );
           question = nextQuestion;
           variables = nextVariables;
+          seededVariables = nextSeededVariables;
           changed = nextChanged;
           hasVariableSnapshot = true;
           setStatus(
@@ -483,6 +510,14 @@
           name +
           ' · ' +
           (visible[name] === null ? 'null' : typeof visible[name]);
+        if (seededVariables.indexOf(name) !== -1) {
+          summary.textContent += ' · scenario seed (bypassed history)';
+          summary.setAttribute(
+            'aria-label',
+            name + ', scenario seeded value, may bypass interview history',
+          );
+          summary.classList.add('editor-runtime-variable-seeded');
+        }
         details.appendChild(summary);
         var value = document.createElement('pre');
         value.textContent = JSON.stringify(visible[name], null, 2);
@@ -492,8 +527,14 @@
     }
 
     function renderQuestion(target) {
-      if (!question) {
+      if (seededVariables.length) {
         target.innerHTML =
+          '<p class="alert alert-warning py-2 small" role="note">' +
+          'Scenario-seeded values are marked below. They may bypass earlier interview history and are not answers observed from an end user.' +
+          '</p>';
+      }
+      if (!question) {
+        target.innerHTML +=
           '<p class="text-muted small mb-0">The current screen will appear here.</p>';
         return;
       }
@@ -560,7 +601,11 @@
           step.answers.forEach(function (answer) {
             var answerItem = document.createElement('li');
             answerItem.textContent =
-              answer.name + ': ' + variablePreview(answer.value);
+              answer.name +
+              (answer.provenance === 'scenario_seeded'
+                ? ' (scenario seed; bypassed history): '
+                : ': ') +
+              variablePreview(answer.value);
             answers.appendChild(answerItem);
           });
           item.appendChild(answers);
@@ -595,8 +640,13 @@
           button.disabled = busy;
         });
       var saveTestButton = wrapper.querySelector('#runtime-save-kiln-test');
-      if (saveTestButton)
-        saveTestButton.disabled = busy || !hasVariableSnapshot;
+      if (saveTestButton) {
+        saveTestButton.disabled =
+          busy || !hasVariableSnapshot || seededVariables.length > 0;
+        saveTestButton.title = seededVariables.length
+          ? 'Clear scenario-seeded state and answer the interview before saving observed answers as a Kiln test.'
+          : '';
+      }
 
       // Polling calls this every second (see startPolling). Rebuilding a
       // panel that has not actually changed destroys and recreates its
@@ -606,7 +656,10 @@
       // of just the word that was clicked. Skipping the rebuild when the
       // observed data is unchanged avoids that, along with the flicker.
       var questionTarget = wrapper.querySelector('#runtime-question');
-      var questionKey = JSON.stringify(question);
+      var questionKey = JSON.stringify({
+        question: question,
+        seededVariables: seededVariables,
+      });
       if (questionKey !== lastRenderedQuestionKey) {
         lastRenderedQuestionKey = questionKey;
         questionTarget.innerHTML = '';
@@ -749,7 +802,12 @@
         },
       );
       saveTest.id = 'runtime-save-kiln-test';
-      saveTest.disabled = busy || !hasVariableSnapshot;
+      saveTest.disabled =
+        busy || !hasVariableSnapshot || seededVariables.length > 0;
+      if (seededVariables.length) {
+        saveTest.title =
+          'Clear scenario-seeded state and answer the interview before saving observed answers as a Kiln test.';
+      }
       actions.appendChild(saveTest);
       actions.appendChild(
         makeButton(

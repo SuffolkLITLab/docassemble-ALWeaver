@@ -2815,6 +2815,91 @@
     status.textContent = message;
   }
 
+  var githubPublishPreviewToken = null;
+
+  function clearGithubPublishPreview(message) {
+    githubPublishPreviewToken = null;
+    var preview = document.getElementById('github-publish-preview');
+    var submit = document.getElementById('github-publish-submit');
+    if (preview) preview.hidden = true;
+    if (submit) submit.disabled = true;
+    if (message) setGithubPublishStatus(message, 'secondary');
+  }
+
+  function renderGithubPublishPreview(data) {
+    var preview = document.getElementById('github-publish-preview');
+    var summary = document.getElementById('github-publish-preview-summary');
+    var fileCount = document.getElementById(
+      'github-publish-preview-file-count',
+    );
+    var fileList = document.getElementById('github-publish-preview-files');
+    var changes = document.getElementById('github-publish-preview-changes');
+    if (!preview || !summary || !fileList || !changes) return;
+    fileList.replaceChildren();
+    changes.replaceChildren();
+    (data.files || []).forEach(function (path) {
+      var item = document.createElement('li');
+      item.textContent = path;
+      fileList.appendChild(item);
+    });
+    if (fileCount)
+      fileCount.textContent =
+        (data.files || []).length +
+        ((data.files || []).length === 1 ? ' file' : ' files');
+    if (data.repository_missing) {
+      summary.textContent =
+        'The repository or branch is not available yet. The preview shows the files Weaver will add; GitHub will check access when you publish.';
+      summary.className = 'alert alert-warning py-2';
+    } else if (data.remote_advanced) {
+      summary.textContent =
+        'This branch has advanced since Weaver last synchronized it. Pull and reconcile those changes before publishing.';
+      summary.className = 'alert alert-danger py-2';
+    } else {
+      summary.textContent =
+        'Target: ' +
+        data.owner +
+        '/' +
+        'docassemble-' +
+        data.package +
+        ' — ' +
+        data.branch +
+        '. Review the file changes below before publishing.';
+      summary.className = 'alert alert-info py-2';
+    }
+    var rows = data.changes || [];
+    if (!rows.length) {
+      changes.textContent = 'No file content changes on this branch.';
+    } else {
+      rows.forEach(function (change) {
+        var details = document.createElement('details');
+        details.className = 'mb-2';
+        var heading = document.createElement('summary');
+        heading.textContent = change.change.toUpperCase() + '  ' + change.path;
+        details.appendChild(heading);
+        if (change.binary) {
+          var binary = document.createElement('div');
+          binary.className = 'text-muted mt-1';
+          binary.textContent = 'Binary file; content diff is not available.';
+          details.appendChild(binary);
+        } else if (change.diff) {
+          var diff = document.createElement('pre');
+          diff.className = 'small bg-light border rounded p-2 mt-2';
+          diff.style.maxHeight = '18rem';
+          diff.style.overflow = 'auto';
+          diff.textContent =
+            change.diff + (change.diff_truncated ? '\n… diff truncated' : '');
+          details.appendChild(diff);
+        }
+        changes.appendChild(details);
+      });
+    }
+    preview.hidden = false;
+    githubPublishPreviewToken = data.preview_token || null;
+    var submit = document.getElementById('github-publish-submit');
+    if (submit)
+      submit.disabled = !githubPublishPreviewToken || data.remote_advanced;
+  }
+
   function _pollGithubPublishJob(jobUrl) {
     var attempts = 0;
 
@@ -2934,6 +3019,9 @@
 
   function applyGithubIntegrationStatus(data) {
     var submit = document.getElementById('github-publish-submit');
+    var previewButton = document.getElementById(
+      'github-publish-preview-button',
+    );
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
@@ -3016,7 +3104,12 @@
         'success',
       );
     }
-    if (submit) submit.disabled = false;
+    if (submit) submit.disabled = true;
+    if (previewButton) previewButton.disabled = false;
+    setGithubPublishStatus(
+      'Connected. Choose the target and preview the files before publishing.',
+      'success',
+    );
   }
 
   function refreshGithubSyncAction() {
@@ -3120,8 +3213,13 @@
         var configure = document.getElementById('github-configure-link');
         var repositoryLink = document.getElementById('github-repository-link');
         var commitLink = document.getElementById('github-commit-link');
+        var previewButton = document.getElementById(
+          'github-publish-preview-button',
+        );
         var ownerSelect = document.getElementById('github-owner');
         if (submit) submit.disabled = true;
+        if (previewButton) previewButton.disabled = true;
+        clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
         showGithubWorkflowAccess();
@@ -3176,8 +3274,71 @@
     if (!form) return;
     initGithubRepositorySettings();
     var ownerSelect = document.getElementById('github-owner');
+    var packageInput = document.getElementById('github-package-name');
+    var branchInput = document.getElementById('github-branch-name');
+    var previewButton = document.getElementById(
+      'github-publish-preview-button',
+    );
     if (ownerSelect)
-      ownerSelect.addEventListener('change', showGithubWorkflowAccess);
+      ownerSelect.addEventListener('change', function () {
+        showGithubWorkflowAccess();
+        clearGithubPublishPreview(
+          'Target changed. Preview the repository changes again.',
+        );
+      });
+    [packageInput, branchInput].forEach(function (input) {
+      if (input)
+        input.addEventListener('input', function () {
+          clearGithubPublishPreview(
+            'Target changed. Preview the repository changes again.',
+          );
+        });
+    });
+    if (previewButton)
+      previewButton.addEventListener('click', function () {
+        if (!state.project || !form.reportValidity()) return;
+        var owner = document.getElementById('github-owner');
+        var packageName = document.getElementById('github-package-name');
+        var branch = document.getElementById('github-branch-name');
+        previewButton.disabled = true;
+        clearGithubPublishPreview();
+        setGithubPublishStatus('Building the package preview…', 'info');
+        saveDirtyGithubEditors()
+          .then(function () {
+            return apiPost('/api/github/publish/preview', {
+              project: state.project,
+              owner: owner ? owner.value : '',
+              package: packageName ? packageName.value : '',
+              branch: branch ? branch.value : '',
+            });
+          })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to preview the GitHub publish.',
+              );
+            }
+            renderGithubPublishPreview(res.data);
+            setGithubPublishStatus(
+              res.data.remote_advanced
+                ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
+                : 'Review the target and file diff, then choose Publish to GitHub.',
+              res.data.remote_advanced ? 'danger' : 'success',
+            );
+          })
+          .catch(function (error) {
+            setGithubPublishStatus(
+              error && error.message
+                ? error.message
+                : 'Unable to preview the GitHub publish.',
+              'danger',
+            );
+          })
+          .finally(function () {
+            previewButton.disabled = false;
+          });
+      });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (!state.project) return;
@@ -3189,6 +3350,13 @@
       var repositoryLink = document.getElementById('github-repository-link');
       var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
+      if (!githubPublishPreviewToken) {
+        setGithubPublishStatus(
+          'Preview the repository changes before publishing.',
+          'warning',
+        );
+        return;
+      }
       if (submit) submit.disabled = true;
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       saveDirtyGithubEditors()
@@ -3199,6 +3367,7 @@
             package: packageInput ? packageInput.value : '',
             branch: branchInput ? branchInput.value : '',
             commit_message: messageInput ? messageInput.value : '',
+            preview_token: githubPublishPreviewToken,
           });
         })
         .then(function (res) {
@@ -3209,8 +3378,12 @@
               'danger',
             );
             if (submit) submit.disabled = false;
+            clearGithubPublishPreview(
+              'Preview expired or changed. Review the current files before publishing.',
+            );
             return;
           }
+          clearGithubPublishPreview();
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
@@ -3259,6 +3432,9 @@
                 }
               }
               if (submit) submit.disabled = false;
+              clearGithubPublishPreview(
+                'Publish completed. Preview the latest branch again before another commit.',
+              );
             },
           );
         })
@@ -3270,6 +3446,9 @@
             'danger',
           );
           if (submit) submit.disabled = false;
+          clearGithubPublishPreview(
+            'Publish did not start. Preview the current files before trying again.',
+          );
         });
     });
   }
@@ -3380,6 +3559,9 @@
         throw new Error(message);
       }
       setGithubRepoStatus(statusElementId, 'Saved.', 'success');
+      clearGithubPublishPreview(
+        'Repository settings changed. Preview the package again before publishing.',
+      );
       renderGithubRepositoryConfig(res.data, { resetEditors: false });
       return res.data;
     });
@@ -4168,14 +4350,26 @@
             ' Results were capped; narrow the search before replacing.';
         if ((_projectSearchData.skipped || []).length)
           message +=
-            ' ' +
-            _projectSearchData.skipped.length +
-            ' oversized text file(s) were skipped.';
+            ' Skipped: ' +
+            _projectSearchData.skipped
+              .map(function (file) {
+                return (
+                  file.section +
+                  '/' +
+                  file.filename +
+                  (file.reason === 'too_large'
+                    ? ' (too large)'
+                    : ' (binary or unsupported format)')
+                );
+              })
+              .join(', ') +
+            '.';
         if ((_projectSearchData.warnings || []).length)
           message += ' ' + _projectSearchData.warnings.join(' ');
         setProjectSearchStatus(
           message,
           _projectSearchData.truncated ||
+            (_projectSearchData.skipped || []).length ||
             (_projectSearchData.warnings || []).length
             ? 'warning'
             : 'secondary',
@@ -8121,6 +8315,58 @@
       return false;
     }
     blk.data.fields = [];
+
+    function preserveUnmodeledFieldProperties(
+      target,
+      original,
+      row,
+      extraHandled,
+    ) {
+      if (!original || typeof original !== 'object' || Array.isArray(original))
+        return false;
+      var handled = [
+        'label',
+        'question',
+        'field',
+        'variable',
+        'datatype',
+        'type',
+        'choices',
+        'code',
+        'required',
+      ];
+      var controls = row ? row.querySelectorAll('[data-fmod]') : [];
+      controls.forEach(function (control) {
+        var key = control.getAttribute('data-fmod');
+        if (key) handled.push(key);
+      });
+      (extraHandled || []).forEach(function (key) {
+        if (key) handled.push(key);
+      });
+      var variableName = original.field || original.variable;
+      var copied = false;
+      Object.keys(original).forEach(function (key) {
+        if (
+          Object.prototype.hasOwnProperty.call(target, key) ||
+          handled.indexOf(key) !== -1
+        )
+          return;
+        // A shorthand field such as `- Age: age` is parsed as a property
+        // named `Age` alongside its normalized field binding.  It is syntax,
+        // not an unmodeled modifier; preserving it after the label control
+        // writes `label: ...` creates a duplicate label in Docassemble.
+        if (
+          typeof variableName === 'string' &&
+          typeof original[key] === 'string' &&
+          original[key] === variableName
+        )
+          return;
+        target[key] = cloneData(original[key]);
+        copied = true;
+      });
+      return copied;
+    }
+
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var rowIdx =
@@ -8176,6 +8422,13 @@
         !isRequired ||
         (requiredExpression && requiredExpression.value.trim()) ||
         Object.keys(syncFmods).length > 0;
+      var hiddenFieldProperties = {};
+      var hasUnmodeledFieldProperties = preserveUnmodeledFieldProperties(
+        hiddenFieldProperties,
+        previousFields[Number(rowIdx)],
+        row,
+        [showIfKey],
+      );
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
         var methodCall = _methodCallFromParts(
@@ -8202,10 +8455,21 @@
         Object.keys(syncFmods).forEach(function (k) {
           standaloneObj[k] = syncFmods[k];
         });
+        preserveUnmodeledFieldProperties(
+          standaloneObj,
+          previousFields[Number(rowIdx)],
+          row,
+          [showIfKey],
+        );
         blk.data.fields.push(standaloneObj);
         continue;
       }
-      if (!variable && type === 'text' && !hasMods) {
+      if (
+        !variable &&
+        type === 'text' &&
+        !hasMods &&
+        !hasUnmodeledFieldProperties
+      ) {
         blk.data.fields.push(label);
         continue;
       }
@@ -8235,6 +8499,12 @@
       Object.keys(syncFmods).forEach(function (k) {
         fieldObj[k] = syncFmods[k];
       });
+      preserveUnmodeledFieldProperties(
+        fieldObj,
+        previousFields[Number(rowIdx)],
+        row,
+        [showIfKey],
+      );
       blk.data.fields.push(fieldObj);
     }
     _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -12081,6 +12351,14 @@
             html += '</div>';
             html +=
               '<select class="form-select editor-form-control d-none" data-field-prop="type">';
+            if (FIELD_TYPES.indexOf(dtype) === -1) {
+              html +=
+                '<option value="' +
+                esc(dtype) +
+                '" selected>Unknown datatype (source-only): ' +
+                esc(dtype) +
+                '</option>';
+            }
             FIELD_TYPES.forEach(function (t) {
               html +=
                 '<option value="' +
@@ -16032,6 +16310,7 @@
       test_filename: data.test_filename,
       mode: data.mode || 'it_runs',
       content: data.proposed_feature_text,
+      expected_revision: data.expected_revision,
     })
       .then(function (res) {
         if (!res.success)
@@ -17562,6 +17841,75 @@
     removeDocumentFromBundles(name, null);
   }
 
+  function reviewDocumentRemoval(payload) {
+    return apiPost(
+      '/api/documents',
+      Object.assign({}, payload, { preview: true }),
+    ).then(function (res) {
+      if (!res.success || !res.data)
+        throw new Error('Unable to preview document removal.');
+      var plan = res.data;
+      return new Promise(function (resolve) {
+        var element = document.createElement('div');
+        element.id = 'document-removal-preview';
+        element.className = 'modal fade';
+        element.tabIndex = -1;
+        element.setAttribute(
+          'aria-labelledby',
+          'document-removal-preview-title',
+        );
+        element.innerHTML =
+          '<div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">' +
+          '<div class="modal-header"><h2 class="modal-title fs-5" id="document-removal-preview-title">Review document removal</h2>' +
+          '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
+          '<div class="modal-body"><p>Template files and questions will be kept.</p>' +
+          (plan.blocked
+            ? '<div class="alert alert-warning">Resolve these remaining references before removing the document:<ul>' +
+              (plan.references || [])
+                .map(function (item) {
+                  return (
+                    '<li>' +
+                    esc(item.filename) +
+                    ':' +
+                    esc(item.line) +
+                    ' — ' +
+                    esc(item.excerpt || item.document) +
+                    '</li>'
+                  );
+                })
+                .join('') +
+              '</ul></div>'
+            : '') +
+          '<pre class="editor-tiny border rounded p-2">' +
+          esc(plan.diff || '') +
+          '</pre></div>' +
+          '<div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>' +
+          '<button type="button" class="btn btn-danger" data-confirm-removal' +
+          (plan.blocked ? ' disabled' : '') +
+          '>Apply removal</button></div></div></div>';
+        document.body.appendChild(element);
+        var accepted = false;
+        var modal = getOrCreateBootstrapModal(element.id);
+        element
+          .querySelector('[data-confirm-removal]')
+          .addEventListener('click', function () {
+            accepted = true;
+            modal.hide();
+          });
+        element.addEventListener(
+          'hidden.bs.modal',
+          function () {
+            modal.dispose();
+            element.remove();
+            resolve(accepted);
+          },
+          { once: true },
+        );
+        modal.show();
+      });
+    });
+  }
+
   function saveDocumentChanges() {
     var model = state.documents;
     if (!model || state.documentsBusy) return Promise.resolve(true);
@@ -17606,17 +17954,28 @@
     state.documentsBusy = true;
     var status = document.getElementById('documents-status');
     if (status) status.textContent = 'Saving…';
-    return apiPost('/api/documents', {
+    var payload = {
       project: state.project,
       filename: state.filename,
       expected_revision: model.revision,
       bundles: bundles,
       enabled: enabled,
       remove: model.removed || [],
-    })
+    };
+    var reviewed = payload.remove.length
+      ? reviewDocumentRemoval(payload)
+      : Promise.resolve(true);
+    return reviewed
+      .then(function (accepted) {
+        return accepted ? apiPost('/api/documents', payload) : null;
+      })
       .then(function (res) {
         state.documentsBusy = false;
-        if (!res || !res.success) return false;
+        if (!res || !res.success) {
+          if (status)
+            status.textContent = 'Document changes have not been saved.';
+          return false;
+        }
         state.documents = res.data;
         state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
         state.documentsDirty = false;

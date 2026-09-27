@@ -268,26 +268,34 @@ question: |
             self.assertNotIn("interview_short_title =", yaml_text)
             self.assertIn("label=word('Edit answers')", yaml_text)
             self.assertIn(
-                "template: test_docx_no_pdf_field_names_attachment.title\n"
+                "template: test_docx_no_pdf_field_names_attachment_title\n"
                 "content: |\n"
                 "  Test docx no pdf field names",
                 yaml_text,
             )
             self.assertIn(
-                "template: al_user_bundle.title\n"
+                "template: al_user_bundle_title\n"
                 "content: |\n"
                 "  All forms to download for your records",
                 yaml_text,
             )
             self.assertIn(
-                "template: al_court_bundle.title\n"
+                "template: al_court_bundle_title\n"
                 "content: |\n"
                 "  All forms to deliver to court",
                 yaml_text,
             )
-            self.assertNotRegex(
+            self.assertRegex(
                 yaml_text,
-                r"ALDocument(?:Bundle)?\.using\([^\n]*\btitle=",
+                r"ALDocument\.using\([^\n]*title=str\(test_docx_no_pdf_field_names_attachment_title\)",
+            )
+            self.assertRegex(
+                yaml_text,
+                r"ALDocumentBundle\.using\([^\n]*title=str\(al_user_bundle_title\)",
+            )
+            self.assertNotIn("template: al_user_bundle.title", yaml_text)
+            self.assertNotIn(
+                "template: test_docx_no_pdf_field_names_attachment.title", yaml_text
             )
             self._run_dayamlchecker(result.yaml_path)
 
@@ -343,6 +351,15 @@ question: |
             )
             self.assertEqual(len(result.template_paths), 1)
             runtime_template = Path(result.template_paths[0])
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn(
+                "title=str(test_docx_no_pdf_field_names_Post_interview_instructions_title)",
+                yaml_text,
+            )
+            self.assertIn(
+                "template: test_docx_no_pdf_field_names_Post_interview_instructions_title",
+                yaml_text,
+            )
             self.assertTrue(runtime_template.exists())
             with zipfile.ZipFile(runtime_template) as generated_docx:
                 document_xml = generated_docx.read("word/document.xml").decode("utf-8")
@@ -1289,6 +1306,13 @@ class TestMultipleTemplates(unittest.TestCase):
             yaml_text,
             r"al_user_bundle: ALDocumentBundle\.using\(elements=\[petition, affidavit\]",
         )
+        self.assertIn("title=str(petition_title)", yaml_text)
+        self.assertIn("template: petition_title", yaml_text)
+        self.assertIn("title=str(affidavit_title)", yaml_text)
+        self.assertIn("template: affidavit_title", yaml_text)
+        self.assertIn("title=str(al_user_bundle_title)", yaml_text)
+        self.assertIn("template: al_user_bundle_title", yaml_text)
+        self.assertNotIn("template: petition.title", yaml_text)
 
     def test_bundle_order_follows_the_order_the_templates_were_given(self):
         _result, yaml_text = self._draft(

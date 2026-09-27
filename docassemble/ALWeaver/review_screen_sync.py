@@ -20,8 +20,8 @@ What this module adds on top of the Dashboard's generator:
 * the interview's own identity: the drafted block keeps the `id`, `event` and
   `question` the interview already uses, so the download screen's "Edit answers"
   button and the navigation still point at it;
-* a real sync: the old review block, revisit screens and tables are replaced in
-  place instead of a second review screen being appended.
+* a source-preserving sync: the review is replaced in place, while authored
+  tables and revisit workflows keep their expressions and custom actions.
 """
 
 import re
@@ -514,15 +514,23 @@ confirm: True
 """
 
 
-def _retain_existing_tables(review_yaml: str, existing_texts: Sequence[str]) -> str:
-    """Omit generated replacements for tables the author already owns."""
+def _retain_existing_list_blocks(
+    review_yaml: str, existing_texts: Sequence[str]
+) -> str:
+    """Omit replacements for authored tables and their custom revisit screens."""
     names: Set[str] = set()
+    revisits: Set[str] = set()
     for source in existing_texts:
         names |= _generated_tables(source)
+        revisits |= _generated_revisits(source)
     parts = []
     for document in _documents(review_yaml):
         parsed = _parsed(document["text"]) or {}
-        if _list_name(parsed.get("table"), ".table") not in names:
+        if (
+            _list_name(parsed.get("table"), ".table") not in names
+            and _list_name(parsed.get("continue button field"), ".revisit")
+            not in revisits
+        ):
             parts.append(review_yaml[document["sep_start"] : document["end"]])
     return "".join(parts)
 
@@ -541,8 +549,8 @@ def ensure_revisit_tables(
         existing_texts: Sequence[str] = [existing_yaml]
     else:
         existing_texts = list(existing_yaml)
-    review_yaml = _retain_existing_tables(review_yaml, existing_texts)
     revisits = _generated_revisits(review_yaml)
+    review_yaml = _retain_existing_list_blocks(review_yaml, existing_texts)
     have = _generated_tables(review_yaml)
     # Every file in scope counts: in a project that keeps its review screen in
     # its own file, the table it displays is very often defined in another one,
@@ -560,9 +568,9 @@ def ensure_revisit_tables(
 def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
     """Put ``review_yaml`` where the file's current review screen is.
 
-    The review block and revisit screens are replaced in place. Existing tables
-    keep their exact source: filters, expressions and actions cannot safely be
-    reconstructed from the interview's question fields.
+    The review block is replaced in place. Existing tables and revisit screens
+    keep their exact source: filters, totals and custom actions cannot safely
+    be reconstructed from the interview's question fields.
 
     Returns the new source and whether an existing review screen was replaced;
     when there was none, the draft is appended.
@@ -611,7 +619,7 @@ def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
             )
             break
         break
-    review_yaml = _retain_existing_tables(review_yaml, [source_yaml])
+    review_yaml = _retain_existing_list_blocks(review_yaml, [source_yaml])
     # Tracked apart on purpose. A draft can regenerate a list's revisit screen
     # without regenerating its table, and dropping the table anyway leaves the
     # new screen pointing at a `${ <list>.table }` that no longer exists.

@@ -152,6 +152,30 @@
     return yaml + '    choices: ' + JSON.stringify(value) + '\n';
   }
 
+  function appendUnmodeledFieldProperties(yaml, field, handledKeys) {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) return yaml;
+    var handled = new Set([
+      'label', 'question', 'field', 'variable', 'datatype', 'type',
+      'choices', 'code', 'required',
+    ]);
+    (handledKeys || []).forEach(function (key) { handled.add(key); });
+    var variableName = field.field || field.variable;
+    Object.keys(field).forEach(function (key) {
+      if (handled.has(key) || field[key] === undefined) return;
+      // Compact field syntax (`- Age: age`) reaches the editor with both
+      // the original label key and the normalized field binding. The key is
+      // syntax, not an extra modifier, and must not be appended beside a new
+      // `label:` after an author renames it.
+      if (
+        typeof variableName === 'string' &&
+        typeof field[key] === 'string' &&
+        field[key] === variableName
+      ) return;
+      yaml += '    ' + escapeYamlStr(key) + ': ' + JSON.stringify(field[key]) + '\n';
+    });
+    return yaml;
+  }
+
   // These controls express typed YAML settings, not choice labels or prose.
   function fieldModifierYamlValue(key, value) {
     if (typeof value !== 'string') return JSON.stringify(value);
@@ -303,6 +327,11 @@
           else if (!isRequired) yaml += '    required: False\n';
           if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
           Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+          yaml = appendUnmodeledFieldProperties(
+            yaml,
+            originalField,
+            Object.keys(sfmodInputs).concat([showIfKey, type]),
+          );
           continue;
         }
         if (isMultiLineLabel || hasMods) {
@@ -331,6 +360,11 @@
         else if (!isRequired) yaml += '    required: False\n';
         if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
         Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+        yaml = appendUnmodeledFieldProperties(
+          yaml,
+          originalField,
+          Object.keys(sfmodInputs).concat([showIfKey]),
+        );
       }
     } else if (state.questionBlockTab !== 'screen' && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
       yaml += 'fields:\n';
@@ -719,6 +753,7 @@
     fieldChoicesText: fieldChoicesText,
     readFieldChoices: readFieldChoices,
     appendFieldChoicesExpression: appendFieldChoicesExpression,
+    appendUnmodeledFieldProperties: appendUnmodeledFieldProperties,
     escapeYamlStr: escapeYamlStr,
     appendYamlText: appendYamlText,
     serializeQuestionToYaml: serializeQuestionToYaml,

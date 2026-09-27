@@ -252,6 +252,103 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_github_publish_preview_shows_target_and_text_diff_without_persisting_manifest(
+        self,
+    ):
+        prepared = {
+            "manifest": {"interview_files": ["main.yml"]},
+            "manifest_path": "",
+        }
+        local_files = {
+            "docassemble/forms/data/questions/main.yml": {
+                "content": b"question: Updated\n",
+                "mode": "100644",
+            }
+        }
+        remote = {
+            "sha": "remote-head",
+            "files": {
+                "docassemble/forms/data/questions/main.yml": b"question: Old\n",
+                "remote-only.txt": b"remove me\n",
+            },
+            "missing": False,
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value=prepared,
+            ) as prepare,
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor, "build_github_package_snapshot", return_value=local_files
+            ),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=remote
+            ) as get_remote,
+            patch.object(api_editor, "find_project_github_sync", return_value=None),
+            patch.object(
+                api_editor,
+                "_sign_github_publish_preview",
+                return_value="signed-preview",
+            ),
+        ):
+            api_editor.current_user.email = "ada@example.com"
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish/preview",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "forms",
+                    "branch": "main",
+                },
+            ):
+                response = api_editor.editor_api_github_publish_preview()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertEqual(data["remote_sha"], "remote-head")
+        self.assertEqual(data["preview_token"], "signed-preview")
+        self.assertEqual(data["files"], ["docassemble/forms/data/questions/main.yml"])
+        by_path = {entry["path"]: entry for entry in data["changes"]}
+        self.assertEqual(
+            by_path["docassemble/forms/data/questions/main.yml"]["change"],
+            "modified",
+        )
+        self.assertIn(
+            "-question: Old",
+            by_path["docassemble/forms/data/questions/main.yml"]["diff"],
+        )
+        self.assertEqual(by_path["remote-only.txt"]["change"], "deleted")
+        prepare.assert_called_once()
+        self.assertFalse(prepare.call_args.kwargs["persist_manifest"])
+        get_remote.assert_called_once_with(
+            repository_url="https://github.com/ada/docassemble-forms",
+            user_id=7,
+            ref="main",
+            allow_missing=True,
+            include_all_files=True,
+        )
+
     def test_github_authorization_requires_editor_access(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=False),
@@ -591,6 +688,43 @@ class TestEditorGithubApi(unittest.TestCase):
                 "prepare_project_github_package",
                 return_value=prepared,
             ) as prepare,
+            patch.object(
+                api_editor,
+                "_verify_github_publish_preview",
+                return_value={
+                    "user_id": 7,
+                    "project": "Housing",
+                    "package": "HousingForms",
+                    "owner": "LegalAid",
+                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "branch": "feature/github",
+                    "source_revision": "source-digest",
+                    "remote_sha": "remote-base-sha",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "load_project_github_manifest",
+                return_value=(
+                    {},
+                    "/playground/packages/Housing/docassemble.HousingForms",
+                ),
+            ),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor,
+                "build_github_package_snapshot",
+                return_value={"main.yml": {"content": b"---\n", "mode": "100644"}},
+            ),
+            patch.object(
+                api_editor,
+                "github_package_snapshot_revision",
+                return_value="source-digest",
+            ),
             patch.object(api_editor, "ensure_github_repository") as ensure_repository,
             patch.object(api_editor, "publish_github_package") as publish,
             patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
@@ -610,6 +744,7 @@ class TestEditorGithubApi(unittest.TestCase):
                     "package": "HousingForms",
                     "branch": "feature/github",
                     "commit_message": "Update interview",
+                    "preview_token": "signed-preview",
                 },
             ):
                 response = api_editor.editor_api_github_publish()
@@ -658,6 +793,8 @@ class TestEditorGithubApi(unittest.TestCase):
                 "branch": "feature/github",
                 "commit_message": "Update interview",
                 "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                "expected_remote_sha": "remote-base-sha",
+                "expected_source_revision": "source-digest",
             },
         )
 
@@ -838,6 +975,53 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(state["stage"], "ensure_repository")
         self.assertEqual(state["error"]["type"], "github_not_connected")
 
+    def test_publish_refuses_to_replace_a_branch_that_advanced_since_sync(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "feature/github",
+            "commit": "base-sha",
+        }
+        remote = {"sha": "remote-newer-sha", "files": {"README.md": b"newer"}}
+        redis = _FakeRedis()
+        with (
+            patch.object(api_editor, "r", redis),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=remote
+            ) as read_remote,
+            patch.object(api_editor, "ensure_github_repository") as ensure_repository,
+            patch.object(api_editor, "publish_github_package") as publish,
+        ):
+            with self.assertRaisesRegex(ValueError, "has advanced"):
+                api_editor._complete_github_publish_job(
+                    job_id="job-remote-advance",
+                    uid=7,
+                    project="Housing",
+                    package="HousingForms",
+                    repository="docassemble-HousingForms",
+                    owner="LegalAid",
+                    owner_type="organization",
+                    author_name="Ada",
+                    author_email="ada@example.com",
+                    branch="feature/github",
+                    commit_message="Update interview",
+                    repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+                )
+            state = api_editor._load_job_state(
+                api_editor.GITHUB_PUBLISH_JOB, "job-remote-advance"
+            )
+
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("Pull the remote changes", state["error"]["message"])
+        read_remote.assert_called_once_with(
+            repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+            user_id=7,
+            ref="feature/github",
+        )
+        ensure_repository.assert_not_called()
+        publish.assert_not_called()
+
     def test_publish_job_status_is_scoped_to_its_owner(self):
         redis = _FakeRedis()
         with patch.object(api_editor, "r", redis):
@@ -892,6 +1076,42 @@ class TestEditorGithubApi(unittest.TestCase):
 
 
 class TestEditorProjectSearchApi(unittest.TestCase):
+    def test_search_names_binary_and_oversized_files_it_cannot_inspect(self):
+        with (
+            patch.object(api_editor, "playground_list_yaml_files", return_value=[]),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                side_effect=lambda uid, project, section: (
+                    [
+                        {"filename": "image.png", "editable": False, "size": 50},
+                        {
+                            "filename": "large.txt",
+                            "editable": True,
+                            "size": api_editor.EDITOR_SEARCH_MAX_FILE_BYTES + 1,
+                        },
+                    ]
+                    if section == "static"
+                    else []
+                ),
+            ),
+            patch.object(api_editor, "_read_project_text_file") as read,
+        ):
+            files, skipped = api_editor._project_text_files(7, "default")
+        self.assertEqual(files, [])
+        self.assertEqual(
+            skipped,
+            [
+                {
+                    "section": "static",
+                    "filename": "image.png",
+                    "reason": "binary_or_unsupported",
+                },
+                {"section": "static", "filename": "large.txt", "reason": "too_large"},
+            ],
+        )
+        read.assert_not_called()
+
     def test_search_returns_context_group_metadata_and_revisions(self):
         project_files = [
             {
@@ -1814,6 +2034,21 @@ class TestEditorNewProjectNaming(unittest.TestCase):
 
 
 class TestEditorKilnTestApi(unittest.TestCase):
+    def test_default_scope_follows_only_selected_entrypoint_and_keeps_it_last(self):
+        contents = {
+            "entry_a.yml": "include:\n  - shared.yml\n---\nid: end a\nquestion: Done A\n",
+            "entry_b.yml": "include:\n  - shared.yml\n---\nid: end b\nquestion: Done B\n",
+            "shared.yml": "include:\n  - leaf.yml\n---\nid: shared\nquestion: Shared\n",
+            "leaf.yml": "id: leaf\nquestion: Leaf\n",
+        }
+        with patch.object(
+            api_editor,
+            "playground_read_yaml",
+            side_effect=lambda uid, project, name: contents[name],
+        ):
+            selected = api_editor._kiln_entrypoint_files(7, "Housing", "entry_a.yml")
+        self.assertEqual(selected, ["shared.yml", "leaf.yml", "entry_a.yml"])
+
     def test_list_returns_selectable_feature_files(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -1946,6 +2181,9 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 "_project_kiln_test_filenames",
                 return_value=["weaver_it_runs.feature"],
             ),
+            patch.object(
+                api_editor, "_read_project_text_file", return_value="Feature: old\n"
+            ),
             patch.object(api_editor, "_write_project_text_file") as write,
         ):
             with api_editor.app.test_request_context(
@@ -1956,6 +2194,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
                     "test_filename": "weaver_it_runs.feature",
                     "mode": "it_runs",
                     "content": "Feature: synced\n",
+                    "expected_revision": api_editor.source_revision("Feature: old\n"),
                 },
             ):
                 response = api_editor.editor_api_apply_kiln_test()
@@ -2013,6 +2252,9 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 "_project_kiln_test_filenames",
                 return_value=["happy_path.feature"],
             ),
+            patch.object(
+                api_editor, "_read_project_text_file", return_value="Feature: old\n"
+            ),
             patch.object(api_editor, "_write_project_text_file") as write,
         ):
             with api_editor.app.test_request_context(
@@ -2029,6 +2271,48 @@ class TestEditorKilnTestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         write.assert_not_called()
+
+    def test_managed_sync_rejects_stale_draft_and_allows_exact_retry(self):
+        from . import editor_utils as real_editor_utils
+
+        for current, expected_status in [
+            ("Feature: another author\n", 409),
+            ("Feature: candidate\n", 200),
+        ]:
+            with (
+                patch.object(
+                    api_editor,
+                    "source_revision",
+                    side_effect=real_editor_utils.source_revision,
+                ),
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_project_kiln_test_filenames",
+                    return_value=["weaver_it_runs.feature"],
+                ),
+                patch.object(
+                    api_editor, "_read_project_text_file", return_value=current
+                ),
+                patch.object(api_editor, "_write_project_text_file") as write,
+                api_editor.app.test_request_context(
+                    "/al/editor/api/kiln-test/apply",
+                    method="POST",
+                    json={
+                        "project": "Housing",
+                        "test_filename": "weaver_it_runs.feature",
+                        "mode": "it_runs",
+                        "content": "Feature: candidate\n",
+                        "expected_revision": api_editor.source_revision(
+                            "Feature: original\n"
+                        ),
+                    },
+                ),
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+            self.assertEqual(response.status_code, expected_status)
+            write.assert_not_called()
 
 
 class TestEditorNewProjectMultipleUploads(unittest.TestCase):
@@ -2546,6 +2830,53 @@ class TestEditorDocumentsApi(unittest.TestCase):
             ):
                 response = api_editor.editor_api_save_documents()
         return response, written.get("content", "")
+
+    def test_removal_preview_and_apply_report_custom_cross_file_references(self):
+        original = (
+            INTERVIEW_WITH_TWO_DOCUMENTS
+            + "---\nid: custom\ncode: |\n  title = petition.title\n"
+        )
+        related = "code: |\n  published = petition.as_pdf()\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_yaml_filenames",
+                return_value=["main.yml", "related.yml"],
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: (
+                    original if filename == "main.yml" else related
+                ),
+            ),
+            patch.object(api_editor, "playground_write_yaml") as write,
+        ):
+            for preview, status in [(True, 200), (False, 409)]:
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/documents",
+                    method="POST",
+                    json={
+                        "project": "Housing",
+                        "filename": "main.yml",
+                        "remove": ["petition"],
+                        "expected_revision": "test-revision",
+                        "preview": preview,
+                    },
+                ):
+                    response = api_editor.editor_api_save_documents()
+                self.assertEqual(response.status_code, status)
+                body = response.get_json()
+                plan = body["data"] if preview else body["error"]["details"]
+                self.assertTrue(plan["blocked"])
+                self.assertEqual(
+                    {item["filename"] for item in plan["references"]},
+                    {"main.yml", "related.yml"},
+                )
+                self.assertIn("-  - petition:", plan["diff"])
+            write.assert_not_called()
 
     def test_reordering_a_bundle_is_written_back(self):
         response, content = self._save(
