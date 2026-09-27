@@ -762,6 +762,37 @@ class _TestAutoDraftBase(unittest.TestCase):
 
 
 class TestAutoDraftFinalScreen(_TestAutoDraftBase):
+    def test_download_does_not_require_a_user_missing_from_the_form(self):
+        from .editor_utils import parse_interview_yaml
+
+        _result, source = self._generate(["rent_amount"])
+        model = parse_interview_yaml(source)
+        order = next(
+            block["data"]["code"]
+            for block in model["blocks"]
+            if block["index"] in model["order_blocks"]
+        )
+        download = next(
+            block["data"]["subquestion"]
+            for block in model["blocks"]
+            if str(block["data"].get("id", "")).startswith("download ")
+        )
+
+        self.assertIn("rent_amount", order)
+        self.assertNotIn("users.gather()", order)
+        self.assertIn('% if defined("users[0]"):', download)
+        self.assertIn("Thank you ${ users }.", download)
+        self.assertIn("Thank you. Your form is ready", download)
+
+        _result, source = self._generate(["users1_name_first", "rent_amount"])
+        model = parse_interview_yaml(source)
+        order = next(
+            block["data"]["code"]
+            for block in model["blocks"]
+            if block["index"] in model["order_blocks"]
+        )
+        self.assertIn("users.gather()", order)
+
     def test_final_download_sets_progress_to_100_first(self):
         """The default single order reaches the download after all questions."""
         _result, yaml_text = self._generate(["users1_name_first", "rent_amount"])
