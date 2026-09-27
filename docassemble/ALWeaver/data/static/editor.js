@@ -6129,6 +6129,16 @@
     });
   }
 
+  function getRequestedOrderBlockId() {
+    // When an author explicitly selects a code block before opening Interview
+    // Order, honor that selection even if the file also has a mandatory
+    // initializer. The order target remains that source block; save preserves
+    // its existing mandatory/initial metadata.
+    var selectedBlock = getSelectedBlock();
+    if (selectedBlock && selectedBlock.type === 'code') return selectedBlock.id;
+    return state.activeOrderBlockId || getDefaultOrderBlockId();
+  }
+
   function getDefaultOrderBlockId() {
     if (
       state.activeOrderBlockId &&
@@ -15232,7 +15242,10 @@
   }
 
   function renderOrderBuilder() {
-    syncActiveOrderStepMap();
+    // enterOrderBuilder renders once before its async parse completes. Do not
+    // cache that temporary empty state under the newly selected block ID;
+    // loadOrderStepsForBlock uses the map to decide whether parsing is needed.
+    if (!state.orderBuilderLoading) syncActiveOrderStepMap();
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     var orderTargets = getOrderTargets();
     var html = '<div class="editor-order-shell">';
@@ -19961,8 +19974,7 @@
       return;
     }
     if (uiAction === 'open-interview-order') {
-      var requestedMenuOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedMenuOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',
@@ -19986,8 +19998,7 @@
       return;
     }
     if (orderBuilderBtn) {
-      var requestedOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',

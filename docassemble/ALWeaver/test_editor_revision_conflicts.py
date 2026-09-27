@@ -89,6 +89,52 @@ class TestEditorRevisionConflicts(unittest.TestCase):
         )
         self._assert_conflict(response, mock_write)
 
+    def test_stale_metadata_save_preserves_competing_source_bytes(self):
+        from . import editor_utils as real_utils
+
+        original = (
+            "# starting version\r\n"
+            "metadata:\r\n"
+            "  title: Original\r\n"
+            "---\r\n"
+            "id: question\r\n"
+            "question: Current title\r\n"
+        )
+        competing = (
+            "# concurrent editor update\r\n"
+            "metadata:\r\n"
+            "  title: Teammate's title\r\n"
+            "---\r\n"
+            "id: question\r\n"
+            "question: Current title\r\n"
+        )
+        self.current = competing
+        with (
+            patch.object(
+                api_editor,
+                "update_metadata_documents_in_yaml",
+                return_value=original.replace("Original", "Stale edit"),
+            ),
+            patch.object(
+                api_editor,
+                "source_revision",
+                side_effect=real_utils.source_revision,
+            ),
+        ):
+            response, mock_write = self._post(
+                api_editor.editor_api_save_metadata,
+                "/al/editor/api/file/metadata",
+                {
+                    "project": "default",
+                    "filename": "main.yml",
+                    "raw_yaml": "metadata:\r\n  title: Stale edit\r\n",
+                    "expected_revision": real_utils.source_revision(original),
+                },
+            )
+
+        self._assert_conflict(response, mock_write)
+        self.assertEqual(response.get_json()["error"]["current_raw_yaml"], competing)
+
     def test_structural_interview_mutators_reject_stale_revisions(self):
         operations = (
             (
