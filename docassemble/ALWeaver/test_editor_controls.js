@@ -602,3 +602,73 @@ assert.ok(outlineList.innerHTML.includes('data-block-id="block_999"'));
   assert.strictEqual(calls.canvas, 1);
   assert.strictEqual(calls.validation, 1);
 }
+
+// A field condition switch and datatype edit must replace conflicting old
+// properties while retaining unrelated source-only modifiers.
+{
+  const row = {
+    getAttribute: () => '0',
+    querySelector: (selector) => {
+      if (selector === '[data-field-prop="type"]') return { value: 'number' };
+      if (selector === '[data-field-prop="label"]')
+        return { value: 'Age' };
+      if (selector === '[data-field-prop="variable"]')
+        return { value: 'user.age' };
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+  const fieldContext = {
+    window: { ALWeaverSerializers: serializers },
+    document: {
+      querySelectorAll: () => [row],
+      querySelector: (selector) => {
+        if (selector.startsWith('.editor-field-showif-key'))
+          return { value: 'hide if' };
+        if (selector.startsWith('.editor-field-required-switch'))
+          return { checked: true };
+        return null;
+      },
+      getElementById: (id) =>
+        id === 'field-showif-0' ? { value: 'user.is_minor' } : null,
+    },
+    state: { questionBlockTab: 'fields' },
+    CHOICE_TYPES: [],
+    isQuestionEditorBlock: () => true,
+    _generatedALFieldSets: () => [],
+    syncQuestionMetaToData: () => true,
+    _syncGeneratedALFieldSets: () => {},
+    _fieldTypeSupportsStandaloneContent: () => false,
+    _isALFieldMethodType: () => false,
+    serializedRequiredValue: () => null,
+    cloneData: (value) => JSON.parse(JSON.stringify(value)),
+    readExpressionModifier: (input) => input.value,
+  };
+  vm.createContext(fieldContext);
+  const start = source.indexOf('  function syncFieldsToData(');
+  vm.runInContext(
+    source.slice(start, source.indexOf('\n  }\n', start) + 5),
+    fieldContext,
+  );
+  const block = {
+    data: {
+      question: 'Age?',
+      fields: [
+        {
+          label: 'Age',
+          field: 'user.age',
+          datatype: 'text',
+          'input type': 'area',
+          'show if': 'user.is_adult',
+          help: 'Keep this help',
+        },
+      ],
+    },
+  };
+  fieldContext.syncFieldsToData(block);
+  assert.strictEqual(block.data.fields[0]['hide if'], 'user.is_minor');
+  assert.ok(!('show if' in block.data.fields[0]));
+  assert.strictEqual(block.data.fields[0].datatype, 'number');
+  assert.ok(!('input type' in block.data.fields[0]));
+  assert.strictEqual(block.data.fields[0].help, 'Keep this help');
+}

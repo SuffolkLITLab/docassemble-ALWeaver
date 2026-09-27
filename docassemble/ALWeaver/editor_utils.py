@@ -1357,6 +1357,7 @@ def update_block_in_yaml(
     new_block_yaml: str,
     *,
     preserve_unchanged_annotations: bool = False,
+    allow_nontext_yaml_keys: bool = False,
     parsed_model: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Replace a single block in a full interview YAML by its id.
@@ -1396,7 +1397,7 @@ def update_block_in_yaml(
 
         # JSON object keys cannot carry YAML boolean/numeric key types. The
         # browser therefore cannot safely round-trip these mappings.
-        if has_nontext_keys(original_data):
+        if has_nontext_keys(original_data) and not allow_nontext_yaml_keys:
             raise ValueError(
                 "This block contains non-text YAML mapping keys (for example, "
                 "unquoted Yes/No labels). Edit it in YAML mode, or quote the "

@@ -8404,6 +8404,8 @@
           handled.indexOf(key) !== -1
         )
           return;
+        if (key === 'input type' && original.datatype !== target.datatype)
+          return;
         // A shorthand field such as `- Age: age` is parsed as a property
         // named `Age` alongside its normalized field binding.  It is syntax,
         // not an unmodeled modifier; preserving it after the label control
@@ -8480,7 +8482,7 @@
         hiddenFieldProperties,
         previousFields[Number(rowIdx)],
         row,
-        [showIfKey],
+        ['show if', 'hide if'],
       );
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
@@ -8512,7 +8514,7 @@
           standaloneObj,
           previousFields[Number(rowIdx)],
           row,
-          [showIfKey],
+          ['show if', 'hide if'],
         );
         blk.data.fields.push(standaloneObj);
         continue;
@@ -8556,7 +8558,7 @@
         fieldObj,
         previousFields[Number(rowIdx)],
         row,
-        [showIfKey],
+        ['show if', 'hide if'],
       );
       blk.data.fields.push(fieldObj);
     }
@@ -20379,6 +20381,10 @@
               datatype: nextType,
             };
           } else {
+            // An input type is a refinement of the current datatype. Carrying
+            // it across a datatype change can leave an invalid combination.
+            if (selectedField && typeof selectedField === 'object')
+              delete selectedField['input type'];
             selectedField.datatype = nextType;
           }
         }

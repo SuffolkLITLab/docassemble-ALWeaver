@@ -11,6 +11,8 @@ reject.
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 from . import editor_agent_validation
 from .editor_agent_models import AgentCandidate, AgentToolCall, WeaverAgentSession
 from .editor_agent_tools import (
@@ -113,6 +115,37 @@ class AgentToolTestCase(unittest.TestCase):
 
 
 class TestAgentSourcePreservation(AgentToolTestCase):
+    def test_question_tools_accept_yaml_boolean_mapping_keys(self):
+        source = """id: intro
+question: Original title
+fields:
+  - Name: user_name
+buttons:
+  - Yes: True
+"""
+        expected_buttons = yaml.safe_load(source)["buttons"]
+        for tool, arguments in (
+            (
+                "replace_question",
+                {"block_id": "intro", "question": {"question": "Updated"}},
+            ),
+            (
+                "replace_fields",
+                {
+                    "block_id": "intro",
+                    "fields": [{"label": "Full name", "field": "user_name"}],
+                },
+            ),
+        ):
+            with self.subTest(tool=tool):
+                self.context.candidate = AgentCandidate.from_source(source)
+                result = self.call(tool, arguments)
+                self.assertTrue(result.succeeded, result.message)
+                self.assertEqual(
+                    yaml.safe_load(self.context.candidate.raw_source)["buttons"],
+                    expected_buttons,
+                )
+
     def test_question_edit_preserves_key_order_comments_and_quotes(self):
         source = """---
 id: intro

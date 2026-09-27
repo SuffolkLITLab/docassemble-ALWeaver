@@ -79,7 +79,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, cast
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union, cast
 
 import yaml
 from flask import Response, current_app, jsonify, redirect, request, url_for
@@ -1086,14 +1086,22 @@ def _write_source_content(
 
 
 def _section_file_revision_conflict(
-    post_data: Dict[str, Any], current_content: str, request_id: str
+    post_data: Dict[str, Any], current_content: Union[str, bytes], request_id: str
 ) -> Optional[Response]:
     expected_revision = post_data.get("expected_revision")
     if expected_revision is None:
         return None
     if not isinstance(expected_revision, str) or not expected_revision:
         raise ValueError("expected_revision must be a non-empty string")
-    current_revision = source_revision(current_content)
+    if isinstance(current_content, bytes):
+        # Binary template revisions are exposed as hashes of the exact file
+        # bytes by the section-file listing endpoint. Keep mutation checks on
+        # the same representation; decoding with replacement changes bytes.
+        current_revision = hashlib.sha256(current_content).hexdigest()
+        response_content = current_content.decode("utf-8", errors="replace")
+    else:
+        current_revision = source_revision(current_content)
+        response_content = current_content
     if expected_revision == current_revision:
         return None
     return jsonify_with_status(
@@ -1109,7 +1117,7 @@ def _section_file_revision_conflict(
                 ),
                 "expected_revision": expected_revision,
                 "current_revision": current_revision,
-                "current_content": current_content,
+                "current_content": response_content,
             },
         },
         409,
@@ -7683,7 +7691,7 @@ def editor_api_rename_section_file() -> Response:
                 if not os.path.isfile(old_path) or os.path.islink(old_path):
                     raise FileNotFoundError(f"{old_filename} not found")
                 with open(old_path, "rb") as fh:
-                    current_content = fh.read().decode("utf-8", errors="replace")
+                    current_content = fh.read()
                 conflict = _section_file_revision_conflict(
                     post_data, current_content, request_id
                 )
@@ -7786,7 +7794,7 @@ def editor_api_delete_section_file() -> Response:
                 if not os.path.isfile(path) or os.path.islink(path):
                     raise FileNotFoundError(f"{filename} not found")
                 with open(path, "rb") as fh:
-                    current_content = fh.read().decode("utf-8", errors="replace")
+                    current_content = fh.read()
                 conflict = _section_file_revision_conflict(
                     post_data, current_content, request_id
                 )
@@ -10489,6 +10497,7 @@ def editor_api_github_publish_preview() -> Response:
                 repository_url=repository_url,
                 user_id=uid,
                 ref=default_branch,
+                allow_missing=True,
                 include_all_files=True,
             )
             target_sha = str(base.get("sha") or "")
@@ -10600,8 +10609,12 @@ def _assert_github_publish_branch_is_current(
     if not same_target:
         return
     remote = get_github_repository_snapshot(
-        repository_url=repository_url, user_id=uid, ref=branch
+        repository_url=repository_url, user_id=uid, ref=branch, allow_missing=True
     )
+    # A deleted target has no commits to overwrite. The preview and publish
+    # operation may recreate it from the repository's current default branch.
+    if remote.get("missing"):
+        return
     remote_sha = str(remote.get("sha") or "")
     if remote_sha != str(sync["commit"]):
         raise ValueError(

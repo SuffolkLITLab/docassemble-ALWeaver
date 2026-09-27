@@ -2,6 +2,7 @@
 
 from io import BytesIO
 from contextlib import ExitStack, nullcontext
+import hashlib
 from pathlib import Path
 import os
 import importlib
@@ -350,6 +351,98 @@ class TestEditorGithubApi(unittest.TestCase):
             ref="main",
             allow_missing=True,
             include_all_files=True,
+        )
+
+    def test_github_publish_preview_accepts_empty_repository(self):
+        missing = {
+            "missing": True,
+            "repository_exists": True,
+            "default_branch": "main",
+            "sha": "",
+            "files": {},
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value={"manifest": {}, "manifest_path": ""},
+            ),
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor,
+                "build_github_package_snapshot",
+                return_value={"README.md": {"content": b"new", "mode": "100644"}},
+            ),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", side_effect=[missing, missing]
+            ) as get_remote,
+            patch.object(api_editor, "find_project_github_sync", return_value=None),
+            patch.object(api_editor, "_sign_github_publish_preview", return_value="token"),
+        ):
+            api_editor.current_user.email = "ada@example.com"
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish/preview",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "forms",
+                    "branch": "main",
+                },
+            ):
+                response = api_editor.editor_api_github_publish_preview()
+        self.assertEqual(response.status_code, 200)
+        preview = response.get_json()["data"]
+        self.assertEqual(preview["remote_sha"], "")
+        self.assertTrue(preview["repository_missing"])
+        self.assertEqual(preview["preview_token"], "token")
+        self.assertEqual(get_remote.call_count, 2)
+        self.assertTrue(get_remote.call_args.kwargs["allow_missing"])
+
+    def test_github_publish_can_recreate_deleted_target_branch(self):
+        sync = {
+            "commit": "former-branch-sha",
+            "package": "forms",
+            "repository_url": "https://github.com/ada/docassemble-forms",
+            "branch": "draft",
+        }
+        with (
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                return_value={"missing": True, "repository_exists": True, "sha": ""},
+            ) as get_remote,
+        ):
+            api_editor._assert_github_publish_branch_is_current(
+                uid=7,
+                project="Housing",
+                package="forms",
+                repository_url="https://github.com/ada/docassemble-forms",
+                branch="draft",
+            )
+        get_remote.assert_called_once_with(
+            repository_url="https://github.com/ada/docassemble-forms",
+            user_id=7,
+            ref="draft",
+            allow_missing=True,
         )
 
     def test_github_authorization_requires_editor_access(self):
@@ -1035,6 +1128,7 @@ class TestEditorGithubApi(unittest.TestCase):
             repository_url="https://github.com/LegalAid/docassemble-HousingForms",
             user_id=7,
             ref="feature/github",
+            allow_missing=True,
         )
         ensure_repository.assert_not_called()
         publish.assert_not_called()
@@ -5272,6 +5366,60 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                 data["renamed_files"][0]["from"], "demand letter (final).docx"
             )
             self.assertEqual(data["renamed_files"][0]["to"], "demand_letter_final.docx")
+
+    def test_binary_template_revision_from_listing_allows_rename_and_delete(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            binary_pdf = b"%PDF-1.4\n\x80\xffbinary template bytes\n%%EOF"
+            with open(os.path.join(tmpdir, "petition.pdf"), "wb") as handle:
+                handle.write(binary_pdf)
+            area = SimpleNamespace(finalize=lambda: None)
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(area, tmpdir),
+                ),
+                patch.object(api_editor, "_file_dependency_conflict", return_value=None),
+                patch.object(api_editor, "rename_saved_file") as rename_file,
+                patch.object(api_editor, "delete_saved_file") as delete_file,
+            ):
+                listed = api_editor._list_editor_section_files(7, "default", "templates")
+                revision = next(
+                    item["revision"] for item in listed if item["filename"] == "petition.pdf"
+                )
+                self.assertEqual(revision, hashlib.sha256(binary_pdf).hexdigest())
+
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/rename",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "section": "templates",
+                        "filename": "petition.pdf",
+                        "new_filename": "renamed.pdf",
+                        "expected_revision": revision,
+                    },
+                ):
+                    renamed = api_editor.editor_api_rename_section_file()
+
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/delete",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "section": "templates",
+                        "filename": "petition.pdf",
+                        "expected_revision": revision,
+                    },
+                ):
+                    deleted = api_editor.editor_api_delete_section_file()
+
+            self.assertEqual(renamed.status_code, 200, renamed.get_data(as_text=True))
+            self.assertEqual(deleted.status_code, 200, deleted.get_data(as_text=True))
+            rename_file.assert_called_once_with(area, tmpdir, "petition.pdf", "renamed.pdf")
+            delete_file.assert_called_once_with(area, tmpdir, "petition.pdf")
 
     def test_new_project_collision_notices_match_stored_template_names(self):
         uploads = [

@@ -224,9 +224,17 @@ def validate_document_content(filename: str, content_bytes: bytes) -> None:
 
             reader = PdfReader(io.BytesIO(content_bytes), strict=False)
             if reader.is_encrypted:
-                raise WeaverAPIValidationError(
-                    "This PDF is password-protected. Remove the password and upload it again."
-                )
+                # Many official forms set only an owner password, leaving the
+                # document readable without a user password. Accept those by
+                # attempting the empty password before rejecting the upload.
+                try:
+                    decrypted = reader.decrypt("")
+                except Exception:
+                    decrypted = 0
+                if not decrypted:
+                    raise WeaverAPIValidationError(
+                        "This PDF is password-protected. Remove the password and upload it again."
+                    )
             # Force the parser to inspect the page tree. A header-only/truncated
             # file should not become an asynchronous job that can only fail.
             len(reader.pages)

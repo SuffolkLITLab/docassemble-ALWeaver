@@ -1,5 +1,5 @@
 # do not pre-load
-"""Executable regressions for the September 2026 workbook's B01–B03 findings."""
+"""Regression tests for guided order editing and YAML source preservation."""
 
 import ast
 
@@ -145,7 +145,7 @@ def test_review_false_is_false_in_docassemble_parser():
     source = subprocess.run(
         [
             "node",
-            str(Path(__file__).with_name("test_editor_matrix_controls.js")),
+            str(Path(__file__).with_name("test_editor_controls.js")),
             "--review-yaml",
         ],
         capture_output=True,
@@ -171,7 +171,7 @@ def test_field_boolean_settings_are_native_types_in_docassemble_parser():
     source = subprocess.run(
         [
             "node",
-            str(Path(__file__).with_name("test_editor_matrix_controls.js")),
+            str(Path(__file__).with_name("test_editor_controls.js")),
             "--field-yaml",
         ],
         capture_output=True,

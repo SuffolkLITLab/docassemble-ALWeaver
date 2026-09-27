@@ -855,6 +855,7 @@ def _tool_replace_question(
         block_id,
         _serialize_block(block_data),
         preserve_unchanged_annotations=True,
+        allow_nontext_yaml_keys=True,
     )
     return _commit(
         context,
@@ -891,6 +892,7 @@ def _tool_replace_fields(
         block_id,
         _serialize_block(block_data),
         preserve_unchanged_annotations=True,
+        allow_nontext_yaml_keys=True,
     )
     return _commit(
         context,

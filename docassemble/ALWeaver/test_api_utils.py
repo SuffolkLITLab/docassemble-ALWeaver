@@ -162,6 +162,15 @@ class test_api_utils(unittest.TestCase):
         with self.assertRaisesRegex(WeaverAPIValidationError, "password-protected"):
             validate_document_content("encrypted.pdf", encrypted_pdf.getvalue())
 
+    def test_validate_document_content_accepts_owner_password_only_pdf(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.encrypt(user_password="", owner_password="matrix-owner-password")
+        encrypted_pdf = io.BytesIO()
+        writer.write(encrypted_pdf)
+
+        validate_document_content("owner-protected.pdf", encrypted_pdf.getvalue())
+
     def test_validate_document_content_accepts_real_docx_and_pdf(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         validate_document_content(docx_path.name, docx_path.read_bytes())
