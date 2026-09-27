@@ -67,6 +67,10 @@ def _official_url(value: Any) -> str:
         return ""
 
     path = parsed.path or "/"
+    if host == "suffolklitlab.org" and not path.startswith(
+        "/docassemble-AssemblyLine-documentation/"
+    ):
+        return ""
     if host == "assemblyline.suffolklitlab.org":
         # Mirror the current Docusaurus DocSearch pathname rewrite.
         if path == "/docs":
@@ -74,7 +78,7 @@ def _official_url(value: Any) -> str:
         elif path.startswith("/docs/"):
             path = path[len("/docs") :]
 
-    return urlunsplit(("https", parsed.netloc, path, parsed.query, parsed.fragment))
+    return urlunsplit(("https", host, path, parsed.query, parsed.fragment))
 
 
 def _breadcrumbs(hit: Dict[str, Any]) -> List[str]:
