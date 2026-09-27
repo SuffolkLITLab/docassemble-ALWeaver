@@ -490,7 +490,11 @@ event: ${ interview.interview_label }_download
 question: |
   All done
 subquestion: |
-  Thank you <%text>${users}</%text>. Your form is ready to download and deliver.
+  <%text>%</%text> if defined("users[0]"):
+  Thank you <%text>${ users }</%text>. Your form is ready to download and deliver.
+  <%text>%</%text> else:
+  Thank you. Your form is ready to download and deliver.
+  <%text>%</%text> endif
 
   Use the options on this page to view, download and send your form. Use the
   "Edit answers" button to fix any mistakes.
