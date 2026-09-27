@@ -15865,6 +15865,40 @@
       : [];
   }
 
+  function _newProjectJobFailureMessage(payload) {
+    var jobData = (payload && payload.data) || {};
+    var result = jobData.result || {};
+    var message =
+      (payload && payload.error && payload.error.message) ||
+      (jobData.error && jobData.error.message) ||
+      jobData.message ||
+      'Project creation failed.';
+    var partial = Array.isArray(jobData.partial_artifacts)
+      ? jobData.partial_artifacts
+      : Array.isArray(result.partial_artifacts)
+        ? result.partial_artifacts
+        : [];
+    var incomplete = Array.isArray(jobData.incomplete_artifacts)
+      ? jobData.incomplete_artifacts
+      : Array.isArray(result.incomplete_artifacts)
+        ? result.incomplete_artifacts
+        : [];
+    partial = partial.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    incomplete = incomplete.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    var stage = result.incomplete_stage || jobData.stage;
+    if (stage) message += ' Stopped during ' + String(stage) + '.';
+    if (partial.length)
+      message += ' Partial files saved: ' + partial.join(', ') + '.';
+    if (incomplete.length)
+      message +=
+        ' Outputs that may be incomplete: ' + incomplete.join(', ') + '.';
+    return message;
+  }
+
   function _pollNewProjectJob(jobUrl, projectName) {
     var attempts = 0;
 
@@ -15886,14 +15920,7 @@
               jobStatus === 'cancelled' ||
               jobStatus === 'expired'
             ) {
-              reject(
-                new Error(
-                  (payload.error && payload.error.message) ||
-                    (jobData.error && jobData.error.message) ||
-                    jobData.message ||
-                    'Project creation failed.',
-                ),
-              );
+              reject(new Error(_newProjectJobFailureMessage(payload)));
               return;
             }
             if (jobStatus === 'succeeded') {

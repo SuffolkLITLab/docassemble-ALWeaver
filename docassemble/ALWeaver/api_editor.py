@@ -9839,6 +9839,26 @@ def _complete_new_project_upload_job(
 ) -> Dict[str, Any]:
     stage = "start"
     temp_dir = tempfile.mkdtemp(prefix="editor-upload-")
+    completed_artifacts: List[str] = []
+    incomplete_artifacts: List[str] = []
+
+    def checkpoint_artifacts(checkpoint_stage: str) -> None:
+        """Persist logical output progress so polling can report worker loss."""
+        partial_result = {
+            "project": project_name,
+            "partial_artifacts": list(completed_artifacts),
+            "incomplete_artifacts": list(incomplete_artifacts),
+            "incomplete_stage": checkpoint_stage,
+        }
+        _update_new_project_job_state(
+            job_id,
+            status="running",
+            stage=checkpoint_stage,
+            partial_artifacts=partial_result["partial_artifacts"],
+            incomplete_artifacts=partial_result["incomplete_artifacts"],
+            result=partial_result,
+        )
+
     try:
         _update_new_project_job_state(
             job_id,
@@ -9947,12 +9967,26 @@ def _complete_new_project_upload_job(
         yaml_filename = interview_filename or _normalize_generated_filename(
             first_result.get("yaml_filename")
         )
+        incomplete_artifacts = [yaml_filename]
+        checkpoint_artifacts(stage)
         playground_write_yaml(uid, project_name, yaml_filename, yaml_text)
+        completed_artifacts.append(yaml_filename)
+        incomplete_artifacts = []
+        checkpoint_artifacts(stage)
         generated_test = None
         if create_test:
+            # The managed feature writer may create the file before failing
+            # while flushing or returning metadata. Report its known logical
+            # name as potentially incomplete until the write fully succeeds.
+            incomplete_artifacts = [MANAGED_IT_RUNS_FILENAME]
+            checkpoint_artifacts(stage)
             generated_test = _write_default_kiln_test(
                 uid, project_name, yaml_filename, yaml_text
             )["filename"]
+            if generated_test:
+                completed_artifacts.append(generated_test)
+            incomplete_artifacts = []
+            checkpoint_artifacts(stage)
 
         stage = "copy_templates"
         _update_new_project_job_state(
@@ -9962,12 +9996,17 @@ def _complete_new_project_upload_job(
             message="Copying uploaded files into the project.",
             progress=85,
         )
+        incomplete_artifacts = list(woven_names)
+        checkpoint_artifacts(stage)
         _copy_files_to_section(
             user_id=uid,
             project_name=project_name,
             storage_section=SECTION_TO_STORAGE["templates"],
             files=temp_paths,
         )
+        completed_artifacts.extend(woven_names)
+        incomplete_artifacts = []
+        checkpoint_artifacts(stage)
         generated_template_files = first_result.get("generated_template_files", [])
         generated_paths: List[str] = []
         for generated_file in generated_template_files:
@@ -9984,12 +10023,21 @@ def _complete_new_project_upload_job(
                 generated_handle.write(bytes(generated_bytes))
             generated_paths.append(generated_path)
         if generated_paths:
+            incomplete_artifacts = [
+                os.path.basename(str(item.get("filename") or ""))
+                for item in generated_template_files
+                if isinstance(item, dict) and item.get("filename")
+            ]
+            checkpoint_artifacts(stage)
             _copy_files_to_section(
                 user_id=uid,
                 project_name=project_name,
                 storage_section=SECTION_TO_STORAGE["templates"],
                 files=generated_paths,
             )
+            completed_artifacts.extend(incomplete_artifacts)
+            incomplete_artifacts = []
+            checkpoint_artifacts(stage)
 
         result = {
             "project": project_name,
@@ -10023,6 +10071,12 @@ def _complete_new_project_upload_job(
             "type": "server_error",
             "message": "ALWeaver generation failed.",
         }
+        partial_result = {
+            "project": project_name,
+            "partial_artifacts": list(completed_artifacts),
+            "incomplete_artifacts": list(incomplete_artifacts),
+            "incomplete_stage": stage,
+        }
         if debug_requested:
             error_payload["stage"] = stage
             error_payload["traceback"] = tb
@@ -10032,6 +10086,9 @@ def _complete_new_project_upload_job(
             stage=stage,
             message=error_payload["message"],
             error=error_payload,
+            result=partial_result,
+            partial_artifacts=partial_result["partial_artifacts"],
+            incomplete_artifacts=partial_result["incomplete_artifacts"],
             finished_at=time.time(),
         )
         log(

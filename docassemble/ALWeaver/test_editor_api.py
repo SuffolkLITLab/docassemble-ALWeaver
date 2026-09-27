@@ -2337,6 +2337,60 @@ class TestEditorJobReconciliation(unittest.TestCase):
         self.assertEqual(expired["status"], "expired")
         self.assertEqual(expired["error"]["type"], "job_expired")
 
+    def test_revoked_upload_job_status_is_visible_only_to_its_owner(self):
+        redis = _FakeRedis()
+        initial = {
+            "status": "running",
+            "stage": "generate_interview",
+            "owner_user_id": 7,
+            "celery_task_id": "synthetic-revoked-upload-task",
+            "queued_at": 100,
+            "project": "MatrixSynthetic",
+            "generated_from": "matrix-private-canary.docx",
+            "result": None,
+        }
+        with patch.object(api_editor, "r", redis):
+            api_editor._store_job_state(
+                api_editor.NEW_PROJECT_JOB, "synthetic-revoked-upload", initial
+            )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor.workerapp,
+                    "AsyncResult",
+                    return_value=types.SimpleNamespace(state="REVOKED", result=None),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/new-project/jobs/synthetic-revoked-upload"
+                ):
+                    owner_response = api_editor.editor_api_new_project_job(
+                        "synthetic-revoked-upload"
+                    )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=99),
+                patch.object(api_editor.workerapp, "AsyncResult") as async_result,
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/new-project/jobs/synthetic-revoked-upload"
+                ):
+                    other_response = api_editor.editor_api_new_project_job(
+                        "synthetic-revoked-upload"
+                    )
+
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(owner_response.get_json()["status"], "cancelled")
+        self.assertEqual(
+            owner_response.get_json()["data"]["message"], "The job was cancelled."
+        )
+        self.assertEqual(other_response.status_code, 404)
+        self.assertNotIn(
+            "matrix-private-canary.docx", other_response.get_data(as_text=True)
+        )
+        async_result.assert_not_called()
+
     def test_missing_celery_task_id_expires_instead_of_staying_queued(self):
         state = {"status": "queued", "stage": "queued"}
         with patch.object(
@@ -2430,6 +2484,159 @@ class TestEditorNewProjectNaming(unittest.TestCase):
     def test_an_unusable_derived_name_falls_back_to_the_assemblyline_default(self):
         result, _mock_write = self._run_upload_job("")
         self.assertEqual(result["filename"], "main.yml")
+
+
+class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
+    def test_failed_managed_test_write_reports_known_incomplete_feature(self):
+        source_template = {"filename": "petition.pdf", "content_bytes": b"%PDF"}
+        generator_result = {
+            "yaml_text": "metadata:\n  title: Petition\n",
+            "yaml_filename": "petition.yml",
+            "input_filename": "petition.pdf",
+            "template_filenames": ["petition.pdf"],
+        }
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                return_value=generator_result,
+            ),
+            patch.object(api_editor, "_write_default_kiln_test") as write_test,
+        ):
+            write_test.side_effect = OSError("synthetic feature write failure")
+            with self.assertRaisesRegex(OSError, "synthetic feature write failure"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=True,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(failed_update["stage"], "write_yaml")
+        self.assertEqual(failed_update["partial_artifacts"], ["petition.yml"])
+        self.assertEqual(
+            failed_update["incomplete_artifacts"], ["weaver_it_runs.feature"]
+        )
+        self.assertEqual(
+            failed_update["result"],
+            {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml"],
+                "incomplete_artifacts": ["weaver_it_runs.feature"],
+                "incomplete_stage": "write_yaml",
+            },
+        )
+        self.assertTrue(
+            any(
+                call.kwargs.get("partial_artifacts") == ["petition.yml"]
+                and call.kwargs.get("incomplete_artifacts")
+                == ["weaver_it_runs.feature"]
+                for call in update.call_args_list
+            )
+        )
+
+    def test_lost_task_reconciliation_preserves_artifact_checkpoint(self):
+        checkpoint = {
+            "status": "running",
+            "stage": "copy_templates",
+            "celery_task_id": "synthetic-task",
+            "partial_artifacts": ["petition.yml", "weaver_it_runs.feature"],
+            "incomplete_artifacts": ["petition.pdf"],
+            "result": {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml", "weaver_it_runs.feature"],
+                "incomplete_artifacts": ["petition.pdf"],
+                "incomplete_stage": "copy_templates",
+            },
+        }
+        reconciled_state = {**checkpoint}
+        with (
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=SimpleNamespace(state="FAILURE", result="worker lost"),
+            ),
+            patch.object(
+                api_editor,
+                "_update_job_state",
+                side_effect=lambda _kind, _job_id, **updates: reconciled_state.update(
+                    updates
+                )
+                or reconciled_state,
+            ),
+        ):
+            result = api_editor._reconcile_new_project_job_state(
+                "synthetic-job", checkpoint
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["partial_artifacts"], checkpoint["partial_artifacts"])
+        self.assertEqual(
+            result["incomplete_artifacts"], checkpoint["incomplete_artifacts"]
+        )
+        self.assertEqual(result["result"], checkpoint["result"])
+
+    def test_failed_template_copy_reports_saved_and_incomplete_logical_files(self):
+        source_template = {"filename": "petition.pdf", "content_bytes": b"%PDF"}
+        generated_template = {
+            "filename": "petition_attachment.pdf",
+            "content_bytes": b"%PDF-generated",
+        }
+        generator_result = {
+            "yaml_text": "metadata:\n  title: Petition\n",
+            "yaml_filename": "petition.yml",
+            "input_filename": "petition.pdf",
+            "template_filenames": ["petition.pdf"],
+            "generated_template_files": [generated_template],
+        }
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                return_value=generator_result,
+            ),
+            patch.object(
+                api_editor,
+                "_copy_files_to_section",
+                side_effect=OSError("synthetic copy failure"),
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "synthetic copy failure"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=False,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(failed_update["stage"], "copy_templates")
+        self.assertEqual(failed_update["partial_artifacts"], ["petition.yml"])
+        self.assertEqual(failed_update["incomplete_artifacts"], ["petition.pdf"])
+        self.assertEqual(
+            failed_update["result"],
+            {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml"],
+                "incomplete_artifacts": ["petition.pdf"],
+                "incomplete_stage": "copy_templates",
+            },
+        )
 
     def test_blank_project_uses_main_yml(self):
         with (

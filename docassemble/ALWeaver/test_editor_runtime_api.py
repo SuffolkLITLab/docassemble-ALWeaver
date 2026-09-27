@@ -134,6 +134,43 @@ class TestEditorRuntimeApi(unittest.TestCase):
         read_yaml.assert_not_called()
         create_target.assert_not_called()
 
+    def test_other_user_cannot_inspect_or_seed_runtime_session(self):
+        self._record(owner=7)
+        patches = self._base_patches(user_id=99)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "get_target_variables") as get_variables,
+            patch.object(api_editor, "set_target_variables") as set_variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables"
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables",
+                method="POST",
+                json={"variables": {"canary": "must not be seeded"}},
+            ):
+                seed_response = api_editor.editor_api_runtime_variables(
+                    "weaver-session"
+                )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(seed_response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_session_not_found"
+        )
+        self.assertEqual(
+            seed_response.get_json()["error"]["code"], "runtime_session_not_found"
+        )
+        self.assertNotIn("must not be seeded", json.dumps(seed_response.get_json()))
+        get_variables.assert_not_called()
+        set_variables.assert_not_called()
+
     def test_expired_runtime_record_resolves_to_not_found(self):
         self._record()
         self.assertEqual(self.redis.expiry, RUNTIME_SESSION_EXPIRE_SECONDS)
