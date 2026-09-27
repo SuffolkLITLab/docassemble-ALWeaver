@@ -107,11 +107,20 @@ def resolve_lint_block_id(
 
     problematic_text = str(finding.get("problematic_text") or "").strip()
     if problematic_text:
+        matching_block_ids = set()
         for block in blocks:
-            if problematic_text in str(block.get("yaml") or ""):
-                return str(block.get("id") or "").strip() or None
-            if problematic_text in str(block.get("title") or ""):
-                return str(block.get("id") or "").strip() or None
+            block_id = str(block.get("id") or "").strip()
+            if not block_id:
+                continue
+            if problematic_text in str(
+                block.get("yaml") or ""
+            ) or problematic_text in str(block.get("title") or ""):
+                matching_block_ids.add(block_id)
+        # A text match is only a useful navigation target when it identifies
+        # exactly one source block. Picking the first repeated phrase would
+        # present an uncertain guess as a confident diagnostic link.
+        if len(matching_block_ids) == 1:
+            return next(iter(matching_block_ids))
 
     return None
 
