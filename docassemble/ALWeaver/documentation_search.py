@@ -100,7 +100,11 @@ def _normalize_hit(hit: Any) -> Optional[Dict[str, Any]]:
     if not url:
         return None
     breadcrumbs = _breadcrumbs(hit)
-    title = breadcrumbs[-1] if breadcrumbs else _compact_text(hit.get("content"), limit=300)
+    title = (
+        breadcrumbs[-1]
+        if breadcrumbs
+        else _compact_text(hit.get("content"), limit=300)
+    )
     excerpt = _compact_text(hit.get("content"))
     return {
         "title": title,
@@ -153,12 +157,21 @@ def search_documentation(
     try:
         with opener(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+    except (
+        HTTPError,
+        URLError,
+        TimeoutError,
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+    ) as exc:
         raise DocumentationSearchError("Documentation search is unavailable") from exc
 
     hits = payload.get("hits") if isinstance(payload, dict) else None
     if not isinstance(hits, list):
-        raise DocumentationSearchError("Documentation search returned an invalid response")
+        raise DocumentationSearchError(
+            "Documentation search returned an invalid response"
+        )
 
     results: List[Dict[str, Any]] = []
     for hit in hits:
