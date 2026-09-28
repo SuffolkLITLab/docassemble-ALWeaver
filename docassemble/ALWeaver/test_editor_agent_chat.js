@@ -120,6 +120,17 @@ function createHarness(options) {
   return { chat, container, calls, applied };
 }
 
+// The disclosure is visible in the composer before the first request.
+{
+  const harness = createHarness();
+  const disclosure = findAll(harness.container, (node) =>
+    node.className === 'editor-agent-disclosure')[0];
+  assert.ok(disclosure);
+  assert.ok(/configured AI model or endpoint/.test(disclosure.textContent));
+  assert.ok(/search query.*Algolia/.test(disclosure.textContent));
+  assert.strictEqual(harness.calls.length, 0);
+}
+
 const TURN_STARTED = { success: true, data: { started: true } };
 
 // The POST only starts the work; this is what the browser polls for.

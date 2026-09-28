@@ -3915,6 +3915,12 @@ body {
   border-top: 1px solid var(--editor-border);
 }
 
+.editor-agent-disclosure {
+  margin: 0 0 8px;
+  color: var(--editor-muted);
+  font-size: 0.75rem;
+}
+
 @media (max-width: 1200px) {
   /* Not enough room for a third column: slide the panel over the canvas. */
   .editor-layout.editor-layout-assistant-open {

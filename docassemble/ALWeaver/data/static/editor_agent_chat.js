@@ -868,6 +868,16 @@
       }
 
       var form = element('form', 'editor-agent-composer');
+      form.appendChild(
+        element(
+          'p',
+          'editor-agent-disclosure',
+          'The assistant sends information from your request and interview to ' +
+            'the configured AI model or endpoint. When it searches AssemblyLine ' +
+            'documentation, it also sends a search query that may include that ' +
+            'information to Algolia.',
+        ),
+      );
       var label = element('label', 'visually-hidden', 'Ask the assistant');
       label.setAttribute('for', 'editor-agent-input');
       form.appendChild(label);
