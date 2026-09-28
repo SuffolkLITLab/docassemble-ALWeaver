@@ -306,6 +306,40 @@ class TestAssistantAvailability(unittest.TestCase):
         self.assertTrue(features["agent_editor"])
         self.assertFalse(features["assistant_status"]["available"])
         self.assertIn("openai api key", features["assistant_status"]["message"])
+        self.assertEqual(
+            features["assistant_privacy"],
+            {"provider_name": "", "model_name": "", "provider_retention": ""},
+        )
+
+    def test_the_bootstrap_carries_configured_provider_terms(self):
+        with (
+            patch.object(
+                api_editor,
+                "_daconfig",
+                return_value={
+                    "weaver": {
+                        "assistant provider name": "OpenAI API",
+                        "assistant model": "gpt-5.4-mini",
+                        "assistant provider retention": "Up to 30 days under standard controls.",
+                    }
+                },
+            ),
+            patch.object(
+                api_editor,
+                "_assistant_status",
+                return_value={"available": True, "code": "ready", "message": ""},
+            ),
+        ):
+            features = api_editor._editor_feature_bootstrap()
+        self.assertEqual(
+            features["assistant_privacy"],
+            {
+                "provider_name": "OpenAI API",
+                "model_name": "gpt-5.4-mini",
+                "provider_retention": "Up to 30 days under standard controls.",
+            },
+        )
+        self.assertEqual(features["assistantPrivacy"], features["assistant_privacy"])
 
     def test_an_unconfigured_server_answers_503_not_404(self):
         with (

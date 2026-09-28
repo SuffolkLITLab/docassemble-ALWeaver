@@ -131,6 +131,7 @@ def prepare_project_github_package(
     author_email: str = "",
     github_url: Optional[str] = None,
     dependencies: Optional[Sequence[str]] = None,
+    persist_manifest: bool = True,
 ) -> Dict[str, Any]:
     """Create/update the package manifest consumed by Docassemble's publisher.
 
@@ -157,7 +158,6 @@ def prepare_project_github_package(
 
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
     package_directory = _directory_for(packages_area, project_name)
-    os.makedirs(package_directory, exist_ok=True)
     manifest_path = os.path.join(package_directory, f"docassemble.{package}")
     existing: Dict[str, Any] = {}
     if os.path.isfile(manifest_path):
@@ -192,14 +192,19 @@ def prepare_project_github_package(
     if github_url:
         manifest["github_url"] = github_url
 
-    with open(manifest_path, "w", encoding="utf-8") as stream:
-        yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
-    packages_area.finalize()
+    if persist_manifest:
+        os.makedirs(package_directory, exist_ok=True)
+        with open(manifest_path, "w", encoding="utf-8") as stream:
+            yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+        packages_area.finalize()
+    else:
+        manifest_path = manifest_path if os.path.isfile(manifest_path) else ""
     return {
         "package": package,
         "repository": f"docassemble-{package}",
         "manifest_path": manifest_path,
         "files": files,
+        "manifest": manifest,
     }
 
 

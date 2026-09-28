@@ -38,7 +38,7 @@ import json
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 __all__ = [
     "MODULE_FILENAME_PATTERN",
@@ -317,14 +317,18 @@ def _read_raw_dirty(redis: Any, key: str) -> Optional[Dict[str, Any]]:
 
 
 def read_modules_dirty(
-    redis: Any, user_id: int, project: str, *, server_start_time: float
+    redis: Any,
+    user_id: int,
+    project: str,
+    *,
+    server_start_time: float,
+    copy_ready: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Return the pending module changes, or ``None`` if there are none.
 
-    A flag set before the currently running process booted is stale: the server
-    has restarted since — by our hand, by the stock Playground, or by a package
-    install — and the modules are loaded. Those flags clear themselves, so a
-    restart from anywhere counts.
+    A newer server process can clear a flag only after the caller verifies that
+    startup copied the saved module bytes. Docassemble can start answering
+    requests even when its Playground package copy failed.
     """
     key = modules_dirty_key(user_id, project)
     state = _read_raw_dirty(redis, key)
@@ -335,8 +339,13 @@ def read_modules_dirty(
     except (TypeError, ValueError):
         marked_at = 0.0
     if server_start_time > marked_at:
-        clear_modules_dirty(redis, user_id, project)
-        return None
+        try:
+            installed = copy_ready(state) if copy_ready is not None else True
+        except Exception:
+            installed = False
+        if installed:
+            clear_modules_dirty(redis, user_id, project)
+            return None
     files = [
         entry
         for entry in state.get("files", [])

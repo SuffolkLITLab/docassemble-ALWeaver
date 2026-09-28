@@ -77,6 +77,7 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    sectionFileRevisions: {},
     templatesMode: 'files',
     kilnTests: [],
     kilnManagedFilename: 'weaver_it_runs.feature',
@@ -345,6 +346,16 @@
     return [state.project || '', state.currentView || '', filename].join('::');
   }
 
+  function sectionRevisionFor(view, filename) {
+    var key = [state.project || '', view || '', filename || ''].join('::');
+    if (state.sectionFileRevisions[key]) return state.sectionFileRevisions[key];
+    var files = getSectionFiles(view);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].filename === filename) return files[i].revision || null;
+    }
+    return null;
+  }
+
   function discardSectionChanges() {
     if (!state.sectionDirty) return true;
     var savedContent = state.sectionSavedContent[sectionSnapshotKey()];
@@ -402,9 +413,18 @@
     var container = document.getElementById(containerId);
     if (!container) return null;
     options = options || {};
+    function unavailable(message) {
+      container.innerHTML = '';
+      var alert = document.createElement('div');
+      alert.className = 'alert alert-danger';
+      alert.setAttribute('role', 'alert');
+      alert.textContent = message;
+      container.appendChild(alert);
+      throw new Error(message);
+    }
     if (typeof window.daNewEditor !== 'function') {
-      throw new Error(
-        'CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?',
+      unavailable(
+        'The source editor could not load because the Docassemble CodeMirror bundle is missing. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
@@ -421,8 +441,8 @@
       true,
     );
     if (!bundle || !bundle.ev) {
-      throw new Error(
-        'Docassemble could not initialize its CodeMirror editor.',
+      unavailable(
+        'Docassemble could not initialize the source editor. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     var view = bundle.ev;
@@ -554,6 +574,11 @@
   }
 
   function expressionModifierYamlValue(key, value) {
+    if (
+      typeof value === 'string' &&
+      ['none of the above', 'all of the above'].indexOf(key) !== -1
+    )
+      return escapeYamlStr(value);
     var pythonModifiers = [
       'validate',
       'disabled',
@@ -578,11 +603,18 @@
       if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalar)) return scalar;
       return escapeYamlStr(value);
     }
-    return escapeYamlStr(String(value));
+    return window.ALWeaverSerializers.fieldModifierYamlValue(key, value);
   }
 
   function readExpressionModifier(input, original) {
     var value = input ? input.value.trim() : '';
+    if (
+      original !== undefined &&
+      original !== null &&
+      typeof original !== 'string' &&
+      String(original) === value
+    )
+      return original;
     if (
       value &&
       ((original && typeof original === 'object') ||
@@ -674,6 +706,12 @@
       .querySelectorAll('#order-add-code, #order-edit-code')
       .forEach(function (input) {
         input.dataset.expressionContext = 'code';
+      });
+    document
+      .querySelectorAll('textarea[data-choice-expression="true"]')
+      .forEach(function (input) {
+        input.dataset.expressionContext = 'value';
+        input.dataset.expressionWrapper = '';
       });
     // Text/Mako fields need an insertion action: only the selected Python span
     // is edited. Unselected prose and existing template directives stay exact.
@@ -1342,7 +1380,19 @@
     if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal)
       return;
     var instance = bootstrap.Modal.getInstance(modalEl);
-    if (instance) instance.hide();
+    if (!instance) return;
+    instance.hide();
+    // Bootstrap ignores hide() during its opening transition. Fast keyboard
+    // or pointer actions can finish a dialog before that transition ends.
+    if (modalEl.classList.contains('show')) {
+      modalEl.addEventListener(
+        'shown.bs.modal',
+        function () {
+          instance.hide();
+        },
+        { once: true },
+      );
+    }
   }
 
   /* The block templates live in editor_serializers.js so a test can require
@@ -1443,7 +1493,10 @@
         ? state.orderStepMap[nextOrderBlockId]
         : data.order_steps || [],
     );
-    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId;
+    state.selectedBlockId =
+      options.selectedBlockId ||
+      data.inserted_block_id ||
+      state.selectedBlockId;
     if (
       !state.selectedBlockId ||
       !getBlockById(state.selectedBlockId) ||
@@ -1477,6 +1530,13 @@
     renderOutline();
     renderCanvas();
     runCurrentValidationCheck();
+  }
+
+  function refreshAfterBlockSave(data, originalBlockId, savedBlockId) {
+    refreshFromFileResponse(data, {
+      savedBlockId: originalBlockId,
+      selectedBlockId: savedBlockId,
+    });
   }
 
   // Applying an assistant candidate replaces the working buffer only.
@@ -2731,7 +2791,44 @@
   }
 
   function apiPost(path, body, options) {
-    return apiClient.post(path, body, options);
+    body = window.ALWeaverApiClient.attachExpectedRevision(path, body, {
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    });
+    return apiClient.post(path, body, options).catch(function (error) {
+      if (
+        !error ||
+        error.code !== 'draft_confirmation_required' ||
+        !body ||
+        typeof body !== 'object' ||
+        Array.isArray(body)
+      )
+        throw error;
+      var details = error.details || {};
+      var count = Number(details.blocking_count || 0);
+      var description = count
+        ? count + ' validation error' + (count === 1 ? '' : 's')
+        : 'validation errors';
+      var message =
+        'This source has ' +
+        description +
+        '. Save it as a draft anyway? You can keep editing it; run Check errors before relying on the interview.';
+      if (!window.confirm(message)) {
+        return {
+          success: false,
+          error: {
+            code: 'draft_save_cancelled',
+            message: 'Draft save cancelled; your unsaved changes remain.',
+          },
+        };
+      }
+      return apiClient.post(
+        path,
+        Object.assign({}, body, { save_as_draft: true }),
+        options,
+      );
+    });
   }
 
   function apiDelete(path, body, options) {
@@ -2758,6 +2855,91 @@
     if (!status) return;
     status.className = 'alert py-2 alert-' + (kind || 'secondary');
     status.textContent = message;
+  }
+
+  var githubPublishPreviewToken = null;
+
+  function clearGithubPublishPreview(message) {
+    githubPublishPreviewToken = null;
+    var preview = document.getElementById('github-publish-preview');
+    var submit = document.getElementById('github-publish-submit');
+    if (preview) preview.hidden = true;
+    if (submit) submit.disabled = true;
+    if (message) setGithubPublishStatus(message, 'secondary');
+  }
+
+  function renderGithubPublishPreview(data) {
+    var preview = document.getElementById('github-publish-preview');
+    var summary = document.getElementById('github-publish-preview-summary');
+    var fileCount = document.getElementById(
+      'github-publish-preview-file-count',
+    );
+    var fileList = document.getElementById('github-publish-preview-files');
+    var changes = document.getElementById('github-publish-preview-changes');
+    if (!preview || !summary || !fileList || !changes) return;
+    fileList.replaceChildren();
+    changes.replaceChildren();
+    (data.files || []).forEach(function (path) {
+      var item = document.createElement('li');
+      item.textContent = path;
+      fileList.appendChild(item);
+    });
+    if (fileCount)
+      fileCount.textContent =
+        (data.files || []).length +
+        ((data.files || []).length === 1 ? ' file' : ' files');
+    if (data.repository_missing) {
+      summary.textContent =
+        'The repository or branch is not available yet. The preview shows the files Weaver will add; GitHub will check access when you publish.';
+      summary.className = 'alert alert-warning py-2';
+    } else if (data.remote_advanced) {
+      summary.textContent =
+        'This branch has advanced since Weaver last synchronized it. Pull and reconcile those changes before publishing.';
+      summary.className = 'alert alert-danger py-2';
+    } else {
+      summary.textContent =
+        'Target: ' +
+        data.owner +
+        '/' +
+        'docassemble-' +
+        data.package +
+        ' — ' +
+        data.branch +
+        '. Review the file changes below before publishing.';
+      summary.className = 'alert alert-info py-2';
+    }
+    var rows = data.changes || [];
+    if (!rows.length) {
+      changes.textContent = 'No file content changes on this branch.';
+    } else {
+      rows.forEach(function (change) {
+        var details = document.createElement('details');
+        details.className = 'mb-2';
+        var heading = document.createElement('summary');
+        heading.textContent = change.change.toUpperCase() + '  ' + change.path;
+        details.appendChild(heading);
+        if (change.binary) {
+          var binary = document.createElement('div');
+          binary.className = 'text-muted mt-1';
+          binary.textContent = 'Binary file; content diff is not available.';
+          details.appendChild(binary);
+        } else if (change.diff) {
+          var diff = document.createElement('pre');
+          diff.className = 'small bg-light border rounded p-2 mt-2';
+          diff.style.maxHeight = '18rem';
+          diff.style.overflow = 'auto';
+          diff.textContent =
+            change.diff + (change.diff_truncated ? '\n… diff truncated' : '');
+          details.appendChild(diff);
+        }
+        changes.appendChild(details);
+      });
+    }
+    preview.hidden = false;
+    githubPublishPreviewToken = data.preview_token || null;
+    var submit = document.getElementById('github-publish-submit');
+    if (submit)
+      submit.disabled = !githubPublishPreviewToken || data.remote_advanced;
   }
 
   function _pollGithubPublishJob(jobUrl) {
@@ -2879,6 +3061,9 @@
 
   function applyGithubIntegrationStatus(data) {
     var submit = document.getElementById('github-publish-submit');
+    var previewButton = document.getElementById(
+      'github-publish-preview-button',
+    );
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
@@ -2961,7 +3146,12 @@
         'success',
       );
     }
-    if (submit) submit.disabled = false;
+    if (submit) submit.disabled = true;
+    if (previewButton) previewButton.disabled = false;
+    setGithubPublishStatus(
+      'Connected. Choose the target and preview the files before publishing.',
+      'success',
+    );
   }
 
   function refreshGithubSyncAction() {
@@ -3065,8 +3255,13 @@
         var configure = document.getElementById('github-configure-link');
         var repositoryLink = document.getElementById('github-repository-link');
         var commitLink = document.getElementById('github-commit-link');
+        var previewButton = document.getElementById(
+          'github-publish-preview-button',
+        );
         var ownerSelect = document.getElementById('github-owner');
         if (submit) submit.disabled = true;
+        if (previewButton) previewButton.disabled = true;
+        clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
         showGithubWorkflowAccess();
@@ -3121,8 +3316,71 @@
     if (!form) return;
     initGithubRepositorySettings();
     var ownerSelect = document.getElementById('github-owner');
+    var packageInput = document.getElementById('github-package-name');
+    var branchInput = document.getElementById('github-branch-name');
+    var previewButton = document.getElementById(
+      'github-publish-preview-button',
+    );
     if (ownerSelect)
-      ownerSelect.addEventListener('change', showGithubWorkflowAccess);
+      ownerSelect.addEventListener('change', function () {
+        showGithubWorkflowAccess();
+        clearGithubPublishPreview(
+          'Target changed. Preview the repository changes again.',
+        );
+      });
+    [packageInput, branchInput].forEach(function (input) {
+      if (input)
+        input.addEventListener('input', function () {
+          clearGithubPublishPreview(
+            'Target changed. Preview the repository changes again.',
+          );
+        });
+    });
+    if (previewButton)
+      previewButton.addEventListener('click', function () {
+        if (!state.project || !form.reportValidity()) return;
+        var owner = document.getElementById('github-owner');
+        var packageName = document.getElementById('github-package-name');
+        var branch = document.getElementById('github-branch-name');
+        previewButton.disabled = true;
+        clearGithubPublishPreview();
+        setGithubPublishStatus('Building the package preview…', 'info');
+        saveDirtyGithubEditors()
+          .then(function () {
+            return apiPost('/api/github/publish/preview', {
+              project: state.project,
+              owner: owner ? owner.value : '',
+              package: packageName ? packageName.value : '',
+              branch: branch ? branch.value : '',
+            });
+          })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to preview the GitHub publish.',
+              );
+            }
+            renderGithubPublishPreview(res.data);
+            setGithubPublishStatus(
+              res.data.remote_advanced
+                ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
+                : 'Review the target and file diff, then choose Publish to GitHub.',
+              res.data.remote_advanced ? 'danger' : 'success',
+            );
+          })
+          .catch(function (error) {
+            setGithubPublishStatus(
+              error && error.message
+                ? error.message
+                : 'Unable to preview the GitHub publish.',
+              'danger',
+            );
+          })
+          .finally(function () {
+            previewButton.disabled = false;
+          });
+      });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (!state.project) return;
@@ -3134,6 +3392,13 @@
       var repositoryLink = document.getElementById('github-repository-link');
       var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
+      if (!githubPublishPreviewToken) {
+        setGithubPublishStatus(
+          'Preview the repository changes before publishing.',
+          'warning',
+        );
+        return;
+      }
       if (submit) submit.disabled = true;
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       saveDirtyGithubEditors()
@@ -3144,6 +3409,7 @@
             package: packageInput ? packageInput.value : '',
             branch: branchInput ? branchInput.value : '',
             commit_message: messageInput ? messageInput.value : '',
+            preview_token: githubPublishPreviewToken,
           });
         })
         .then(function (res) {
@@ -3154,8 +3420,12 @@
               'danger',
             );
             if (submit) submit.disabled = false;
+            clearGithubPublishPreview(
+              'Preview expired or changed. Review the current files before publishing.',
+            );
             return;
           }
+          clearGithubPublishPreview();
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
@@ -3204,6 +3474,9 @@
                 }
               }
               if (submit) submit.disabled = false;
+              clearGithubPublishPreview(
+                'Publish completed. Preview the latest branch again before another commit.',
+              );
             },
           );
         })
@@ -3215,6 +3488,9 @@
             'danger',
           );
           if (submit) submit.disabled = false;
+          clearGithubPublishPreview(
+            'Publish did not start. Preview the current files before trying again.',
+          );
         });
     });
   }
@@ -3325,6 +3601,9 @@
         throw new Error(message);
       }
       setGithubRepoStatus(statusElementId, 'Saved.', 'success');
+      clearGithubPublishPreview(
+        'Repository settings changed. Preview the package again before publishing.',
+      );
       renderGithubRepositoryConfig(res.data, { resetEditors: false });
       return res.data;
     });
@@ -4029,12 +4308,16 @@
         ' will change' +
         (blocking ? '; ' + blocking + ' need manual review' : '') +
         (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') +
+        ((_projectSearchData.warnings || []).length
+          ? '; template references need manual review'
+          : '') +
         (dirty ? '; save editor changes first' : '') +
         (replacementChanged ? '; run Find again for the new name' : '');
       replaceButton.disabled =
         safe === 0 ||
         blocking > 0 ||
         skipped > 0 ||
+        (_projectSearchData.warnings || []).length > 0 ||
         dirty ||
         replacementChanged ||
         Boolean(_projectSearchData.truncated);
@@ -4109,12 +4392,29 @@
             ' Results were capped; narrow the search before replacing.';
         if ((_projectSearchData.skipped || []).length)
           message +=
-            ' ' +
-            _projectSearchData.skipped.length +
-            ' oversized text file(s) were skipped.';
+            ' Skipped: ' +
+            _projectSearchData.skipped
+              .map(function (file) {
+                return (
+                  file.section +
+                  '/' +
+                  file.filename +
+                  (file.reason === 'too_large'
+                    ? ' (too large)'
+                    : ' (binary or unsupported format)')
+                );
+              })
+              .join(', ') +
+            '.';
+        if ((_projectSearchData.warnings || []).length)
+          message += ' ' + _projectSearchData.warnings.join(' ');
         setProjectSearchStatus(
           message,
-          _projectSearchData.truncated ? 'warning' : 'secondary',
+          _projectSearchData.truncated ||
+            (_projectSearchData.skipped || []).length ||
+            (_projectSearchData.warnings || []).length
+            ? 'warning'
+            : 'secondary',
         );
         updateProjectSearchSelection();
       })
@@ -4162,6 +4462,40 @@
       }
     });
     return selections;
+  }
+
+  function showProjectReplacementRecovery(error) {
+    var files = error && error.details && error.details.recovery_files;
+    var status = projectSearchElement('project-search-status');
+    if (!status || !Array.isArray(files) || !files.length) return;
+    var names = document.createElement('p');
+    names.textContent =
+      'Inspect and restore: ' +
+      files
+        .map(function (file) {
+          return file.section + '/' + file.filename;
+        })
+        .join(', ');
+    status.appendChild(names);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-outline-danger';
+    button.textContent = 'Download recovery JSON';
+    button.addEventListener('click', function () {
+      var url = URL.createObjectURL(
+        new Blob([JSON.stringify(files, null, 2)], {
+          type: 'application/json',
+        }),
+      );
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'project-replacement-recovery.json';
+      link.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1000);
+    });
+    status.appendChild(button);
   }
 
   function applyProjectReplacement() {
@@ -4247,6 +4581,7 @@
           (error && error.message) || 'Replacement failed.',
           'danger',
         );
+        showProjectReplacementRecovery(error);
         updateProjectSearchSelection();
       });
   }
@@ -4519,6 +4854,7 @@
             }
           );
         },
+        privacy: (BOOT.features && BOOT.features.assistant_privacy) || {},
         onApply: function (data) {
           applyAgentCandidate(data);
         },
@@ -5794,6 +6130,16 @@
     });
   }
 
+  function getRequestedOrderBlockId() {
+    // When an author explicitly selects a code block before opening Interview
+    // Order, honor that selection even if the file also has a mandatory
+    // initializer. The order target remains that source block; save preserves
+    // its existing mandatory/initial metadata.
+    var selectedBlock = getSelectedBlock();
+    if (selectedBlock && selectedBlock.type === 'code') return selectedBlock.id;
+    return state.activeOrderBlockId || getDefaultOrderBlockId();
+  }
+
   function getDefaultOrderBlockId() {
     if (
       state.activeOrderBlockId &&
@@ -6208,7 +6554,12 @@
   function _normalizeObjectClassName(classText) {
     var raw = String(classText || '').trim();
     if (!raw) return '';
-    return raw.split('.', 1)[0].split('(', 1)[0].trim();
+    return raw
+      .split('(', 1)[0]
+      .trim()
+      .replace(/\.using$/, '')
+      .split('.')
+      .pop();
   }
 
   function _isDaListLikeClass(className) {
@@ -6254,13 +6605,7 @@
     listLikeGroupKeys.forEach(function (key) {
       (state.symbolCatalog.groups[key] || []).forEach(function (name) {
         var cleanName = String(name || '').trim();
-        if (
-          !cleanName ||
-          cleanName.indexOf('.') !== -1 ||
-          cleanName.indexOf('[') !== -1 ||
-          seen[cleanName]
-        )
-          return;
+        if (!cleanName || seen[cleanName]) return;
         seen[cleanName] = true;
         out.push({
           variable: cleanName,
@@ -6288,27 +6633,21 @@
     } else if (kind === 'gather') {
       var gatherChoices = getGatherListCandidates();
       html +=
-        '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
-      if (gatherChoices.length) {
+        '<div class="mb-2"><label class="editor-tiny" for="order-add-gather-list">List to gather</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-gather-list" list="order-gather-candidates" aria-describedby="order-gather-help">' +
+        '<datalist id="order-gather-candidates">';
+      gatherChoices.forEach(function (entry) {
         html +=
-          '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
-        gatherChoices.forEach(function (entry) {
-          html +=
-            '<option value="' +
-            esc(entry.variable) +
-            '">' +
-            esc(entry.variable + ' (' + entry.className + ')') +
-            '</option>';
-        });
-        html += '</select>';
-        html +=
-          '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
-      } else {
-        html +=
-          '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
-      }
-      html += '</div>';
-      if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
+          '<option value="' +
+          esc(entry.variable) +
+          '">' +
+          esc(entry.className) +
+          '</option>';
+      });
+      html +=
+        '</datalist><div class="editor-tiny mt-2" id="order-gather-help">Select a known list or enter a custom or nested list variable, for example <code>household[i].jobs</code>. Indexed and generic targets require a matching loop or generic context in Python.</div></div>';
+      if (saveBtn) saveBtn.disabled = false;
     } else if (kind === 'condition') {
       html +=
         '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
@@ -6426,7 +6765,12 @@
       var prefix = new Array(indent + 1).join(' ');
       if (step.kind === 'section')
         lines.push(
-          prefix + "nav.set_section('" + String(step.value || '') + "')",
+          prefix +
+            (step.call === 'set_parts'
+              ? 'set_parts(subtitle='
+              : 'nav.set_section(') +
+            JSON.stringify(String(step.value || '')) +
+            ')',
         );
       else if (step.kind === 'progress')
         lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
@@ -6545,6 +6889,17 @@
     'object_multiselect',
   ];
 
+  function fieldChoiceEditorValue(choices) {
+    if (typeof choices === 'string') return choices;
+    return Array.isArray(choices)
+      ? window.ALWeaverSerializers.fieldChoicesText(choices)
+      : '';
+  }
+
+  function fieldChoicesAreExpression(choices) {
+    return typeof choices === 'string';
+  }
+
   var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
 
   function appendYamlText(yaml, key, value) {
@@ -6555,7 +6910,25 @@
     if (value === undefined || value === null) return yaml;
     var text = String(value).trim();
     if (!text) return yaml;
-    return yaml + key + ': ' + escapeYamlStr(text) + '\n';
+    var typed = text;
+    if (
+      ['progress', 'reload'].indexOf(key) !== -1 &&
+      Number.isFinite(Number(text))
+    )
+      typed = Number(text);
+    if (
+      [
+        'hide continue button',
+        'disable continue button',
+        'prevent going back',
+        'back button',
+        'scan for variables',
+        'skip undefined',
+      ].indexOf(key) !== -1 &&
+      /^(true|false)$/i.test(text)
+    )
+      typed = text.toLowerCase() === 'true';
+    return yaml + key + ': ' + escapeYamlStr(typed) + '\n';
   }
 
   function appendYamlListValue(yaml, key, value) {
@@ -7286,11 +7659,12 @@
         ': ' +
         escapeYamlStr(String(field[standaloneType] || '')) +
         '\n';
-      if (Array.isArray(field.choices) && field.choices.length) {
+      if (fieldChoicesAreExpression(field.choices) && field.choices.trim()) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else if (Array.isArray(field.choices) && field.choices.length) {
         yaml += '    choices:\n';
         field.choices.forEach(function (choice) {
-          var choiceText = String(choice || '').trim();
-          if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
         });
       }
       if (field.code) {
@@ -7331,7 +7705,10 @@
     var variable = String(field.field || field.variable || '').trim();
     var datatype =
       String(field.datatype || field.type || 'text').trim() || 'text';
-    var hasChoices = Array.isArray(field.choices) && field.choices.length > 0;
+    var hasChoices =
+      (Array.isArray(field.choices) && field.choices.length > 0) ||
+      (fieldChoicesAreExpression(field.choices) &&
+        Boolean(field.choices.trim()));
     var hasCode = Boolean(field.code && String(field.code).trim());
     var isRequired = !(field.required === false || field.required === 'False');
     var extraMods = [];
@@ -7371,11 +7748,14 @@
     if (datatype && datatype !== 'text')
       yaml += '    datatype: ' + datatype + '\n';
     if (hasChoices) {
-      yaml += '    choices:\n';
-      field.choices.forEach(function (choice) {
-        var choiceText = String(choice || '').trim();
-        if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
-      });
+      if (fieldChoicesAreExpression(field.choices)) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else {
+        yaml += '    choices:\n';
+        field.choices.forEach(function (choice) {
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
+        });
+      }
     }
     if (hasCode) {
       var codeText = String(field.code);
@@ -7946,6 +8326,7 @@
   function syncFieldsToData(blk) {
     if (!isQuestionEditorBlock(blk)) return;
     var rows = document.querySelectorAll('.editor-field-row');
+    var previousFields = blk.data.fields || [];
     var previousGeneratedSets =
       (blk.data && blk.data._editor_al_generated_sets) ||
       _generatedALFieldSets((blk.data && blk.data.fields) || []);
@@ -7962,8 +8343,85 @@
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
       return;
     }
-    var previousFields = blk.data.fields || [];
+    // Validate all structured options before changing the in-memory fields.
+    try {
+      rows.forEach(function (row, index) {
+        var idx = row.getAttribute('data-field-idx') || String(index);
+        var choices = document.getElementById('field-choices-' + idx);
+        if (
+          choices &&
+          CHOICE_TYPES.indexOf(
+            row.querySelector('[data-field-prop="type"]').value,
+          ) !== -1
+        ) {
+          var originalChoices = (previousFields[Number(idx)] || {}).choices;
+          var expressionChoices =
+            choices.dataset.choiceExpression === 'true' ||
+            choices.dataset.expressionApplied === 'true' ||
+            fieldChoicesAreExpression(originalChoices);
+          if (!expressionChoices)
+            window.ALWeaverSerializers.readFieldChoices(choices.value);
+        }
+      });
+    } catch (error) {
+      window.alert(error.message);
+      return false;
+    }
     blk.data.fields = [];
+
+    function preserveUnmodeledFieldProperties(
+      target,
+      original,
+      row,
+      extraHandled,
+    ) {
+      if (!original || typeof original !== 'object' || Array.isArray(original))
+        return false;
+      var handled = [
+        'label',
+        'question',
+        'field',
+        'variable',
+        'datatype',
+        'type',
+        'choices',
+        'code',
+        'required',
+      ];
+      var controls = row ? row.querySelectorAll('[data-fmod]') : [];
+      controls.forEach(function (control) {
+        var key = control.getAttribute('data-fmod');
+        if (key) handled.push(key);
+      });
+      (extraHandled || []).forEach(function (key) {
+        if (key) handled.push(key);
+      });
+      var variableName = original.field || original.variable;
+      var copied = false;
+      Object.keys(original).forEach(function (key) {
+        if (
+          Object.prototype.hasOwnProperty.call(target, key) ||
+          handled.indexOf(key) !== -1
+        )
+          return;
+        if (key === 'input type' && original.datatype !== target.datatype)
+          return;
+        // A shorthand field such as `- Age: age` is parsed as a property
+        // named `Age` alongside its normalized field binding.  It is syntax,
+        // not an unmodeled modifier; preserving it after the label control
+        // writes `label: ...` creates a duplicate label in Docassemble.
+        if (
+          typeof variableName === 'string' &&
+          typeof original[key] === 'string' &&
+          original[key] === variableName
+        )
+          return;
+        target[key] = cloneData(original[key]);
+        copied = true;
+      });
+      return copied;
+    }
+
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var rowIdx =
@@ -8019,6 +8477,13 @@
         !isRequired ||
         (requiredExpression && requiredExpression.value.trim()) ||
         Object.keys(syncFmods).length > 0;
+      var hiddenFieldProperties = {};
+      var hasUnmodeledFieldProperties = preserveUnmodeledFieldProperties(
+        hiddenFieldProperties,
+        previousFields[Number(rowIdx)],
+        row,
+        ['show if', 'hide if'],
+      );
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
         var methodCall = _methodCallFromParts(
@@ -8045,10 +8510,21 @@
         Object.keys(syncFmods).forEach(function (k) {
           standaloneObj[k] = syncFmods[k];
         });
+        preserveUnmodeledFieldProperties(
+          standaloneObj,
+          previousFields[Number(rowIdx)],
+          row,
+          ['show if', 'hide if'],
+        );
         blk.data.fields.push(standaloneObj);
         continue;
       }
-      if (!variable && type === 'text' && !hasMods) {
+      if (
+        !variable &&
+        type === 'text' &&
+        !hasMods &&
+        !hasUnmodeledFieldProperties
+      ) {
         blk.data.fields.push(label);
         continue;
       }
@@ -8057,12 +8533,14 @@
       if (variable) fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
-        fieldObj.choices = choicesEl.value
-          .split('\n')
-          .map(function (c) {
-            return c.trim();
-          })
-          .filter(Boolean);
+        var originalChoices = (previousFields[rowIdx] || {}).choices;
+        var expressionChoices =
+          choicesEl.dataset.choiceExpression === 'true' ||
+          choicesEl.dataset.expressionApplied === 'true' ||
+          fieldChoicesAreExpression(originalChoices);
+        fieldObj.choices = expressionChoices
+          ? choicesEl.value.trim()
+          : window.ALWeaverSerializers.readFieldChoices(choicesEl.value);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
       var fieldRequired = serializedRequiredValue(requiredExpression);
@@ -8076,6 +8554,12 @@
       Object.keys(syncFmods).forEach(function (k) {
         fieldObj[k] = syncFmods[k];
       });
+      preserveUnmodeledFieldProperties(
+        fieldObj,
+        previousFields[Number(rowIdx)],
+        row,
+        ['show if', 'hide if'],
+      );
       blk.data.fields.push(fieldObj);
     }
     _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -8914,8 +9398,8 @@
     return false;
   }
 
-  function getBlockLintFindings(blockId) {
-    var block = getBlockById(blockId);
+  function getBlockLintFindings(blockId, block) {
+    block = block || getBlockById(blockId);
     if (!block) return [];
     return (state.validationErrors || []).filter(function (finding) {
       return _findingsMatchBlock(finding, block);
@@ -8963,12 +9447,13 @@
     var html = '';
     html +=
       '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
-    blocks.forEach(function (block) {
+    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      var block = blocks[blockIndex];
       var active = state.selectedBlockId === block.id;
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
       var tc = typeClass(displayType);
-      var lintFindings = getBlockLintFindings(block.id);
+      var lintFindings = getBlockLintFindings(block.id, block);
       var lintClass = lintFindings.length
         ? ' ' + getBlockLintFeedbackClass(lintFindings)
         : '';
@@ -9026,7 +9511,7 @@
       html += '</div>';
       html +=
         '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
-      html += getBlockMenuHtml(block, blocks.indexOf(block), blocks.length);
+      html += getBlockMenuHtml(block, blockIndex, blocks.length);
       html += '</div></div>';
       html +=
         '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' +
@@ -9034,7 +9519,7 @@
         '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' +
         esc(block.title) +
         '</span></button></div>';
-    });
+    }
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -9351,10 +9836,7 @@
           return false;
         }
         var keepBlockId = res.data.saved_block_id || originalBlockId;
-        refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-        state.selectedBlockId = keepBlockId;
-        renderOutline();
-        renderCanvas();
+        refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
         return !dirtyState.hasDirty(state.filename);
       })
       .catch(function (error) {
@@ -9392,6 +9874,10 @@
       section: sectionForSave,
       filename: sectionFileMeta.filename,
       content: contentVal,
+      expected_revision: sectionRevisionFor(
+        state.currentView,
+        sectionFileMeta.filename,
+      ),
     })
       .then(function (res) {
         if (!res.success) {
@@ -9403,6 +9889,9 @@
         state.sectionDirty = false;
         noteModuleSaveResult(res.data);
         state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
+        if (res.data && res.data.revision) {
+          state.sectionFileRevisions[sectionSnapshotKey()] = res.data.revision;
+        }
         updateTopbarSaveState();
         var saveSectionBtn = document.getElementById('save-section-file');
         if (saveSectionBtn) saveSectionBtn.disabled = true;
@@ -11675,6 +12164,7 @@
               varName = '',
               dtype = 'text',
               choices = '',
+              choicesExpression = false,
               codeExpr = '';
             var contentText = '';
             var methodArgs = '';
@@ -11700,16 +12190,9 @@
                 label = String(f.label || '');
                 varName = String(f.field || '');
                 dtype = f.datatype || f.input_type || 'text';
-                if (f.choices && Array.isArray(f.choices)) {
-                  choices = f.choices
-                    .map(function (c) {
-                      if (typeof c === 'object') {
-                        var ck = Object.keys(c);
-                        return ck[0] + ': ' + c[ck[0]];
-                      }
-                      return String(c);
-                    })
-                    .join('\n');
+                if (f.choices !== undefined) {
+                  choices = fieldChoiceEditorValue(f.choices);
+                  choicesExpression = fieldChoicesAreExpression(f.choices);
                 }
                 if (f.code)
                   codeExpr =
@@ -11758,31 +12241,19 @@
                     } else if (typeof val === 'object' && val !== null) {
                       varName = val.variable || val.name || firstKey;
                       dtype = val.datatype || val.input_type || 'text';
-                      if (val.choices && Array.isArray(val.choices)) {
-                        choices = val.choices
-                          .map(function (c) {
-                            if (typeof c === 'object') {
-                              var ck = Object.keys(c);
-                              return ck[0] + ': ' + c[ck[0]];
-                            }
-                            return String(c);
-                          })
-                          .join('\n');
+                      if (val.choices !== undefined) {
+                        choices = fieldChoiceEditorValue(val.choices);
+                        choicesExpression = fieldChoicesAreExpression(
+                          val.choices,
+                        );
                       }
                     }
                   }
                   if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
                   if (f.input_type && dtype === 'text') dtype = f.input_type;
-                  if (!choices && f.choices && Array.isArray(f.choices)) {
-                    choices = f.choices
-                      .map(function (c) {
-                        if (typeof c === 'object') {
-                          var ck = Object.keys(c);
-                          return ck[0] + ': ' + c[ck[0]];
-                        }
-                        return String(c);
-                      })
-                      .join('\n');
+                  if (!choices && f.choices !== undefined) {
+                    choices = fieldChoiceEditorValue(f.choices);
+                    choicesExpression = fieldChoicesAreExpression(f.choices);
                   }
                   var _codeSource =
                     f.code ||
@@ -11844,9 +12315,9 @@
                 '</textarea>';
             } else {
               html +=
-                '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' +
+                '<textarea class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" aria-label="Field label" title="Right-click for insert tools" rows="1">' +
                 esc(label) +
-                '">';
+                '</textarea>';
             }
             html += _renderFieldTypeDropdown(fi, dtype);
             if (isALMethodType)
@@ -11933,6 +12404,14 @@
             html += '</div>';
             html +=
               '<select class="form-select editor-form-control d-none" data-field-prop="type">';
+            if (FIELD_TYPES.indexOf(dtype) === -1) {
+              html +=
+                '<option value="' +
+                esc(dtype) +
+                '" selected>Unknown datatype (source-only): ' +
+                esc(dtype) +
+                '</option>';
+            }
             FIELD_TYPES.forEach(function (t) {
               html +=
                 '<option value="' +
@@ -11950,11 +12429,13 @@
               html +=
                 '<label class="editor-tiny" for="field-choices-' +
                 fi +
-                '">Options (one per line)</label>';
+                '">Options (one per line, or JSON array for labels and typed values)</label>';
               html +=
                 '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
                 fi +
-                '" rows="3">' +
+                '"' +
+                (choicesExpression ? ' data-choice-expression="true"' : '') +
+                ' rows="3">' +
                 esc(String(choices || '')) +
                 '</textarea>';
               html += '</div>';
@@ -13010,7 +13491,7 @@
       if (CHOICE_TYPES.indexOf(dtype) === -1) {
         out += row(
           'field-choices-' + fi,
-          'choices (one per line)',
+          'choices (one per line, or JSON array)',
           '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
             fi +
             '" rows="3">' +
@@ -13084,6 +13565,91 @@
     function renderLogicTab() {
       var out = '';
       var requiredExpression = requiredExpressionValue(fmods.required);
+      var normalizedDatatype = String(dtype || 'text').toLowerCase();
+      var yesNoModifierTypes = ['yesno', 'yesnowide', 'noyes', 'noyeswide'];
+      var disableOthersUnsupportedTypes = [
+        'file',
+        'files',
+        'range',
+        'multiselect',
+        'checkboxes',
+        'camera',
+        'user',
+        'environment',
+        'camcorder',
+        'microphone',
+        'object_multiselect',
+        'object_checkboxes',
+      ];
+
+      function sourceOnlyModifierNotice(key, note) {
+        var value = fmods[key];
+        if (value === undefined) return '';
+        var renderedValue =
+          typeof value === 'string' ? value : JSON.stringify(value);
+        var message = note
+          ? esc(note) + ': <code>' + esc(renderedValue) + '</code>.'
+          : 'is not supported for ' +
+            esc(String(dtype || 'text').replace(/_/g, ' ')) +
+            '; the source value <code>' +
+            esc(renderedValue) +
+            '</code> is preserved.';
+        return (
+          '<div class="editor-tiny text-warning-emphasis mt-1" data-source-only-fmod="' +
+          esc(key) +
+          '">' +
+          esc(key) +
+          ' ' +
+          message +
+          ' Edit it in Full YAML.' +
+          '</div>'
+        );
+      }
+
+      function isBooleanModifierValue(value) {
+        return (
+          typeof value === 'boolean' ||
+          (typeof value === 'string' && /^(true|false)$/i.test(value.trim()))
+        );
+      }
+
+      function isDisableOthersList(value) {
+        if (Array.isArray(value)) return true;
+        if (typeof value !== 'string') return false;
+        try {
+          return Array.isArray(JSON.parse(value));
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function modifierOrNotice(key, id, supported) {
+        var value = fmods[key];
+        if (!supported) return sourceOnlyModifierNotice(key);
+        if (value !== undefined && !isBooleanModifierValue(value))
+          return sourceOnlyModifierNotice(key, 'list value is preserved');
+        return choiceBooleanModifier(key, id);
+      }
+
+      function choiceBooleanModifier(key, id) {
+        var current = String(fmods[key]).toLowerCase();
+        return row(
+          id,
+          key,
+          '<select class="form-select editor-form-control" id="' +
+            id +
+            '" data-fmod="' +
+            esc(key) +
+            '" data-field-idx="' +
+            fi +
+            '"><option value="">(default)</option><option value="True"' +
+            (current === 'true' ? ' selected' : '') +
+            '>Yes</option><option value="False"' +
+            (current === 'false' ? ' selected' : '') +
+            '>No</option></select>',
+        );
+      }
+
       out += row(
         'field-required-expression-' + fi,
         'Required when (Python; leave blank to use Required toggle)',
@@ -13205,38 +13771,42 @@
           esc(String(fmods.exclude || '')) +
           '">',
       );
-      out += pairRow(
-        '<div><label class="editor-tiny" for="fmod-nota-' +
-          fi +
-          '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' +
-          fi +
-          '" data-fmod="none of the above" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            String(
-              fmods['none of the above'] !== undefined
-                ? fmods['none of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
-        '<div><label class="editor-tiny" for="fmod-aota-' +
-          fi +
-          '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' +
-          fi +
-          '" data-fmod="all of the above" data-field-idx="' +
+      var supportsNoneOfAbove =
+        ['checkboxes', 'object_checkboxes', 'object_radio'].indexOf(
+          normalizedDatatype,
+        ) !== -1;
+      var supportsAllOfAbove =
+        ['checkboxes', 'object_checkboxes'].indexOf(normalizedDatatype) !== -1;
+      function choiceLabelModifier(key, id, supported) {
+        if (!supported) return sourceOnlyModifierNotice(key);
+        return (
+          '<div><label class="editor-tiny" for="' +
+          id +
+          '">' +
+          esc(key) +
+          '</label><input class="form-control editor-form-control" id="' +
+          id +
+          '" data-fmod="' +
+          esc(key) +
+          '" data-field-idx="' +
           fi +
           '" value="' +
-          esc(
-            String(
-              fmods['all of the above'] !== undefined
-                ? fmods['all of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
+          esc(String(fmods[key] !== undefined ? fmods[key] : '')) +
+          '"></div>'
+        );
+      }
+      var noneOfAboveControl = choiceLabelModifier(
+        'none of the above',
+        'fmod-nota-' + fi,
+        supportsNoneOfAbove,
       );
+      var allOfAboveControl = choiceLabelModifier(
+        'all of the above',
+        'fmod-aota-' + fi,
+        supportsAllOfAbove,
+      );
+      if (noneOfAboveControl || allOfAboveControl)
+        out += pairRow(noneOfAboveControl, allOfAboveControl);
       out += row(
         'fmod-shuffle-' + fi,
         'shuffle',
@@ -13245,26 +13815,54 @@
           '" data-fmod="shuffle" data-field-idx="' +
           fi +
           '"><option value="">(default)</option><option value="True"' +
-          (fmods.shuffle ? ' selected' : '') +
-          '>Yes</option></select>',
+          (String(fmods.shuffle).toLowerCase() === 'true' ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (String(fmods.shuffle).toLowerCase() === 'false' ? ' selected' : '') +
+          '>No</option></select>',
       );
-      out += row(
-        'fmod-disableothers-' + fi,
-        'disable others',
-        '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
-          fi +
-          '" data-fmod="disable others" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            typeof fmods['disable others'] === 'boolean'
-              ? String(fmods['disable others'])
-              : String(fmods['disable others'] || ''),
-          ) +
-          '">',
-        null,
-        'True, or a list of variable names.',
+      var uncheckOthersControl = modifierOrNotice(
+        'uncheck others',
+        'fmod-uncheckothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
       );
+      var checkOthersControl = modifierOrNotice(
+        'check others',
+        'fmod-checkothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
+      );
+      if (uncheckOthersControl || checkOthersControl)
+        out += pairRow(uncheckOthersControl, checkOthersControl);
+      if (disableOthersUnsupportedTypes.indexOf(normalizedDatatype) === -1) {
+        var disableOthersValue = fmods['disable others'];
+        if (
+          disableOthersValue === undefined ||
+          isBooleanModifierValue(disableOthersValue) ||
+          isDisableOthersList(disableOthersValue)
+        ) {
+          var disableOthersText = Array.isArray(disableOthersValue)
+            ? JSON.stringify(disableOthersValue)
+            : disableOthersValue === undefined || disableOthersValue === null
+              ? ''
+              : String(disableOthersValue);
+          out += row(
+            'fmod-disableothers-' + fi,
+            'disable others',
+            '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
+              fi +
+              '" data-fmod="disable others" data-field-idx="' +
+              fi +
+              '" value="' +
+              esc(disableOthersText) +
+              '">',
+            null,
+            'True, or a list of variable names.',
+          );
+        } else {
+          out += sourceOnlyModifierNotice('disable others');
+        }
+      } else {
+        out += sourceOnlyModifierNotice('disable others');
+      }
       return out;
     }
 
@@ -14647,7 +15245,10 @@
   }
 
   function renderOrderBuilder() {
-    syncActiveOrderStepMap();
+    // enterOrderBuilder renders once before its async parse completes. Do not
+    // cache that temporary empty state under the newly selected block ID;
+    // loadOrderStepsForBlock uses the map to decide whether parsing is needed.
+    if (!state.orderBuilderLoading) syncActiveOrderStepMap();
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     var orderTargets = getOrderTargets();
     var html = '<div class="editor-order-shell">';
@@ -15271,6 +15872,49 @@
     if (nodes.createButton) nodes.createButton.disabled = false;
   }
 
+  function _newProjectGenerationWarnings(jobData) {
+    var result = jobData.result || jobData;
+    return Array.isArray(result.warnings)
+      ? result.warnings.filter(function (warning) {
+          return typeof warning === 'string' && warning.trim();
+        })
+      : [];
+  }
+
+  function _newProjectJobFailureMessage(payload) {
+    var jobData = (payload && payload.data) || {};
+    var result = jobData.result || {};
+    var message =
+      (payload && payload.error && payload.error.message) ||
+      (jobData.error && jobData.error.message) ||
+      jobData.message ||
+      'Project creation failed.';
+    var partial = Array.isArray(jobData.partial_artifacts)
+      ? jobData.partial_artifacts
+      : Array.isArray(result.partial_artifacts)
+        ? result.partial_artifacts
+        : [];
+    var incomplete = Array.isArray(jobData.incomplete_artifacts)
+      ? jobData.incomplete_artifacts
+      : Array.isArray(result.incomplete_artifacts)
+        ? result.incomplete_artifacts
+        : [];
+    partial = partial.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    incomplete = incomplete.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    var stage = result.incomplete_stage || jobData.stage;
+    if (stage) message += ' Stopped during ' + String(stage) + '.';
+    if (partial.length)
+      message += ' Partial files saved: ' + partial.join(', ') + '.';
+    if (incomplete.length)
+      message +=
+        ' Outputs that may be incomplete: ' + incomplete.join(', ') + '.';
+    return message;
+  }
+
   function _pollNewProjectJob(jobUrl, projectName) {
     var attempts = 0;
 
@@ -15292,14 +15936,7 @@
               jobStatus === 'cancelled' ||
               jobStatus === 'expired'
             ) {
-              reject(
-                new Error(
-                  (payload.error && payload.error.message) ||
-                    (jobData.error && jobData.error.message) ||
-                    jobData.message ||
-                    'Project creation failed.',
-                ),
-              );
+              reject(new Error(_newProjectJobFailureMessage(payload)));
               return;
             }
             if (jobStatus === 'succeeded') {
@@ -15349,6 +15986,22 @@
     setTimeout(function () {
       if (banner.parentNode) banner.parentNode.removeChild(banner);
     }, 5000);
+  }
+
+  function _showWarningBanner(message) {
+    var banner = document.createElement('div');
+    banner.className =
+      'alert alert-warning alert-dismissible fade show position-fixed';
+    banner.style.cssText =
+      'top:5rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:700px;';
+    banner.innerHTML =
+      '<span>' +
+      message +
+      '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    document.body.appendChild(banner);
+    setTimeout(function () {
+      if (banner.parentNode) banner.parentNode.removeChild(banner);
+    }, 10000);
   }
 
   // -------------------------------------------------------------------------
@@ -15462,6 +16115,9 @@
             ' lines',
         );
       }
+      (data.warnings || []).forEach(function (warning) {
+        parts.push(String(warning));
+      });
       summary.textContent = parts.join(' \u00b7 ');
     }
     var apply = document.getElementById('review-sync-apply');
@@ -15852,6 +16508,7 @@
       test_filename: data.test_filename,
       mode: data.mode || 'it_runs',
       content: data.proposed_feature_text,
+      expected_revision: data.expected_revision,
     })
       .then(function (res) {
         if (!res.success)
@@ -17048,6 +17705,36 @@
         '</div>';
     });
 
+    var mappingChanges = analysis.mapping_changes || {};
+    var mappingLabels = {
+      added: 'Added template fields',
+      removed: 'Removed template fields',
+      retained: 'Retained template fields',
+    };
+    var hasMappingChanges = Object.keys(mappingLabels).some(function (key) {
+      return (mappingChanges[key] || []).length > 0;
+    });
+    if (analysis.already_imported && hasMappingChanges) {
+      html +=
+        '<div class="alert alert-info py-2 small" id="template-import-mapping-diff">' +
+        '<strong>Field mapping changes in the revised template</strong><ul class="mb-0 mt-1">';
+      Object.keys(mappingLabels).forEach(function (key) {
+        var fields = mappingChanges[key] || [];
+        if (!fields.length) return;
+        html +=
+          '<li><strong>' +
+          esc(mappingLabels[key]) +
+          ':</strong> ' +
+          fields
+            .map(function (name) {
+              return '<code>' + esc(name) + '</code>';
+            })
+            .join(', ') +
+          '</li>';
+      });
+      html += '</ul></div>';
+    }
+
     var candidates = templateImportCandidates(analysis);
     if (!candidates.length && !(analysis.bundle_additions || []).length) {
       html +=
@@ -17085,6 +17772,18 @@
         html +=
           '<div class="editor-tiny text-muted">' +
           esc(candidate.variables.join(', ')) +
+          '</div>';
+      }
+      if (candidate.supporting_blocks.length) {
+        html +=
+          '<div class="editor-tiny text-muted">Also adds required supporting template(s): ' +
+          esc(
+            candidate.supporting_blocks
+              .map(function (block) {
+                return block.title;
+              })
+              .join(', '),
+          ) +
           '</div>';
       }
       html +=
@@ -17148,6 +17847,7 @@
         variables: block.variables || [],
         replaces_block_id: block.replaces_block_id || null,
         recommended: block.recommended !== false,
+        supporting_blocks: block.supporting_blocks || [],
       });
     }
     push('document_object', analysis.document_object);
@@ -17280,6 +17980,9 @@
             }
           : candidate.yaml,
       );
+      candidate.supporting_blocks.forEach(function (supporting) {
+        blocks.push(supporting.yaml);
+      });
     });
     var bundles = [];
     (analysis.bundle_additions || []).forEach(function (addition, index) {
@@ -17382,6 +18085,75 @@
     removeDocumentFromBundles(name, null);
   }
 
+  function reviewDocumentRemoval(payload) {
+    return apiPost(
+      '/api/documents',
+      Object.assign({}, payload, { preview: true }),
+    ).then(function (res) {
+      if (!res.success || !res.data)
+        throw new Error('Unable to preview document removal.');
+      var plan = res.data;
+      return new Promise(function (resolve) {
+        var element = document.createElement('div');
+        element.id = 'document-removal-preview';
+        element.className = 'modal fade';
+        element.tabIndex = -1;
+        element.setAttribute(
+          'aria-labelledby',
+          'document-removal-preview-title',
+        );
+        element.innerHTML =
+          '<div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">' +
+          '<div class="modal-header"><h2 class="modal-title fs-5" id="document-removal-preview-title">Review document removal</h2>' +
+          '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
+          '<div class="modal-body"><p>Template files and questions will be kept.</p>' +
+          (plan.blocked
+            ? '<div class="alert alert-warning">Resolve these remaining references before removing the document:<ul>' +
+              (plan.references || [])
+                .map(function (item) {
+                  return (
+                    '<li>' +
+                    esc(item.filename) +
+                    ':' +
+                    esc(item.line) +
+                    ' — ' +
+                    esc(item.excerpt || item.document) +
+                    '</li>'
+                  );
+                })
+                .join('') +
+              '</ul></div>'
+            : '') +
+          '<pre class="editor-tiny border rounded p-2">' +
+          esc(plan.diff || '') +
+          '</pre></div>' +
+          '<div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>' +
+          '<button type="button" class="btn btn-danger" data-confirm-removal' +
+          (plan.blocked ? ' disabled' : '') +
+          '>Apply removal</button></div></div></div>';
+        document.body.appendChild(element);
+        var accepted = false;
+        var modal = getOrCreateBootstrapModal(element.id);
+        element
+          .querySelector('[data-confirm-removal]')
+          .addEventListener('click', function () {
+            accepted = true;
+            modal.hide();
+          });
+        element.addEventListener(
+          'hidden.bs.modal',
+          function () {
+            modal.dispose();
+            element.remove();
+            resolve(accepted);
+          },
+          { once: true },
+        );
+        modal.show();
+      });
+    });
+  }
+
   function saveDocumentChanges() {
     var model = state.documents;
     if (!model || state.documentsBusy) return Promise.resolve(true);
@@ -17426,17 +18198,28 @@
     state.documentsBusy = true;
     var status = document.getElementById('documents-status');
     if (status) status.textContent = 'Saving…';
-    return apiPost('/api/documents', {
+    var payload = {
       project: state.project,
       filename: state.filename,
       expected_revision: model.revision,
       bundles: bundles,
       enabled: enabled,
       remove: model.removed || [],
-    })
+    };
+    var reviewed = payload.remove.length
+      ? reviewDocumentRemoval(payload)
+      : Promise.resolve(true);
+    return reviewed
+      .then(function (accepted) {
+        return accepted ? apiPost('/api/documents', payload) : null;
+      })
       .then(function (res) {
         state.documentsBusy = false;
-        if (!res || !res.success) return false;
+        if (!res || !res.success) {
+          if (status)
+            status.textContent = 'Document changes have not been saved.';
+          return false;
+        }
         state.documents = res.data;
         state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
         state.documentsDirty = false;
@@ -17625,6 +18408,11 @@
             res && res.success && res.data
               ? String(res.data.content || '')
               : '';
+          if (res && res.success && res.data && res.data.revision) {
+            state.sectionFileRevisions[requestedSnapshotKey] =
+              res.data.revision;
+            fileMeta.revision = res.data.revision;
+          }
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
           if (lowerName.endsWith('.py')) language = 'python';
@@ -18706,6 +19494,7 @@
         section: sfSection,
         filename: sfName,
         new_filename: sfNewName,
+        expected_revision: sectionRevisionFor(state.currentView, sfName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18763,6 +19552,7 @@
         project: state.project,
         section: delSection,
         filename: delName,
+        expected_revision: sectionRevisionFor(state.currentView, delName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18991,6 +19781,10 @@
         section: sectionForRename,
         filename: sectionFileMetaForRename.filename,
         new_filename: renamedSectionFile,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForRename.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -19022,6 +19816,10 @@
         project: state.project,
         section: sectionForDelete,
         filename: sectionFileMetaForDelete.filename,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForDelete.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -19179,8 +19977,7 @@
       return;
     }
     if (uiAction === 'open-interview-order') {
-      var requestedMenuOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedMenuOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',
@@ -19204,8 +20001,7 @@
       return;
     }
     if (orderBuilderBtn) {
-      var requestedOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',
@@ -19585,6 +20381,10 @@
               datatype: nextType,
             };
           } else {
+            // An input type is a refinement of the current datatype. Carrying
+            // it across a datatype change can leave an invalid combination.
+            if (selectedField && typeof selectedField === 'object')
+              delete selectedField['input type'];
             selectedField.datatype = nextType;
           }
         }
@@ -19755,10 +20555,7 @@
       }).then(function (res) {
         if (res.success && res.data) {
           var keepBlockId = res.data.saved_block_id || originalBlockId;
-          refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-          state.selectedBlockId = keepBlockId;
-          renderOutline();
-          renderCanvas();
+          refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
           return;
         }
         window.alert(
@@ -20457,6 +21254,14 @@
                       esc(state.project) +
                       '" created successfully.',
                   );
+                  var generationWarnings =
+                    _newProjectGenerationWarnings(jobData);
+                  if (generationWarnings.length) {
+                    _showWarningBanner(
+                      'Review generated interview: ' +
+                        generationWarnings.map(esc).join(' '),
+                    );
+                  }
                   // The generated YAML refers to each template by the name the
                   // project stores it under, which may not be the one uploaded.
                   reportRenamedFiles(
@@ -20745,6 +21550,90 @@
         isInterviewView()
       )
         return;
+      if (state.currentView === 'templates') {
+        var selectedUploads = Array.prototype.slice.call(target.files);
+        var existingTemplate =
+          selectedUploads.length === 1
+            ? getSectionFiles('templates').find(function (item) {
+                return item.filename === selectedUploads[0].name;
+              })
+            : null;
+        if (existingTemplate) {
+          var templateFile = selectedUploads[0];
+          if (!existingTemplate.revision) {
+            window.alert(
+              'We could not verify the current template revision. Refresh the template list and try again.',
+            );
+            target.value = '';
+            return;
+          }
+          var replaceConfirmed = window.confirm(
+            'Replace the existing template file "' +
+              existingTemplate.filename +
+              '"? The interview YAML and authored questions stay as they are. After replacement, re-read the template to review mapping changes before applying them.',
+          );
+          if (!replaceConfirmed) {
+            target.value = '';
+            return;
+          }
+          var revisionForm = new FormData();
+          revisionForm.append('project', state.project);
+          revisionForm.append('filename', existingTemplate.filename);
+          revisionForm.append('expected_revision', existingTemplate.revision);
+          revisionForm.append('confirm_replace', 'true');
+          revisionForm.append('file', templateFile, templateFile.name);
+          apiUpload('/api/template/revise', revisionForm)
+            .then(function (res) {
+              if (!res.success) {
+                showApiError(
+                  res.error || { message: 'Template replacement failed.' },
+                );
+                return;
+              }
+              state.sectionSelectedFile.templates = existingTemplate.filename;
+              state.sectionDirty = false;
+              var backupName =
+                res.data && res.data.backup_filename
+                  ? res.data.backup_filename
+                  : 'the prior template backup';
+              var backupRevision =
+                res.data && res.data.backup_revision
+                  ? res.data.backup_revision
+                  : 'unavailable';
+              window.alert(
+                'Template replaced. The original bytes are preserved as "' +
+                  backupName +
+                  '" in this project’s Templates folder (SHA-256: ' +
+                  backupRevision +
+                  '). Re-read the template to review its mapping changes; to restore, download the backup and upload it as a confirmed replacement.',
+              );
+              loadSectionFiles('templates');
+            })
+            .catch(function (error) {
+              showApiError({
+                message: error.message || 'Template replacement failed.',
+              });
+            })
+            .finally(function () {
+              target.value = '';
+            });
+          return;
+        }
+        if (
+          selectedUploads.length > 1 &&
+          selectedUploads.some(function (file) {
+            return getSectionFiles('templates').some(function (item) {
+              return item.filename === file.name;
+            });
+          })
+        ) {
+          window.alert(
+            'Select a single existing template when replacing it. New templates can still be uploaded together.',
+          );
+          target.value = '';
+          return;
+        }
+      }
       var formData = new FormData();
       formData.append('project', state.project);
       formData.append('section', getSectionFromView(state.currentView));
@@ -21104,7 +21993,18 @@
         newStep.summary = invokeVal;
       } else if (kind === 'gather') {
         var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
-        if (!gatherVar) return;
+        if (
+          !/^[A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[(?:\d+|[A-Za-z_]\w*)\]))*$/.test(
+            gatherVar,
+          )
+        ) {
+          gatherEl.setCustomValidity(
+            'Enter a list variable such as household[i].jobs.',
+          );
+          gatherEl.reportValidity();
+          return;
+        }
+        gatherEl.setCustomValidity('');
         newStep.invoke = gatherVar + '.gather()';
         newStep.summary = 'Gather ' + gatherVar + ' list';
       } else if (kind === 'condition') {

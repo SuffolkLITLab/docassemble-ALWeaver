@@ -8,6 +8,43 @@
   'use strict';
 
   var requestCounter = 0;
+  var REVISIONED_INTERVIEW_WRITES = [
+    '/api/file',
+    '/api/file/metadata',
+    '/api/file/patch',
+    '/api/assemblyline-settings',
+    '/api/attachment-mappings',
+    '/api/block',
+    '/api/block/comment',
+    '/api/block/delete',
+    '/api/block/enable',
+    '/api/block/reorder',
+    '/api/insert-block',
+    '/api/order',
+    '/api/documents',
+    '/api/question-library/insert',
+    '/api/question-library/object',
+    '/api/template/apply',
+  ];
+
+  function attachExpectedRevision(path, body, activeFile) {
+    activeFile = activeFile || {};
+    if (
+      REVISIONED_INTERVIEW_WRITES.indexOf(path) === -1 ||
+      !body ||
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      body.project !== activeFile.project ||
+      body.filename !== activeFile.filename ||
+      !activeFile.revision ||
+      Object.prototype.hasOwnProperty.call(body, 'expected_revision')
+    ) {
+      return body;
+    }
+    return Object.assign({}, body, {
+      expected_revision: activeFile.revision,
+    });
+  }
 
   function EditorApiError(message, options) {
     options = options || {};
@@ -76,7 +113,8 @@
       if (
         onError &&
         error.code !== 'stale_response' &&
-        error.code !== 'request_cancelled'
+        error.code !== 'request_cancelled' &&
+        error.code !== 'draft_confirmation_required'
       ) {
         onError(error);
       }
@@ -297,6 +335,7 @@
 
   return {
     EditorApiError: EditorApiError,
+    attachExpectedRevision: attachExpectedRevision,
     createClient: createClient,
   };
 });

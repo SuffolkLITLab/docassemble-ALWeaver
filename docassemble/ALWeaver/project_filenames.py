@@ -18,7 +18,11 @@ import os
 import re
 import unicodedata
 
-__all__ = ["safe_project_filename", "is_safe_project_filename"]
+__all__ = [
+    "safe_project_filename",
+    "unique_project_filenames",
+    "is_safe_project_filename",
+]
 
 # Anything outside this set becomes an underscore. Spaces are inside what
 # Docassemble will resolve, but they make for awkward YAML, shell arguments and
@@ -64,6 +68,28 @@ def safe_project_filename(filename: str, *, default_stem: str = "file") -> str:
     if not stem:
         stem = _clean(default_stem) or "file"
     return f"{stem}.{extension}" if extension else stem
+
+
+def unique_project_filenames(filenames: list[str]) -> list[str]:
+    """Return safe filenames with stable numeric suffixes for collisions.
+
+    Names that become equal after sanitization receive ``_2``, ``_3``, etc.
+    before their extension, in input order. The suffix convention matches the
+    generator's historical template-name resolution.
+    """
+    result: list[str] = []
+    used: set[str] = set()
+    for filename in filenames:
+        name = safe_project_filename(filename, default_stem="template")
+        stem, extension = os.path.splitext(name)
+        candidate = name
+        counter = 1
+        while candidate in used:
+            counter += 1
+            candidate = f"{stem}_{counter}{extension}"
+        used.add(candidate)
+        result.append(candidate)
+    return result
 
 
 def is_safe_project_filename(filename: str) -> bool:

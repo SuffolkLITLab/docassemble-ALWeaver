@@ -18,7 +18,18 @@
     'today',
     'as_datetime',
   ];
-  var comparisons = ['==', '!=', '<', '<=', '>', '>=', 'in', 'not in'];
+  var comparisons = [
+    '==',
+    '!=',
+    '<',
+    '<=',
+    '>',
+    '>=',
+    'is',
+    'is not',
+    'in',
+    'not in',
+  ];
   var operators = ['and', 'or', 'not', '+', '-', '*', '/'];
   var labels = {
     '==': 'equals',
@@ -27,6 +38,8 @@
     '<=': 'is at most',
     '>': 'is greater than',
     '>=': 'is at least',
+    is: 'is',
+    'is not': 'is not',
     in: 'is in',
     'not in': 'is not in',
   };
